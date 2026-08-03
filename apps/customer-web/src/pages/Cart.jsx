@@ -7,25 +7,36 @@ function Cart() {
 
   if (cart.length === 0) {
     return (
-      <div className="py-20 text-center">
-        <h1 className="text-3xl font-bold">Your Cart is Empty 🛒</h1>
+      <div className="py-16 text-center md:py-20">
+        <h1 className="text-2xl font-bold md:text-3xl">
+          Your Cart is Empty 🛒
+        </h1>
 
-        <p className="mt-3 text-gray-500">Start shopping to add products.</p>
+        <p className="mt-3 text-sm text-gray-500 md:text-base">
+          Start shopping to add products.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-3">
-      <div className="lg:col-span-2 space-y-4">
-        <h1 className="mb-6 text-3xl font-bold">Shopping Cart</h1>
+    <div className="grid gap-6 lg:grid-cols-3">
+      <div className="space-y-4 lg:col-span-2">
+        <h1 className="mb-4 text-2xl font-bold md:mb-6 md:text-3xl">
+          Shopping Cart
+        </h1>
 
         {cart.map((item) => (
-          <CartItem key={item.id} item={item} />
+          <CartItem
+            key={item.id}
+            item={item}
+          />
         ))}
       </div>
 
-      <CartSummary />
+      <div className="lg:sticky lg:top-24 h-fit">
+        <CartSummary />
+      </div>
     </div>
   );
 }

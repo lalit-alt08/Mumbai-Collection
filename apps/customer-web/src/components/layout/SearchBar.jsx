@@ -10,8 +10,25 @@ function SearchBar() {
 
       <input
         type="text"
-        placeholder="Search for toys, stationery, cosmetics..."
-        className="w-full rounded-xl border border-gray-300 py-3 pl-12 pr-4 outline-none transition-all focus:border-green-500 focus:ring-2 focus:ring-green-200"
+        placeholder="Search products..."
+        className="
+          w-full
+          rounded-xl
+          border
+          border-gray-300
+          bg-white
+          py-3
+          pl-12
+          pr-4
+          text-sm
+          outline-none
+          transition-all
+          placeholder:text-gray-400
+          focus:border-green-500
+          focus:ring-2
+          focus:ring-green-200
+          md:text-base
+        "
       />
     </div>
   );

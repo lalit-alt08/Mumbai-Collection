@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import HeroBanner from "../components/home/HeroBanner";
+import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
 import { getProducts } from "../services/productService";
-import HeroBanner from "../layouts/HeroBanner";
 
 function Home() {
   const [products, setProducts] = useState([]);
@@ -16,14 +17,27 @@ function Home() {
   }, []);
 
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-      <HeroBanner/>
-      {products.map((product) => (
-        <ProductCard
-          key={product.id}
-          product={product}
-        />
-      ))}
+    <div className="space-y-8">
+
+      <HeroBanner />
+
+      <CategoryGrid />
+
+      <section>
+        <h2 className="mb-5 text-xl font-bold md:text-2xl">
+          Featured Products
+        </h2>
+
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+          {products.map((product) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+            />
+          ))}
+        </div>
+      </section>
+
     </div>
   );
 }

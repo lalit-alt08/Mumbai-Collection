@@ -1,28 +1,42 @@
-import { Link } from "react-router-dom";
 import SearchBar from "./SearchBar";
 import DeliveryInfo from "./DeliveryInfo";
 import CartButton from "./CartButton";
 import Logo from "./Logo";
 
-
 function Header() {
   return (
     <header className="border-b bg-white shadow-sm">
-      <div className="mx-auto flex h-20 max-w-7xl items-center gap-6 px-6">
+  <div className="mx-auto max-w-7xl px-3 py-3 md:px-6">
 
-        <Logo />
+    {/* Mobile */}
+    <div className="flex items-center justify-between md:hidden">
+      <Logo />
+      <CartButton />
+    </div>
 
-        <DeliveryInfo />
+    <div className="mt-3 md:hidden">
+      <SearchBar />
+    </div>
 
-        <div className="flex-1">
-          <SearchBar />
-        </div>
-         <CartButton />
+    <div className="mt-3 md:hidden">
+      <DeliveryInfo />
+    </div>
+
+    {/* Desktop */}
+    <div className="hidden md:flex md:items-center md:gap-6">
+      <Logo />
+      <DeliveryInfo />
+
+      <div className="flex-1">
+        <SearchBar />
       </div>
-    </header>
+
+      <CartButton />
+    </div>
+
+  </div>
+</header>
   );
 }
 
 export default Header;
-
-
