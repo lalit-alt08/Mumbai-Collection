@@ -1,30 +1,37 @@
 import { useState } from "react";
-import useCartStore from "../../store/cartstore";
+import { addToCart as addToWooCart } from "../../services/storeApi";
+import { useCart } from "../../context/CartContext";
 
 function ProductInfo({ product }) {
-  const addToCart = useCartStore((state) => state.addToCart);
+  const { refreshCart } = useCart();
 
   const [quantity, setQuantity] = useState(1);
 
   const increase = () => {
     if (quantity < product.stock_quantity) {
-      setQuantity(quantity + 1);
+      setQuantity((q) => q + 1);
     }
   };
 
   const decrease = () => {
     if (quantity > 1) {
-      setQuantity(quantity - 1);
+      setQuantity((q) => q - 1);
+    }
+  };
+
+  const handleAddToCart = async () => {
+    try {
+      await addToWooCart(product.id, quantity);
+      await refreshCart();
+    } catch (error) {
+      console.error(error);
     }
   };
 
   return (
     <div className="space-y-6">
-
       <div>
-        <h1 className="text-3xl font-bold">
-          {product.name}
-        </h1>
+        <h1 className="text-3xl font-bold">{product.name}</h1>
 
         <p className="mt-2 text-sm text-gray-500">
           SKU: {product.sku || "N/A"}
@@ -32,7 +39,6 @@ function ProductInfo({ product }) {
       </div>
 
       <div className="flex items-end gap-3">
-
         <span className="text-4xl font-bold text-green-600">
           ₹{product.price}
         </span>
@@ -42,7 +48,6 @@ function ProductInfo({ product }) {
             ₹{product.regular_price}
           </span>
         )}
-
       </div>
 
       <div>
@@ -58,13 +63,8 @@ function ProductInfo({ product }) {
       </div>
 
       <div className="flex items-center gap-4">
-
         <div className="flex items-center rounded-lg border">
-
-          <button
-            onClick={decrease}
-            className="px-4 py-3 text-xl"
-          >
+          <button onClick={decrease} className="px-4 py-3 text-xl">
             −
           </button>
 
@@ -72,33 +72,22 @@ function ProductInfo({ product }) {
             {quantity}
           </span>
 
-          <button
-            onClick={increase}
-            className="px-4 py-3 text-xl"
-          >
+          <button onClick={increase} className="px-4 py-3 text-xl">
             +
           </button>
-
         </div>
 
         <button
-          onClick={() =>
-            addToCart({
-              ...product,
-              quantity,
-            })
-          }
+          onClick={handleAddToCart}
           className="flex-1 rounded-xl bg-green-600 py-3 font-semibold text-white transition hover:bg-green-700"
         >
           Add to Cart
         </button>
-
       </div>
 
       <button className="w-full rounded-xl border border-green-600 py-3 font-semibold text-green-600 transition hover:bg-green-50">
         Buy Now
       </button>
-
     </div>
   );
 }

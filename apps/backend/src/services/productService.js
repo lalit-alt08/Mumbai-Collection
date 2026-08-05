@@ -19,3 +19,21 @@ export const fetchRelatedProducts = async (categoryId, currentProductId) => {
 
   return response.data;
 };
+
+export const searchProducts = async (search) => {
+  const response = await api.get("products", {
+    search,
+    per_page: 20,
+  });
+
+  return response.data;
+};
+
+export const fetchProductsByCategory = async (categoryId) => {
+  const response = await api.get("products", {
+    category: categoryId,
+    per_page: 20,
+  });
+
+  return response.data;
+};

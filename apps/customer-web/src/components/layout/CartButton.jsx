@@ -1,9 +1,12 @@
 import { Link } from "react-router-dom";
 import { ShoppingCart } from "lucide-react";
-import useCartStore from "../../store/cartstore";
+import { useCart } from "../../context/CartContext";
 
 function CartButton() {
-  const cart = useCartStore((state) => state.cart);
+  const { cart } = useCart();
+
+  const count =
+    cart?.items?.reduce((total, item) => total + item.quantity, 0) || 0;
 
   return (
     <Link
@@ -32,7 +35,7 @@ function CartButton() {
 
       <span className="hidden sm:block">Cart</span>
 
-      {cart.length > 0 && (
+      {count > 0 && (
         <span
           className="
             absolute
@@ -50,7 +53,7 @@ function CartButton() {
             text-white
           "
         >
-          {cart.length}
+          {count}
         </span>
       )}
     </Link>

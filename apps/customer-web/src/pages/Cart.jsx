@@ -1,42 +1,62 @@
-import useCartStore from "../store/cartstore";
-import CartItem from "../components/cart/CartItem";
-import CartSummary from "../components/cart/CartSummary";
+import { useEffect, useState } from "react";
+import { getCart } from "../services/storeApi";
 
 function Cart() {
-  const cart = useCartStore((state) => state.cart);
+  const [cart, setCart] = useState(null);
 
-  if (cart.length === 0) {
-    return (
-      <div className="py-16 text-center md:py-20">
-        <h1 className="text-2xl font-bold md:text-3xl">
-          Your Cart is Empty 🛒
-        </h1>
+  useEffect(() => {
+    const fetchCart = async () => {
+      try {
+        const data = await getCart();
+        setCart(data);
+      } catch (error) {
+        console.error(error);
+      }
+    };
 
-        <p className="mt-3 text-sm text-gray-500 md:text-base">
-          Start shopping to add products.
-        </p>
-      </div>
-    );
-  }
+    fetchCart();
+  }, []);
+
+  if (!cart) return <h2>Loading...</h2>;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="space-y-4 lg:col-span-2">
-        <h1 className="mb-4 text-2xl font-bold md:mb-6 md:text-3xl">
-          Shopping Cart
-        </h1>
+    <div className="max-w-5xl mx-auto p-6">
+      <h1 className="mb-6 text-3xl font-bold">Shopping Cart</h1>
 
-        {cart.map((item) => (
-          <CartItem
-            key={item.id}
-            item={item}
-          />
-        ))}
-      </div>
+      {cart.items.length === 0 ? (
+        <h2>Your cart is empty.</h2>
+      ) : (
+        <>
+          {cart.items.map((item) => (
+            <div
+              key={item.key}
+              className="mb-4 flex items-center gap-4 rounded-xl border p-4"
+            >
+              <img
+                src={item.images[0]?.src}
+                alt={item.name}
+                className="h-24 w-24 object-contain"
+              />
 
-      <div className="lg:sticky lg:top-24 h-fit">
-        <CartSummary />
-      </div>
+              <div className="flex-1">
+                <h2 className="font-semibold">{item.name}</h2>
+
+                <p>Qty: {item.quantity}</p>
+
+                <p className="font-bold">
+                  ₹{item.totals.line_total / 100}
+                </p>
+              </div>
+            </div>
+          ))}
+
+          <div className="mt-8 rounded-xl border p-5">
+            <h2 className="text-xl font-bold">
+              Total : ₹{cart.totals.total_price / 100}
+            </h2>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,21 +1,21 @@
 const categories = [
   {
-    id: 1,
-    name: "Stationery",
-    image: "/categories/stationery.png",
-    link: "/category/stationery",
-  },
-  {
-    id: 2,
+    id: 17,
     name: "Toys",
     image: "/categories/toys.png",
-    link: "/category/toys",
+    link: "/category/17",
   },
   {
-    id: 3,
+    id: 18,
+    name: "Stationery",
+    image: "/categories/stationery.png",
+    link: "/category/18",
+  },
+  {
+    id: 19,
     name: "Electronics",
     image: "/categories/electronics.png",
-    link: "/category/electronics",
+    link: "/category/19",
   },
 ];
 

@@ -1,19 +1,22 @@
 import { useNavigate } from "react-router-dom";
-import useCartStore from "../../store/cartstore";
+import {
+  addToCart as addToWooCart,
+  updateCartItem,
+  removeCartItem,
+} from "../../services/storeApi";
+import { useCart } from "../../context/CartContext";
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
 
-  const cart = useCartStore((state) => state.cart);
-  const addToCart = useCartStore((state) => state.addToCart);
-  const increaseQuantity = useCartStore((state) => state.increaseQuantity);
-  const decreaseQuantity = useCartStore((state) => state.decreaseQuantity);
+  const { cart, refreshCart } = useCart();
 
-  const cartItem = cart.find((item) => item.id === product.id);
+  const cartItem = cart?.items?.find(
+    (item) => Number(item.id) === Number(product.id)
+  );
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-3 transition hover:shadow-md">
-
       <div
         onClick={() => navigate(`/product/${product.id}`)}
         className="cursor-pointer"
@@ -30,23 +33,41 @@ function ProductCard({ product }) {
       </div>
 
       <div className="mt-4 flex items-center justify-between">
-
-        <p className="text-lg font-bold">
-          ₹{product.price}
-        </p>
+        <p className="text-lg font-bold">₹{product.price}</p>
 
         {!cartItem ? (
           <button
-            onClick={() => addToCart(product)}
+            onClick={async () => {
+              try {
+                await addToWooCart(product.id);
+                await refreshCart();
+              } catch (error) {
+                console.error(error);
+              }
+            }}
             className="rounded-lg border border-green-600 px-5 py-2 text-sm font-semibold text-green-600 transition hover:bg-green-600 hover:text-white"
           >
             ADD
           </button>
         ) : (
           <div className="flex items-center rounded-lg bg-green-600 text-white">
-
             <button
-              onClick={() => decreaseQuantity(product.id)}
+              onClick={async () => {
+                try {
+                  if (cartItem.quantity <= 1) {
+                    await removeCartItem(cartItem.key);
+                  } else {
+                    await updateCartItem(
+                      cartItem.key,
+                      cartItem.quantity - 1
+                    );
+                  }
+
+                  await refreshCart();
+                } catch (error) {
+                  console.error(error);
+                }
+              }}
               className="px-3 py-2"
             >
               −
@@ -57,17 +78,25 @@ function ProductCard({ product }) {
             </span>
 
             <button
-              onClick={() => increaseQuantity(product.id)}
+              onClick={async () => {
+                try {
+                  await updateCartItem(
+                    cartItem.key,
+                    cartItem.quantity + 1
+                  );
+
+                  await refreshCart();
+                } catch (error) {
+                  console.error(error);
+                }
+              }}
               className="px-3 py-2"
             >
               +
             </button>
-
           </div>
         )}
-
       </div>
-
     </div>
   );
 }

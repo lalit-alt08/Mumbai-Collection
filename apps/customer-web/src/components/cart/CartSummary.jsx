@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import useCartStore from "../../store/cartstore";
+// import useCartStore from "../../store/cartstore";
 import calculateSubtotal from "../../utils/calculateSubtotal";
 
 function CartSummary() {

@@ -28,3 +28,21 @@ export const getRelatedProducts = async (
 
   return response.data;
 };
+
+export const searchProducts = async (query) => {
+  const response = await axios.get(`${API}/products/search`, {
+    params: {
+      q: query,
+    },
+  });
+
+  return response.data;
+};
+
+export const getProductsByCategory = async (categoryId) => {
+  const response = await axios.get(
+    `${API}/products/category/${categoryId}`
+  );
+
+  return response.data;
+};
