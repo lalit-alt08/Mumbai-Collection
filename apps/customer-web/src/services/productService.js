@@ -11,3 +11,20 @@ export const getProductById = async (id) => {
   const response = await axios.get(`${API}/products/${id}`);
   return response.data;
 };
+
+export const getRelatedProducts = async (
+  categoryId,
+  currentProductId
+) => {
+  const response = await axios.get(
+    `${API}/products/related`,
+    {
+      params: {
+        categoryId,
+        currentProductId,
+      },
+    }
+  );
+
+  return response.data;
+};
