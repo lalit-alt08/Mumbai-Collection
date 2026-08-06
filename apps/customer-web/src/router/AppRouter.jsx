@@ -6,6 +6,7 @@ import NotFound from "../pages/NotFound";
 import Checkout from "../pages/Checkout";
 import ProductDetails from "../pages/ProductDetails";
 import Category from "../pages/Category";
+import OrderSuccess from "../pages/OrderSuccess";
 
 function AppRouter() {
   return (
@@ -17,6 +18,7 @@ function AppRouter() {
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/product/:id" element={<ProductDetails />} />
           <Route path="/category/:categoryId" element={<Category />} />
+          <Route path="/order-success/:id" element={<OrderSuccess />} />
         </Route>
 
         <Route path="*" element={<NotFound />} />

@@ -1,27 +1,22 @@
-import { useState } from "react";
-import { addToCart as addToWooCart } from "../../services/storeApi";
+import { useNavigate } from "react-router-dom";
+import {
+  addToCart as addToWooCart,
+  updateCartItem,
+  removeCartItem,
+} from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
 
 function ProductInfo({ product }) {
-  const { refreshCart } = useCart();
+  const navigate = useNavigate();
+  const { cart, refreshCart } = useCart();
 
-  const [quantity, setQuantity] = useState(1);
-
-  const increase = () => {
-    if (quantity < product.stock_quantity) {
-      setQuantity((q) => q + 1);
-    }
-  };
-
-  const decrease = () => {
-    if (quantity > 1) {
-      setQuantity((q) => q - 1);
-    }
-  };
+  const cartItem = cart?.items?.find(
+    (item) => Number(item.id) === Number(product.id)
+  );
 
   const handleAddToCart = async () => {
     try {
-      await addToWooCart(product.id, quantity);
+      await addToWooCart(product.id);
       await refreshCart();
     } catch (error) {
       console.error(error);
@@ -62,30 +57,57 @@ function ProductInfo({ product }) {
         )}
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-center rounded-lg border">
-          <button onClick={decrease} className="px-4 py-3 text-xl">
-            −
-          </button>
-
-          <span className="w-12 text-center font-semibold">
-            {quantity}
-          </span>
-
-          <button onClick={increase} className="px-4 py-3 text-xl">
-            +
-          </button>
-        </div>
-
+      {!cartItem ? (
         <button
           onClick={handleAddToCart}
-          className="flex-1 rounded-xl bg-green-600 py-3 font-semibold text-white transition hover:bg-green-700"
+          className="w-full rounded-xl bg-green-600 py-3 font-semibold text-white transition hover:bg-green-700"
         >
           Add to Cart
         </button>
-      </div>
+      ) : (
+        <div className="flex w-full items-center justify-center rounded-xl bg-green-600 text-white">
+          <button
+            className="px-5 py-3 text-xl"
+            onClick={async () => {
+              if (cartItem.quantity === 1) {
+                await removeCartItem(cartItem.key);
+              } else {
+                await updateCartItem(
+                  cartItem.key,
+                  cartItem.quantity - 1
+                );
+              }
 
-      <button className="w-full rounded-xl border border-green-600 py-3 font-semibold text-green-600 transition hover:bg-green-50">
+              await refreshCart();
+            }}
+          >
+            −
+          </button>
+
+          <span className="px-6 text-lg font-bold">
+            {cartItem.quantity}
+          </span>
+
+          <button
+            className="px-5 py-3 text-xl"
+            onClick={async () => {
+              await updateCartItem(
+                cartItem.key,
+                cartItem.quantity + 1
+              );
+
+              await refreshCart();
+            }}
+          >
+            +
+          </button>
+        </div>
+      )}
+
+      <button
+        onClick={() => navigate("/cart")}
+        className="w-full rounded-xl border border-green-600 py-3 font-semibold text-green-600 transition hover:bg-green-50"
+      >
         Buy Now
       </button>
     </div>

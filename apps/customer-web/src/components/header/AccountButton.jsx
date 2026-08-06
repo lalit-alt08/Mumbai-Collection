@@ -1,10 +1,11 @@
 import { User } from "lucide-react";
-import { goToAccount } from "../../utils/navigation";
 
 function AccountButton() {
   return (
     <button
-      onClick={goToAccount}
+      onClick={() =>
+        window.location.href = "https://mumbai-collection.local/my-account"
+      }
       className="
         flex
         items-center

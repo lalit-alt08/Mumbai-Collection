@@ -5,7 +5,7 @@ import { useCart } from "../../context/CartContext";
 function CartButton() {
   const { cart } = useCart();
 
-  const count =
+  const totalItems =
     cart?.items?.reduce((total, item) => total + item.quantity, 0) || 0;
 
   return (
@@ -35,7 +35,7 @@ function CartButton() {
 
       <span className="hidden sm:block">Cart</span>
 
-      {count > 0 && (
+      {totalItems > 0 && (
         <span
           className="
             absolute
@@ -53,7 +53,7 @@ function CartButton() {
             text-white
           "
         >
-          {count}
+          {totalItems}
         </span>
       )}
     </Link>
