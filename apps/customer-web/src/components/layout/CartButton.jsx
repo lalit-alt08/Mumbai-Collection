@@ -17,18 +17,20 @@ function CartButton() {
         flex-shrink-0
         items-center
         gap-2
-        rounded-xl
+        rounded-[16px]
         bg-green-600
-        px-3
-        py-2.5
+        px-4
+        py-3
         text-sm
-        font-medium
+        font-semibold
         text-white
-        transition
+        transition-all
+        duration-300
+        hover:-translate-y-[2px]
         hover:bg-green-700
-        sm:px-4
+        hover:shadow-lg
+        hover:shadow-green-600/30
         md:px-5
-        md:py-3
       "
     >
       <ShoppingCart size={20} />

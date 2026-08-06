@@ -24,11 +24,11 @@ function RelatedProducts({ product }) {
 
   return (
     <section>
-      <h2 className="mb-6 text-2xl font-bold">
+      <h2 className="mb-8 text-[22px] font-bold text-[#1E1E1E]">
         Related Products
       </h2>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-5 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
         {products.map((item) => (
           <ProductCard
             key={item.id}

@@ -17,18 +17,18 @@ function Home() {
   }, []);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-12 md:space-y-16">
 
       <HeroBanner />
 
       <CategoryGrid />
 
       <section>
-        <h2 className="mb-5 text-xl font-bold md:text-2xl">
+        <h2 className="mb-6 text-[22px] font-bold text-[#1E1E1E]">
           Featured Products
         </h2>
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-5 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
           {products.map((product) => (
             <ProductCard
               key={product.id}

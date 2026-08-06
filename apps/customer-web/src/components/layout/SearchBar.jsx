@@ -55,20 +55,23 @@ function SearchBar() {
         placeholder="Search products..."
         className="
           w-full
-          rounded-xl
+          rounded-full
           border
-          border-gray-300
+          border-[#E8E8E8]
           bg-white
-          py-3
+          py-3.5
           pl-12
           pr-4
           text-sm
+          text-[#1E1E1E]
           outline-none
+          shadow-[0_4px_24px_rgba(0,0,0,0.02)]
           transition-all
-          placeholder:text-gray-400
-          focus:border-green-500
-          focus:ring-2
-          focus:ring-green-200
+          duration-300
+          placeholder:text-[#666666]
+          focus:border-[#3E8E2E]
+          focus:ring-4
+          focus:ring-[#3E8E2E]/10
           md:text-base
         "
       />

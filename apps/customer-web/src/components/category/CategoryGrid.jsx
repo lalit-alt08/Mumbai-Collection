@@ -4,7 +4,7 @@ import CategoryCard from "./CategoryCard";
 function CategoryGrid() {
   return (
     <section>
-      <h2 className="mb-5 text-2xl font-bold">
+      <h2 className="mb-6 text-[22px] font-bold text-[#1E1E1E]">
         Shop by Category
       </h2>
 

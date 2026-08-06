@@ -21,7 +21,7 @@ function HeroBanner() {
       }}
       speed={700}
       loop
-      className="overflow-hidden rounded-3xl shadow-sm"
+      className="mt-2 overflow-hidden rounded-[24px] shadow-sm md:mt-4 md:shadow-md"
     >
       {banner.map((item) => (
         <SwiperSlide key={item.id}>
@@ -30,7 +30,7 @@ function HeroBanner() {
               src={item.image}
               alt=""
               loading="lazy"
-              className="w-full rounded-2xl aspect-[16/8] object-cover md:aspect-auto md:object-contain"
+              className="aspect-[16/8] w-full rounded-[24px] object-cover md:aspect-auto md:object-contain"
             />
           </Link>
         </SwiperSlide>
