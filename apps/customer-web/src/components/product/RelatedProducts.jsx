@@ -23,17 +23,15 @@ function RelatedProducts({ product }) {
   if (!products.length) return null;
 
   return (
-    <section>
-      <h2 className="mb-8 text-[22px] font-bold text-[#1E1E1E]">
-        Related Products
+    <section className="py-4">
+      <h2 className="mb-4 text-[16px] font-bold text-[#1F2937]">
+        You may also like
       </h2>
-
-      <div className="grid grid-cols-2 gap-5 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
+      <div className="flex gap-4 overflow-x-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] md:grid md:grid-cols-4 md:overflow-visible">
         {products.map((item) => (
-          <ProductCard
-            key={item.id}
-            product={item}
-          />
+          <div key={item.id} className="w-[160px] flex-shrink-0 md:w-auto">
+            <ProductCard product={item} />
+          </div>
         ))}
       </div>
     </section>

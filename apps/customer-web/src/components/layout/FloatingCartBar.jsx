@@ -6,8 +6,8 @@ function FloatingCartBar() {
   const { cart } = useCart();
   const location = useLocation();
 
-  // Hide on cart and checkout pages
-  if (location.pathname === "/cart" || location.pathname === "/checkout") {
+  // Hide everywhere except Home page
+  if (location.pathname !== "/") {
     return null;
   }
 
