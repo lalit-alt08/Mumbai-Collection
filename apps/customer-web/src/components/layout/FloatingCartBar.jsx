@@ -22,7 +22,7 @@ function FloatingCartBar() {
   return (
     <div
       className={`fixed left-1/2 z-50 w-[90%] max-w-[340px] -translate-x-1/2 transition-all duration-300 ${
-        hasItems ? "bottom-4 opacity-100 md:bottom-6" : "-bottom-24 opacity-0 pointer-events-none"
+        hasItems ? "bottom-10 opacity-100 md:bottom-12" : "-bottom-24 opacity-0 pointer-events-none"
       }`}
     >
       <Link

@@ -11,8 +11,10 @@ export function CartProvider({ children }) {
     try {
       const data = await getCart();
       setCart(data);
+      return data;
     } catch (err) {
-      console.error(err);
+      console.error("Cart refresh failed:", err);
+      throw err;
     } finally {
       setLoading(false);
     }

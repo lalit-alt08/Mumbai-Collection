@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import {
   addToCart as addToWooCart,
   updateCartItem,
@@ -11,8 +12,10 @@ function ProductCard({ product }) {
 
   const { cart, refreshCart } = useCart();
 
+  const [updatingCart, setUpdatingCart] = useState(false);
+
   const cartItem = cart?.items?.find(
-    (item) => Number(item.id) === Number(product.id)
+    (item) => Number(item.id) === Number(product.id),
   );
 
   return (
@@ -36,17 +39,25 @@ function ProductCard({ product }) {
 
       <div className="mt-5 flex items-center justify-between gap-2">
         <div className="flex flex-col">
-          <p className="text-[20px] font-bold text-[#1E1E1E]">₹{product.price}</p>
+          <p className="text-[20px] font-bold text-[#1E1E1E]">
+            ₹{product.price}
+          </p>
         </div>
 
         {!cartItem ? (
           <button
             onClick={async () => {
+              if (updatingCart) return;
+
               try {
+                setUpdatingCart(true);
+
                 await addToWooCart(product.id);
                 await refreshCart();
               } catch (error) {
                 console.error(error);
+              } finally {
+                setUpdatingCart(false);
               }
             }}
             className="rounded-full border border-[#3E8E2E] bg-white px-6 py-2 text-sm font-semibold text-[#3E8E2E] transition-all duration-300 hover:bg-[#3E8E2E] hover:text-white hover:shadow-[0_4px_20px_rgba(62,142,46,0.2)]"
@@ -57,21 +68,25 @@ function ProductCard({ product }) {
           <div className="flex h-[38px] items-center rounded-full bg-[#3E8E2E] text-white shadow-[0_4px_20px_rgba(62,142,46,0.2)]">
             <button
               onClick={async () => {
+                if (updatingCart) return;
+
                 try {
+                  setUpdatingCart(true);
+
                   if (cartItem.quantity <= 1) {
                     await removeCartItem(cartItem.key);
                   } else {
-                    await updateCartItem(
-                      cartItem.key,
-                      cartItem.quantity - 1
-                    );
+                    await updateCartItem(cartItem.key, cartItem.quantity - 1);
                   }
 
                   await refreshCart();
                 } catch (error) {
                   console.error(error);
+                } finally {
+                  setUpdatingCart(false);
                 }
               }}
+              disabled={updatingCart}
               className="flex h-full w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#2F7424]"
             >
               −
@@ -83,15 +98,18 @@ function ProductCard({ product }) {
 
             <button
               onClick={async () => {
+                if (updatingCart) return;
+
                 try {
-                  await updateCartItem(
-                    cartItem.key,
-                    cartItem.quantity + 1
-                  );
+                  setUpdatingCart(true);
+
+                  await updateCartItem(cartItem.key, cartItem.quantity + 1);
 
                   await refreshCart();
                 } catch (error) {
                   console.error(error);
+                } finally {
+                  setUpdatingCart(false);
                 }
               }}
               className="flex h-full w-8 items-center justify-center rounded-r-full transition-colors hover:bg-[#2F7424]"

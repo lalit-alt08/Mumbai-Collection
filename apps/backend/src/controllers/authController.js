@@ -1,48 +1,33 @@
-import jwt from "jsonwebtoken";
-import { createCustomer, getCustomerByEmail } from "../services/authService.js";
+import https from "https";
+import axios from "axios";
 
-export const register = async (req, res) => {
+const agent = new https.Agent({
+  rejectUnauthorized: false,
+});
+
+export const login = async (req, res) => {
   try {
-    const { first_name, last_name, email, password } = req.body;
+    const { email, password } = req.body;
 
-    const existingCustomer = await getCustomerByEmail(email);
-
-    if (existingCustomer.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already registered",
-      });
-    }
-
-    const customer = await createCustomer({
-      first_name,
-      last_name,
-      email,
-      password,
-    });
-
-    const token = jwt.sign(
+    const response = await axios.post(
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/login`,
       {
-        id: customer.id,
-        email: customer.email,
+        email,
+        password,
       },
-      process.env.JWT_SECRET,
       {
-        expiresIn: process.env.JWT_EXPIRES_IN,
-      }
+        httpsAgent: agent,
+      },
     );
 
-    res.status(201).json({
-      success: true,
-      token,
-      customer,
-    });
+    res.json(response.data);
   } catch (error) {
-    console.error(error.response?.data || error.message);
+    console.log(error.response?.data);
+    console.log(error.message);
 
-    res.status(500).json({
+    res.status(401).json({
       success: false,
-      message: "Registration failed",
+      message: error.response?.data || error.message,
     });
   }
 };

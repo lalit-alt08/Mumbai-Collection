@@ -1,11 +1,10 @@
 import { User } from "lucide-react";
+import { Link } from "react-router-dom";
 
 function AccountButton() {
   return (
-    <button
-      onClick={() =>
-        window.location.href = "https://mumbai-collection.local/my-account"
-      }
+    <Link
+      to="/account"
       className="
         flex
         items-center
@@ -20,16 +19,13 @@ function AccountButton() {
         font-medium
         text-[#1E1E1E]
         transition-all
-        duration-300
-        hover:-translate-y-[2px]
         hover:border-[#3E8E2E]
         hover:text-[#3E8E2E]
-        hover:shadow-[0_4px_20px_rgba(0,0,0,0.04)]
       "
     >
-      <User size={20} />
-      <span className="hidden lg:block">Login</span>
-    </button>
+      <User size={18} />
+      <span>Account</span>
+    </Link>
   );
 }
 

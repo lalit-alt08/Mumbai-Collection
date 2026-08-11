@@ -1,3 +1,4 @@
+
 import axios from "axios";
 
 const STORE_API = "/api/store";
@@ -52,21 +53,30 @@ export const addToCart = async (id, quantity = 1) => {
 };
 
 export const updateCartItem = async (key, quantity) => {
-  const response = await axios.post(
-    `${STORE_API}/cart/update-item`,
-    {
-      key,
-      quantity,
-    },
-    {
-      withCredentials: true,
-      headers: authHeaders(),
-    }
-  );
+  try {
+    const response = await axios.post(
+      `${STORE_API}/cart/update-item`,
+      {
+        key,
+        quantity,
+      },
+      {
+        withCredentials: true,
+        headers: authHeaders(),
+      }
+    );
 
-  updateTokens(response);
+    updateTokens(response);
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    console.log("UPDATE CART STATUS:", error.response?.status);
+    console.log("UPDATE CART DATA:", error.response?.data);
+    console.log("UPDATE CART KEY:", key);
+    console.log("UPDATE CART QUANTITY:", quantity);
+
+    throw error;
+  }
 };
 
 export const removeCartItem = async (key) => {
@@ -136,3 +146,4 @@ export const updateCheckout = async (checkoutData) => {
 
   return response.data;
 };
+

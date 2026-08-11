@@ -1,14 +1,18 @@
-import api from "../config/woocommerce.js";
+import axios from "axios";
 
-export const createCustomer = async (customerData) => {
-  const response = await api.post("customers", customerData);
-  return response.data;
-};
+const API = "http://localhost:5000/api/auth";
 
-export const getCustomerByEmail = async (email) => {
-  const response = await api.get("customers", {
-    email,
-  });
+export const login = async (email, password) => {
+  const response = await axios.post(
+    `${API}/login`,
+    {
+      email,
+      password,
+    },
+    {
+      withCredentials: true,
+    }
+  );
 
   return response.data;
 };

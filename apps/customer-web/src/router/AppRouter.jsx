@@ -7,6 +7,9 @@ import Checkout from "../pages/Checkout";
 import ProductDetails from "../pages/ProductDetails";
 import Category from "../pages/Category";
 import OrderSuccess from "../pages/OrderSuccess";
+import Login from "../pages/Login";
+import Account from "../pages/Account";
+import ProtectedRoute from "../components/auth/ProtectedRoute";
 
 function AppRouter() {
   return (
@@ -15,12 +18,18 @@ function AppRouter() {
         <Route element={<MainLayout />}>
           <Route path="/" element={<Home />} />
           <Route path="/cart" element={<Cart />} />
-          <Route path="/checkout" element={<Checkout />} />
+
+          {/* Protected Checkout */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/checkout" element={<Checkout />} />
+          </Route>
+
           <Route path="/product/:id" element={<ProductDetails />} />
           <Route path="/category/:categoryId" element={<Category />} />
           <Route path="/order-success/:id" element={<OrderSuccess />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/account" element={<Account />} />
         </Route>
-
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

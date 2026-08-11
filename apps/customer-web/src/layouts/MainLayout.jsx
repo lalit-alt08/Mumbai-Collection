@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
+
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import FloatingCartBar from "../components/layout/FloatingCartBar";
@@ -7,22 +8,45 @@ function MainLayout() {
   const location = useLocation();
   const path = location.pathname;
 
-  // Pages that use their own dedicated header
-  const hideHeaderPages = ["/cart", "/checkout", "/order-success", "/order-failed", "/product"];
-  const isHeaderHidden = hideHeaderPages.some(p => path.startsWith(p));
-  
-  // Footer should ONLY be visible on the Home page
+  const hideHeaderPages = [
+    "/cart",
+    "/checkout",
+    "/order-success",
+    "/order-failed",
+    "/product",
+    "/account",
+  ];
+
+  const isHeaderHidden = hideHeaderPages.some((p) =>
+    path.startsWith(p)
+  );
+
   const isFooterVisible = path === "/";
 
+  const fullWidthPages = ["/account"];
+
+  const isFullWidth = fullWidthPages.some((p) =>
+    path.startsWith(p)
+  );
+
   return (
-    <div className="relative min-h-screen bg-[#F6F7F4] text-[#1E1E1E]">
+    <div className="min-h-screen">
       {!isHeaderHidden && <Header />}
 
-      <main className={`mx-auto w-full ${path.startsWith('/product') ? '' : 'max-w-7xl px-4 py-8 sm:px-5 md:px-6 lg:px-8'}`}>
+      <main
+        className={`w-full ${
+          isFullWidth
+            ? ""
+            : path.startsWith("/product")
+              ? ""
+              : "mx-auto max-w-7xl px-4 py-8 sm:px-5 md:px-6 lg:px-8"
+        }`}
+      >
         <Outlet />
       </main>
 
       {isFooterVisible && <Footer />}
+
       <FloatingCartBar />
     </div>
   );
