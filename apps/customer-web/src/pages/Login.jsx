@@ -133,12 +133,13 @@ function Login() {
                 </button>
               </div>
               <div className="mt-3 flex justify-end">
-                <a
-                  href="#"
+                <button
+                  type="button"
+                  onClick={() => navigate("/forgot-password")}
                   className="text-[13px] font-semibold text-[#FF8A00] hover:underline"
                 >
                   Forgot password?
-                </a>
+                </button>
               </div>
             </div>
 
@@ -165,6 +166,7 @@ function Login() {
             Don't have an account?
             <button
               type="button"
+              onClick={() => navigate("/register")}
               className="ml-1.5 font-bold text-[#FF7A00] transition-colors hover:text-[#e06b00]"
             >
               Create one now

@@ -9,7 +9,9 @@ import Category from "../pages/Category";
 import OrderSuccess from "../pages/OrderSuccess";
 import Login from "../pages/Login";
 import Account from "../pages/Account";
+import Register from "../pages/Register";
 import ProtectedRoute from "../components/auth/ProtectedRoute";
+import ForgotPassword from "../pages/ForgotPassword";
 
 function AppRouter() {
   return (
@@ -27,8 +29,11 @@ function AppRouter() {
           <Route path="/product/:id" element={<ProductDetails />} />
           <Route path="/category/:categoryId" element={<Category />} />
           <Route path="/order-success/:id" element={<OrderSuccess />} />
+
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -37,3 +42,4 @@ function AppRouter() {
 }
 
 export default AppRouter;
+

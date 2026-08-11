@@ -28,3 +28,11 @@ export const logout = async () => {
   const { data } = await API.post("/logout");
   return data;
 };
+
+export const forgotPassword = async (email) => {
+  const { data } = await API.post("/forgot-password", {
+    email,
+  });
+
+  return data;
+};
