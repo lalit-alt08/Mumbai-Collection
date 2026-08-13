@@ -64,7 +64,7 @@ function ProductGallery({ product }) {
               onClick={() => setSelectedIndex(index)}
               className={`h-1.5 rounded-full transition-all duration-300 ${
                 selectedIndex === index
-                  ? "w-6 bg-[#3E8E2E]"
+                  ? "w-6 bg-[#FF8A00]"
                   : "w-1.5 bg-[#D1D5DB]"
               }`}
             />

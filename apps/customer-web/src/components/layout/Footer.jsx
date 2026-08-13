@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 function Footer() {
   return (
-    <footer className="mt-16 bg-white pt-12 pb-8 shadow-[0_-4px_24px_rgba(0,0,0,0.02)]">
+    <footer className="mt-16 rounded-t-[24px] bg-white pt-12 pb-8 shadow-[0_-4px_30px_rgba(0,0,0,0.05)]">
       <div className="mx-auto max-w-7xl px-6 md:px-8">
 
         <div className="grid grid-cols-2 gap-8 md:gap-12">
@@ -14,11 +14,11 @@ function Footer() {
             </h2>
 
             <div className="flex flex-col gap-3 text-sm text-[#666666]">
-              <Link to="/" className="hover:text-[#3E8E2E] transition-colors">
+              <Link to="/" className="hover:text-[#FF8A00] transition-colors">
                 Home
               </Link>
 
-              <Link to="/contact" className="hover:text-[#3E8E2E] transition-colors">
+              <Link to="/contact" className="hover:text-[#FF8A00] transition-colors">
                 Contact Us
               </Link>
 
@@ -41,28 +41,28 @@ function Footer() {
             <div className="flex flex-col gap-3 text-sm text-[#666666]">
               <Link
                 to="/shipping-policy"
-                className="hover:text-[#3E8E2E] transition-colors"
+                className="hover:text-[#FF8A00] transition-colors"
               >
                 Shipping Policy
               </Link>
 
               <Link
                 to="/return-policy"
-                className="hover:text-[#3E8E2E] transition-colors"
+                className="hover:text-[#FF8A00] transition-colors"
               >
                 Return & Refund Policy
               </Link>
 
               <Link
                 to="/terms"
-                className="hover:text-[#3E8E2E] transition-colors"
+                className="hover:text-[#FF8A00] transition-colors"
               >
                 Terms & Conditions
               </Link>
 
               <Link
                 to="/privacy-policy"
-                className="hover:text-[#3E8E2E] transition-colors"
+                className="hover:text-[#FF8A00] transition-colors"
               >
                 Privacy Policy
               </Link>

@@ -1,9 +1,11 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import addressRoutes from "./routes/addressRoute.js";
 
 import productRoutes from "./routes/productRoutes.js";
 import authRoutes from "./routes/authRoute.js";
+
 
 const app = express();
 
@@ -20,6 +22,7 @@ app.use(express.json());
 
 app.use("/api/products", productRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/addresses", addressRoutes);
 
 app.get("/", (req, res) => {
   res.send("Backend is running");

@@ -60,12 +60,12 @@ function ProductCard({ product }) {
                 setUpdatingCart(false);
               }
             }}
-            className="rounded-full border border-[#3E8E2E] bg-white px-6 py-2 text-sm font-semibold text-[#3E8E2E] transition-all duration-300 hover:bg-[#3E8E2E] hover:text-white hover:shadow-[0_4px_20px_rgba(62,142,46,0.2)]"
+            className="rounded-full border border-[#FF8A00] bg-white px-6 py-2 text-sm font-semibold text-[#FF8A00] transition-all duration-300 hover:bg-[#FF8A00] hover:text-white hover:shadow-[0_4px_20px_rgba(255,138,0,0.2)]"
           >
             ADD
           </button>
         ) : (
-          <div className="flex h-[38px] items-center rounded-full bg-[#3E8E2E] text-white shadow-[0_4px_20px_rgba(62,142,46,0.2)]">
+          <div className="flex h-[38px] items-center rounded-full bg-[#FF8A00] text-white shadow-[0_4px_20px_rgba(255,138,0,0.2)]">
             <button
               onClick={async () => {
                 if (updatingCart) return;
@@ -87,7 +87,7 @@ function ProductCard({ product }) {
                 }
               }}
               disabled={updatingCart}
-              className="flex h-full w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#2F7424]"
+              className="flex h-full w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#FF7300]"
             >
               −
             </button>
@@ -112,7 +112,7 @@ function ProductCard({ product }) {
                   setUpdatingCart(false);
                 }
               }}
-              className="flex h-full w-8 items-center justify-center rounded-r-full transition-colors hover:bg-[#2F7424]"
+              className="flex h-full w-8 items-center justify-center rounded-r-full transition-colors hover:bg-[#FF7300]"
             >
               +
             </button>

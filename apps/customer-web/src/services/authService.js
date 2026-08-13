@@ -36,3 +36,12 @@ export const forgotPassword = async (email) => {
 
   return data;
 };
+
+export const resetPassword = async (token, password) => {
+  const { data } = await API.post("/reset-password", {
+    token,
+    password,
+  });
+
+  return data;
+};

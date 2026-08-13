@@ -60,10 +60,10 @@ function Checkout() {
 
         {/* RIGHT - ORDER SUMMARY */}
         <div className="lg:sticky lg:top-8 lg:w-[40%] xl:w-[35%]">
-          <div className="rounded-[20px] border border-[#ECECEC] bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition-all hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)]">
+          <div className="rounded-[20px] border border-[#FFD9B3] bg-white p-6 shadow-[0_8px_30px_rgba(255,138,0,0.1)] transition-all hover:shadow-[0_12px_40px_rgba(255,138,0,0.15)]">
             <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F6F7F4]">
-                <ShoppingBag size={20} className="text-[#3E8E2E]" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FF7300]">
+                <ShoppingBag size={20} className="text-white" />
               </div>
               <h2 className="text-[18px] font-bold text-[#1E1E1E]">Order Summary</h2>
             </div>
@@ -111,7 +111,7 @@ function Checkout() {
               <div className="flex justify-between items-center">
                 <span>Delivery</span>
                 {delivery === 0 ? (
-                  <span className="font-bold text-[#3E8E2E]">FREE</span>
+                  <span className="font-bold text-[#FF8A00]">FREE</span>
                 ) : (
                   <span className="font-medium text-[#1E1E1E]">₹{delivery}</span>
                 )}
@@ -129,7 +129,7 @@ function Checkout() {
             
             <div className="flex justify-between items-center">
               <span className="text-[16px] font-bold text-[#1E1E1E]">Grand Total</span>
-              <span className="text-[24px] font-extrabold text-[#3E8E2E]">₹{total}</span>
+              <span className="text-[24px] font-extrabold text-[#FF8A00]">₹{total}</span>
             </div>
           </div>
         </div>

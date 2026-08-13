@@ -27,7 +27,7 @@ function Cart() {
         </p>
         <button
           onClick={() => navigate("/")}
-          className="rounded-full bg-[#3E8E2E] px-8 py-3.5 font-semibold text-white transition-all hover:bg-[#2F7424] active:scale-95 shadow-[0_4px_20px_rgba(62,142,46,0.2)]"
+          className="rounded-full bg-[#FF8A00] px-8 py-3.5 font-semibold text-white transition-all hover:bg-[#FF7300] active:scale-95 shadow-[0_4px_20px_rgba(255,138,0,0.2)]"
         >
           Start Shopping
         </button>
@@ -87,8 +87,8 @@ function Cart() {
         {/* Delivery Card */}
         <div className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)]">
           <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F6F7F4]">
-              <Truck size={22} className="text-[#3E8E2E]" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-50">
+              <Truck size={22} className="text-[#FF8A00]" />
             </div>
             <div>
               <h3 className="text-[15px] font-bold text-[#1E1E1E]">
@@ -142,7 +142,7 @@ function Cart() {
                       )}
                     </div>
 
-                    <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#3E8E2E] px-1 text-white shadow-sm">
+                    <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#FF8A00] px-1 text-white shadow-sm">
                       <button
                         onClick={async () => {
                           if (item.quantity === 1) {
@@ -198,7 +198,7 @@ function Cart() {
             <div className="flex justify-between items-center">
               <span>Delivery Charge</span>
               {delivery === 0 ? (
-                <span className="font-bold text-[#3E8E2E]">FREE</span>
+                <span className="font-bold text-[#FF8A00]">FREE</span>
               ) : (
                 <span className="font-medium text-[#1E1E1E]">₹{delivery}</span>
               )}
@@ -262,7 +262,7 @@ function Cart() {
 
             navigate("/checkout");
           }}
-          className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#3E8E2E] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#2F7424] hover:shadow-[0_4px_20px_rgba(62,142,46,0.25)] active:scale-95"
+          className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#FF8A00] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#FF7300] hover:shadow-[0_4px_20px_rgba(255,138,0,0.25)] active:scale-95"
         >
           Proceed to Checkout &rarr;
         </button>

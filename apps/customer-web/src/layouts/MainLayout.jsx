@@ -30,7 +30,7 @@ function MainLayout() {
   );
 
   return (
-    <div className="min-h-screen">
+    <div className={`min-h-screen ${path === '/' ? 'bg-[#FFF9F0]' : 'bg-white'}`}>
       {!isHeaderHidden && <Header />}
 
       <main

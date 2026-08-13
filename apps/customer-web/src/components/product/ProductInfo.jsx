@@ -75,7 +75,7 @@ function ProductInfo({ product }) {
                   <span className="mb-1.5 text-[16px] font-medium text-[#6B7280] line-through">
                     ₹{product.regular_price}
                   </span>
-                  <span className="mb-1.5 rounded-md bg-[#3E8E2E] px-1.5 py-0.5 text-[11px] font-bold text-white">
+                  <span className="mb-1.5 rounded-md bg-[#FF8A00] px-1.5 py-0.5 text-[11px] font-bold text-white">
                     {discountPercent}% OFF
                   </span>
                 </>
@@ -90,12 +90,12 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading || !inStock}
-                className="flex h-[36px] w-full items-center justify-center rounded-xl bg-[#3E8E2E] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(62,142,46,0.2)] transition-all hover:bg-[#2F7424] active:scale-[0.98] disabled:opacity-50"
+                className="flex h-[36px] w-full items-center justify-center rounded-xl bg-[#FF8A00] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(255,138,0,0.2)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:opacity-50"
               >
                 ADD
               </button>
             ) : (
-              <div className="flex h-[36px] w-full items-center justify-between rounded-xl bg-[#3E8E2E] px-1 text-white shadow-[0_4px_12px_rgba(62,142,46,0.2)]">
+              <div className="flex h-[36px] w-full items-center justify-between rounded-xl bg-[#FF8A00] px-1 text-white shadow-[0_4px_12px_rgba(255,138,0,0.2)]">
                 <button
                   disabled={loading}
                   className="flex h-[28px] w-[28px] items-center justify-center rounded-lg bg-white/20 transition hover:bg-white/30"
@@ -120,18 +120,18 @@ function ProductInfo({ product }) {
       {/* 4. Service Cards Grid */}
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col items-center justify-center gap-3 rounded-[20px] border border-gray-100 bg-white p-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50">
-          <PackageX size={32} className="text-[#3E8E2E]" strokeWidth={1.5} />
+          <PackageX size={32} className="text-[#FF8A00]" strokeWidth={1.5} />
           <span className="text-[13px] font-bold text-[#1F2937]">No Return or Exchange</span>
         </div>
         <div className="flex flex-col items-center justify-center gap-3 rounded-[20px] border border-gray-100 bg-white p-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50">
-          <Truck size={32} className="text-[#3E8E2E]" strokeWidth={1.5} />
+          <Truck size={32} className="text-[#FF8A00]" strokeWidth={1.5} />
           <span className="text-[13px] font-bold text-[#1F2937]">Fast Delivery</span>
         </div>
       </div>
 
       {/* Floating View Cart Pill (Mobile only when items exist) */}
       {cart?.items?.length > 0 && (
-        <div className="fixed left-1/2 z-[110] flex w-max -translate-x-1/2 items-center justify-between gap-6 rounded-full bg-[#3E8E2E] p-1.5 pl-2 pr-1.5 shadow-[0_12px_40px_rgba(62,142,46,0.3)] animate-[fadeIn_0.3s_ease-out] md:hidden" style={{ bottom: 'calc(96px + env(safe-area-inset-bottom))' }}>
+        <div className="fixed left-1/2 z-[110] flex w-max -translate-x-1/2 items-center justify-between gap-6 rounded-full bg-[#FF8A00] p-1.5 pl-2 pr-1.5 shadow-[0_12px_40px_rgba(255,138,0,0.3)] animate-[fadeIn_0.3s_ease-out] md:hidden" style={{ bottom: 'calc(96px + env(safe-area-inset-bottom))' }}>
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-1">
               <img src={cart.items[0].images?.[0]?.src} alt="" className="h-full w-full object-contain" />
@@ -141,7 +141,7 @@ function ProductInfo({ product }) {
               <span className="text-[10px] font-medium text-white/90 mt-0.5">{cart.items_count} item{cart.items_count > 1 ? 's' : ''}</span>
             </div>
           </div>
-          <button onClick={() => navigate("/cart")} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#3E8E2E] transition-transform hover:scale-105">
+          <button onClick={() => navigate("/cart")} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#FF8A00] transition-transform hover:scale-105">
             <ChevronRight size={18} strokeWidth={3} />
           </button>
         </div>
@@ -155,19 +155,19 @@ function ProductInfo({ product }) {
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
           <div className="flex flex-col flex-shrink-0">
             <span className="mb-1 text-[24px] font-black leading-none tracking-tight text-[#1F2937]">₹{product.price}</span>
-            <span className="text-[10px] font-medium leading-none text-[#3E8E2E]">Inclusive of all taxes</span>
+            <span className="text-[10px] font-medium leading-none text-[#FF8A00]">Inclusive of all taxes</span>
           </div>
           <div className="flex w-[65%] gap-4 md:w-[45%] lg:w-[35%]">
             {!cartItem ? (
               <button
                 onClick={handleAddToCart}
                 disabled={loading || !inStock}
-                className="flex h-[48px] w-full items-center justify-center gap-2 rounded-full bg-[#3E8E2E] text-[16px] font-bold text-white transition-all hover:bg-[#2F7424] active:scale-[0.98] disabled:opacity-50"
+                className="flex h-[48px] w-full items-center justify-center gap-2 rounded-full bg-[#FF8A00] text-[16px] font-bold text-white transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:opacity-50"
               >
                 Add to Cart
               </button>
             ) : (
-              <div className="flex h-[48px] w-full items-center justify-between rounded-full bg-[#3E8E2E] px-1.5 text-white">
+              <div className="flex h-[48px] w-full items-center justify-between rounded-full bg-[#FF8A00] px-1.5 text-white">
                 <button
                   disabled={loading}
                   className="flex h-[40px] w-[40px] items-center justify-center rounded-full bg-white/20 transition hover:bg-white/30"
@@ -187,7 +187,7 @@ function ProductInfo({ product }) {
             )}
             <button
               onClick={() => navigate("/cart")}
-              className="hidden h-[40px] w-full items-center justify-center rounded-full border border-[#3E8E2E] bg-white text-[14px] font-bold text-[#3E8E2E] transition-colors hover:bg-[#EEF7EA] md:flex"
+              className="hidden h-[40px] w-full items-center justify-center rounded-full border border-[#FF8A00] bg-white text-[14px] font-bold text-[#FF8A00] transition-colors hover:bg-[#FFF4E5] md:flex"
             >
               Buy Now
             </button>

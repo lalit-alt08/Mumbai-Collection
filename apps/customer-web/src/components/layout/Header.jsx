@@ -3,13 +3,18 @@ import DeliveryInfo from "./DeliveryInfo";
 import Logo from "./Logo";
 
 import { User, ShoppingCart } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 
 function Header() {
   const { cart } = useCart();
   const { user } = useAuth();
+  const location = useLocation();
+  
+  const isAuthPage = ["/login", "/register", "/forgot-password"].some((p) =>
+    location.pathname.startsWith(p)
+  );
 
   const totalQuantity =
     cart?.items?.reduce(
@@ -18,7 +23,7 @@ function Header() {
     ) || 0;
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 shadow-[0_4px_30px_rgba(0,0,0,0.03)] backdrop-blur-xl">
+    <header className="sticky top-0 z-50 rounded-b-[24px] bg-[#FFF9F0]/95 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
       <div className="mx-auto max-w-7xl px-4 py-3 md:px-8 md:py-4">
         {/* ================= MOBILE ================= */}
         <div className="flex items-center justify-between md:hidden">
@@ -43,7 +48,7 @@ function Header() {
               <ShoppingCart size={23} strokeWidth={2} />
 
               {totalQuantity > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#3E8E2E] px-1 text-[11px] font-bold text-white">
+                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF8A00] px-1 text-[11px] font-bold text-white">
                   {totalQuantity > 99 ? "99+" : totalQuantity}
                 </span>
               )}
@@ -52,9 +57,11 @@ function Header() {
         </div>
 
         {/* MOBILE SEARCH */}
-        <div className="mt-3 md:hidden">
-          <SearchBar />
-        </div>
+        {!isAuthPage && (
+          <div className="mt-3 md:hidden">
+            <SearchBar />
+          </div>
+        )}
 
         {/* MOBILE DELIVERY */}
         <div className="mt-3 md:hidden">
@@ -71,7 +78,7 @@ function Header() {
 
           {/* SEARCH */}
           <div className="flex-1">
-            <SearchBar />
+            {!isAuthPage && <SearchBar />}
           </div>
 
           {/* ACCOUNT + CART */}
@@ -97,7 +104,7 @@ function Header() {
               <ShoppingCart size={24} strokeWidth={2} />
 
               {totalQuantity > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#3E8E2E] px-1 text-[11px] font-bold text-white">
+                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF8A00] px-1 text-[11px] font-bold text-white">
                   {totalQuantity > 99 ? "99+" : totalQuantity}
                 </span>
               )}

@@ -12,6 +12,7 @@ import Account from "../pages/Account";
 import Register from "../pages/Register";
 import ProtectedRoute from "../components/auth/ProtectedRoute";
 import ForgotPassword from "../pages/ForgotPassword";
+import ResetPassword from "../pages/ResetPassword";
 
 function AppRouter() {
   return (
@@ -34,6 +35,7 @@ function AppRouter() {
           <Route path="/register" element={<Register />} />
           <Route path="/account" element={<Account />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -42,4 +44,3 @@ function AppRouter() {
 }
 
 export default AppRouter;
-

@@ -1,6 +1,13 @@
 import axios from "axios";
 import https from "https";
 
+const httpsAgent =
+  process.env.NODE_ENV === "development"
+    ? new https.Agent({
+        rejectUnauthorized: false,
+      })
+    : undefined;
+
 const wp = axios.create({
   baseURL: process.env.WORDPRESS_URL,
 
@@ -9,12 +16,7 @@ const wp = axios.create({
     password: process.env.WP_APPLICATION_PASSWORD,
   },
 
-  httpsAgent:
-    process.env.NODE_ENV === "development"
-      ? new https.Agent({
-          rejectUnauthorized: false,
-        })
-      : undefined,
+  httpsAgent,
 });
 
 export default wp;
