@@ -1,201 +1,385 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
 import { useNavigate } from "react-router-dom";
-import { User, MapPin, CreditCard, Loader2 } from "lucide-react";
+import {
+  MapPin,
+  CreditCard,
+  Loader2,
+  Home,
+  Building2,
+  Plus,
+} from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 
 function BillingForm() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const [form, setForm] = useState({
-    billing_address: {
-      first_name: "",
-      last_name: "",
-      email: "",
-      phone: "",
-      address_1: "",
-      address_2: "",
-      city: "",
-      state: "MH",
-      postcode: "",
-      country: "IN",
-    },
-    shipping_address: {
-      first_name: "",
-      last_name: "",
-      phone: "",
-      address_1: "",
-      address_2: "",
-      city: "",
-      state: "MH",
-      postcode: "",
-      country: "IN",
-    },
-    payment_method: "cod",
-  });
+  const [addresses, setAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
 
+  const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      billing_address: {
-        ...prev.billing_address,
-        [name]: value,
-      },
-    }));
-  };
+  // Load saved addresses
+  useEffect(() => {
+    const loadAddresses = async () => {
+      try {
+        setLoadingAddresses(true);
+        setError("");
+
+        const response = await axios.get(
+          "http://localhost:5000/api/addresses",
+          {
+            withCredentials: true,
+          }
+        );
+
+        const savedAddresses = response.data.addresses || [];
+
+        setAddresses(savedAddresses);
+
+        // Automatically select first saved address
+        if (savedAddresses.length > 0) {
+          setSelectedAddressId(savedAddresses[0].id);
+        }
+      } catch (error) {
+        console.error(
+          "❌ ADDRESS LOAD ERROR:",
+          error.response?.data || error.message
+        );
+
+        setError(
+          error.response?.data?.message ||
+            "Unable to load your saved addresses."
+        );
+      } finally {
+        setLoadingAddresses(false);
+      }
+    };
+
+    loadAddresses();
+  }, []);
+
+  const selectedAddress = addresses.find(
+    (address) => address.id === selectedAddressId
+  );
 
   const handlePlaceOrder = async () => {
+    if (!selectedAddress) {
+      setError("Please select a delivery address.");
+      return;
+    }
+
     try {
       setLoading(true);
+      setError("");
+
+      /*
+       * Convert saved address into WooCommerce checkout format.
+       */
+
+      const nameParts = (selectedAddress.full_name || "")
+        .trim()
+        .split(/\s+/);
+
+      const firstName = nameParts.shift() || "";
+      const lastName = nameParts.join(" ");
+
+      const billingAddress = {
+        first_name: firstName,
+        last_name: lastName,
+        email: user?.email || "",
+        phone: selectedAddress.phone || "",
+        address_1: selectedAddress.address_line1 || "",
+        address_2: selectedAddress.address_line2 || "",
+        city: selectedAddress.city || "",
+        state: selectedAddress.state || "",
+        postcode: selectedAddress.pincode || "",
+        country: "IN",
+      };
+
+      const shippingAddress = {
+        first_name: firstName,
+        last_name: lastName,
+        phone: selectedAddress.phone || "",
+        address_1: selectedAddress.address_line1 || "",
+        address_2: selectedAddress.address_line2 || "",
+        city: selectedAddress.city || "",
+        state: selectedAddress.state || "",
+        postcode: selectedAddress.pincode || "",
+        country: "IN",
+      };
+
       const response = await updateCheckout({
-        billing_address: form.billing_address,
-        shipping_address: form.billing_address,
-        payment_method: form.payment_method,
+        billing_address: billingAddress,
+        shipping_address: shippingAddress,
+        payment_method: "cod",
         create_account: false,
       });
+
+      console.log("✅ ORDER CREATED:", response);
+
       navigate(`/order-success/${response.order_id}`);
     } catch (error) {
-      console.error(error);
-      console.log("Server Response:", error.response?.data);
-      alert("Failed to place order.");
+      console.error(
+        "❌ PLACE ORDER ERROR:",
+        error.response?.data || error.message
+      );
+
+      setError(
+        error.response?.data?.message ||
+          "Failed to place order. Please try again."
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  if (loadingAddresses) {
+    return (
+      <div className="flex min-h-[240px] items-center justify-center rounded-[20px] border border-[#ECECEC] bg-white">
+        <div className="flex items-center gap-2 text-[14px] font-medium text-[#666666]">
+          <Loader2
+            size={19}
+            className="animate-spin text-[#FF8A00]"
+          />
+          Loading your saved addresses...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-[20px] border border-[#ECECEC] bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.06)] md:p-8">
-      <div className="mb-8">
-        <h2 className="text-[28px] font-bold text-[#1E1E1E]">Checkout</h2>
-        <p className="mt-2 text-[15px] text-[#666666]">Please enter your delivery information.</p>
+    <div className="rounded-[20px] border border-[#ECECEC] bg-white p-5 shadow-[0_6px_24px_rgba(0,0,0,0.05)] md:p-6">
+
+      {/* Header */}
+      <div className="mb-5">
+        <h2 className="text-[25px] font-bold text-[#1E1E1E]">
+          Checkout
+        </h2>
+
+        <p className="mt-1.5 text-[14px] text-[#666666]">
+          Select your delivery address and payment method.
+        </p>
       </div>
 
-      {/* Personal Info Section */}
-      <div className="mb-8">
-        <h3 className="mb-4 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-          <User size={18} className="text-[#FF8A00]" />
-          Personal Details
-        </h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <input
-            name="first_name"
-            placeholder="First Name"
-            value={form.billing_address.first_name}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999]"
-          />
-          <input
-            name="last_name"
-            placeholder="Last Name"
-            value={form.billing_address.last_name}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999]"
-          />
-          <input
-            name="email"
-            type="email"
-            placeholder="Email Address"
-            value={form.billing_address.email}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999] md:col-span-2"
-          />
+      {/* Error */}
+      {error && (
+        <div className="mb-5 rounded-[12px] bg-red-50 px-4 py-3 text-[13px] font-medium text-red-600">
+          {error}
         </div>
-      </div>
+      )}
 
-      <hr className="my-8 border-[#ECECEC]" />
+      {/* Delivery Address */}
+      <div className="mb-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
+            <MapPin
+              size={18}
+              className="text-[#FF8A00]"
+            />
+            Delivery Address
+          </h3>
 
-      {/* Delivery Info Section */}
-      <div className="mb-8">
-        <h3 className="mb-4 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-          <MapPin size={18} className="text-[#FF8A00]" />
-          Delivery Address
-        </h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <input
-            name="phone"
-            placeholder="Phone Number"
-            value={form.billing_address.phone}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999] md:col-span-2"
-          />
-          <input
-            name="address_1"
-            placeholder="Address Line 1"
-            value={form.billing_address.address_1}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999] md:col-span-2"
-          />
-          <input
-            name="address_2"
-            placeholder="Address Line 2 (Optional)"
-            value={form.billing_address.address_2}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999] md:col-span-2"
-          />
-          <input
-            name="city"
-            placeholder="City"
-            value={form.billing_address.city}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999]"
-          />
-          <input
-            name="state"
-            placeholder="State"
-            value={form.billing_address.state}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999]"
-          />
-          <input
-            name="postcode"
-            placeholder="Pincode"
-            value={form.billing_address.postcode}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999]"
-          />
-          <input
-            name="country"
-            placeholder="Country"
-            value={form.billing_address.country}
-            onChange={handleChange}
-            className="h-[52px] w-full rounded-[14px] border border-[#ECECEC] bg-white px-4 text-[15px] text-[#1E1E1E] outline-none transition-all focus:border-[#FF8A00] focus:ring-4 focus:ring-[#FF8A00]/10 placeholder:text-[#999999]"
-          />
+          <button
+            type="button"
+            onClick={() => navigate("/account/addresses")}
+            className="flex items-center gap-1 text-[13px] font-bold text-[#FF8A00] transition-colors hover:text-[#E56F00] hover:underline"
+          >
+            <Plus size={15} />
+            Add Address
+          </button>
         </div>
+
+        {/* No saved addresses */}
+        {addresses.length === 0 ? (
+          <div className="rounded-[14px] border border-dashed border-[#FFB866] bg-[#FFF9F2] p-5 text-center">
+            <MapPin
+              size={28}
+              className="mx-auto mb-2 text-[#FF8A00]"
+            />
+
+            <h4 className="text-[14px] font-bold text-[#1E1E1E]">
+              No saved addresses
+            </h4>
+
+            <p className="mt-1 text-[13px] text-[#666666]">
+              Please add a delivery address before placing your order.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => navigate("/account/addresses")}
+              className="mt-3 rounded-xl bg-[#FF8A00] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#FF7300]"
+            >
+              Add Address
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {addresses.map((address) => {
+              const isSelected =
+                selectedAddressId === address.id;
+
+              const isHome = address.type === "home";
+
+              return (
+                <button
+                  key={address.id}
+                  type="button"
+                  onClick={() =>
+                    setSelectedAddressId(address.id)
+                  }
+                  className={`w-full rounded-[16px] border-2 p-4 text-left transition-all ${
+                    isSelected
+                      ? "border-[#FF8A00] bg-[#FFF9F2] shadow-[0_4px_16px_rgba(255,138,0,0.07)]"
+                      : "border-[#ECECEC] bg-white hover:border-[#FFB866]"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+
+                    {/* Icon */}
+                    <div
+                      className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
+                        isSelected
+                          ? "bg-[#FFF0DD]"
+                          : "bg-gray-50"
+                      }`}
+                    >
+                      {isHome ? (
+                        <Home
+                          size={20}
+                          className={
+                            isSelected
+                              ? "text-[#FF8A00]"
+                              : "text-gray-500"
+                          }
+                        />
+                      ) : (
+                        <Building2
+                          size={20}
+                          className={
+                            isSelected
+                              ? "text-[#FF8A00]"
+                              : "text-gray-500"
+                          }
+                        />
+                      )}
+                    </div>
+
+                    {/* Address */}
+                    <div className="min-w-0 flex-1">
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-[15px] font-bold text-[#1E1E1E]">
+                          {isHome ? "Home" : "Office"}
+                        </h4>
+
+                        {isSelected && (
+                          <span className="rounded-full bg-[#FFF0DD] px-2 py-0.5 text-[9px] font-bold text-[#FF8A00]">
+                            SELECTED
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-1.5 text-[14px] font-semibold text-[#1E1E1E]">
+                        {address.full_name}
+                      </p>
+
+                      <p className="mt-0.5 text-[13px] text-[#666666]">
+                        {address.phone}
+                      </p>
+
+                      <p className="mt-2 text-[13px] leading-5 text-[#666666]">
+                        {address.address_line1}
+
+                        {address.address_line2 && (
+                          <>
+                            <br />
+                            {address.address_line2}
+                          </>
+                        )}
+
+                        <br />
+
+                        {address.city}, {address.state} -{" "}
+                        {address.pincode}
+                      </p>
+                    </div>
+
+                    {/* Radio */}
+                    <div
+                      className={`mt-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
+                        isSelected
+                          ? "border-[#FF8A00]"
+                          : "border-gray-300"
+                      }`}
+                    >
+                      {isSelected && (
+                        <div className="h-2.5 w-2.5 rounded-full bg-[#FF8A00]" />
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <hr className="my-8 border-[#ECECEC]" />
+      <hr className="my-5 border-[#ECECEC]" />
 
-      {/* Payment Section */}
-      <div className="mb-10">
-        <h3 className="mb-4 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-          <CreditCard size={18} className="text-[#FF8A00]" />
+      {/* Payment */}
+      <div className="mb-5">
+        <h3 className="mb-3 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
+          <CreditCard
+            size={18}
+            className="text-[#FF8A00]"
+          />
           Payment Method
         </h3>
-        <div className="flex cursor-pointer items-center gap-4 rounded-[16px] border-2 border-[#FF8A00] bg-[#F7F8FA] p-4 transition-all hover:bg-[#FFF4E5]">
-          <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#FF8A00]">
-            <div className="h-2.5 w-2.5 rounded-full bg-[#FF8A00]"></div>
+
+        <div className="flex items-center gap-3 rounded-[15px] border-2 border-[#FF8A00] bg-[#FFF9F2] p-4">
+          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 border-[#FF8A00]">
+            <div className="h-2.5 w-2.5 rounded-full bg-[#FF8A00]" />
           </div>
+
           <div>
-            <div className="font-bold text-[#1E1E1E]">Cash on Delivery (COD)</div>
-            <div className="text-[13px] text-[#666666]">Pay with cash upon delivery.</div>
+            <div className="text-[14px] font-bold text-[#1E1E1E]">
+              Cash on Delivery (COD)
+            </div>
+
+            <div className="mt-0.5 text-[12px] text-[#666666]">
+              Pay with cash upon delivery.
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Place Order */}
       <button
+        type="button"
         onClick={handlePlaceOrder}
-        disabled={loading}
-        className="flex h-[58px] w-full items-center justify-center gap-2 rounded-[20px] bg-[#FF8A00] text-[16px] font-bold text-white shadow-[0_8px_30px_rgba(255,138,0,0.25)] transition-all duration-300 hover:bg-[#FF7300] hover:shadow-[0_12px_40px_rgba(255,138,0,0.3)] active:scale-95 disabled:opacity-70 disabled:hover:scale-100"
+        disabled={
+          loading ||
+          addresses.length === 0 ||
+          !selectedAddress
+        }
+        className="flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] bg-[#FF8A00] text-[15px] font-bold text-white shadow-[0_7px_22px_rgba(255,138,0,0.2)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading ? (
           <>
-            <Loader2 className="animate-spin" size={20} />
+            <Loader2
+              className="animate-spin"
+              size={19}
+            />
             Processing...
           </>
         ) : (
-          "Place Order securely \u2192"
+          "Place Order securely →"
         )}
       </button>
     </div>

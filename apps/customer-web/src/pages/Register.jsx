@@ -87,7 +87,7 @@ function Register() {
       // Automatically log the newly registered user in
       loginUser(response.user);
 
-      navigate("/account");
+      navigate("/profile-setup");
     } catch (err) {
       console.error(err);
 

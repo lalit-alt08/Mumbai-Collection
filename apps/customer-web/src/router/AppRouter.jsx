@@ -13,6 +13,9 @@ import Register from "../pages/Register";
 import ProtectedRoute from "../components/auth/ProtectedRoute";
 import ForgotPassword from "../pages/ForgotPassword";
 import ResetPassword from "../pages/ResetPassword";
+import ProfileSetup from "../pages/ProfileSetup";
+import Addresses from "../pages/Addresses";
+import Profile from "../pages/Profile";
 
 function AppRouter() {
   return (
@@ -25,6 +28,10 @@ function AppRouter() {
           {/* Protected Checkout */}
           <Route element={<ProtectedRoute />}>
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/profile-setup" element={<ProfileSetup />} />
+            <Route path="/account" element={<Account />} />
+            <Route path="/account/addresses" element={<Addresses />} />
+            <Route path="/account/profile" element={<Profile />} />
           </Route>
 
           <Route path="/product/:id" element={<ProductDetails />} />
@@ -33,7 +40,6 @@ function AppRouter() {
 
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/account" element={<Account />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
         </Route>

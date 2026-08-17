@@ -1,0 +1,810 @@
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import axios from "axios";
+import {
+  User,
+  Phone,
+  MapPin,
+  Home,
+  BriefcaseBusiness,
+  Pencil,
+  Trash2,
+  Plus,
+  ArrowRight,
+  X,
+  CheckCircle2,
+} from "lucide-react";
+
+function ProfileSetup() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [form, setForm] = useState({
+    full_name: "",
+    age: "",
+    phone: "",
+  });
+
+  const [addresses, setAddresses] = useState([]);
+
+  const [addressForm, setAddressForm] = useState({
+    type: "home",
+    full_name: "",
+    phone: "",
+    address_line1: "",
+    address_line2: "",
+    city: "",
+    state: "",
+    pincode: "",
+  });
+
+  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const response = await axios.get(
+          "http://localhost:5000/api/profile",
+          {
+            withCredentials: true,
+          },
+        );
+
+        const addressResponse = await axios.get(
+          "http://localhost:5000/api/addresses",
+          {
+            withCredentials: true,
+          },
+        );
+
+        setAddresses(addressResponse.data.addresses || []);
+
+        const profile = response.data.profile;
+
+        setForm({
+          full_name: profile?.full_name || "",
+          age: profile?.age || "",
+          phone: profile?.phone || "",
+        });
+      } catch (error) {
+        console.error(
+          "❌ PROFILE LOAD ERROR:",
+          error.response?.data || error.message,
+        );
+
+        setMessage(
+          error.response?.data?.message ||
+            "Unable to load profile.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, []);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleAddressChange = (e) => {
+    const { name, value } = e.target;
+
+    setAddressForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const openAddressForm = (type) => {
+    setEditingAddressId(null);
+
+    setAddressForm({
+      type,
+      full_name: form.full_name || "",
+      phone: form.phone || "",
+      address_line1: "",
+      address_line2: "",
+      city: "",
+      state: "",
+      pincode: "",
+    });
+
+    setShowAddressForm(true);
+  };
+
+  const editAddress = (address) => {
+    setEditingAddressId(address.id);
+
+    setAddressForm({
+      type: address.type,
+      full_name: address.full_name || "",
+      phone: address.phone || "",
+      address_line1: address.address_line1 || "",
+      address_line2: address.address_line2 || "",
+      city: address.city || "",
+      state: address.state || "",
+      pincode: address.pincode || "",
+    });
+
+    setShowAddressForm(true);
+  };
+
+  const handleAddressSubmit = async () => {
+    try {
+      setMessage("");
+
+      let response;
+
+      if (editingAddressId) {
+        response = await axios.put(
+          `http://localhost:5000/api/addresses/${editingAddressId}`,
+          addressForm,
+          {
+            withCredentials: true,
+          },
+        );
+
+        console.log("✅ ADDRESS UPDATED:", response.data);
+      } else {
+        response = await axios.post(
+          "http://localhost:5000/api/addresses",
+          addressForm,
+          {
+            withCredentials: true,
+          },
+        );
+
+        console.log("✅ ADDRESS SAVED:", response.data);
+      }
+
+      setAddresses(response.data.addresses || []);
+
+      setShowAddressForm(false);
+      setEditingAddressId(null);
+
+      setMessage(
+        editingAddressId
+          ? "Address updated successfully."
+          : "Address saved successfully.",
+      );
+    } catch (error) {
+      console.error(
+        "❌ ADDRESS SAVE/UPDATE ERROR:",
+        error.response?.data || error.message,
+      );
+
+      setMessage(
+        error.response?.data?.message ||
+          "Unable to save address.",
+      );
+    }
+  };
+
+  const handleDeleteAddress = async (addressId) => {
+    try {
+      setMessage("");
+
+      const response = await axios.delete(
+        `http://localhost:5000/api/addresses/${addressId}`,
+        {
+          withCredentials: true,
+        },
+      );
+
+      console.log("✅ ADDRESS DELETED:", response.data);
+
+      setAddresses(response.data.addresses || []);
+
+      setMessage("Address deleted successfully.");
+    } catch (error) {
+      console.error(
+        "❌ ADDRESS DELETE ERROR:",
+        error.response?.data || error.message,
+      );
+
+      setMessage(
+        error.response?.data?.message ||
+          "Unable to delete address.",
+      );
+    }
+  };
+
+const handleSubmit = async (e) => {
+  e.preventDefault();
+
+  try {
+    setSaving(true);
+    setMessage("");
+
+    const response = await axios.put(
+      "http://localhost:5000/api/profile",
+      {
+        full_name: form.full_name,
+        age: Number(form.age),
+        phone: form.phone,
+      },
+      {
+        withCredentials: true,
+      },
+    );
+
+    console.log("✅ PROFILE SAVED:", response.data);
+
+    setMessage("Profile saved successfully.");
+
+    setTimeout(() => {
+      navigate("/", { replace: true });
+    }, 500);
+  } catch (error) {
+    console.error(
+      "❌ PROFILE SAVE ERROR:",
+      error.response?.data || error.message,
+    );
+
+    setMessage(
+      error.response?.data?.message ||
+        "Unable to save profile.",
+    );
+  } finally {
+    setSaving(false);
+  }
+};
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-[#F8F9F5]">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-[#FF8A00]" />
+          <p className="text-sm font-medium text-gray-500">
+            Loading your profile...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const hasHome = addresses.some(
+    (address) => address.type === "home",
+  );
+
+  const hasOffice = addresses.some(
+    (address) => address.type === "office",
+  );
+
+  return (
+    <div className="min-h-screen bg-[#F8F9F5] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
+
+        {/* Header */}
+        <div className="mb-8">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-[#FF7A00]">
+            <User size={14} />
+            ACCOUNT SETUP
+          </div>
+
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#1E1E1E] sm:text-4xl">
+            Complete your profile
+          </h1>
+
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500 sm:text-base">
+            Add your personal details and at least one delivery
+            address to make checkout faster and easier.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+
+          {/* Main Grid */}
+          <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+
+            {/* Personal Information */}
+            <section className="rounded-3xl border border-gray-100 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)] sm:p-8">
+              <div className="mb-7 flex items-start gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+                  <User size={21} />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-extrabold text-[#1E1E1E]">
+                    Personal Information
+                  </h2>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Tell us a little about yourself.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-5">
+
+                {/* Full Name */}
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Full Name
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <div className="relative">
+                    <User
+                      size={18}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+
+                    <input
+                      type="text"
+                      name="full_name"
+                      value={form.full_name}
+                      onChange={handleChange}
+                      placeholder="Enter your full name"
+                      required
+                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    />
+                  </div>
+                </div>
+
+                {/* Age + Phone */}
+                <div className="grid gap-5 sm:grid-cols-2">
+
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-gray-700">
+                      Age
+                      <span className="ml-1 text-[#FF7A00]">*</span>
+                    </label>
+
+                    <input
+                      type="number"
+                      name="age"
+                      value={form.age}
+                      onChange={handleChange}
+                      placeholder="Your age"
+                      min="13"
+                      max="120"
+                      required
+                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-gray-700">
+                      Phone Number
+                      <span className="ml-1 text-[#FF7A00]">*</span>
+                    </label>
+
+                    <div className="relative">
+                      <Phone
+                        size={18}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
+
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={form.phone}
+                        onChange={handleChange}
+                        placeholder="Phone number"
+                        required
+                        className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                      />
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </section>
+
+            {/* Addresses */}
+            <section className="rounded-3xl border border-gray-100 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)] sm:p-8">
+
+              <div className="mb-7 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+                    <MapPin size={21} />
+                  </div>
+
+                  <div>
+                    <h2 className="text-lg font-extrabold text-[#1E1E1E]">
+                      Delivery Addresses
+                    </h2>
+
+                    <p className="mt-1 text-sm text-gray-500">
+                      Add where you'd like your orders delivered.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Address Cards */}
+              {addresses.length > 0 ? (
+                <div className="space-y-4">
+                  {addresses.map((address) => {
+                    const isHome = address.type === "home";
+
+                    return (
+                      <div
+                        key={address.id}
+                        className="rounded-2xl border border-gray-200 bg-gray-50 p-5 transition hover:border-orange-200"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#FF8A00] shadow-sm">
+                              {isHome ? (
+                                <Home size={19} />
+                              ) : (
+                                <BriefcaseBusiness size={19} />
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-extrabold text-[#1E1E1E]">
+                                  {isHome
+                                    ? "Home"
+                                    : "Office"}
+                                </h3>
+
+                                <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-green-600">
+                                  Saved
+                                </span>
+                              </div>
+
+                              <p className="mt-2 text-sm font-semibold text-gray-700">
+                                {address.full_name}
+                              </p>
+
+                              <p className="mt-1 text-sm text-gray-500">
+                                {address.phone}
+                              </p>
+
+                              <p className="mt-2 text-sm leading-6 text-gray-600">
+                                {address.address_line1}
+                                {address.address_line2 &&
+                                  `, ${address.address_line2}`}
+                              </p>
+
+                              <p className="text-sm text-gray-600">
+                                {address.city},{" "}
+                                {address.state} -{" "}
+                                {address.pincode}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex shrink-0 gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                editAddress(address)
+                              }
+                              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:border-orange-200 hover:text-[#FF7A00]"
+                              title="Edit address"
+                            >
+                              <Pencil size={16} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteAddress(
+                                  address.id,
+                                )
+                              }
+                              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition hover:border-red-200 hover:text-red-500"
+                              title="Delete address"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-gray-400 shadow-sm">
+                    <MapPin size={21} />
+                  </div>
+
+                  <h3 className="mt-4 font-bold text-gray-800">
+                    No saved addresses
+                  </h3>
+
+                  <p className="mx-auto mt-1 max-w-sm text-sm text-gray-500">
+                    Add a Home or Office address. At least one
+                    address is required.
+                  </p>
+                </div>
+              )}
+
+              {/* Add Address Buttons */}
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+
+                {!hasHome && (
+                  <button
+                    type="button"
+                    onClick={() => openAddressForm("home")}
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 text-sm font-bold text-[#FF7A00] transition hover:bg-orange-100"
+                  >
+                    <Plus size={18} />
+                    Add Home
+                  </button>
+                )}
+
+                {!hasOffice && (
+                  <button
+                    type="button"
+                    onClick={() => openAddressForm("office")}
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:border-orange-200 hover:text-[#FF7A00]"
+                  >
+                    <Plus size={18} />
+                    Add Office
+                  </button>
+                )}
+
+              </div>
+            </section>
+          </div>
+
+          {/* Address Form */}
+          {showAddressForm && (
+            <section className="mt-6 rounded-3xl border border-orange-100 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.05)] sm:p-8">
+
+              <div className="mb-7 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+                    {addressForm.type === "home" ? (
+                      <Home size={21} />
+                    ) : (
+                      <BriefcaseBusiness size={21} />
+                    )}
+                  </div>
+
+                  <div>
+                    <h2 className="text-lg font-extrabold text-[#1E1E1E]">
+                      {editingAddressId
+                        ? "Edit Address"
+                        : "Add Address"}
+                    </h2>
+
+                    <p className="mt-1 text-sm text-gray-500">
+                      {addressForm.type === "home"
+                        ? "Home address"
+                        : "Office address"}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowAddressForm(false)
+                  }
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                >
+                  <X size={19} />
+                </button>
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-2">
+
+                {/* Full Name */}
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Full Name
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <input
+                    type="text"
+                    name="full_name"
+                    value={addressForm.full_name}
+                    onChange={handleAddressChange}
+                    required
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Phone
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={addressForm.phone}
+                    onChange={handleAddressChange}
+                    required
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+
+                {/* Address Line 1 */}
+                <div className="sm:col-span-2">
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Address Line 1
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <input
+                    type="text"
+                    name="address_line1"
+                    value={addressForm.address_line1}
+                    onChange={handleAddressChange}
+                    placeholder="House number, building, street"
+                    required
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+
+                {/* Address Line 2 */}
+                <div className="sm:col-span-2">
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Address Line 2
+                    <span className="ml-2 text-xs font-medium text-gray-400">
+                      Optional
+                    </span>
+                  </label>
+
+                  <input
+                    type="text"
+                    name="address_line2"
+                    value={addressForm.address_line2}
+                    onChange={handleAddressChange}
+                    placeholder="Apartment, landmark, etc."
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+
+                {/* City */}
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    City
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <input
+                    type="text"
+                    name="city"
+                    value={addressForm.city}
+                    onChange={handleAddressChange}
+                    required
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+
+                {/* State */}
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    State
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <input
+                    type="text"
+                    name="state"
+                    value={addressForm.state}
+                    onChange={handleAddressChange}
+                    required
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+
+                {/* Pincode */}
+                <div className="sm:max-w-xs">
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Pincode
+                    <span className="ml-1 text-[#FF7A00]">*</span>
+                  </label>
+
+                  <input
+                    type="text"
+                    name="pincode"
+                    value={addressForm.pincode}
+                    onChange={handleAddressChange}
+                    placeholder="6-digit pincode"
+                    maxLength="6"
+                    inputMode="numeric"
+                    required
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  />
+                </div>
+              </div>
+
+              {/* Address Form Buttons */}
+              <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowAddressForm(false)
+                  }
+                  className="h-12 rounded-2xl border border-gray-200 bg-white px-6 text-sm font-bold text-gray-600 transition hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddressSubmit}
+                  className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] px-7 text-sm font-bold text-white shadow-[0_6px_18px_rgba(255,138,0,0.2)] transition hover:bg-[#FF7300] active:scale-[0.98]"
+                >
+                  <CheckCircle2 size={17} />
+                  {editingAddressId
+                    ? "Update Address"
+                    : "Save Address"}
+                </button>
+
+              </div>
+            </section>
+          )}
+
+          {/* Bottom Action */}
+          <div className="mt-6 rounded-3xl border border-gray-100 bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] sm:flex sm:items-center sm:justify-between sm:p-6">
+
+            <div className="mb-4 flex items-start gap-3 sm:mb-0">
+              <CheckCircle2
+                size={20}
+                className="mt-0.5 shrink-0 text-green-500"
+              />
+
+              <div>
+                <p className="text-sm font-bold text-gray-800">
+                  Your information is secure
+                </p>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  We'll use these details to make your
+                  checkout faster.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] px-7 text-sm font-extrabold text-white shadow-[0_8px_22px_rgba(255,138,0,0.22)] transition hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {saving
+                ? "Saving..."
+                : "Save & Continue"}
+
+              {!saving && <ArrowRight size={18} />}
+            </button>
+          </div>
+
+        </form>
+
+        {/* Status Message */}
+        {message && (
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-5 py-4 text-sm font-semibold text-gray-700 shadow-sm">
+            <CheckCircle2
+              size={18}
+              className="shrink-0 text-green-500"
+            />
+            {message}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+export default ProfileSetup;

@@ -4,6 +4,10 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log("========== LOGIN START ==========");
+    console.log("LOGIN EMAIL:", email);
+    console.log("PASSWORD RECEIVED:", !!password);
+
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
       password,
@@ -11,17 +15,28 @@ export const login = async (req, res) => {
 
     const data = response.data;
 
+    console.log("WORDPRESS LOGIN RESPONSE:");
+    console.log(data);
+
     if (data.success && data.session && data.cookie_name) {
-      res.cookie("mumbai_wp_auth", `${data.cookie_name}=${data.session}`, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 24 * 60 * 60 * 1000,
-        path: "/",
-      });
+      console.log("SETTING AUTH COOKIE");
+
+      res.cookie(
+        "mumbai_wp_auth",
+        `${data.cookie_name}=${data.session}`,
+        {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 24 * 60 * 60 * 1000,
+          path: "/",
+        }
+      );
     }
 
     if (data.rest_nonce) {
+      console.log("SETTING NONCE COOKIE");
+
       res.cookie("mumbai_wp_nonce", data.rest_nonce, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -31,18 +46,55 @@ export const login = async (req, res) => {
       });
     }
 
+    console.log("LOGIN SUCCESS");
+    console.log("================================");
+
     res.json({
       success: data.success,
       message: data.message,
       user: data.user,
     });
+
   } catch (error) {
-    console.log(error.response?.data);
-    console.log(error.message);
+    console.log("========== LOGIN ERROR ==========");
+    console.log("STATUS:", error.response?.status);
+    console.log("WORDPRESS ERROR:", error.response?.data);
+    console.log("ERROR MESSAGE:", error.message);
+    console.log("=================================");
 
     res.status(error.response?.status || 401).json({
       success: false,
       message: error.response?.data || error.message,
+    });
+  }
+};
+
+export const logout = async (req, res) => {
+  try {
+    res.clearCookie("mumbai_wp_auth", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
+
+    res.clearCookie("mumbai_wp_nonce", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
+
+    res.json({
+      success: true,
+      message: "Logged out successfully.",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to logout.",
     });
   }
 };
