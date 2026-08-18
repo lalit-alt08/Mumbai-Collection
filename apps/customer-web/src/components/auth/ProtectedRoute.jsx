@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import API_URL from "../../config/api.js";
 import { useEffect, useState } from "react";
 import axios from "axios";
 
@@ -25,7 +26,7 @@ function ProtectedRoute() {
 
       try {
         const response = await axios.get(
-          "http://localhost:5000/api/profile/complete",
+          `${API_URL}/profile/complete`,
           {
             withCredentials: true,
           }
@@ -45,7 +46,7 @@ function ProtectedRoute() {
     };
 
     checkProfile();
-  }, [isAuthenticated, loading]);
+  }, [isAuthenticated, loading, location.pathname]);
 
   // AuthContext is still restoring/checking the login session
   if (loading) {
@@ -62,7 +63,7 @@ function ProtectedRoute() {
       <Navigate
         to="/login"
         replace
-        state={{ from: location.pathname }}
+        state={{ from: location.pathname + location.search }}
       />
     );
   }
@@ -86,7 +87,7 @@ function ProtectedRoute() {
       <Navigate
         to="/profile-setup"
         replace
-        state={{ from: location.pathname }}
+        state={{ from: location.pathname + location.search }}
       />
     );
   }

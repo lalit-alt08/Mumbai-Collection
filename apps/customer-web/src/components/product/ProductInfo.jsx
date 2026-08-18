@@ -30,17 +30,18 @@ function ProductInfo({ product }) {
   };
 
   const handleUpdateQuantity = async (newQuantity) => {
+    if (loading) return;
     try {
       setLoading(true);
-      if (newQuantity === 0) {
+      if (newQuantity <= 0) {
         await removeCartItem(cartItem.key);
       } else {
         await updateCartItem(cartItem.key, newQuantity);
       }
-      await refreshCart();
     } catch (error) {
-      console.error(error);
+      console.log("Cart updated with server state:", error.response?.data || error.message);
     } finally {
+      await refreshCart().catch(() => {});
       setLoading(false);
     }
   };

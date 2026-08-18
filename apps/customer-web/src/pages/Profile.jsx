@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import API_URL from "../config/api.js";
+import { isValidIndianPhone } from "../data/indianStates.js";
+
 import {
   User,
   Mail,
@@ -37,13 +40,11 @@ function Profile() {
       setError("");
 
       const response = await axios.get(
-        "http://localhost:5000/api/profile",
+       `${API_URL}/profile`,
         {
           withCredentials: true,
         }
       );
-
-      console.log("✅ PROFILE LOADED:", response.data);
 
       const profileData = response.data.profile || {};
 
@@ -56,7 +57,7 @@ function Profile() {
       });
     } catch (error) {
       console.error(
-        "❌ PROFILE LOAD ERROR:",
+        " PROFILE LOAD ERROR:",
         error.response?.data || error.message
       );
 
@@ -78,7 +79,11 @@ function Profile() {
   // ==============================
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    let { name, value } = e.target;
+
+    if (name === "phone") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    }
 
     setForm((prev) => ({
       ...prev,
@@ -154,11 +159,16 @@ function Profile() {
       return;
     }
 
+    if (!isValidIndianPhone(form.phone)) {
+      setError("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
+      return;
+    }
+
     try {
       setSaving(true);
 
       const response = await axios.put(
-        "http://localhost:5000/api/profile",
+        `${API_URL}/profile`,
         {
           full_name: form.full_name.trim(),
           age: Number(form.age),
@@ -170,7 +180,7 @@ function Profile() {
       );
 
       console.log(
-        "✅ PROFILE UPDATED:",
+        " PROFILE UPDATED:",
         response.data
       );
 
@@ -194,7 +204,7 @@ function Profile() {
       setSuccess("Profile updated successfully.");
     } catch (error) {
       console.error(
-        "❌ PROFILE UPDATE ERROR:",
+        "PROFILE UPDATE ERROR:",
         error.response?.data || error.message
       );
 
@@ -367,23 +377,24 @@ function Profile() {
               {/* PHONE */}
               <div>
                 <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Phone Number
+                  Mobile Number
                 </label>
 
-                <div className="relative">
-                  <Phone
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-                  />
+                <div className="relative flex items-center">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
+                    +91
+                  </span>
 
                   <input
                     type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
                     name="phone"
                     value={form.phone}
                     onChange={handleChange}
                     autoComplete="tel"
-                    placeholder="Enter your phone number"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    placeholder="9876543210"
+                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
                 </div>
               </div>

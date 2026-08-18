@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
+import API_URL from "../config/api.js";
 import axios from "axios";
+import { INDIAN_STATES, isValidIndianPhone, isValidIndianPincode } from "../data/indianStates.js";
+
+const API = `${API_URL}/addresses`;
 import {
   MapPin,
   Pencil,
@@ -11,8 +15,6 @@ import {
   Loader2,
 } from "lucide-react";
 
-const API = "http://localhost:5000/api/addresses";
-
 const emptyForm = {
   type: "home",
   full_name: "",
@@ -20,7 +22,7 @@ const emptyForm = {
   address_line1: "",
   address_line2: "",
   city: "",
-  state: "",
+  state: "MH",
   pincode: "",
 };
 
@@ -55,7 +57,7 @@ function Addresses() {
       setAddresses(response.data.addresses || []);
     } catch (error) {
       console.error(
-        "❌ ADDRESS LOAD ERROR:",
+        "ADDRESS LOAD ERROR:",
         error.response?.data || error.message
       );
 
@@ -77,7 +79,13 @@ function Addresses() {
   // --------------------------------------------------
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    let { name, value } = e.target;
+
+    if (name === "phone") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    } else if (name === "pincode") {
+      value = value.replace(/\D/g, "").slice(0, 6);
+    }
 
     setForm((prev) => ({
       ...prev,
@@ -104,7 +112,7 @@ function Addresses() {
       address_line1: address.address_line1 || "",
       address_line2: address.address_line2 || "",
       city: address.city || "",
-      state: address.state || "",
+      state: address.state || "MH",
       pincode: address.pincode || "",
     });
 
@@ -130,17 +138,33 @@ function Addresses() {
 
     setFormError("");
 
-    if (
-      !form.full_name.trim() ||
-      !form.phone.trim() ||
-      !form.address_line1.trim() ||
-      !form.city.trim() ||
-      !form.state.trim() ||
-      !form.pincode.trim()
-    ) {
-      setFormError(
-        "Please fill all required address fields."
-      );
+    if (!form.full_name.trim()) {
+      setFormError("Please enter your full name.");
+      return;
+    }
+
+    if (!isValidIndianPhone(form.phone)) {
+      setFormError("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
+      return;
+    }
+
+    if (!form.address_line1.trim()) {
+      setFormError("Please enter your street address / house number.");
+      return;
+    }
+
+    if (!form.city.trim()) {
+      setFormError("Please enter your city.");
+      return;
+    }
+
+    if (!form.state.trim()) {
+      setFormError("Please select your state.");
+      return;
+    }
+
+    if (!isValidIndianPincode(form.pincode)) {
+      setFormError("Please enter a valid 6-digit Indian PIN code (e.g. 401202).");
       return;
     }
 
@@ -157,11 +181,6 @@ function Addresses() {
           {
             withCredentials: true,
           }
-        );
-
-        console.log(
-          "✅ ADDRESS UPDATED:",
-          response.data
         );
       } else {
         // CREATE
@@ -387,37 +406,48 @@ function Addresses() {
                     name="full_name"
                     value={form.full_name}
                     onChange={handleChange}
-                    placeholder="Enter full name"
+                    placeholder="e.g. Rahul Sharma"
+                    required
                     className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Phone Number *
+                    Mobile Number *
                   </label>
 
-                  <input
-                    name="phone"
-                    value={form.phone}
-                    onChange={handleChange}
-                    placeholder="Enter phone number"
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
-                  />
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3.5 text-sm font-bold text-gray-500">
+                      +91
+                    </span>
+                    <input
+                      name="phone"
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      value={form.phone}
+                      onChange={handleChange}
+                      placeholder="9876543210"
+                      required
+                      className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* ADDRESS LINE 1 */}
               <div>
                 <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Address *
+                  Address Line 1 *
                 </label>
 
                 <input
                   name="address_line1"
                   value={form.address_line1}
                   onChange={handleChange}
-                  placeholder="House no., building, street"
+                  placeholder="Flat / House no., building, street"
+                  required
                   className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                 />
               </div>
@@ -435,7 +465,7 @@ function Addresses() {
                   name="address_line2"
                   value={form.address_line2}
                   onChange={handleChange}
-                  placeholder="Apartment, landmark, area"
+                  placeholder="Landmark, area name"
                   className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                 />
               </div>
@@ -451,7 +481,8 @@ function Addresses() {
                     name="city"
                     value={form.city}
                     onChange={handleChange}
-                    placeholder="City"
+                    placeholder="e.g. Vasai / Mumbai"
+                    required
                     className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
                 </div>
@@ -461,26 +492,35 @@ function Addresses() {
                     State *
                   </label>
 
-                  <input
+                  <select
                     name="state"
                     value={form.state}
                     onChange={handleChange}
-                    placeholder="State"
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
-                  />
+                    required
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  >
+                    {INDIAN_STATES.map((state) => (
+                      <option key={state.code} value={state.code}>
+                        {state.name} ({state.code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Pincode *
+                    PIN Code *
                   </label>
 
                   <input
                     name="pincode"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
                     value={form.pincode}
                     onChange={handleChange}
-                    placeholder="Pincode"
-                    inputMode="numeric"
+                    placeholder="6-digit PIN"
+                    required
                     className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
                 </div>

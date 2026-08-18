@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
 import { useNavigate } from "react-router-dom";
+import API_URL from "../../config/api.js";
 import {
   MapPin,
   CreditCard,
@@ -11,10 +12,13 @@ import {
   Plus,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { useCart } from "../../context/CartContext";
+import { getIndianStateCode } from "../../data/indianStates";
 
 function BillingForm() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { refreshCart } = useCart();
 
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
@@ -30,12 +34,9 @@ function BillingForm() {
         setLoadingAddresses(true);
         setError("");
 
-        const response = await axios.get(
-          "http://localhost:5000/api/addresses",
-          {
-            withCredentials: true,
-          }
-        );
+        const response = await axios.get(`${API_URL}/addresses`, {
+          withCredentials: true,
+        });
 
         const savedAddresses = response.data.addresses || [];
 
@@ -47,13 +48,13 @@ function BillingForm() {
         }
       } catch (error) {
         console.error(
-          "❌ ADDRESS LOAD ERROR:",
-          error.response?.data || error.message
+          "ADDRESS LOAD ERROR:",
+          error.response?.data || error.message,
         );
 
         setError(
           error.response?.data?.message ||
-            "Unable to load your saved addresses."
+            "Unable to load your saved addresses.",
         );
       } finally {
         setLoadingAddresses(false);
@@ -64,7 +65,7 @@ function BillingForm() {
   }, []);
 
   const selectedAddress = addresses.find(
-    (address) => address.id === selectedAddressId
+    (address) => address.id === selectedAddressId,
   );
 
   const handlePlaceOrder = async () => {
@@ -78,38 +79,42 @@ function BillingForm() {
       setError("");
 
       /*
-       * Convert saved address into WooCommerce checkout format.
+       * Convert saved address into WooCommerce checkout format with strict validation safeguards.
        */
+      const nameParts = (selectedAddress.full_name || "").trim().split(/\s+/);
 
-      const nameParts = (selectedAddress.full_name || "")
-        .trim()
-        .split(/\s+/);
+      const firstName = nameParts.shift() || "Customer";
+      const lastName = nameParts.join(" ") || firstName; // Fallback to firstName if single name
 
-      const firstName = nameParts.shift() || "";
-      const lastName = nameParts.join(" ");
+      const stateCode = getIndianStateCode(selectedAddress.state);
+      const userEmail = user?.email || "customer@mumbaicollection.in";
+      const userPhone =
+        (selectedAddress.phone || "").replace(/\D/g, "") || "9999999999";
+      const cleanPincode =
+        (selectedAddress.pincode || "").replace(/\D/g, "") || "401202";
 
       const billingAddress = {
         first_name: firstName,
         last_name: lastName,
-        email: user?.email || "",
-        phone: selectedAddress.phone || "",
-        address_1: selectedAddress.address_line1 || "",
+        email: userEmail,
+        phone: userPhone,
+        address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
-        city: selectedAddress.city || "",
-        state: selectedAddress.state || "",
-        postcode: selectedAddress.pincode || "",
+        city: selectedAddress.city || "Vasai",
+        state: stateCode,
+        postcode: cleanPincode,
         country: "IN",
       };
 
       const shippingAddress = {
         first_name: firstName,
         last_name: lastName,
-        phone: selectedAddress.phone || "",
-        address_1: selectedAddress.address_line1 || "",
+        phone: userPhone,
+        address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
-        city: selectedAddress.city || "",
-        state: selectedAddress.state || "",
-        postcode: selectedAddress.pincode || "",
+        city: selectedAddress.city || "Vasai",
+        state: stateCode,
+        postcode: cleanPincode,
         country: "IN",
       };
 
@@ -120,18 +125,21 @@ function BillingForm() {
         create_account: false,
       });
 
-      console.log("✅ ORDER CREATED:", response);
+      console.log("ORDER CREATED:", response);
+
+      // Refresh cart state to clear items and badges
+      await refreshCart().catch(() => {});
 
       navigate(`/order-success/${response.order_id}`);
     } catch (error) {
       console.error(
-        "❌ PLACE ORDER ERROR:",
-        error.response?.data || error.message
+        " PLACE ORDER ERROR:",
+        error.response?.data || error.message,
       );
 
       setError(
         error.response?.data?.message ||
-          "Failed to place order. Please try again."
+          "Failed to place order. Please try again.",
       );
     } finally {
       setLoading(false);
@@ -142,10 +150,7 @@ function BillingForm() {
     return (
       <div className="flex min-h-[240px] items-center justify-center rounded-[20px] border border-[#ECECEC] bg-white">
         <div className="flex items-center gap-2 text-[14px] font-medium text-[#666666]">
-          <Loader2
-            size={19}
-            className="animate-spin text-[#FF8A00]"
-          />
+          <Loader2 size={19} className="animate-spin text-[#FF8A00]" />
           Loading your saved addresses...
         </div>
       </div>
@@ -154,12 +159,9 @@ function BillingForm() {
 
   return (
     <div className="rounded-[20px] border border-[#ECECEC] bg-white p-5 shadow-[0_6px_24px_rgba(0,0,0,0.05)] md:p-6">
-
       {/* Header */}
       <div className="mb-5">
-        <h2 className="text-[25px] font-bold text-[#1E1E1E]">
-          Checkout
-        </h2>
+        <h2 className="text-[25px] font-bold text-[#1E1E1E]">Checkout</h2>
 
         <p className="mt-1.5 text-[14px] text-[#666666]">
           Select your delivery address and payment method.
@@ -177,10 +179,7 @@ function BillingForm() {
       <div className="mb-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-            <MapPin
-              size={18}
-              className="text-[#FF8A00]"
-            />
+            <MapPin size={18} className="text-[#FF8A00]" />
             Delivery Address
           </h3>
 
@@ -197,10 +196,7 @@ function BillingForm() {
         {/* No saved addresses */}
         {addresses.length === 0 ? (
           <div className="rounded-[14px] border border-dashed border-[#FFB866] bg-[#FFF9F2] p-5 text-center">
-            <MapPin
-              size={28}
-              className="mx-auto mb-2 text-[#FF8A00]"
-            />
+            <MapPin size={28} className="mx-auto mb-2 text-[#FF8A00]" />
 
             <h4 className="text-[14px] font-bold text-[#1E1E1E]">
               No saved addresses
@@ -221,8 +217,7 @@ function BillingForm() {
         ) : (
           <div className="space-y-3">
             {addresses.map((address) => {
-              const isSelected =
-                selectedAddressId === address.id;
+              const isSelected = selectedAddressId === address.id;
 
               const isHome = address.type === "home";
 
@@ -230,9 +225,7 @@ function BillingForm() {
                 <button
                   key={address.id}
                   type="button"
-                  onClick={() =>
-                    setSelectedAddressId(address.id)
-                  }
+                  onClick={() => setSelectedAddressId(address.id)}
                   className={`w-full rounded-[16px] border-2 p-4 text-left transition-all ${
                     isSelected
                       ? "border-[#FF8A00] bg-[#FFF9F2] shadow-[0_4px_16px_rgba(255,138,0,0.07)]"
@@ -240,31 +233,24 @@ function BillingForm() {
                   }`}
                 >
                   <div className="flex items-start gap-3">
-
                     {/* Icon */}
                     <div
                       className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
-                        isSelected
-                          ? "bg-[#FFF0DD]"
-                          : "bg-gray-50"
+                        isSelected ? "bg-[#FFF0DD]" : "bg-gray-50"
                       }`}
                     >
                       {isHome ? (
                         <Home
                           size={20}
                           className={
-                            isSelected
-                              ? "text-[#FF8A00]"
-                              : "text-gray-500"
+                            isSelected ? "text-[#FF8A00]" : "text-gray-500"
                           }
                         />
                       ) : (
                         <Building2
                           size={20}
                           className={
-                            isSelected
-                              ? "text-[#FF8A00]"
-                              : "text-gray-500"
+                            isSelected ? "text-[#FF8A00]" : "text-gray-500"
                           }
                         />
                       )}
@@ -272,7 +258,6 @@ function BillingForm() {
 
                     {/* Address */}
                     <div className="min-w-0 flex-1">
-
                       <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-[15px] font-bold text-[#1E1E1E]">
                           {isHome ? "Home" : "Office"}
@@ -295,27 +280,21 @@ function BillingForm() {
 
                       <p className="mt-2 text-[13px] leading-5 text-[#666666]">
                         {address.address_line1}
-
                         {address.address_line2 && (
                           <>
                             <br />
                             {address.address_line2}
                           </>
                         )}
-
                         <br />
-
-                        {address.city}, {address.state} -{" "}
-                        {address.pincode}
+                        {address.city}, {address.state} - {address.pincode}
                       </p>
                     </div>
 
                     {/* Radio */}
                     <div
                       className={`mt-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                        isSelected
-                          ? "border-[#FF8A00]"
-                          : "border-gray-300"
+                        isSelected ? "border-[#FF8A00]" : "border-gray-300"
                       }`}
                     >
                       {isSelected && (
@@ -335,10 +314,7 @@ function BillingForm() {
       {/* Payment */}
       <div className="mb-5">
         <h3 className="mb-3 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-          <CreditCard
-            size={18}
-            className="text-[#FF8A00]"
-          />
+          <CreditCard size={18} className="text-[#FF8A00]" />
           Payment Method
         </h3>
 
@@ -363,19 +339,12 @@ function BillingForm() {
       <button
         type="button"
         onClick={handlePlaceOrder}
-        disabled={
-          loading ||
-          addresses.length === 0 ||
-          !selectedAddress
-        }
+        disabled={loading || addresses.length === 0 || !selectedAddress}
         className="flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] bg-[#FF8A00] text-[15px] font-bold text-white shadow-[0_7px_22px_rgba(255,138,0,0.2)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading ? (
           <>
-            <Loader2
-              className="animate-spin"
-              size={19}
-            />
+            <Loader2 className="animate-spin" size={19} />
             Processing...
           </>
         ) : (

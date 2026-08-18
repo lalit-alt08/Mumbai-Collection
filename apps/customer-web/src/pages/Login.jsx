@@ -1,16 +1,8 @@
-import {
-  Mail,
-  Lock,
-  ArrowRight,
-  Eye,
-  EyeOff,
-} from "lucide-react";
-import { useState } from "react";
-import {
-  useNavigate,
-  useLocation,
-} from "react-router-dom";
+import { Mail, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { useRef, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
+import API_URL from "../config/api.js";
 import { login } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 
@@ -19,6 +11,8 @@ function Login() {
   const location = useLocation();
 
   const { login: loginUser } = useAuth();
+
+  const submittingRef = useRef(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,6 +26,11 @@ function Login() {
   const handleLogin = async (e) => {
     e.preventDefault();
 
+    // Prevent duplicate login requests
+    if (submittingRef.current) {
+      return;
+    }
+
     setEmailError("");
     setPasswordError("");
     setError("");
@@ -42,9 +41,7 @@ function Login() {
     if (!email.trim()) {
       setEmailError("Email is required.");
       hasError = true;
-    } else if (
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-    ) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setEmailError("Please enter a valid email address.");
       hasError = true;
     }
@@ -54,9 +51,7 @@ function Login() {
       setPasswordError("Password is required.");
       hasError = true;
     } else if (password.length < 8) {
-      setPasswordError(
-        "Password must be at least 8 characters."
-      );
+      setPasswordError("Password must be at least 8 characters.");
       hasError = true;
     }
 
@@ -65,6 +60,7 @@ function Login() {
     }
 
     try {
+      submittingRef.current = true;
       setLoading(true);
       setError("");
 
@@ -76,19 +72,19 @@ function Login() {
 
       // Check whether profile + address information is complete
       const profileResponse = await axios.get(
-        "http://localhost:5000/api/profile/complete",
+        `${API_URL}/profile/complete`,
         {
           withCredentials: true,
-        }
+        },
       );
 
-      const profileComplete =
-        profileResponse.data.complete === true;
+      const profileComplete = profileResponse.data.complete === true;
 
-      // Incomplete user → Profile Setup
+      // Incomplete user → Profile Setup (forward destination state)
       if (!profileComplete) {
         navigate("/profile-setup", {
           replace: true,
+          state: location.state,
         });
 
         return;
@@ -114,28 +110,28 @@ function Login() {
         });
       }
     } catch (err) {
-      console.error(
-        "LOGIN ERROR:",
-        err.response?.data || err.message
-      );
-
-      setError(
-        err.response?.data?.message ||
-          "Invalid email or password."
-      );
+      if (err.response?.status === 401) {
+        setError(err.response.data?.message || "Invalid email or password.");
+      } else if (err.response?.status === 429) {
+        setError(
+          err.response.data?.message ||
+            "Too many login attempts. Please try again later.",
+        );
+      } else {
+        console.error("LOGIN ERROR:", err);
+        setError("Unable to connect to the server. Please try again.");
+      }
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   };
 
   return (
     <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F8F9F5]">
-
       {/* Login Form Container */}
       <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
-
         <div className="w-full">
-
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E1E1E] md:text-[32px]">
@@ -147,11 +143,7 @@ function Login() {
             </p>
           </div>
 
-          <form
-            onSubmit={handleLogin}
-            className="flex flex-col gap-5"
-          >
-
+          <form onSubmit={handleLogin} className="flex flex-col gap-5">
             {/* Email Field */}
             <div>
               <label className="mb-2 block text-[13px] font-bold text-gray-700">
@@ -179,9 +171,7 @@ function Login() {
               </div>
 
               {emailError && (
-                <p className="mt-2 text-sm text-red-600">
-                  {emailError}
-                </p>
+                <p className="mt-2 text-sm text-red-600">{emailError}</p>
               )}
             </div>
 
@@ -197,11 +187,7 @@ function Login() {
                 </div>
 
                 <input
-                  type={
-                    showPassword
-                      ? "text"
-                      : "password"
-                  }
+                  type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="••••••••"
                   value={password}
@@ -216,31 +202,21 @@ function Login() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowPassword(!showPassword)
-                  }
+                  onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-4 text-gray-400 transition-colors hover:text-gray-600"
                 >
-                  {showPassword ? (
-                    <EyeOff size={20} />
-                  ) : (
-                    <Eye size={20} />
-                  )}
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
               {passwordError && (
-                <p className="mt-2 text-sm text-red-600">
-                  {passwordError}
-                </p>
+                <p className="mt-2 text-sm text-red-600">{passwordError}</p>
               )}
 
               <div className="mt-3 flex justify-end">
                 <button
                   type="button"
-                  onClick={() =>
-                    navigate("/forgot-password")
-                  }
+                  onClick={() => navigate("/forgot-password")}
                   className="text-[13px] font-semibold text-[#FF8A00] hover:underline"
                 >
                   Forgot password?
@@ -261,32 +237,23 @@ function Login() {
               disabled={loading}
               className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(255,138,0,0.25)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {loading
-                ? "Signing in..."
-                : "Sign In"}
+              {loading ? "Signing in..." : "Sign In"}
 
-              {!loading && (
-                <ArrowRight size={20} />
-              )}
+              {!loading && <ArrowRight size={20} />}
             </button>
-
           </form>
 
           {/* Footer */}
           <p className="mt-8 text-center text-[14px] text-gray-500">
             Don't have an account?
-
             <button
               type="button"
-              onClick={() =>
-                navigate("/register")
-              }
+              onClick={() => navigate("/register")}
               className="ml-1.5 font-bold text-[#FF7A00] transition-colors hover:text-[#e06b00]"
             >
               Create one now
             </button>
           </p>
-
         </div>
       </div>
     </div>

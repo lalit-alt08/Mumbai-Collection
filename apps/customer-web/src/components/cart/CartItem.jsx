@@ -1,9 +1,5 @@
-//import useCartStore from "../../store/cartstore";
-
 function CartItem({ item }) {
-  const increaseQuantity = useCartStore((state) => state.increaseQuantity);
-  const decreaseQuantity = useCartStore((state) => state.decreaseQuantity);
-  const removeItem = useCartStore((state) => state.removeItem);
+  if (!item) return null;
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-white p-4 shadow-sm sm:flex-row sm:items-center">

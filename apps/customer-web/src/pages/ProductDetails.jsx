@@ -52,7 +52,7 @@ function ProductDetails() {
         <p className="mb-8 text-[#6B7280]">The product you are looking for does not exist or has been removed.</p>
         <button
           onClick={() => navigate("/")}
-          className="rounded-full bg-[#3E8E2E] px-8 py-3 font-semibold text-white transition-all hover:bg-[#2F7424]"
+          className="rounded-full bg-[#FF8A00] px-8 py-3 font-semibold text-white shadow-[0_4px_16px_rgba(255,138,0,0.25)] transition-all hover:bg-[#FF7300] active:scale-95"
         >
           Return Home
         </button>

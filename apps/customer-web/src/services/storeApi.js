@@ -1,7 +1,11 @@
 
 import axios from "axios";
 
-const STORE_API = "/api/store";
+const STORE_API =
+  import.meta.env.VITE_STORE_API_URL ||
+  (import.meta.env.VITE_WORDPRESS_URL
+    ? `${import.meta.env.VITE_WORDPRESS_URL}/wp-json/wc/store/v1`
+    : "/api/store");
 
 let nonce = localStorage.getItem("wc_nonce") || "";
 let cartToken = localStorage.getItem("wc_cart_token") || "";
@@ -16,6 +20,13 @@ const updateTokens = (response) => {
     cartToken = response.headers["cart-token"];
     localStorage.setItem("wc_cart_token", cartToken);
   }
+};
+
+export const clearCartSession = () => {
+  nonce = "";
+  cartToken = "";
+  localStorage.removeItem("wc_nonce");
+  localStorage.removeItem("wc_cart_token");
 };
 
 const authHeaders = () => ({

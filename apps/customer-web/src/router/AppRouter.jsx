@@ -16,6 +16,13 @@ import ResetPassword from "../pages/ResetPassword";
 import ProfileSetup from "../pages/ProfileSetup";
 import Addresses from "../pages/Addresses";
 import Profile from "../pages/Profile";
+import Orders from "../pages/Orders";
+import Contact from "../pages/Contact";
+import TrackOrder from "../pages/TrackOrder";
+import ShippingPolicy from "../pages/ShippingPolicy";
+import ReturnPolicy from "../pages/ReturnPolicy";
+import Terms from "../pages/Terms";
+import PrivacyPolicy from "../pages/PrivacyPolicy";
 
 function AppRouter() {
   return (
@@ -25,11 +32,12 @@ function AppRouter() {
           <Route path="/" element={<Home />} />
           <Route path="/cart" element={<Cart />} />
 
-          {/* Protected Checkout */}
+          {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/profile-setup" element={<ProfileSetup />} />
             <Route path="/account" element={<Account />} />
+            <Route path="/account/orders" element={<Orders />} />
             <Route path="/account/addresses" element={<Addresses />} />
             <Route path="/account/profile" element={<Profile />} />
           </Route>
@@ -37,6 +45,15 @@ function AppRouter() {
           <Route path="/product/:id" element={<ProductDetails />} />
           <Route path="/category/:categoryId" element={<Category />} />
           <Route path="/order-success/:id" element={<OrderSuccess />} />
+
+          {/* Customer & Policy Pages */}
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/support" element={<Contact />} />
+          <Route path="/track-order" element={<TrackOrder />} />
+          <Route path="/shipping-policy" element={<ShippingPolicy />} />
+          <Route path="/return-policy" element={<ReturnPolicy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />

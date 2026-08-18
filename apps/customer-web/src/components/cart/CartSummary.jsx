@@ -1,11 +1,8 @@
 import { useNavigate } from "react-router-dom";
-// import useCartStore from "../../store/cartstore";
-import calculateSubtotal from "../../utils/calculateSubtotal";
 
 function CartSummary() {
-  const cart = useCartStore((state) => state.cart);
-  const subtotal = calculateSubtotal(cart);
   const navigate = useNavigate();
+  const subtotal = 0;
 
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm lg:sticky lg:top-24 md:p-6">

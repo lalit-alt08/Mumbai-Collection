@@ -14,6 +14,8 @@ import {
   X,
   CheckCircle2,
 } from "lucide-react";
+import API_URL from "../config/api.js";
+import { INDIAN_STATES, isValidIndianPhone, isValidIndianPincode } from "../data/indianStates.js";
 
 function ProfileSetup() {
   const navigate = useNavigate();
@@ -34,7 +36,7 @@ function ProfileSetup() {
     address_line1: "",
     address_line2: "",
     city: "",
-    state: "",
+    state: "MH",
     pincode: "",
   });
 
@@ -48,29 +50,31 @@ function ProfileSetup() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
+        setLoading(true);
+
         const response = await axios.get(
-          "http://localhost:5000/api/profile",
+          `${API_URL}/profile`,
           {
             withCredentials: true,
           },
         );
 
-        const addressResponse = await axios.get(
-          "http://localhost:5000/api/addresses",
-          {
-            withCredentials: true,
-          },
-        );
-
-        setAddresses(addressResponse.data.addresses || []);
-
-        const profile = response.data.profile;
+        const profileData = response.data.profile || {};
 
         setForm({
-          full_name: profile?.full_name || "",
-          age: profile?.age || "",
-          phone: profile?.phone || "",
+          full_name: profileData.full_name || "",
+          age: profileData.age || "",
+          phone: profileData.phone || "",
         });
+
+        const addressRes = await axios.get(
+          `${API_URL}/addresses`,
+          {
+            withCredentials: true,
+          },
+        );
+
+        setAddresses(addressRes.data.addresses || []);
       } catch (error) {
         console.error(
           "❌ PROFILE LOAD ERROR:",
@@ -90,7 +94,11 @@ function ProfileSetup() {
   }, []);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    let { name, value } = e.target;
+
+    if (name === "phone") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    }
 
     setForm((prev) => ({
       ...prev,
@@ -99,7 +107,13 @@ function ProfileSetup() {
   };
 
   const handleAddressChange = (e) => {
-    const { name, value } = e.target;
+    let { name, value } = e.target;
+
+    if (name === "phone") {
+      value = value.replace(/\D/g, "").slice(0, 10);
+    } else if (name === "pincode") {
+      value = value.replace(/\D/g, "").slice(0, 6);
+    }
 
     setAddressForm((prev) => ({
       ...prev,
@@ -117,7 +131,7 @@ function ProfileSetup() {
       address_line1: "",
       address_line2: "",
       city: "",
-      state: "",
+      state: "MH",
       pincode: "",
     });
 
@@ -134,7 +148,7 @@ function ProfileSetup() {
       address_line1: address.address_line1 || "",
       address_line2: address.address_line2 || "",
       city: address.city || "",
-      state: address.state || "",
+      state: address.state || "MH",
       pincode: address.pincode || "",
     });
 
@@ -142,31 +156,52 @@ function ProfileSetup() {
   };
 
   const handleAddressSubmit = async () => {
-    try {
-      setMessage("");
+    setMessage("");
 
+    if (!addressForm.full_name.trim()) {
+      setMessage("Please enter recipient's full name.");
+      return;
+    }
+
+    if (!isValidIndianPhone(addressForm.phone)) {
+      setMessage("Please enter a valid 10-digit mobile number for delivery.");
+      return;
+    }
+
+    if (!addressForm.address_line1.trim()) {
+      setMessage("Please enter street address / house number.");
+      return;
+    }
+
+    if (!addressForm.city.trim()) {
+      setMessage("Please enter city.");
+      return;
+    }
+
+    if (!isValidIndianPincode(addressForm.pincode)) {
+      setMessage("Please enter a valid 6-digit Indian PIN code (e.g. 401202).");
+      return;
+    }
+
+    try {
       let response;
 
       if (editingAddressId) {
         response = await axios.put(
-          `http://localhost:5000/api/addresses/${editingAddressId}`,
+          `${API_URL}/addresses/${editingAddressId}`,
           addressForm,
           {
             withCredentials: true,
           },
         );
-
-        console.log("✅ ADDRESS UPDATED:", response.data);
       } else {
         response = await axios.post(
-          "http://localhost:5000/api/addresses",
+          `${API_URL}/addresses`,
           addressForm,
           {
             withCredentials: true,
           },
         );
-
-        console.log("✅ ADDRESS SAVED:", response.data);
       }
 
       setAddresses(response.data.addresses || []);
@@ -197,13 +232,11 @@ function ProfileSetup() {
       setMessage("");
 
       const response = await axios.delete(
-        `http://localhost:5000/api/addresses/${addressId}`,
+        `${API_URL}/addresses/${addressId}`,
         {
           withCredentials: true,
         },
       );
-
-      console.log("✅ ADDRESS DELETED:", response.data);
 
       setAddresses(response.data.addresses || []);
 
@@ -221,46 +254,56 @@ function ProfileSetup() {
     }
   };
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
-  try {
-    setSaving(true);
     setMessage("");
 
-    const response = await axios.put(
-      "http://localhost:5000/api/profile",
-      {
-        full_name: form.full_name,
-        age: Number(form.age),
-        phone: form.phone,
-      },
-      {
-        withCredentials: true,
-      },
-    );
+    if (!form.full_name.trim()) {
+      setMessage("Please enter your full name.");
+      return;
+    }
 
-    console.log("✅ PROFILE SAVED:", response.data);
+    if (!isValidIndianPhone(form.phone)) {
+      setMessage("Please enter a valid 10-digit mobile number (e.g. 9876543210).");
+      return;
+    }
 
-    setMessage("Profile saved successfully.");
+    try {
+      setSaving(true);
 
-    setTimeout(() => {
-      navigate("/", { replace: true });
-    }, 500);
-  } catch (error) {
-    console.error(
-      "❌ PROFILE SAVE ERROR:",
-      error.response?.data || error.message,
-    );
+      const response = await axios.put(
+        `${API_URL}/profile`,
+        {
+          full_name: form.full_name,
+          age: Number(form.age),
+          phone: form.phone,
+        },
+        {
+          withCredentials: true,
+        },
+      );
 
-    setMessage(
-      error.response?.data?.message ||
-        "Unable to save profile.",
-    );
-  } finally {
-    setSaving(false);
-  }
-};
+      setMessage("Profile saved successfully.");
+
+      setTimeout(() => {
+        const destination = location.state?.from || "/";
+        navigate(destination, { replace: true });
+      }, 500);
+    } catch (error) {
+      console.error(
+        "❌ PROFILE SAVE ERROR:",
+        error.response?.data || error.message,
+      );
+
+      setMessage(
+        error.response?.data?.message ||
+          "Unable to save profile.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -378,24 +421,25 @@ const handleSubmit = async (e) => {
 
                   <div>
                     <label className="mb-2 block text-sm font-bold text-gray-700">
-                      Phone Number
+                      Mobile Number
                       <span className="ml-1 text-[#FF7A00]">*</span>
                     </label>
 
                     <div className="relative">
-                      <Phone
-                        size={18}
-                        className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-                      />
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
+                        +91
+                      </span>
 
                       <input
                         type="tel"
+                        inputMode="numeric"
+                        maxLength={10}
                         name="phone"
                         value={form.phone}
                         onChange={handleChange}
-                        placeholder="Phone number"
+                        placeholder="9876543210"
                         required
-                        className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                        className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                       />
                     </div>
                   </div>
@@ -621,18 +665,26 @@ const handleSubmit = async (e) => {
                 {/* Phone */}
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Phone
+                    Mobile Number
                     <span className="ml-1 text-[#FF7A00]">*</span>
                   </label>
 
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={addressForm.phone}
-                    onChange={handleAddressChange}
-                    required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
-                  />
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3.5 text-sm font-bold text-gray-400">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      name="phone"
+                      value={addressForm.phone}
+                      onChange={handleAddressChange}
+                      placeholder="9876543210"
+                      required
+                      className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    />
+                  </div>
                 </div>
 
                 {/* Address Line 1 */}
@@ -647,7 +699,7 @@ const handleSubmit = async (e) => {
                     name="address_line1"
                     value={addressForm.address_line1}
                     onChange={handleAddressChange}
-                    placeholder="House number, building, street"
+                    placeholder="Flat / House number, building, street"
                     required
                     className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
@@ -667,7 +719,7 @@ const handleSubmit = async (e) => {
                     name="address_line2"
                     value={addressForm.address_line2}
                     onChange={handleAddressChange}
-                    placeholder="Apartment, landmark, etc."
+                    placeholder="Landmark, area name"
                     className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
                 </div>
@@ -684,6 +736,7 @@ const handleSubmit = async (e) => {
                     name="city"
                     value={addressForm.city}
                     onChange={handleAddressChange}
+                    placeholder="e.g. Vasai / Mumbai"
                     required
                     className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
                   />
@@ -696,20 +749,25 @@ const handleSubmit = async (e) => {
                     <span className="ml-1 text-[#FF7A00]">*</span>
                   </label>
 
-                  <input
-                    type="text"
+                  <select
                     name="state"
                     value={addressForm.state}
                     onChange={handleAddressChange}
                     required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
-                  />
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  >
+                    {INDIAN_STATES.map((state) => (
+                      <option key={state.code} value={state.code}>
+                        {state.name} ({state.code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Pincode */}
                 <div className="sm:max-w-xs">
                   <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Pincode
+                    PIN Code
                     <span className="ml-1 text-[#FF7A00]">*</span>
                   </label>
 
@@ -718,8 +776,8 @@ const handleSubmit = async (e) => {
                     name="pincode"
                     value={addressForm.pincode}
                     onChange={handleAddressChange}
-                    placeholder="6-digit pincode"
-                    maxLength="6"
+                    placeholder="6-digit PIN"
+                    maxLength={6}
                     inputMode="numeric"
                     required
                     className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"

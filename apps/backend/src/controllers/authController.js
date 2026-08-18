@@ -4,10 +4,6 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log("========== LOGIN START ==========");
-    console.log("LOGIN EMAIL:", email);
-    console.log("PASSWORD RECEIVED:", !!password);
-
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
       password,
@@ -15,12 +11,7 @@ export const login = async (req, res) => {
 
     const data = response.data;
 
-    console.log("WORDPRESS LOGIN RESPONSE:");
-    console.log(data);
-
     if (data.success && data.session && data.cookie_name) {
-      console.log("SETTING AUTH COOKIE");
-
       res.cookie(
         "mumbai_wp_auth",
         `${data.cookie_name}=${data.session}`,
@@ -35,8 +26,6 @@ export const login = async (req, res) => {
     }
 
     if (data.rest_nonce) {
-      console.log("SETTING NONCE COOKIE");
-
       res.cookie("mumbai_wp_nonce", data.rest_nonce, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -46,25 +35,25 @@ export const login = async (req, res) => {
       });
     }
 
-    console.log("LOGIN SUCCESS");
-    console.log("================================");
-
     res.json({
       success: data.success,
       message: data.message,
       user: data.user,
     });
-
   } catch (error) {
-    console.log("========== LOGIN ERROR ==========");
-    console.log("STATUS:", error.response?.status);
-    console.log("WORDPRESS ERROR:", error.response?.data);
-    console.log("ERROR MESSAGE:", error.message);
-    console.log("=================================");
+    const status = error.response?.status || 500;
 
-    res.status(error.response?.status || 401).json({
+    // 401 and 429 are expected authentication responses.
+    // Don't print them to the terminal.
+    if (status !== 401 && status !== 429) {
+      console.error("Login error:", error.response?.data || error.message);
+    }
+
+    res.status(status).json({
       success: false,
-      message: error.response?.data || error.message,
+      message:
+        error.response?.data?.message ||
+        "Unable to login.",
     });
   }
 };

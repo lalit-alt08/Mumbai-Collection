@@ -3,6 +3,7 @@ import {
   getCurrentUser,
   logout as logoutApi,
 } from "../services/authService";
+import { clearCartSession } from "../services/storeApi";
 
 const AuthContext = createContext();
 
@@ -10,21 +11,30 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check existing login session when application starts
+  // ==========================================
+  // RESTORE EXISTING LOGIN SESSION
+  // ==========================================
+
   useEffect(() => {
     const restoreSession = async () => {
       try {
         const response = await getCurrentUser();
 
         if (response?.success && response?.user) {
+          console.log(" EXISTING SESSION RESTORED");
+
           setUser(response.user);
-          localStorage.setItem("user", JSON.stringify(response.user));
+
+          localStorage.setItem(
+            "user",
+            JSON.stringify(response.user)
+          );
         } else {
           setUser(null);
           localStorage.removeItem("user");
         }
       } catch (error) {
-        console.log("No active session.");
+        console.log(" No active session.");
 
         setUser(null);
         localStorage.removeItem("user");
@@ -36,19 +46,43 @@ export function AuthProvider({ children }) {
     restoreSession();
   }, []);
 
+  // ==========================================
+  // LOGIN
+  // ==========================================
+
   const login = (userData) => {
     setUser(userData);
-    localStorage.setItem("user", JSON.stringify(userData));
+
+    localStorage.setItem(
+      "user",
+      JSON.stringify(userData)
+    );
   };
+
+  // ==========================================
+  // LOGOUT
+  // ==========================================
 
   const logout = async () => {
     try {
+      console.log("LOGOUT START");
+
+      // Call Node → WordPress logout
       await logoutApi();
+
+      console.log(" SERVER LOGOUT SUCCESS");
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error(
+        "LOGOUT API ERROR:",
+        error.response?.data || error.message
+      );
     } finally {
+      // Always clear frontend authentication & cart state
       setUser(null);
       localStorage.removeItem("user");
+      clearCartSession();
+
+      console.log("✅ LOCAL SESSION & CART CLEARED");
     }
   };
 

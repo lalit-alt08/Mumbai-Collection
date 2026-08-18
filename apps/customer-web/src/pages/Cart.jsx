@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { updateCartItem, removeCartItem } from "../services/storeApi";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
@@ -8,6 +9,37 @@ function Cart() {
   const navigate = useNavigate();
   const { cart, loading, refreshCart } = useCart();
   const { isAuthenticated } = useAuth();
+  const [updatingKey, setUpdatingKey] = useState(null);
+
+  const handleDecreaseQuantity = async (item) => {
+    if (updatingKey) return;
+    try {
+      setUpdatingKey(item.key);
+      if (item.quantity <= 1) {
+        await removeCartItem(item.key);
+      } else {
+        await updateCartItem(item.key, item.quantity - 1);
+      }
+    } catch (err) {
+      console.log("Cart conflict handled:", err.response?.data || err.message);
+    } finally {
+      await refreshCart().catch(() => {});
+      setUpdatingKey(null);
+    }
+  };
+
+  const handleIncreaseQuantity = async (item) => {
+    if (updatingKey) return;
+    try {
+      setUpdatingKey(item.key);
+      await updateCartItem(item.key, item.quantity + 1);
+    } catch (err) {
+      console.log("Cart conflict handled:", err.response?.data || err.message);
+    } finally {
+      await refreshCart().catch(() => {});
+      setUpdatingKey(null);
+    }
+  };
 
   if (loading)
     return (
@@ -144,27 +176,25 @@ function Cart() {
 
                     <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#FF8A00] px-1 text-white shadow-sm">
                       <button
-                        onClick={async () => {
-                          if (item.quantity === 1) {
-                            await removeCartItem(item.key);
-                          } else {
-                            await updateCartItem(item.key, item.quantity - 1);
-                          }
-                          await refreshCart();
-                        }}
-                        className="flex h-full w-8 items-center justify-center text-lg active:scale-95 transition-transform"
+                        type="button"
+                        disabled={updatingKey === item.key}
+                        onClick={() => handleDecreaseQuantity(item)}
+                        className="flex h-full w-8 items-center justify-center text-lg active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         −
                       </button>
                       <span className="text-[14px] font-bold">
-                        {item.quantity}
+                        {updatingKey === item.key ? (
+                          <span className="animate-pulse">...</span>
+                        ) : (
+                          item.quantity
+                        )}
                       </span>
                       <button
-                        onClick={async () => {
-                          await updateCartItem(item.key, item.quantity + 1);
-                          await refreshCart();
-                        }}
-                        className="flex h-full w-8 items-center justify-center text-lg active:scale-95 transition-transform"
+                        type="button"
+                        disabled={updatingKey === item.key}
+                        onClick={() => handleIncreaseQuantity(item)}
+                        className="flex h-full w-8 items-center justify-center text-lg active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         +
                       </button>
@@ -253,10 +283,7 @@ function Cart() {
         <button
           onClick={() => {
             if (!isAuthenticated) {
-              alert(
-                "Please login or create an account to continue to checkout.",
-              );
-              navigate("/login");
+              navigate("/login", { state: { from: "/checkout" } });
               return;
             }
 

@@ -10,17 +10,34 @@ export const getAllProducts = async (req, res) => {
   try {
     const products = await fetchProducts();
 
-    res.json(products);
-  } catch (error) {
-    console.error(error);
+    if (Array.isArray(products)) {
+      return res.json(products);
+    }
 
-    res.status(500).json({
+    // If WooCommerce/service returns { products: [...] }
+    if (Array.isArray(products?.products)) {
+      return res.json(products.products);
+    }
+
+    console.error("Unexpected products response:", products);
+
+    return res.status(500).json({
+      success: false,
+      message: "Invalid products response.",
+      products: [],
+    });
+  } catch (error) {
+    console.error(
+      "Get all products error:",
+      error.response?.data || error.message
+    );
+
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch products",
     });
   }
 };
-
 export const getProductById = async (req, res) => {
   try {
     const product = await fetchProductById(req.params.id);
