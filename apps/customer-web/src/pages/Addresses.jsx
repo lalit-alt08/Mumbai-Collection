@@ -192,10 +192,6 @@ function Addresses() {
           }
         );
 
-        console.log(
-          "✅ ADDRESS CREATED:",
-          response.data
-        );
       }
 
       // Refresh list from backend

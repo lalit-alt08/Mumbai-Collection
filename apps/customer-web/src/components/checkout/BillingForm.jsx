@@ -124,9 +124,6 @@ function BillingForm() {
         payment_method: "cod",
         create_account: false,
       });
-
-      console.log("ORDER CREATED:", response);
-
       // Refresh cart state to clear items and badges
       await refreshCart().catch(() => {});
 

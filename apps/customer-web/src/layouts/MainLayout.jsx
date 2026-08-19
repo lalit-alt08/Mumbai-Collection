@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import FloatingCartBar from "../components/layout/FloatingCartBar";
+import NetworkBanner from "../components/common/NetworkBanner";
 
 function MainLayout() {
   const location = useLocation();
@@ -31,6 +32,7 @@ function MainLayout() {
 
   return (
     <div className={`min-h-screen ${path === '/' ? 'bg-[#FFF9F0]' : 'bg-white'}`}>
+      <NetworkBanner />
       {!isHeaderHidden && <Header />}
 
       <main

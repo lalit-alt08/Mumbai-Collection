@@ -82,7 +82,7 @@ export const searchAllProducts = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      error: error.response?.data || error.message,
+      message: error.response?.data?.message || error.message || "Failed to search products",
     });
   }
 };

@@ -102,9 +102,9 @@ const navigate = useNavigate();
           {/* Logout Button */}
           <div className="mb-8 flex justify-center md:mb-10">
             <button
-              onClick={() => {
-                logout();
-                navigate("/");
+              onClick={async () => {
+                await logout();
+                navigate("/", { replace: true });
               }}
               className="rounded-xl border border-[#FF7A00] bg-white px-10 py-2.5 text-[15px] font-bold text-[#FF7A00] transition hover:bg-orange-50 active:scale-95 md:rounded-2xl md:px-14 md:py-3.5 md:text-[18px]"
             >

@@ -1,15 +1,9 @@
 import axios from "axios";
-import https from "https";
-
-const httpsAgent =
-  process.env.NODE_ENV === "development"
-    ? new https.Agent({
-        rejectUnauthorized: false,
-      })
-    : undefined;
+import { httpsAgent } from "../config/httpAgent.js";
 
 const wp = axios.create({
   baseURL: process.env.WORDPRESS_URL,
+  timeout: 8000,
 
   auth: {
     username: process.env.WP_USERNAME,
@@ -18,5 +12,27 @@ const wp = axios.create({
 
   httpsAgent,
 });
+
+// Automatically retry once if a socket was closed by the web server
+wp.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config;
+    if (!config || config._retry) {
+      return Promise.reject(error);
+    }
+
+    if (
+      error.code === "ECONNRESET" ||
+      error.code === "ETIMEDOUT" ||
+      error.message?.includes("socket hang up")
+    ) {
+      config._retry = true;
+      return wp(config);
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export default wp;

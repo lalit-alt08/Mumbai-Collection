@@ -57,9 +57,25 @@ export const searchProducts = async (search) => {
 };
 
 export const fetchProductsByCategory = async (categoryId) => {
+  let targetCategory = categoryId;
+
+  // If a slug was passed (e.g. "art", "toys", "playstation"), resolve its numeric category ID
+  if (isNaN(Number(categoryId))) {
+    try {
+      const catRes = await api.get("products/categories", {
+        params: { slug: categoryId },
+      });
+      if (Array.isArray(catRes.data) && catRes.data.length > 0) {
+        targetCategory = catRes.data[0].id;
+      }
+    } catch (err) {
+      console.warn(`Category slug resolution failed for ${categoryId}:`, err.message);
+    }
+  }
+
   const response = await api.get("products", {
     params: {
-      category: categoryId,
+      category: targetCategory,
       per_page: 20,
     },
   });

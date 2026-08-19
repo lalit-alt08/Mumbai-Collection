@@ -1,5 +1,5 @@
 import axios from "axios";
-import https from "https";
+import { httpsAgent } from "../config/httpAgent.js";
 
 export const getProfile = async (req, res) => {
   try {
@@ -7,18 +7,11 @@ export const getProfile = async (req, res) => {
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
       {
         headers: {
-          "X-Mumbai-Internal-Key":
-            process.env.MUMBAI_INTERNAL_API_KEY,
-
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       }
     );
 
@@ -37,6 +30,7 @@ export const getProfile = async (req, res) => {
     );
   }
 };
+
 export const saveProfile = async (req, res) => {
   try {
     const { full_name, age, phone } = req.body;
@@ -50,18 +44,11 @@ export const saveProfile = async (req, res) => {
       },
       {
         headers: {
-          "X-Mumbai-Internal-Key":
-            process.env.MUMBAI_INTERNAL_API_KEY,
-
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       }
     );
 
@@ -80,24 +67,18 @@ export const saveProfile = async (req, res) => {
     );
   }
 };
+
 export const checkProfileComplete = async (req, res) => {
   try {
     const response = await axios.get(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile/complete`,
       {
         headers: {
-          "X-Mumbai-Internal-Key":
-            process.env.MUMBAI_INTERNAL_API_KEY,
-
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       },
     );
 

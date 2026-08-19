@@ -70,7 +70,6 @@ export function AuthProvider({ children }) {
       // Call Node → WordPress logout
       await logoutApi();
 
-      console.log(" SERVER LOGOUT SUCCESS");
     } catch (error) {
       console.error(
         "LOGOUT API ERROR:",
@@ -82,7 +81,6 @@ export function AuthProvider({ children }) {
       localStorage.removeItem("user");
       clearCartSession();
 
-      console.log("✅ LOCAL SESSION & CART CLEARED");
     }
   };
 

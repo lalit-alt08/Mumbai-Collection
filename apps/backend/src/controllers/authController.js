@@ -1,4 +1,7 @@
+import axios from "axios";
 import wp from "../services/wordpress.js";
+import { httpsAgent } from "../config/httpAgent.js";
+import { invalidateSessionCache } from "../middlewares/authMiddleware.js";
 
 export const login = async (req, res) => {
   try {
@@ -44,7 +47,6 @@ export const login = async (req, res) => {
     const status = error.response?.status || 500;
 
     // 401 and 429 are expected authentication responses.
-    // Don't print them to the terminal.
     if (status !== 401 && status !== 429) {
       console.error("Login error:", error.response?.data || error.message);
     }
@@ -60,6 +62,25 @@ export const login = async (req, res) => {
 
 export const logout = async (req, res) => {
   try {
+    const wpAuth = req.cookies?.mumbai_wp_auth;
+
+    if (wpAuth) {
+      invalidateSessionCache(wpAuth);
+
+      // Invalidate session on WordPress server-side
+      await axios.post(
+        `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
+        {},
+        {
+          headers: {
+            Cookie: wpAuth,
+          },
+          httpsAgent,
+          timeout: 5000,
+        }
+      ).catch(() => {});
+    }
+
     res.clearCookie("mumbai_wp_auth", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -79,7 +100,7 @@ export const logout = async (req, res) => {
       message: "Logged out successfully.",
     });
   } catch (error) {
-    console.error("Logout error:", error);
+    console.error("Logout error:", error.message);
 
     res.status(500).json({
       success: false,
@@ -167,17 +188,33 @@ export const resetPassword = async (req, res) => {
 
 export const me = async (req, res) => {
   try {
-    const response = await wp.get("/wp-json/mumbai-auth/v1/me", {
-      headers: {
-        Cookie: req.cookies.mumbai_wp_auth,
-      },
-    });
+    const wpAuth = req.cookies?.mumbai_wp_auth;
+
+    if (!wpAuth) {
+      return res.status(401).json({
+        logged_in: false,
+        message: "No authentication cookie provided.",
+      });
+    }
+
+    const response = await axios.get(
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
+      {
+        headers: {
+          Cookie: wpAuth,
+        },
+        httpsAgent,
+        timeout: 8000,
+      }
+    );
 
     res.json(response.data);
   } catch (error) {
-    res.status(401).json({
-      success: false,
-      message: "Not authenticated.",
-    });
+    res.status(error.response?.status || 401).json(
+      error.response?.data || {
+        logged_in: false,
+        message: "Session verification failed.",
+      },
+    );
   }
 };

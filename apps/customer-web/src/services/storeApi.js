@@ -1,11 +1,7 @@
 
 import axios from "axios";
 
-const STORE_API =
-  import.meta.env.VITE_STORE_API_URL ||
-  (import.meta.env.VITE_WORDPRESS_URL
-    ? `${import.meta.env.VITE_WORDPRESS_URL}/wp-json/wc/store/v1`
-    : "/api/store");
+const STORE_API = import.meta.env.VITE_STORE_API_URL || "/api/store";
 
 let nonce = localStorage.getItem("wc_nonce") || "";
 let cartToken = localStorage.getItem("wc_cart_token") || "";

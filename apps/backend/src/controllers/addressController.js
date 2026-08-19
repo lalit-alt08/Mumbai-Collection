@@ -1,28 +1,17 @@
 import axios from "axios";
-import https from "https";
+import { httpsAgent } from "../config/httpAgent.js";
 
 export const getAddresses = async (req, res) => {
   try {
-    console.log(
-      "INTERNAL KEY:",
-      process.env.MUMBAI_INTERNAL_API_KEY ? "LOADED" : "MISSING",
-    );
-
     const response = await axios.get(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses`,
       {
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       },
     );
 
@@ -69,18 +58,11 @@ export const saveAddress = async (req, res) => {
       },
       {
         headers: {
-          "X-Mumbai-Internal-Key":
-            process.env.MUMBAI_INTERNAL_API_KEY,
-
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       }
     );
 
@@ -116,7 +98,7 @@ export const updateAddress = async (req, res) => {
     } = req.body;
 
     const response = await axios.put(
-      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses/${id}`,
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses/${encodeURIComponent(id)}`,
       {
         type,
         full_name,
@@ -129,18 +111,11 @@ export const updateAddress = async (req, res) => {
       },
       {
         headers: {
-          "X-Mumbai-Internal-Key":
-            process.env.MUMBAI_INTERNAL_API_KEY,
-
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       }
     );
 
@@ -165,21 +140,14 @@ export const deleteAddress = async (req, res) => {
     const { id } = req.params;
 
     const response = await axios.delete(
-      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses/${id}`,
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses/${encodeURIComponent(id)}`,
       {
         headers: {
-          "X-Mumbai-Internal-Key":
-            process.env.MUMBAI_INTERNAL_API_KEY,
-
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
-
-        httpsAgent:
-          process.env.NODE_ENV === "development"
-            ? new https.Agent({
-                rejectUnauthorized: false,
-              })
-            : undefined,
+        httpsAgent,
+        timeout: 8000,
       },
     );
 

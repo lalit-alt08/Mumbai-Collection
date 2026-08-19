@@ -9,28 +9,61 @@ function Checkout() {
 
   const [checkout, setCheckout] = useState(null);
   const [cart, setCart] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadCheckout = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const [cartData, checkoutData] = await Promise.all([
+        getCart(),
+        getCheckout(),
+      ]);
+      setCart(cartData);
+      setCheckout(checkoutData);
+    } catch (err) {
+      console.error("Checkout load error:", err);
+      setError("Unable to load your checkout session. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadCheckout = async () => {
-      try {
-        const cartData = await getCart();
-        setCart(cartData);
-
-        const checkoutData = await getCheckout();
-        setCheckout(checkoutData);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
     loadCheckout();
   }, []);
 
-  if (!cart || !checkout) {
+  if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-[15px] font-medium text-[#666666]">
           Loading secure checkout...
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !cart || !checkout) {
+    return (
+      <div className="mx-auto flex max-w-[500px] flex-col items-center justify-center px-6 py-20 text-center">
+        <h2 className="text-xl font-bold text-[#1E1E1E]">Checkout Unavailable</h2>
+        <p className="mt-2 text-sm text-gray-500">
+          {error || "Could not retrieve your cart items for checkout."}
+        </p>
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={() => navigate("/cart")}
+            className="rounded-full border border-gray-200 px-6 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50"
+          >
+            View Cart
+          </button>
+          <button
+            onClick={loadCheckout}
+            className="rounded-full bg-[#FF8A00] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#FF7300]"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );

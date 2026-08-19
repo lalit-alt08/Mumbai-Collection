@@ -146,9 +146,9 @@ function SearchBar() {
                       <span className="text-[15px] font-bold text-[#FF8A00]">
                         ₹{product.price}
                       </span>
-                      <button className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#FFF4E5] text-[#FF8A00] transition-all duration-200 hover:bg-[#FF8A00] hover:text-white">
+                      <div className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#FFF4E5] text-[#FF8A00] transition-all duration-200 group-hover:bg-[#FF8A00] group-hover:text-white">
                         <ShoppingCart size={14} strokeWidth={2.5} />
-                      </button>
+                      </div>
                     </div>
                   </Link>
                 );

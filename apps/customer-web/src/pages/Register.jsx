@@ -1,7 +1,7 @@
 import { User, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { register } from "../services/authService";
+import { register, login as loginApi } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 
 function Register() {
@@ -78,14 +78,16 @@ function Register() {
     try {
       setLoading(true);
 
-      const response = await register({
+      await register({
         name: name.trim(),
         email: email.trim(),
         password,
       });
 
-      // Automatically log the newly registered user in
-      loginUser(response.user);
+      // Automatically authenticate and issue fresh session cookies for the new user
+      const loginResponse = await loginApi(email.trim(), password);
+
+      loginUser(loginResponse.user);
 
       navigate("/profile-setup");
     } catch (err) {

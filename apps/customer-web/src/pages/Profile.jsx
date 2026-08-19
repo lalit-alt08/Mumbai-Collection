@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
+import { useAuth } from "../context/AuthContext";
 
 import {
   User,
@@ -15,6 +16,7 @@ import {
 import axios from "axios";
 
 function Profile() {
+  const { user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -177,11 +179,6 @@ function Profile() {
         {
           withCredentials: true,
         }
-      );
-
-      console.log(
-        " PROFILE UPDATED:",
-        response.data
       );
 
       const updatedProfile =
@@ -413,9 +410,9 @@ function Profile() {
 
                   <input
                     type="text"
-                    value="Not available"
+                    value={profile?.email || user?.email || "Not available"}
                     disabled
-                    className="h-14 w-full cursor-not-allowed rounded-2xl border border-gray-200 bg-gray-100 pl-12 pr-4 text-gray-400 outline-none"
+                    className="h-14 w-full cursor-not-allowed rounded-2xl border border-gray-200 bg-gray-100 pl-12 pr-4 text-gray-500 outline-none"
                   />
                 </div>
 
@@ -528,7 +525,7 @@ function Profile() {
                 </div>
 
                 <p className="break-all font-semibold text-[#1E1E1E]">
-                  Not available
+                  {profile?.email || user?.email || "Not available"}
                 </p>
               </div>
 
