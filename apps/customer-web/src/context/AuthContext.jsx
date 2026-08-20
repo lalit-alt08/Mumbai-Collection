@@ -65,7 +65,6 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      console.log("LOGOUT START");
 
       // Call Node → WordPress logout
       await logoutApi();

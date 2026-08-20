@@ -1,4 +1,6 @@
 import express from "express";
+import multer from "multer";
+
 import {
   getDashboardOverview,
   getAdminOrders,
@@ -6,24 +8,124 @@ import {
   getAdminProducts,
   updateProduct,
   createProduct,
+  uploadProductImage,
   getAdminCustomers,
+  getAdminAnalytics,
 } from "../controllers/adminController.js";
+
+import { requireAuth } from "../middlewares/authMiddleware.js";
+import { requireRole } from "../middlewares/roleMiddleware.js";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      const err = new Error("Only image files (JPEG, PNG, WebP, GIF) are allowed.");
+      err.code = "INVALID_FILE_TYPE";
+      return cb(err, false);
+    }
+
+    cb(null, true);
+  },
+});
+
+const handleImageUpload = (req, res, next) => {
+  upload.single("image")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({
+          success: false,
+          message: "File size exceeds the 10MB limit.",
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: err.message || "Invalid image upload.",
+      });
+    }
+    next();
+  });
+};
 
 const router = express.Router();
 
 // Executive Dashboard & Overview
-router.get("/overview", getDashboardOverview);
+router.get(
+  "/overview",
+  requireAuth,
+  requireRole(["administrator"]),
+  getDashboardOverview
+);
 
 // Orders Management
-router.get("/orders", getAdminOrders);
-router.put("/orders/:id/status", updateOrderStatus);
+router.get(
+  "/orders",
+  requireAuth,
+  requireRole(["administrator"]),
+  getAdminOrders
+);
+
+router.put(
+  "/orders/:id/status",
+  requireAuth,
+  requireRole(["administrator"]),
+  updateOrderStatus
+);
 
 // Inventory & Products
-router.get("/products", getAdminProducts);
-router.put("/products/:id", updateProduct);
-router.post("/products", createProduct);
+router.get(
+  "/products",
+  requireAuth,
+  requireRole(["administrator"]),
+  getAdminProducts
+);
+
+router.put(
+  "/products/:id",
+  requireAuth,
+  requireRole(["administrator"]),
+  updateProduct
+);
+
+router.post(
+  "/products",
+  requireAuth,
+  requireRole(["administrator"]),
+  createProduct
+);
+
+router.post(
+  "/upload",
+  requireAuth,
+  requireRole(["administrator"]),
+  handleImageUpload,
+  uploadProductImage
+);
 
 // Customers Directory
-router.get("/customers", getAdminCustomers);
+router.get(
+  "/customers",
+  requireAuth,
+  requireRole(["administrator"]),
+  getAdminCustomers
+);
+
+// Dedicated Deep Analytics & Reporting
+router.get(
+  "/analytics",
+  requireAuth,
+  requireRole(["administrator"]),
+  getAdminAnalytics
+);
 
 export default router;

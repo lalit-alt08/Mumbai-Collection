@@ -8,6 +8,7 @@ const SESSION_CACHE_TTL = 60 * 1000; // 60 seconds
 // Periodic cleanup every 5 minutes
 setInterval(() => {
   const now = Date.now();
+
   for (const [cookie, data] of sessionCache.entries()) {
     if (now - data.timestamp > SESSION_CACHE_TTL) {
       sessionCache.delete(cookie);
@@ -35,13 +36,21 @@ export const requireAuth = async (req, res, next) => {
     const now = Date.now();
     const cached = sessionCache.get(wpAuth);
 
+    // Use cached session
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
       req.wpAuthCookie = wpAuth;
       req.wpRestNonce = req.cookies?.mumbai_wp_nonce;
       req.wpUserId = cached.userId;
+
+      req.user = {
+        id: cached.userId,
+        roles: cached.roles,
+      };
+
       return next();
     }
 
+    // Validate session with WordPress
     const response = await axios.get(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
       {
@@ -53,33 +62,45 @@ export const requireAuth = async (req, res, next) => {
       },
     );
 
-    if (!response.data?.logged_in || !response.data?.current_user_id) {
+    const userId = response.data?.current_user_id;
+    const roles = response.data?.role || [];
+
+    if (!response.data?.logged_in || !userId) {
       sessionCache.delete(wpAuth);
+
       return res.status(401).json({
         success: false,
         message: "Session expired.",
       });
     }
 
+    // Cache validated session
     sessionCache.set(wpAuth, {
-      userId: response.data.current_user_id,
+      userId,
+      roles,
       timestamp: now,
     });
 
+    // Attach authentication information to request
     req.wpAuthCookie = wpAuth;
     req.wpRestNonce = req.cookies?.mumbai_wp_nonce;
-    req.wpUserId = response.data.current_user_id;
+    req.wpUserId = userId;
 
-    next();
+    req.user = {
+      id: userId,
+      roles,
+    };
+
+    return next();
   } catch (error) {
     console.error(
-      "❌ Auth Middleware Error:",
-      error.response?.status || error.message,
+      "Auth middleware error:",
+      error.response?.data || error.message,
     );
 
-    return res.status(error.response?.status || 401).json({
+    return res.status(401).json({
       success: false,
-      message: "Authentication required.",
+      message: "Authentication failed.",
     });
   }
 };

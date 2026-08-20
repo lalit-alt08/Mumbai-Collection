@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import addressRoutes from "./routes/addressRoute.js";
 
 import productRoutes from "./routes/productRoutes.js";
@@ -13,10 +14,16 @@ const app = express();
 
 app.disable("x-powered-by");
 
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+  })
+);
+
 const allowedOrigins = [
-  "http://localhost:5173", // customer-web
-  "http://localhost:5174", // admin-dashboard
-  "http://localhost:5175", // employee-panel
+  process.env.CUSTOMER_ORIGIN,
+  process.env.ADMIN_ORIGIN,
+  process.env.EMPLOYEE_ORIGIN,
   process.env.CLIENT_ORIGIN,
   process.env.FRONTEND_URL,
 ].filter(Boolean);

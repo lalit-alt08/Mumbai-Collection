@@ -59,7 +59,24 @@ export const createProduct = async (data) => {
   return res.data;
 };
 
-export const getCustomers = async () => {
-  const res = await api.get("/customers");
+export const uploadProductImage = async (file) => {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await api.post("/upload", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return res.data;
+};
+
+export const getCustomers = async (params = {}) => {
+  const res = await api.get("/customers", { params });
+  return res.data;
+};
+
+export const getAnalytics = async () => {
+  const res = await api.get("/analytics");
   return res.data;
 };

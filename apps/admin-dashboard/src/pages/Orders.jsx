@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Package,
   Search,
@@ -14,6 +14,8 @@ import {
   Mail,
   Receipt,
   Boxes,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { getOrders, updateOrderStatus } from "../services/adminApi";
 
@@ -23,8 +25,25 @@ function Orders() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const perPage = 20;
+
+  // Debounce search input by 400ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+      setPage(1);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const fetchOrderList = async () => {
     try {
@@ -32,14 +51,18 @@ function Orders() {
       setError("");
       const res = await getOrders({
         status: activeTab !== "all" ? activeTab : undefined,
-        search: searchQuery || undefined,
+        search: debouncedSearch || undefined,
+        page,
+        per_page: perPage,
       });
       if (res.success) {
         setOrders(res.orders || []);
+        setTotalOrders(res.total || res.orders?.length || 0);
+        setTotalPages(res.totalPages || Math.ceil((res.total || 1) / perPage) || 1);
       }
     } catch (err) {
       console.error("Fetch admin orders error:", err);
-      setError("Failed to load orders from WooCommerce.");
+      setError(err.response?.data?.message || err.message || "Failed to load orders from WooCommerce.");
     } finally {
       setLoading(false);
     }
@@ -47,7 +70,12 @@ function Orders() {
 
   useEffect(() => {
     fetchOrderList();
-  }, [activeTab]);
+  }, [activeTab, debouncedSearch, page]);
+
+  const handleTabChange = (newTab) => {
+    setActiveTab(newTab);
+    setPage(1);
+  };
 
   const handleStatusUpdate = async (orderId, newStatus) => {
     try {
@@ -75,7 +103,7 @@ function Orders() {
       case "processing":
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200">
-            <Package size={13} className="animate-pulse" /> Processing / To Pack
+            <Package size={13} className="animate-pulse" /> To Pack & Dispatch
           </span>
         );
       case "out-for-delivery":
@@ -101,17 +129,6 @@ function Orders() {
     }
   };
 
-  const filteredOrders = orders.filter((o) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      o.order_number.toLowerCase().includes(q) ||
-      o.customer.name.toLowerCase().includes(q) ||
-      o.customer.email.toLowerCase().includes(q) ||
-      o.customer.phone.includes(q)
-    );
-  });
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -121,7 +138,7 @@ function Orders() {
             Order Fulfillment & Dispatch
           </h1>
           <p className="text-xs font-medium text-gray-500 mt-1">
-            Manage live local store dispatch, rider assignments, and customer deliveries
+            Server-side search and live dispatch across all store orders
           </p>
         </div>
 
@@ -136,7 +153,7 @@ function Orders() {
         </div>
       </div>
 
-      {/* Filter Tabs & Search Bar */}
+      {/* Filter Tabs & Server Search Bar */}
       <div className="flex flex-col gap-4 rounded-2xl bg-white p-4 shadow-sm border border-gray-100 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex overflow-x-auto pb-1 scrollbar-none gap-2">
           {[
@@ -148,7 +165,7 @@ function Orders() {
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`whitespace-nowrap rounded-xl px-4 py-2 text-xs font-bold transition ${
                 activeTab === tab.id
                   ? "bg-[#1E1E1E] text-white shadow-sm"
@@ -160,14 +177,14 @@ function Orders() {
           ))}
         </div>
 
-        {/* Search */}
+        {/* Server-Side Search */}
         <div className="relative w-full sm:w-80">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by order #, name, phone..."
+            placeholder="Search all orders (server-side)..."
             className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 text-xs font-medium text-gray-800 placeholder-gray-400 focus:border-[#FF8A00] focus:bg-white focus:outline-none transition"
           />
         </div>
@@ -181,9 +198,9 @@ function Orders() {
           </div>
         ) : error ? (
           <div className="p-8 text-center text-xs font-semibold text-red-600">{error}</div>
-        ) : filteredOrders.length === 0 ? (
+        ) : orders.length === 0 ? (
           <div className="p-12 text-center text-xs font-medium text-gray-500">
-            No orders found under current filters.
+            No orders found matching current criteria.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -199,7 +216,7 @@ function Orders() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {filteredOrders.map((order) => (
+                {orders.map((order) => (
                   <tr key={order.id} className="hover:bg-gray-50/60 transition">
                     <td className="py-4 px-4 font-bold text-gray-900">
                       <div className="flex items-center gap-2">
@@ -285,6 +302,41 @@ function Orders() {
             </table>
           </div>
         )}
+
+        {/* Pagination Bar */}
+        {!loading && !error && totalOrders > 0 && (
+          <div className="flex flex-col gap-3 border-t border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between text-xs text-gray-500 font-medium">
+            <div>
+              Showing <span className="font-bold text-gray-800">{(page - 1) * perPage + 1}</span> to{" "}
+              <span className="font-bold text-gray-800">
+                {Math.min(page * perPage, totalOrders)}
+              </span>{" "}
+              of <span className="font-bold text-gray-800">{totalOrders}</span> orders
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="flex items-center gap-1 rounded-xl border border-gray-200 px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <ChevronLeft size={14} /> Previous
+              </button>
+
+              <span className="px-2 font-bold text-gray-800">
+                Page {page} of {totalPages}
+              </span>
+
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="flex items-center gap-1 rounded-xl border border-gray-200 px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Order Details Drawer / Modal */}
@@ -325,10 +377,12 @@ function Orders() {
                     onChange={(e) => handleStatusUpdate(selectedOrder.id, e.target.value)}
                     className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-800 focus:border-[#FF8A00] focus:outline-none"
                   >
-                    <option value="processing">Processing / Packing</option>
-                    <option value="out-for-delivery">Out for Delivery</option>
+                    <option value="processing">Processing / To Pack</option>
+                    <option value="out-for-delivery">Out for Delivery (Rider Dispatched)</option>
                     <option value="completed">Delivered (Completed)</option>
+                    <option value="on-hold">On Hold (Awaiting Confirmation)</option>
                     <option value="cancelled">Cancelled</option>
+                    <option value="refunded">Refunded / Returned</option>
                   </select>
                 </div>
               </div>
