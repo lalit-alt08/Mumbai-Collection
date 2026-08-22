@@ -44,7 +44,7 @@ function ProductDetails() {
 
   if (!product) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center bg-[#F7F8F5] px-4 text-center">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center bg-[#F7F7FB] px-4 text-center">
         <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-sm">
           <span className="text-4xl">🛍️</span>
         </div>
@@ -52,7 +52,7 @@ function ProductDetails() {
         <p className="mb-8 text-[#6B7280]">The product you are looking for does not exist or has been removed.</p>
         <button
           onClick={() => navigate("/")}
-          className="rounded-full bg-[#FF8A00] px-8 py-3 font-semibold text-white shadow-[0_4px_16px_rgba(255,138,0,0.25)] transition-all hover:bg-[#FF7300] active:scale-95"
+          className="rounded-full bg-[#7C3AED] px-8 py-3 font-semibold text-white shadow-[0_4px_16px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-95"
         >
           Return Home
         </button>
@@ -61,7 +61,7 @@ function ProductDetails() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F8F5] text-[#1F2937]">
+    <div className="min-h-screen bg-[#F7F7FB] text-[#1F2937]">
       <div className="mx-auto w-full max-w-3xl pb-32 lg:max-w-7xl lg:px-8 lg:pb-12">
         <section className="lg:grid lg:grid-cols-[45%_1fr] lg:gap-10 lg:pt-8">
           <div className="lg:sticky lg:top-8 h-fit z-10 w-full">

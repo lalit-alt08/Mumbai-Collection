@@ -112,7 +112,7 @@ function ProductInfo({ product }) {
                   <span className="mb-1.5 text-[16px] font-medium text-[#6B7280] line-through">
                     ₹{product.regular_price}
                   </span>
-                  <span className="mb-1.5 rounded-md bg-[#FF8A00] px-1.5 py-0.5 text-[11px] font-bold text-white">
+                  <span className="mb-1.5 rounded-md bg-[#7C3AED] px-1.5 py-0.5 text-[11px] font-bold text-white">
                     {discountPercent}% OFF
                   </span>
                 </>
@@ -127,13 +127,13 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading || isOutOfStock}
-                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#FF8A00] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(255,138,0,0.2)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#7C3AED] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(124,58,237,0.2)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isOutOfStock ? "Out of Stock" : "ADD"}
               </button>
             ) : (
               <div className="flex flex-col items-end gap-1">
-                <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#FF8A00] px-1.5 text-white shadow-[0_4px_12px_rgba(255,138,0,0.2)]">
+                <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#7C3AED] px-1.5 text-white shadow-[0_4px_12px_rgba(124,58,237,0.2)]">
                   <button
                     disabled={loading}
                     className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-white/20 transition hover:bg-white/30 disabled:opacity-50"
@@ -165,11 +165,11 @@ function ProductInfo({ product }) {
       {/* Service Cards Grid */}
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col items-center justify-center gap-3 rounded-[20px] border border-gray-100 bg-white p-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50">
-          <PackageX size={32} className="text-[#FF8A00]" strokeWidth={1.5} />
+          <PackageX size={32} className="text-[#7C3AED]" strokeWidth={1.5} />
           <span className="text-[13px] font-bold text-[#1F2937]">No Return or Exchange</span>
         </div>
         <div className="flex flex-col items-center justify-center gap-3 rounded-[20px] border border-gray-100 bg-white p-5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50">
-          <Truck size={32} className="text-[#FF8A00]" strokeWidth={1.5} />
+          <Truck size={32} className="text-[#7C3AED]" strokeWidth={1.5} />
           <span className="text-[13px] font-bold text-[#1F2937]">Fast Local Delivery</span>
         </div>
       </div>
@@ -177,7 +177,7 @@ function ProductInfo({ product }) {
       {/* Floating View Cart Pill (Mobile only when items exist) */}
       {cart?.items?.length > 0 && (
         <div
-          className="fixed left-1/2 z-[110] flex w-max -translate-x-1/2 items-center justify-between gap-6 rounded-full bg-[#FF8A00] p-1.5 pl-2 pr-1.5 shadow-[0_12px_40px_rgba(255,138,0,0.3)] animate-[fadeIn_0.3s_ease-out] md:hidden"
+          className="fixed left-1/2 z-[110] flex w-max -translate-x-1/2 items-center justify-between gap-6 rounded-full bg-[#7C3AED] p-1.5 pl-2 pr-1.5 shadow-[0_12px_40px_rgba(124,58,237,0.3)] animate-[fadeIn_0.3s_ease-out] md:hidden"
           style={{ bottom: "calc(96px + env(safe-area-inset-bottom))" }}
         >
           <div className="flex items-center gap-2.5">
@@ -193,7 +193,7 @@ function ProductInfo({ product }) {
           </div>
           <button
             onClick={() => navigate("/cart")}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#FF8A00] transition-transform hover:scale-105"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#7C3AED] transition-transform hover:scale-105"
           >
             <ChevronRight size={18} strokeWidth={3} />
           </button>
@@ -213,7 +213,7 @@ function ProductInfo({ product }) {
             {isMaxReached ? (
               <span className="text-[10px] font-bold text-amber-700">Max stock ({maxStock})</span>
             ) : (
-              <span className="text-[10px] font-medium leading-none text-[#FF8A00]">
+              <span className="text-[10px] font-medium leading-none text-[#7C3AED]">
                 {maxStock <= 5 ? `Only ${maxStock} left` : "In stock"}
               </span>
             )}
@@ -224,12 +224,12 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading || isOutOfStock}
-                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#FF8A00] text-[15px] font-bold text-white transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#7C3AED] text-[15px] font-bold text-white transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isOutOfStock ? "Out of Stock" : "Add to Cart"}
               </button>
             ) : (
-              <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#FF8A00] px-1.5 text-white shadow-sm">
+              <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#7C3AED] px-1.5 text-white shadow-sm">
                 <button
                   disabled={loading}
                   className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-white/20 transition hover:bg-white/30"

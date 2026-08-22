@@ -307,9 +307,9 @@ function ProfileSetup() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center bg-[#F8F9F5]">
+      <div className="flex min-h-[60vh] items-center justify-center bg-[#F7F7FB]">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-[#FF8A00]" />
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-[#7C3AED]" />
           <p className="text-sm font-medium text-gray-500">
             Loading your profile...
           </p>
@@ -327,12 +327,12 @@ function ProfileSetup() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F8F9F5] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
 
         {/* Header */}
         <div className="mb-8">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-[#FF7A00]">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#F1ECFF] px-3 py-1.5 text-xs font-bold text-[#7C3AED]">
             <User size={14} />
             ACCOUNT SETUP
           </div>
@@ -355,7 +355,7 @@ function ProfileSetup() {
             {/* Personal Information */}
             <section className="rounded-3xl border border-gray-100 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)] sm:p-8">
               <div className="mb-7 flex items-start gap-4">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                   <User size={21} />
                 </div>
 
@@ -376,7 +376,7 @@ function ProfileSetup() {
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     Full Name
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <div className="relative">
@@ -392,7 +392,7 @@ function ProfileSetup() {
                       onChange={handleChange}
                       placeholder="Enter your full name"
                       required
-                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                     />
                   </div>
                 </div>
@@ -403,7 +403,7 @@ function ProfileSetup() {
                   <div>
                     <label className="mb-2 block text-sm font-bold text-gray-700">
                       Age
-                      <span className="ml-1 text-[#FF7A00]">*</span>
+                      <span className="ml-1 text-[#7C3AED]">*</span>
                     </label>
 
                     <input
@@ -415,14 +415,14 @@ function ProfileSetup() {
                       min="13"
                       max="120"
                       required
-                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                     />
                   </div>
 
                   <div>
                     <label className="mb-2 block text-sm font-bold text-gray-700">
                       Mobile Number
-                      <span className="ml-1 text-[#FF7A00]">*</span>
+                      <span className="ml-1 text-[#7C3AED]">*</span>
                     </label>
 
                     <div className="relative">
@@ -439,7 +439,7 @@ function ProfileSetup() {
                         onChange={handleChange}
                         placeholder="9876543210"
                         required
-                        className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                        className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-sm text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                       />
                     </div>
                   </div>
@@ -453,7 +453,7 @@ function ProfileSetup() {
 
               <div className="mb-7 flex items-start justify-between gap-4">
                 <div className="flex items-start gap-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                     <MapPin size={21} />
                   </div>
 
@@ -478,12 +478,12 @@ function ProfileSetup() {
                     return (
                       <div
                         key={address.id}
-                        className="rounded-2xl border border-gray-200 bg-gray-50 p-5 transition hover:border-orange-200"
+                        className="rounded-2xl border border-gray-200 bg-gray-50 p-5 transition hover:border-[#C4B5FD]"
                       >
                         <div className="flex items-start justify-between gap-4">
 
                           <div className="flex min-w-0 items-start gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#FF8A00] shadow-sm">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#7C3AED] shadow-sm">
                               {isHome ? (
                                 <Home size={19} />
                               ) : (
@@ -532,7 +532,7 @@ function ProfileSetup() {
                               onClick={() =>
                                 editAddress(address)
                               }
-                              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:border-orange-200 hover:text-[#FF7A00]"
+                              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:border-[#C4B5FD] hover:text-[#7C3AED]"
                               title="Edit address"
                             >
                               <Pencil size={16} />
@@ -581,7 +581,7 @@ function ProfileSetup() {
                   <button
                     type="button"
                     onClick={() => openAddressForm("home")}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 text-sm font-bold text-[#FF7A00] transition hover:bg-orange-100"
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-[#C4B5FD] bg-[#F1ECFF] text-sm font-bold text-[#7C3AED] transition hover:bg-[#E0D4FC]"
                   >
                     <Plus size={18} />
                     Add Home
@@ -592,7 +592,7 @@ function ProfileSetup() {
                   <button
                     type="button"
                     onClick={() => openAddressForm("office")}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:border-orange-200 hover:text-[#FF7A00]"
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:border-[#C4B5FD] hover:text-[#7C3AED]"
                   >
                     <Plus size={18} />
                     Add Office
@@ -605,11 +605,11 @@ function ProfileSetup() {
 
           {/* Address Form */}
           {showAddressForm && (
-            <section className="mt-6 rounded-3xl border border-orange-100 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.05)] sm:p-8">
+            <section className="mt-6 rounded-3xl border border-[#C4B5FD]/40 bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.05)] sm:p-8">
 
               <div className="mb-7 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                     {addressForm.type === "home" ? (
                       <Home size={21} />
                     ) : (
@@ -649,7 +649,7 @@ function ProfileSetup() {
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     Full Name
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <input
@@ -658,7 +658,7 @@ function ProfileSetup() {
                     value={addressForm.full_name}
                     onChange={handleAddressChange}
                     required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -666,7 +666,7 @@ function ProfileSetup() {
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     Mobile Number
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <div className="relative flex items-center">
@@ -682,7 +682,7 @@ function ProfileSetup() {
                       onChange={handleAddressChange}
                       placeholder="9876543210"
                       required
-                      className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                      className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                     />
                   </div>
                 </div>
@@ -691,7 +691,7 @@ function ProfileSetup() {
                 <div className="sm:col-span-2">
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     Address Line 1
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <input
@@ -701,7 +701,7 @@ function ProfileSetup() {
                     onChange={handleAddressChange}
                     placeholder="Flat / House number, building, street"
                     required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -720,7 +720,7 @@ function ProfileSetup() {
                     value={addressForm.address_line2}
                     onChange={handleAddressChange}
                     placeholder="Landmark, area name"
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -728,7 +728,7 @@ function ProfileSetup() {
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     City
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <input
@@ -738,7 +738,7 @@ function ProfileSetup() {
                     onChange={handleAddressChange}
                     placeholder="e.g. Vasai / Mumbai"
                     required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -746,7 +746,7 @@ function ProfileSetup() {
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     State
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <select
@@ -754,7 +754,7 @@ function ProfileSetup() {
                     value={addressForm.state}
                     onChange={handleAddressChange}
                     required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   >
                     {INDIAN_STATES.map((state) => (
                       <option key={state.code} value={state.code}>
@@ -768,7 +768,7 @@ function ProfileSetup() {
                 <div className="sm:max-w-xs">
                   <label className="mb-2 block text-sm font-bold text-gray-700">
                     PIN Code
-                    <span className="ml-1 text-[#FF7A00]">*</span>
+                    <span className="ml-1 text-[#7C3AED]">*</span>
                   </label>
 
                   <input
@@ -780,7 +780,7 @@ function ProfileSetup() {
                     maxLength={6}
                     inputMode="numeric"
                     required
-                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-13 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
               </div>
@@ -801,7 +801,7 @@ function ProfileSetup() {
                 <button
                   type="button"
                   onClick={handleAddressSubmit}
-                  className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] px-7 text-sm font-bold text-white shadow-[0_6px_18px_rgba(255,138,0,0.2)] transition hover:bg-[#FF7300] active:scale-[0.98]"
+                  className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] px-7 text-sm font-bold text-white shadow-[0_6px_18px_rgba(124,58,237,0.2)] transition hover:bg-[#6C35E8] active:scale-[0.98]"
                 >
                   <CheckCircle2 size={17} />
                   {editingAddressId
@@ -837,7 +837,7 @@ function ProfileSetup() {
             <button
               type="submit"
               disabled={saving}
-              className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] px-7 text-sm font-extrabold text-white shadow-[0_8px_22px_rgba(255,138,0,0.22)] transition hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] px-7 text-sm font-extrabold text-white shadow-[0_8px_22px_rgba(124,58,237,0.22)] transition hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {saving
                 ? "Saving..."

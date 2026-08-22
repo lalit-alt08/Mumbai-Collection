@@ -2,8 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import {
   Boxes,
   Search,
-  Plus,
   Edit2,
+  Trash2,
   Check,
   X,
   AlertTriangle,
@@ -16,7 +16,7 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { getProducts, updateProduct, createProduct, uploadProductImage } from "../services/adminApi";
+import { getProducts, updateProduct, deleteProduct, createProduct, uploadProductImage } from "../services/adminApi";
 
 function Products() {
   const [products, setProducts] = useState([]);
@@ -36,6 +36,10 @@ function Products() {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ regular_price: "", stock_quantity: "" });
   const [savingId, setSavingId] = useState(null);
+
+  // Deletion state
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
 
   // Add Product Modal & Upload state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -129,6 +133,22 @@ function Products() {
     }
   };
 
+  const handleDeleteProduct = async (product) => {
+    if (!product) return;
+    try {
+      setDeletingId(product.id);
+      await deleteProduct(product.id);
+      showToast(`Product "${product.name}" deleted from store and customer panel.`);
+      setDeleteConfirmProduct(null);
+      setProducts((prev) => prev.filter((p) => p.id !== product.id));
+      setTotalProducts((t) => Math.max(0, t - 1));
+    } catch (err) {
+      showToast(err.response?.data?.message || err.message || "Failed to delete product.", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleImageFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -211,13 +231,6 @@ function Products() {
             className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm transition hover:bg-gray-50"
           >
             <RotateCcw size={14} /> Refresh
-          </button>
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-[#FF8A00] px-5 py-2.5 text-xs font-bold text-white shadow-[0_4px_16px_rgba(255,138,0,0.3)] transition hover:bg-[#FF7300] active:scale-95"
-          >
-            <Plus size={15} /> Add New Product
           </button>
         </div>
       </div>
@@ -373,7 +386,7 @@ function Products() {
                         )}
                       </td>
 
-                      {/* Action Controls */}
+                        {/* Action Controls */}
                       <td className="py-4 px-4 text-right">
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-2">
@@ -392,12 +405,22 @@ function Products() {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handleStartEdit(p)}
-                            className="rounded-xl border border-gray-200 px-3.5 py-1.5 text-[11px] font-bold text-gray-700 hover:bg-gray-50 transition"
-                          >
-                            <Edit2 size={12} className="inline mr-1 text-[#FF8A00]" /> Edit Price / Stock
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleStartEdit(p)}
+                              className="rounded-xl border border-gray-200 px-3.5 py-1.5 text-[11px] font-bold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition"
+                            >
+                              <Edit2 size={12} className="inline mr-1 text-[#FF8A00]" /> Edit Price / Stock
+                            </button>
+
+                            <button
+                              onClick={() => setDeleteConfirmProduct(p)}
+                              title="Delete Product"
+                              className="flex h-7 w-7 items-center justify-center rounded-xl border border-rose-100 bg-rose-50/60 text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -572,6 +595,61 @@ function Products() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Product Confirmation Modal */}
+      {deleteConfirmProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-100 mb-4">
+              <Trash2 size={24} />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-black text-gray-900">
+                Delete Product Permanently?
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Are you sure you want to delete <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span>?
+              </p>
+              <div className="rounded-2xl bg-rose-50/60 p-3 border border-rose-100 text-left text-[11px] text-rose-700 space-y-1 mt-3">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle size={13} /> Immediate Store-Wide Removal
+                </div>
+                <p className="text-rose-600/90 text-[10.5px]">
+                  This product will be permanently deleted from WooCommerce and will immediately disappear from the Customer Web catalog.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-5 border-t border-gray-100 mt-5">
+              <button
+                type="button"
+                disabled={deletingId === deleteConfirmProduct.id}
+                onClick={() => setDeleteConfirmProduct(null)}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === deleteConfirmProduct.id}
+                onClick={() => handleDeleteProduct(deleteConfirmProduct)}
+                className="flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50 transition"
+              >
+                {deletingId === deleteConfirmProduct.id ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} /> Delete Product
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

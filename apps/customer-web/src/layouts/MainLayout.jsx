@@ -31,7 +31,7 @@ function MainLayout() {
   );
 
   return (
-    <div className={`min-h-screen ${path === '/' ? 'bg-[#FFF9F0]' : 'bg-white'}`}>
+    <div className={`min-h-screen ${path === '/' ? 'bg-[#F7F7FB]' : 'bg-white'}`}>
       <NetworkBanner />
       {!isHeaderHidden && <Header />}
 

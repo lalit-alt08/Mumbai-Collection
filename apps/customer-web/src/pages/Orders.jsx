@@ -61,7 +61,7 @@ function Orders() {
   const filteredOrders = orders.filter((order) => {
     if (activeTab === "all") return true;
     if (activeTab === "active") {
-      return ["pending", "processing", "on-hold", "out-for-delivery", "dispatched"].includes(
+      return ["pending", "processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(
         order.status
       );
     }
@@ -90,10 +90,17 @@ function Orders() {
             {displayStatus || "Preparing & Packing"}
           </span>
         );
+      case "packed":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700 border border-purple-200">
+            <Package size={13} />
+            {displayStatus || "Packed & Ready"}
+          </span>
+        );
       case "out-for-delivery":
       case "dispatched":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-xs font-bold text-[#FF8A00] border border-orange-200">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F1ECFF] px-3 py-1 text-xs font-bold text-[#7C3AED] border border-[#C4B5FD]">
             <Truck size={13} className="animate-bounce" />
             {displayStatus || "Out for Delivery"}
           </span>
@@ -133,7 +140,7 @@ function Orders() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9F5] px-4 py-6 md:py-10">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-6 md:py-10">
       <div className="mx-auto max-w-4xl">
         {/* Top Header Card */}
         <div className="mb-6 flex flex-col gap-4 rounded-[24px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:flex-row md:items-center md:justify-between md:p-6">
@@ -141,7 +148,7 @@ function Orders() {
             <button
               onClick={() => navigate("/account")}
               aria-label="Back to Account"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-[#FF8A00] hover:text-white"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-[#7C3AED] hover:text-white"
             >
               <ArrowLeft size={18} />
             </button>
@@ -166,7 +173,7 @@ function Orders() {
             </button>
             <Link
               to="/"
-              className="rounded-full bg-[#FF8A00] px-5 py-2 text-xs font-bold text-white transition hover:bg-[#FF7300] shadow-sm active:scale-95"
+              className="rounded-full bg-[#7C3AED] px-5 py-2 text-xs font-bold text-white transition hover:bg-[#6C35E8] shadow-sm active:scale-95"
             >
               Shop More
             </Link>
@@ -258,7 +265,7 @@ function Orders() {
         {/* Empty State */}
         {!loading && !error && filteredOrders.length === 0 && (
           <div className="rounded-[28px] bg-white p-10 text-center shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:p-16">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-orange-50 text-[#FF8A00]">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[#F1ECFF] text-[#7C3AED]">
               <ShoppingBag size={38} />
             </div>
 
@@ -276,7 +283,7 @@ function Orders() {
             <div className="mt-8 flex justify-center gap-3">
               <Link
                 to="/"
-                className="rounded-full bg-[#FF8A00] px-8 py-3.5 text-sm font-bold text-white shadow-[0_4px_20px_rgba(255,138,0,0.25)] transition hover:bg-[#FF7300] active:scale-95"
+                className="rounded-full bg-[#7C3AED] px-8 py-3.5 text-sm font-bold text-white shadow-[0_4px_20px_rgba(124,58,237,0.25)] transition hover:bg-[#6C35E8] active:scale-95"
               >
                 Start Shopping &rarr;
               </Link>
@@ -321,9 +328,9 @@ function Orders() {
 
                   {/* Live Progress Bar (Blinkit / Zepto style) */}
                   {isLive && order.tracking_stage > 0 && (
-                    <div className="border-b border-orange-100 bg-orange-50/40 px-5 py-4 sm:px-6">
+                    <div className="border-b border-[#C4B5FD]/40 bg-[#F1ECFF]/40 px-5 py-4 sm:px-6">
                       <div className="mb-2 flex items-center justify-between text-xs font-bold">
-                        <span className="flex items-center gap-1.5 text-[#FF8A00]">
+                        <span className="flex items-center gap-1.5 text-[#7C3AED]">
                           <Truck size={15} className="animate-pulse" />
                           Delivery in 20-30 mins (Vasai Store Dispatch)
                         </span>
@@ -346,13 +353,13 @@ function Orders() {
                               <div
                                 className={`h-1.5 w-full rounded-full transition-all duration-500 ${
                                   isDone
-                                    ? "bg-[#FF8A00]"
+                                    ? "bg-[#7C3AED]"
                                     : "bg-gray-200"
                                 } ${isCurrent ? "animate-pulse" : ""}`}
                               />
                               <span
                                 className={`text-[10px] font-semibold text-center ${
-                                  isDone ? "text-[#FF8A00]" : "text-gray-400"
+                                  isDone ? "text-[#7C3AED]" : "text-gray-400"
                                 }`}
                               >
                                 {step.label}
@@ -428,7 +435,7 @@ function Orders() {
 
                         <Link
                           to={`/track-order?id=${order.id}`}
-                          className="flex items-center gap-1.5 rounded-xl bg-orange-50 px-4 py-2 text-xs font-bold text-[#FF8A00] transition hover:bg-orange-100"
+                          className="flex items-center gap-1.5 rounded-xl bg-[#F1ECFF] px-4 py-2 text-xs font-bold text-[#7C3AED] transition hover:bg-[#E0D4FC]"
                         >
                           <Truck size={14} />
                           Track Live
@@ -442,7 +449,7 @@ function Orders() {
                         {/* Delivery Address */}
                         <div>
                           <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-                            <MapPin size={13} className="text-[#FF8A00]" />
+                            <MapPin size={13} className="text-[#7C3AED]" />
                             Delivery Address
                           </h4>
                           <p className="text-xs text-gray-700 font-medium leading-relaxed">
@@ -495,7 +502,7 @@ function Orders() {
                           <span className="text-gray-500 font-medium">Have an issue with this order?</span>
                           <Link
                             to="/contact"
-                            className="flex items-center gap-1 font-bold text-[#FF8A00] hover:underline"
+                            className="flex items-center gap-1 font-bold text-[#7C3AED] hover:underline"
                           >
                             <HelpCircle size={13} />
                             Get Help & Support

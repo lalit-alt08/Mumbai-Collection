@@ -21,8 +21,8 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-screen flex-col items-center justify-center bg-[#FFF9F0] px-4 text-center">
-          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#FFF0DD] shadow-sm">
+        <div className="flex min-h-screen flex-col items-center justify-center bg-[#F7F7FB] px-4 text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#F1ECFF] shadow-sm">
             <span className="text-3xl">⚠️</span>
           </div>
 
@@ -36,7 +36,7 @@ class ErrorBoundary extends Component {
 
           <button
             onClick={this.handleReload}
-            className="rounded-full bg-[#FF8A00] px-8 py-3 text-sm font-bold text-white shadow-[0_4px_16px_rgba(255,138,0,0.25)] transition-all hover:bg-[#FF7300] active:scale-95"
+            className="rounded-full bg-[#7C3AED] px-8 py-3 text-sm font-bold text-white shadow-[0_4px_16px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-95"
           >
             Return to Home
           </button>

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
-  Package,
   Boxes,
   Users,
   TrendingUp,
@@ -12,7 +11,6 @@ import {
   Bell,
   Search,
   ExternalLink,
-  ShieldCheck,
   CircleDot,
   LogOut,
 } from "lucide-react";
@@ -24,11 +22,10 @@ function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { user, logout } = useAdminAuth();
+  const { logout } = useAdminAuth();
 
   const navigation = [
     { name: "Overview", href: "/", icon: LayoutDashboard },
-    { name: "Orders & Dispatch", href: "/orders", icon: Package },
     { name: "Inventory & Stock", href: "/products", icon: Boxes },
     { name: "Customers", href: "/customers", icon: Users },
     { name: "Sales Analytics", href: "/analytics", icon: TrendingUp },
@@ -38,9 +35,6 @@ function AdminLayout() {
     await logout();
     navigate("/login", { replace: true });
   };
-
-  const adminName = user?.name || "Store Admin";
-  const adminEmail = user?.email || "Administrator";
 
   const customerStoreUrl =
     import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173";
@@ -88,25 +82,8 @@ function AdminLayout() {
           </button>
         </div>
 
-        {/* Store Live Banner */}
-        <div className="mx-4 my-4 rounded-xl bg-white/5 p-3.5 border border-white/10">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-gray-300">
-              Vasai Store Status
-            </span>
-
-            <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-extrabold text-emerald-400">
-              LIVE &bull; OPEN
-            </span>
-          </div>
-
-          <p className="mt-1 text-[11px] text-gray-400">
-            Accepting 20-30 min local orders
-          </p>
-        </div>
-
         {/* Navigation */}
-        <nav className="flex-1 space-y-1.5 px-3 py-2">
+        <nav className="flex-1 space-y-1.5 px-3 py-4">
           {navigation.map((item) => {
             const Icon = item.icon;
 
@@ -157,25 +134,6 @@ function AdminLayout() {
 
             <ExternalLink size={13} />
           </a>
-
-          {/* Admin Profile */}
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FF8A00]/20 text-[#FF8A00] font-bold text-xs">
-              AD
-            </div>
-
-            <div className="flex-1 overflow-hidden">
-              <div className="truncate text-xs font-bold text-white">
-                {adminName}
-              </div>
-
-              <div className="truncate text-[10px] text-gray-400">
-                {adminEmail}
-              </div>
-            </div>
-
-            <ShieldCheck size={16} className="text-emerald-400" />
-          </div>
 
           {/* Logout */}
           <button

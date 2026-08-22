@@ -85,12 +85,12 @@ function ProductCard({ product }) {
                   setUpdatingCart(false);
                 }
               }}
-              className="rounded-full border border-[#FF8A00] bg-white px-6 py-2 text-sm font-semibold text-[#FF8A00] transition-all duration-300 hover:bg-[#FF8A00] hover:text-white hover:shadow-[0_4px_20px_rgba(255,138,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded-full border border-[#7C3AED] bg-white px-6 py-2 text-sm font-semibold text-[#7C3AED] transition-all duration-300 hover:bg-[#7C3AED] hover:text-white hover:shadow-[0_4px_20px_rgba(124,58,237,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isOutOfStock ? "Sold Out" : "ADD"}
             </button>
           ) : (
-            <div className="flex h-[38px] items-center rounded-full bg-[#FF8A00] text-white shadow-[0_4px_20px_rgba(255,138,0,0.2)]">
+            <div className="flex h-[38px] items-center rounded-full bg-[#7C3AED] text-white shadow-[0_4px_20px_rgba(124,58,237,0.2)]">
               <button
                 onClick={async () => {
                   if (updatingCart) return;
@@ -109,7 +109,7 @@ function ProductCard({ product }) {
                   }
                 }}
                 disabled={updatingCart}
-                className="flex h-full w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#FF7300] disabled:opacity-50"
+                className="flex h-full w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#6C35E8] disabled:opacity-50"
               >
                 −
               </button>
@@ -133,7 +133,7 @@ function ProductCard({ product }) {
                 }}
                 disabled={updatingCart || isMaxReached}
                 title={isMaxReached ? `Only ${maxStock} units in stock` : "Add one more"}
-                className="flex h-full w-8 items-center justify-center rounded-r-full transition-colors hover:bg-[#FF7300] disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex h-full w-8 items-center justify-center rounded-r-full transition-colors hover:bg-[#6C35E8] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 +
               </button>

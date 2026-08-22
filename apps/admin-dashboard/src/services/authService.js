@@ -6,25 +6,33 @@ const API_BASE =
 const authApi = axios.create({
   baseURL: API_BASE,
   withCredentials: true,
+  headers: {
+    "X-Mumbai-Panel": "admin",
+  },
 });
 
 export const loginAdmin = async (email, password) => {
   const response = await authApi.post("/auth/login", {
     email,
     password,
+    context: "admin",
   });
 
   return response.data;
 };
 
 export const getCurrentUser = async () => {
-  const response = await authApi.get("/auth/me");
+  const response = await authApi.get("/auth/me", {
+    params: { context: "admin" },
+  });
 
   return response.data;
 };
 
 export const logoutAdmin = async () => {
-  const response = await authApi.post("/auth/logout");
+  const response = await authApi.post("/auth/logout", {
+    context: "admin",
+  });
 
   return response.data;
 };

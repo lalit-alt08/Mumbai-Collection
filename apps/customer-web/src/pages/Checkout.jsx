@@ -60,7 +60,7 @@ function Checkout() {
           </button>
           <button
             onClick={loadCheckout}
-            className="rounded-full bg-[#FF8A00] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#FF7300]"
+            className="rounded-full bg-[#7C3AED] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#6C35E8]"
           >
             Retry
           </button>
@@ -122,10 +122,10 @@ function Checkout() {
 
         {/* ORDER SUMMARY */}
         <div className="order-1 lg:order-2 lg:sticky lg:top-5">
-          <div className="rounded-[20px] border border-[#FFD9B3] bg-white p-5 shadow-[0_6px_24px_rgba(255,138,0,0.07)]">
+          <div className="rounded-[20px] border border-[#C4B5FD]/40 bg-white p-5 shadow-[0_6px_24px_rgba(124,58,237,0.07)]">
 
             <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FF7300]">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#7C3AED]">
                 <ShoppingBag size={18} className="text-white" />
               </div>
 
@@ -193,7 +193,7 @@ function Checkout() {
                 <span>Delivery</span>
 
                 {delivery === 0 ? (
-                  <span className="font-bold text-[#FF8A00]">
+                  <span className="font-bold text-[#7C3AED]">
                     FREE
                   </span>
                 ) : (
@@ -220,7 +220,7 @@ function Checkout() {
                 Grand Total
               </span>
 
-              <span className="text-[22px] font-extrabold text-[#FF8A00]">
+              <span className="text-[22px] font-extrabold text-[#7C3AED]">
                 ₹{total}
               </span>
             </div>

@@ -25,7 +25,7 @@ function ProductDescription({ product }) {
 
       {isOpen && (
         <div
-          className="prose prose-sm mt-4 max-w-none text-[#6B7280] prose-p:leading-relaxed prose-headings:text-[#1F2937] prose-a:text-[#FF8A00] prose-strong:text-[#1F2937] animate-[fadeIn_0.3s_ease-out]"
+          className="prose prose-sm mt-4 max-w-none text-[#6B7280] prose-p:leading-relaxed prose-headings:text-[#1F2937] prose-a:text-[#7C3AED] prose-strong:text-[#1F2937] animate-[fadeIn_0.3s_ease-out]"
           dangerouslySetInnerHTML={{
             __html: product.description,
           }}

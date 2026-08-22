@@ -3,8 +3,8 @@ import { Home, ArrowLeft } from "lucide-react";
 
 function NotFound() {
   return (
-    <div className="flex min-h-[70vh] flex-col items-center justify-center bg-[#FFF9F0] px-4 text-center">
-      <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-orange-50 text-[#FF8A00] shadow-sm">
+    <div className="flex min-h-[70vh] flex-col items-center justify-center bg-[#F7F7FB] px-4 text-center">
+      <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-[#F1ECFF] text-[#7C3AED] shadow-sm">
         <span className="text-4xl">🔍</span>
       </div>
 
@@ -18,7 +18,7 @@ function NotFound() {
 
       <Link
         to="/"
-        className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#FF8A00] px-8 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_rgba(255,138,0,0.25)] transition hover:bg-[#FF7300] active:scale-95"
+        className="mt-8 inline-flex items-center gap-2 rounded-full bg-[#7C3AED] px-8 py-3.5 text-sm font-bold text-white shadow-[0_4px_16px_rgba(124,58,237,0.25)] transition hover:bg-[#6C35E8] active:scale-95"
       >
         <Home size={18} /> Return to Home
       </Link>

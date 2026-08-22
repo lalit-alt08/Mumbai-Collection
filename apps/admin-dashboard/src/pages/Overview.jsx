@@ -6,7 +6,6 @@ import {
   ShoppingBag,
   AlertTriangle,
   ArrowUpRight,
-  ArrowRight,
   Clock,
   CheckCircle2,
   Truck,
@@ -14,14 +13,14 @@ import {
   IndianRupee,
   Boxes,
   Users,
+  Calendar,
 } from "lucide-react";
-import { getOverview, updateOrderStatus } from "../services/adminApi";
+import { getOverview } from "../services/adminApi";
 
 function Overview() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [updatingId, setUpdatingId] = useState(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -43,24 +42,12 @@ function Overview() {
     fetchDashboardData();
   }, []);
 
-  const handleQuickStatusChange = async (orderId, newStatus) => {
-    try {
-      setUpdatingId(orderId);
-      await updateOrderStatus(orderId, newStatus);
-      await fetchDashboardData();
-    } catch (err) {
-      alert("Failed to update status: " + (err.response?.data?.message || err.message));
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
   if (loading) {
     return (
       <div className="space-y-6">
         <div className="h-8 w-48 animate-pulse rounded-lg bg-gray-200" />
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((n) => (
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          {[1, 2, 3].map((n) => (
             <div key={n} className="h-32 animate-pulse rounded-2xl bg-white p-6 shadow-sm" />
           ))}
         </div>
@@ -119,29 +106,8 @@ function Overview() {
         </div>
       </div>
 
-      {/* 4 Executive Metric Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Revenue */}
-        <div className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Total Store Revenue
-            </span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <IndianRupee size={20} />
-            </div>
-          </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black tracking-tight text-gray-900">
-              ₹{summary.totalRevenue.toLocaleString("en-IN")}
-            </span>
-          </div>
-          <p className="mt-2 text-xs font-semibold text-emerald-600 flex items-center gap-1">
-            <TrendingUp size={13} />
-            {summary.completedOrders} orders completed
-          </p>
-        </div>
-
+      {/* 3 Executive Metric Cards */}
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         {/* Today's Sales */}
         <div className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md">
           <div className="flex items-center justify-between">
@@ -162,25 +128,24 @@ function Overview() {
           </p>
         </div>
 
-        {/* Active Orders to Dispatch */}
+        {/* Monthly Sales */}
         <div className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Orders to Dispatch
+              Monthly Sales
             </span>
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Package size={20} />
+              <Calendar size={20} />
             </div>
           </div>
           <div className="mt-4 flex items-baseline gap-2">
             <span className="text-3xl font-black tracking-tight text-gray-900">
-              {summary.activeOrders}
+              ₹{(summary.monthSales ?? 0).toLocaleString("en-IN")}
             </span>
-            <span className="text-xs font-medium text-gray-500">pending fulfillment</span>
           </div>
           <p className="mt-2 text-xs font-semibold text-blue-600 flex items-center gap-1">
-            <Clock size={13} />
-            20-30 min Vasai dispatch target
+            <TrendingUp size={13} />
+            {summary.monthOrdersCount ?? 0} orders this month
           </p>
         </div>
 
@@ -291,14 +256,8 @@ function Overview() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-base font-bold text-gray-900">Recent Customer Orders</h2>
-            <p className="text-xs font-medium text-gray-500">Live order queue with 1-click status dispatcher</p>
+            <p className="text-xs font-medium text-gray-500">Live order overview across the store</p>
           </div>
-          <Link
-            to="/orders"
-            className="flex items-center gap-1 text-xs font-bold text-[#FF8A00] hover:underline"
-          >
-            Manage All Orders <ArrowRight size={14} />
-          </Link>
         </div>
 
         <div className="overflow-x-auto">
@@ -309,8 +268,7 @@ function Overview() {
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Items</th>
                 <th className="py-3 px-4">Total Paid</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Quick Dispatch Action</th>
+                <th className="py-3 px-4 text-right">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
@@ -333,7 +291,7 @@ function Overview() {
                     ₹{o.total}
                     <div className="text-[10px] text-gray-400 font-normal">{o.payment_method}</div>
                   </td>
-                  <td className="py-4 px-4">
+                  <td className="py-4 px-4 text-right">
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-extrabold ${
                         o.status === "completed"
@@ -347,29 +305,6 @@ function Overview() {
                     >
                       {o.status}
                     </span>
-                  </td>
-                  <td className="py-4 px-4 text-right">
-                    {o.status === "processing" && (
-                      <button
-                        disabled={updatingId === o.id}
-                        onClick={() => handleQuickStatusChange(o.id, "out-for-delivery")}
-                        className="rounded-xl bg-[#FF8A00] px-3.5 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-[#FF7300] active:scale-95 disabled:opacity-50 transition"
-                      >
-                        {updatingId === o.id ? "Updating..." : "Dispatch Rider &rarr;"}
-                      </button>
-                    )}
-                    {(o.status === "out-for-delivery" || o.status === "dispatched") && (
-                      <button
-                        disabled={updatingId === o.id}
-                        onClick={() => handleQuickStatusChange(o.id, "completed")}
-                        className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-emerald-700 active:scale-95 disabled:opacity-50 transition"
-                      >
-                        {updatingId === o.id ? "Updating..." : "Mark Delivered ✓"}
-                      </button>
-                    )}
-                    {o.status === "completed" && (
-                      <span className="text-[11px] font-bold text-emerald-600">Delivered ✓</span>
-                    )}
                   </td>
                 </tr>
               ))}

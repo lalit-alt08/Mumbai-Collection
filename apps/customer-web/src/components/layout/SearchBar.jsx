@@ -73,12 +73,12 @@ function SearchBar() {
           transition-all
           duration-300
           placeholder:text-[#666666]
-          focus:border-[#FF8A00]
+          focus:border-[#7C3AED]
           focus:ring-4
-          focus:ring-[#FF8A00]/20
+          focus:ring-[#7C3AED]/20
           animate-[breathingGlow_2s_infinite_alternate]
           focus:animate-none
-          focus:shadow-[0_0_20px_rgba(255,138,0,0.3)]
+          focus:shadow-[0_0_20px_rgba(124,58,237,0.3)]
           md:text-base
         "
       />
@@ -87,7 +87,7 @@ function SearchBar() {
       {isLoading && (
         <Loader2
           size={20}
-          className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-[#FF8A00]"
+          className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-[#7C3AED]"
         />
       )}
 
@@ -96,7 +96,7 @@ function SearchBar() {
           {/* Header */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#ECECEC] bg-white/95 px-4 py-3 text-[13px] font-medium backdrop-blur-sm">
             <span className="text-[#666666]">🔥 Top Suggestions</span>
-            <span className="cursor-pointer text-[#FF8A00] hover:underline">
+            <span className="cursor-pointer text-[#7C3AED] hover:underline">
               View all results &rarr;
             </span>
           </div>
@@ -113,7 +113,7 @@ function SearchBar() {
                       setQuery("");
                       setProducts([]);
                     }}
-                    className="group flex cursor-pointer items-center justify-between border-b border-[#ECECEC] bg-white px-4 py-4 transition-colors duration-200 hover:bg-[#FFF4E5]"
+                    className="group flex cursor-pointer items-center justify-between border-b border-[#ECECEC] bg-white px-4 py-4 transition-colors duration-200 hover:bg-[#F1ECFF]"
                   >
                     <div className="flex flex-1 items-center gap-4 pr-2">
                       {/* LEFT: Image */}
@@ -133,7 +133,7 @@ function SearchBar() {
                         
                         {categoryName && (
                           <div className="mt-1.5 flex items-center">
-                            <span className="rounded-[6px] bg-[#FFF4E5] px-2 py-0.5 text-[11px] font-semibold text-[#FF7300]">
+                            <span className="rounded-[6px] bg-[#F1ECFF] px-2 py-0.5 text-[11px] font-semibold text-[#7C3AED]">
                               {categoryName}
                             </span>
                           </div>
@@ -143,10 +143,10 @@ function SearchBar() {
 
                     {/* RIGHT: Price & CTA */}
                     <div className="flex flex-col items-end flex-shrink-0">
-                      <span className="text-[15px] font-bold text-[#FF8A00]">
+                      <span className="text-[15px] font-bold text-[#7C3AED]">
                         ₹{product.price}
                       </span>
-                      <div className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#FFF4E5] text-[#FF8A00] transition-all duration-200 group-hover:bg-[#FF8A00] group-hover:text-white">
+                      <div className="mt-2 flex h-8 w-8 items-center justify-center rounded-full bg-[#F1ECFF] text-[#7C3AED] transition-all duration-200 group-hover:bg-[#7C3AED] group-hover:text-white">
                         <ShoppingCart size={14} strokeWidth={2.5} />
                       </div>
                     </div>
@@ -170,8 +170,8 @@ function SearchBar() {
               to { opacity: 1; transform: scale(1); }
             }
             @keyframes breathingGlow {
-              0% { box-shadow: 0 4px 15px rgba(255, 138, 0, 0.05); border-color: #CCCCCC; }
-              100% { box-shadow: 0 4px 25px rgba(255, 138, 0, 0.35); border-color: rgba(255, 138, 0, 0.6); }
+              0% { box-shadow: 0 4px 15px rgba(124, 58, 237, 0.05); border-color: #CCCCCC; }
+              100% { box-shadow: 0 4px 25px rgba(124, 58, 237, 0.35); border-color: rgba(124, 58, 237, 0.6); }
             }
           `}} />
         </div>

@@ -20,22 +20,23 @@ export function AuthProvider({ children }) {
       try {
         const response = await getCurrentUser();
 
-        if (response?.success && response?.user) {
-          console.log(" EXISTING SESSION RESTORED");
+        if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
+          const userData = response.user || {
+            id: response.current_user_id,
+            roles: response.roles || [],
+          };
 
-          setUser(response.user);
+          setUser(userData);
 
           localStorage.setItem(
             "user",
-            JSON.stringify(response.user)
+            JSON.stringify(userData)
           );
         } else {
           setUser(null);
           localStorage.removeItem("user");
         }
       } catch (error) {
-        console.log(" No active session.");
-
         setUser(null);
         localStorage.removeItem("user");
       } finally {

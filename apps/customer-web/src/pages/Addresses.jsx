@@ -284,7 +284,7 @@ function Addresses() {
   // --------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-[#F8F9F5] px-4 py-6 sm:px-5 md:px-10 md:py-10">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-6 sm:px-5 md:px-10 md:py-10">
       <div className="mx-auto max-w-4xl">
 
         {/* HEADER */}
@@ -307,7 +307,7 @@ function Addresses() {
 
         {/* ADD / EDIT FORM */}
         {showForm && (
-          <div className="mb-8 rounded-3xl border border-[#FFD9B3] bg-white p-5 shadow-sm md:p-7">
+          <div className="mb-8 rounded-3xl border border-[#C4B5FD]/40 bg-white p-5 shadow-sm md:p-7">
 
             {/* FORM HEADER */}
             <div className="mb-6 flex items-center justify-between">
@@ -363,7 +363,7 @@ function Addresses() {
                     }
                     className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition ${
                       form.type === "home"
-                        ? "border-[#FF8A00] bg-orange-50 text-[#FF8A00]"
+                        ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED]"
                         : "border-gray-200 text-gray-500"
                     }`}
                   >
@@ -381,7 +381,7 @@ function Addresses() {
                     }
                     className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition ${
                       form.type === "office"
-                        ? "border-[#FF8A00] bg-orange-50 text-[#FF8A00]"
+                        ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED]"
                         : "border-gray-200 text-gray-500"
                     }`}
                   >
@@ -404,7 +404,7 @@ function Addresses() {
                     onChange={handleChange}
                     placeholder="e.g. Rahul Sharma"
                     required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -426,7 +426,7 @@ function Addresses() {
                       onChange={handleChange}
                       placeholder="9876543210"
                       required
-                      className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                      className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                     />
                   </div>
                 </div>
@@ -444,7 +444,7 @@ function Addresses() {
                   onChange={handleChange}
                   placeholder="Flat / House no., building, street"
                   required
-                  className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                 />
               </div>
 
@@ -462,7 +462,7 @@ function Addresses() {
                   value={form.address_line2}
                   onChange={handleChange}
                   placeholder="Landmark, area name"
-                  className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                  className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                 />
               </div>
 
@@ -479,7 +479,7 @@ function Addresses() {
                     onChange={handleChange}
                     placeholder="e.g. Vasai / Mumbai"
                     required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -493,7 +493,7 @@ function Addresses() {
                     value={form.state}
                     onChange={handleChange}
                     required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   >
                     {INDIAN_STATES.map((state) => (
                       <option key={state.code} value={state.code}>
@@ -517,7 +517,7 @@ function Addresses() {
                     onChange={handleChange}
                     placeholder="6-digit PIN"
                     required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
               </div>
@@ -536,7 +536,7 @@ function Addresses() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#FF8A00] px-7 text-sm font-bold text-white shadow-sm transition hover:bg-[#FF7300] disabled:cursor-not-allowed disabled:opacity-70"
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-7 text-sm font-bold text-white shadow-sm transition hover:bg-[#6C35E8] disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {saving && (
                     <Loader2
@@ -559,10 +559,10 @@ function Addresses() {
         {/* SAVED ADDRESSES */}
         {addresses.length === 0 ? (
           <div className="rounded-3xl bg-white p-8 text-center shadow-sm md:p-12">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-50">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#F1ECFF]">
               <MapPin
                 size={30}
-                className="text-[#FF8A00]"
+                className="text-[#7C3AED]"
               />
             </div>
 
@@ -590,16 +590,16 @@ function Addresses() {
                   <div className="mb-5 flex items-start justify-between gap-3">
 
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-orange-50">
+                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF]">
                         {isHome ? (
                           <Home
                             size={23}
-                            className="text-[#FF8A00]"
+                            className="text-[#7C3AED]"
                           />
                         ) : (
                           <Building2
                             size={23}
-                            className="text-[#FF8A00]"
+                            className="text-[#7C3AED]"
                           />
                         )}
                       </div>
@@ -630,7 +630,7 @@ function Addresses() {
                         onClick={() =>
                           openEditForm(address)
                         }
-                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#FF8A00] hover:bg-orange-50 hover:text-[#FF8A00]"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#7C3AED] hover:bg-[#F1ECFF] hover:text-[#7C3AED]"
                         title="Edit address"
                       >
                         <Pencil size={17} />
@@ -701,7 +701,7 @@ function Addresses() {
             <button
               type="button"
               onClick={openAddForm}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] px-6 py-4 text-[15px] font-bold text-white shadow-[0_8px_20px_rgba(255,138,0,0.2)] transition hover:bg-[#FF7300] active:scale-[0.98] sm:w-auto sm:min-w-[220px]"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] px-6 py-4 text-[15px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.2)] transition hover:bg-[#6C35E8] active:scale-[0.98] sm:w-auto sm:min-w-[220px]"
             >
               <Plus size={19} />
               Add Address

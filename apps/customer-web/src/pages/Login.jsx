@@ -128,7 +128,7 @@ function Login() {
   };
 
   return (
-    <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F8F9F5]">
+    <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F7F7FB]">
       {/* Login Form Container */}
       <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
         <div className="w-full">
@@ -165,7 +165,7 @@ function Login() {
                     setEmailError("");
                     setError("");
                   }}
-                  className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/15"
+                  className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
                   required
                 />
               </div>
@@ -196,7 +196,7 @@ function Login() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/15"
+                  className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
                   required
                 />
 
@@ -217,7 +217,7 @@ function Login() {
                 <button
                   type="button"
                   onClick={() => navigate("/forgot-password")}
-                  className="text-[13px] font-semibold text-[#FF8A00] hover:underline"
+                  className="text-[13px] font-semibold text-[#7C3AED] hover:underline"
                 >
                   Forgot password?
                 </button>
@@ -235,7 +235,7 @@ function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(255,138,0,0.25)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? "Signing in..." : "Sign In"}
 
@@ -249,7 +249,7 @@ function Login() {
             <button
               type="button"
               onClick={() => navigate("/register")}
-              className="ml-1.5 font-bold text-[#FF7A00] transition-colors hover:text-[#e06b00]"
+              className="ml-1.5 font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8]"
             >
               Create one now
             </button>

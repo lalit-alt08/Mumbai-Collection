@@ -23,7 +23,7 @@ function Header() {
     ) || 0;
 
   return (
-    <header className="sticky top-0 z-50 rounded-b-[24px] bg-[#FFF9F0]/95 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
+    <header className="sticky top-0 z-50 rounded-b-[24px] bg-[#F7F7FB]/95 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
       <div className="mx-auto max-w-7xl px-4 py-3 md:px-8 md:py-4">
         {/* ================= MOBILE ================= */}
         <div className="flex items-center justify-between md:hidden">
@@ -48,7 +48,7 @@ function Header() {
               <ShoppingCart size={23} strokeWidth={2} />
 
               {totalQuantity > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF8A00] px-1 text-[11px] font-bold text-white">
+                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[11px] font-bold text-white">
                   {totalQuantity > 99 ? "99+" : totalQuantity}
                 </span>
               )}
@@ -104,7 +104,7 @@ function Header() {
               <ShoppingCart size={24} strokeWidth={2} />
 
               {totalQuantity > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF8A00] px-1 text-[11px] font-bold text-white">
+                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[11px] font-bold text-white">
                   {totalQuantity > 99 ? "99+" : totalQuantity}
                 </span>
               )}

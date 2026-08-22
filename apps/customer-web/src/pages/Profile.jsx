@@ -243,7 +243,7 @@ function Profile() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9F5] px-5 py-8 md:px-10">
+    <div className="min-h-screen bg-[#F7F7FB] px-5 py-8 md:px-10">
       <div className="mx-auto max-w-4xl">
 
         {/* HEADER */}
@@ -279,10 +279,10 @@ function Profile() {
 
             <div className="flex items-center gap-4">
 
-              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-orange-50">
+              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF]">
                 <User
                   size={30}
-                  className="text-[#FF8A00]"
+                  className="text-[#7C3AED]"
                 />
               </div>
 
@@ -303,7 +303,7 @@ function Profile() {
               <button
                 type="button"
                 onClick={handleEdit}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-600 transition hover:border-[#FF8A00] hover:bg-orange-50 hover:text-[#FF8A00]"
+                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-600 transition hover:border-[#7C3AED] hover:bg-[#F1ECFF] hover:text-[#7C3AED]"
               >
                 <Pencil size={17} />
                 Edit
@@ -341,7 +341,7 @@ function Profile() {
                     onChange={handleChange}
                     autoComplete="name"
                     placeholder="Enter your full name"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
               </div>
@@ -366,7 +366,7 @@ function Profile() {
                     min="13"
                     max="120"
                     placeholder="Enter your age"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
               </div>
@@ -391,7 +391,7 @@ function Profile() {
                     onChange={handleChange}
                     autoComplete="tel"
                     placeholder="9876543210"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#FF8A00] focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/10"
+                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
                 </div>
               </div>
@@ -437,7 +437,7 @@ function Profile() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#FF8A00] px-6 text-sm font-bold text-white transition hover:bg-[#FF7300] disabled:cursor-not-allowed disabled:opacity-70"
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-6 text-sm font-bold text-white transition hover:bg-[#6C35E8] disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {saving ? (
                     <>

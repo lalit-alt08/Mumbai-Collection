@@ -3,10 +3,9 @@ import multer from "multer";
 
 import {
   getDashboardOverview,
-  getAdminOrders,
-  updateOrderStatus,
   getAdminProducts,
   updateProduct,
+  deleteProduct,
   createProduct,
   uploadProductImage,
   getAdminCustomers,
@@ -62,51 +61,50 @@ const router = express.Router();
 // Executive Dashboard & Overview
 router.get(
   "/overview",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   getDashboardOverview
-);
-
-// Orders Management
-router.get(
-  "/orders",
-  requireAuth,
-  requireRole(["administrator"]),
-  getAdminOrders
-);
-
-router.put(
-  "/orders/:id/status",
-  requireAuth,
-  requireRole(["administrator"]),
-  updateOrderStatus
 );
 
 // Inventory & Products
 router.get(
   "/products",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   getAdminProducts
 );
 
 router.put(
   "/products/:id",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   updateProduct
 );
 
+router.patch(
+  "/products/:id",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  updateProduct
+);
+
+router.delete(
+  "/products/:id",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  deleteProduct
+);
+
 router.post(
   "/products",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   createProduct
 );
 
 router.post(
   "/upload",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   handleImageUpload,
   uploadProductImage
@@ -115,7 +113,7 @@ router.post(
 // Customers Directory
 router.get(
   "/customers",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   getAdminCustomers
 );
@@ -123,7 +121,7 @@ router.get(
 // Dedicated Deep Analytics & Reporting
 router.get(
   "/analytics",
-  requireAuth,
+  requireAuth("admin"),
   requireRole(["administrator"]),
   getAdminAnalytics
 );

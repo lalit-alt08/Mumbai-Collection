@@ -18,7 +18,7 @@ export const AdminAuthProvider = ({ children }) => {
       if (data?.logged_in && data?.current_user_id) {
         setUser({
           id: data.current_user_id,
-          roles: data.role || [],
+          roles: Array.isArray(data.roles) ? data.roles : (data.role ? [data.role] : []),
         });
       } else {
         setUser(null);

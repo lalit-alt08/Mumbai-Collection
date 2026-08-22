@@ -92,11 +92,14 @@ export const getDashboardOverview = async (req, res) => {
     // Metrics calculation
     let totalRevenue = 0;
     let todaySales = 0;
+    let monthSales = 0;
+    let monthOrdersCount = 0;
     let activeOrdersCount = 0;
     let completedOrdersCount = 0;
     let cancelledOrdersCount = 0;
 
     const todayDateString = new Date().toISOString().split("T")[0];
+    const currentYearMonth = new Date().toISOString().slice(0, 7);
 
     // Last 7 days map for sales chart
     const last7DaysMap = new Map();
@@ -109,15 +112,23 @@ export const getDashboardOverview = async (req, res) => {
     }
 
     orders.forEach((order) => {
+      const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
+      const effectiveStatus = deliveryMeta?.value || order.status;
+
       const orderTotal = Number(order.total) || 0;
       const orderDate = order.date_created ? order.date_created.split("T")[0] : "";
-      const isCancelled = ["cancelled", "failed", "refunded"].includes(order.status);
+      const isCancelled = ["cancelled", "failed", "refunded"].includes(effectiveStatus);
 
       if (!isCancelled) {
         totalRevenue += orderTotal;
 
         if (orderDate === todayDateString) {
           todaySales += orderTotal;
+        }
+
+        if (orderDate && orderDate.startsWith(currentYearMonth)) {
+          monthSales += orderTotal;
+          monthOrdersCount += 1;
         }
 
         if (last7DaysMap.has(orderDate)) {
@@ -127,9 +138,9 @@ export const getDashboardOverview = async (req, res) => {
         }
       }
 
-      if (["pending", "processing", "on-hold", "out-for-delivery", "dispatched"].includes(order.status)) {
+      if (["pending", "processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(effectiveStatus)) {
         activeOrdersCount += 1;
-      } else if (order.status === "completed") {
+      } else if (effectiveStatus === "completed") {
         completedOrdersCount += 1;
       } else if (isCancelled) {
         cancelledOrdersCount += 1;
@@ -153,36 +164,49 @@ export const getDashboardOverview = async (req, res) => {
       }));
 
     // Formatted recent 8 orders
-    const recentOrders = orders.slice(0, 8).map((o) => ({
-      id: o.id,
-      order_number: o.number || String(o.id),
-      customer_name:
-        `${o.billing?.first_name || ""} ${o.billing?.last_name || ""}`.trim() ||
-        o.billing?.email ||
-        "Guest Customer",
-      customer_email: o.billing?.email || "",
-      customer_phone: o.billing?.phone || "",
-      total: o.total,
-      status: o.status,
-      date: o.date_created,
-      items_count: o.line_items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0,
-      payment_method: o.payment_method_title || "Cash on Delivery",
-    }));
+    const recentOrders = orders.slice(0, 8).map((o) => {
+      const deliveryMeta = o.meta_data?.find((m) => m.key === "_delivery_status");
+      const effectiveStatus = deliveryMeta?.value || o.status;
+
+      return {
+        id: o.id,
+        order_number: o.number || String(o.id),
+        customer_name:
+          `${o.billing?.first_name || ""} ${o.billing?.last_name || ""}`.trim() ||
+          o.billing?.email ||
+          "Guest Customer",
+        customer_email: o.billing?.email || "",
+        customer_phone: o.billing?.phone || "",
+        total: o.total,
+        status: effectiveStatus,
+        date: o.date_created,
+        items_count: o.line_items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0,
+        payment_method: o.payment_method_title || "Cash on Delivery",
+      };
+    });
+
+    const summaryData = {
+      totalRevenue: Math.round(totalRevenue),
+      todaySales: Math.round(todaySales),
+      monthSales: Math.round(monthSales),
+      monthOrdersCount,
+      totalOrders: orders.length,
+      activeOrders: activeOrdersCount,
+      completedOrders: completedOrdersCount,
+      cancelledOrders: cancelledOrdersCount,
+      totalProducts: products.length,
+      lowStockCount: lowStockProducts.length,
+      avgOrderValue: orders.length > 0 ? Math.round(totalRevenue / Math.max(1, (orders.length - cancelledOrdersCount))) : 0,
+    };
 
     res.json({
       success: true,
+      summary: summaryData,
+      salesTrend: Array.from(last7DaysMap.values()),
+      lowStockProducts: lowStockProducts.slice(0, 6),
+      recentOrders,
       data: {
-        summary: {
-          totalRevenue: Math.round(totalRevenue),
-          todaySales: Math.round(todaySales),
-          totalOrders: orders.length,
-          activeOrders: activeOrdersCount,
-          completedOrders: completedOrdersCount,
-          cancelledOrders: cancelledOrdersCount,
-          totalProducts: products.length,
-          lowStockCount: lowStockProducts.length,
-          avgOrderValue: orders.length > 0 ? Math.round(totalRevenue / Math.max(1, (orders.length - cancelledOrdersCount))) : 0,
-        },
+        summary: summaryData,
         salesTrend: Array.from(last7DaysMap.values()),
         lowStockProducts: lowStockProducts.slice(0, 6),
         recentOrders,
@@ -193,170 +217,6 @@ export const getDashboardOverview = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to load dashboard overview.",
-    });
-  }
-};
-
-/**
- * Get Orders with search and status filtering
- */
-export const getAdminOrders = async (req, res) => {
-  try {
-    const { status, search, page = 1, per_page = 20 } = req.query;
-
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(per_page) || 20));
-
-    const queryParams = {
-      page: pageNum,
-      per_page: limit,
-      orderby: "date",
-      order: "desc",
-    };
-
-    // Server-side search across historical WooCommerce database
-    if (search && search.trim()) {
-      queryParams.search = search.trim();
-    }
-
-    // Pass standard WooCommerce statuses directly to upstream query
-    if (status && !["all", "out-for-delivery", "dispatched"].includes(status)) {
-      queryParams.status = status;
-    }
-
-    const response = await api.get("orders", queryParams);
-    let orders = Array.isArray(response.data) ? response.data : [];
-
-    // Filter custom local delivery statuses if requested
-    if (status === "out-for-delivery" || status === "dispatched") {
-      orders = orders.filter((o) => {
-        const deliveryMeta = o.meta_data?.find((m) => m.key === "_delivery_status");
-        return (
-          o.status === "out-for-delivery" ||
-          o.status === "dispatched" ||
-          deliveryMeta?.value === "out-for-delivery" ||
-          deliveryMeta?.value === "dispatched"
-        );
-      });
-    }
-
-    const totalOrders = Number(response.headers["x-wp-total"]) || orders.length;
-    const totalPages = Number(response.headers["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
-
-    const formatted = orders.map((o) => {
-      // Check if custom delivery status is stored in metadata
-      const deliveryMeta = o.meta_data?.find((m) => m.key === "_delivery_status");
-      const effectiveStatus = deliveryMeta?.value || o.status;
-
-      return {
-        id: o.id,
-        order_number: o.number || String(o.id),
-        status: effectiveStatus,
-        date_created: o.date_created,
-        total: o.total,
-        shipping_total: o.shipping_total || "0.00",
-        discount_total: o.discount_total || "0.00",
-        payment_method: o.payment_method_title || "Cash on Delivery",
-        customer: {
-          id: o.customer_id,
-          name:
-            `${o.billing?.first_name || ""} ${o.billing?.last_name || ""}`.trim() ||
-            "Guest Customer",
-          email: o.billing?.email || "",
-          phone: o.billing?.phone || "",
-          address: `${o.billing?.address_1 || ""}${
-            o.billing?.address_2 ? ", " + o.billing.address_2 : ""
-          }, ${o.billing?.city || ""}, ${o.billing?.state || ""} - ${
-            o.billing?.postcode || ""
-          }`,
-        },
-        items: (o.line_items || []).map((item) => ({
-          id: item.id,
-          product_id: item.product_id,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-          total: item.total,
-          image: item.image?.src || null,
-        })),
-      };
-    });
-
-    res.json({
-      success: true,
-      page: pageNum,
-      per_page: limit,
-      total: totalOrders,
-      totalPages: totalPages,
-      count: formatted.length,
-      orders: formatted,
-    });
-  } catch (error) {
-    console.error("Get admin orders error:", error.response?.data || error.message);
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to load orders.",
-      orders: [],
-    });
-  }
-};
-
-/**
- * Update Order Status (Instant dispatch sync)
- */
-export const updateOrderStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const ALLOWED_STATUSES = [
-      "pending",
-      "processing",
-      "on-hold",
-      "out-for-delivery",
-      "dispatched",
-      "completed",
-      "cancelled",
-      "refunded",
-      "failed",
-    ];
-
-    if (!status || !ALLOWED_STATUSES.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status "${status}". Allowed: ${ALLOWED_STATUSES.join(", ")}`,
-      });
-    }
-
-    let payload = {};
-
-    // For custom quick-commerce dispatch statuses, keep WC status as processing while updating delivery meta
-    if (status === "out-for-delivery" || status === "dispatched") {
-      payload = {
-        status: "processing",
-        meta_data: [{ key: "_delivery_status", value: status }],
-      };
-    } else {
-      payload = {
-        status,
-        meta_data: [{ key: "_delivery_status", value: status }],
-      };
-    }
-
-    const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
-
-    res.json({
-      success: true,
-      message: `Order #${id} status updated to ${status}.`,
-      order: response.data,
-    });
-  } catch (error) {
-    console.error("Update order status error:", error.response?.data || error.message);
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to update order status.",
     });
   }
 };
@@ -483,6 +343,39 @@ export const updateProduct = async (req, res) => {
     res.status(statusCode).json({
       success: false,
       message: error.response?.data?.message || error.message || "Failed to update product.",
+    });
+  }
+};
+
+/**
+ * Permanently Delete Product from WooCommerce Catalog
+ */
+export const deleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Product ID is required.",
+      });
+    }
+
+    const response = await api.delete(`products/${encodeURIComponent(id)}`, {
+      params: { force: true },
+    });
+
+    res.json({
+      success: true,
+      message: `Product #${id} permanently deleted from store catalog.`,
+      product: response.data,
+    });
+  } catch (error) {
+    console.error("Delete product error:", error.response?.data || error.message);
+    const statusCode = error.response?.status || 500;
+    res.status(statusCode).json({
+      success: false,
+      message: error.response?.data?.message || error.message || "Failed to delete product.",
     });
   }
 };

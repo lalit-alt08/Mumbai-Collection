@@ -46,7 +46,19 @@ function Login() {
       setSubmitting(true);
       await login(email.trim(), password);
     } catch (err) {
-      setError(err.message || "Unable to sign in. Please try again.");
+      if (err.response?.status === 401) {
+        setError(err.response.data?.message || "Invalid email or password.");
+      } else if (err.response?.status === 429) {
+        setError(
+          err.response.data?.message ||
+            "Too many login attempts. Please try again later."
+        );
+      } else {
+        setError(
+          err.response?.data?.message ||
+            "Unable to sign in. Please check your connection and try again."
+        );
+      }
     } finally {
       setSubmitting(false);
     }

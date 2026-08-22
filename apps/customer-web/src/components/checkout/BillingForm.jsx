@@ -87,7 +87,7 @@ function BillingForm() {
       const lastName = nameParts.join(" ") || firstName; // Fallback to firstName if single name
 
       const stateCode = getIndianStateCode(selectedAddress.state);
-      const userEmail = user?.email || "customer@mumbaicollection.in";
+      const userEmail = (user?.email || selectedAddress.email || "").trim() || "orders@mumbaicollection.in";
       const userPhone =
         (selectedAddress.phone || "").replace(/\D/g, "") || "9999999999";
       const cleanPincode =
@@ -147,7 +147,7 @@ function BillingForm() {
     return (
       <div className="flex min-h-[240px] items-center justify-center rounded-[20px] border border-[#ECECEC] bg-white">
         <div className="flex items-center gap-2 text-[14px] font-medium text-[#666666]">
-          <Loader2 size={19} className="animate-spin text-[#FF8A00]" />
+          <Loader2 size={19} className="animate-spin text-[#7C3AED]" />
           Loading your saved addresses...
         </div>
       </div>
@@ -176,14 +176,14 @@ function BillingForm() {
       <div className="mb-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-            <MapPin size={18} className="text-[#FF8A00]" />
+            <MapPin size={18} className="text-[#7C3AED]" />
             Delivery Address
           </h3>
 
           <button
             type="button"
             onClick={() => navigate("/account/addresses")}
-            className="flex items-center gap-1 text-[13px] font-bold text-[#FF8A00] transition-colors hover:text-[#E56F00] hover:underline"
+            className="flex items-center gap-1 text-[13px] font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8] hover:underline"
           >
             <Plus size={15} />
             Add Address
@@ -192,8 +192,8 @@ function BillingForm() {
 
         {/* No saved addresses */}
         {addresses.length === 0 ? (
-          <div className="rounded-[14px] border border-dashed border-[#FFB866] bg-[#FFF9F2] p-5 text-center">
-            <MapPin size={28} className="mx-auto mb-2 text-[#FF8A00]" />
+          <div className="rounded-[14px] border border-dashed border-[#C4B5FD] bg-[#F1ECFF] p-5 text-center">
+            <MapPin size={28} className="mx-auto mb-2 text-[#7C3AED]" />
 
             <h4 className="text-[14px] font-bold text-[#1E1E1E]">
               No saved addresses
@@ -206,7 +206,7 @@ function BillingForm() {
             <button
               type="button"
               onClick={() => navigate("/account/addresses")}
-              className="mt-3 rounded-xl bg-[#FF8A00] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#FF7300]"
+              className="mt-3 rounded-xl bg-[#7C3AED] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#6C35E8]"
             >
               Add Address
             </button>
@@ -225,29 +225,29 @@ function BillingForm() {
                   onClick={() => setSelectedAddressId(address.id)}
                   className={`w-full rounded-[16px] border-2 p-4 text-left transition-all ${
                     isSelected
-                      ? "border-[#FF8A00] bg-[#FFF9F2] shadow-[0_4px_16px_rgba(255,138,0,0.07)]"
-                      : "border-[#ECECEC] bg-white hover:border-[#FFB866]"
+                      ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
+                      : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     {/* Icon */}
                     <div
                       className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
-                        isSelected ? "bg-[#FFF0DD]" : "bg-gray-50"
+                        isSelected ? "bg-[#E0D4FC]" : "bg-gray-50"
                       }`}
                     >
                       {isHome ? (
                         <Home
                           size={20}
                           className={
-                            isSelected ? "text-[#FF8A00]" : "text-gray-500"
+                            isSelected ? "text-[#7C3AED]" : "text-gray-500"
                           }
                         />
                       ) : (
                         <Building2
                           size={20}
                           className={
-                            isSelected ? "text-[#FF8A00]" : "text-gray-500"
+                            isSelected ? "text-[#7C3AED]" : "text-gray-500"
                           }
                         />
                       )}
@@ -261,7 +261,7 @@ function BillingForm() {
                         </h4>
 
                         {isSelected && (
-                          <span className="rounded-full bg-[#FFF0DD] px-2 py-0.5 text-[9px] font-bold text-[#FF8A00]">
+                          <span className="rounded-full bg-[#E0D4FC] px-2 py-0.5 text-[9px] font-bold text-[#7C3AED]">
                             SELECTED
                           </span>
                         )}
@@ -291,11 +291,11 @@ function BillingForm() {
                     {/* Radio */}
                     <div
                       className={`mt-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                        isSelected ? "border-[#FF8A00]" : "border-gray-300"
+                        isSelected ? "border-[#7C3AED]" : "border-gray-300"
                       }`}
                     >
                       {isSelected && (
-                        <div className="h-2.5 w-2.5 rounded-full bg-[#FF8A00]" />
+                        <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
                       )}
                     </div>
                   </div>
@@ -311,13 +311,13 @@ function BillingForm() {
       {/* Payment */}
       <div className="mb-5">
         <h3 className="mb-3 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-          <CreditCard size={18} className="text-[#FF8A00]" />
+          <CreditCard size={18} className="text-[#7C3AED]" />
           Payment Method
         </h3>
 
-        <div className="flex items-center gap-3 rounded-[15px] border-2 border-[#FF8A00] bg-[#FFF9F2] p-4">
-          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 border-[#FF8A00]">
-            <div className="h-2.5 w-2.5 rounded-full bg-[#FF8A00]" />
+        <div className="flex items-center gap-3 rounded-[15px] border-2 border-[#7C3AED] bg-[#F1ECFF] p-4">
+          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 border-[#7C3AED]">
+            <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
           </div>
 
           <div>
@@ -337,7 +337,7 @@ function BillingForm() {
         type="button"
         onClick={handlePlaceOrder}
         disabled={loading || addresses.length === 0 || !selectedAddress}
-        className="flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] bg-[#FF8A00] text-[15px] font-bold text-white shadow-[0_7px_22px_rgba(255,138,0,0.2)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] bg-[#7C3AED] text-[15px] font-bold text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading ? (
           <>

@@ -9,6 +9,7 @@ import authRoutes from "./routes/authRoute.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import employeeRoutes from "./routes/employeeRoutes.js";
 
 const app = express();
 
@@ -51,9 +52,26 @@ app.use("/api/addresses", addressRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/employee", employeeRoutes);
 
 app.get("/", (req, res) => {
   res.send("Backend is running");
+});
+
+// Global Express Error Handling Middleware
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  const isDev = process.env.NODE_ENV === "development";
+
+  if (status >= 500) {
+    console.error("Unhandled API Error:", err.stack || err.message);
+  }
+
+  res.status(status).json({
+    success: false,
+    message: status === 500 && !isDev ? "An internal server error occurred." : err.message || "An unexpected error occurred.",
+    ...(isDev && { stack: err.stack }),
+  });
 });
 
 export default app;

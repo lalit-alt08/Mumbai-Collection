@@ -46,7 +46,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           </div>
 
           {/* Quantity Controls */}
-          <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#FF8A00] px-1 text-white shadow-sm">
+          <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#7C3AED] px-1 text-white shadow-sm">
             <button
               type="button"
               disabled={isUpdating}

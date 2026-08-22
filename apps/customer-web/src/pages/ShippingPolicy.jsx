@@ -3,17 +3,17 @@ import { Truck, Clock, MapPin, CheckCircle2, ArrowLeft } from "lucide-react";
 
 function ShippingPolicy() {
   return (
-    <div className="min-h-screen bg-[#FFF9F0] px-4 py-8 md:py-12">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-8 md:py-12">
       <div className="mx-auto max-w-4xl rounded-[24px] border border-gray-100 bg-white p-6 shadow-sm md:p-12">
         <Link
           to="/"
-          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#FF8A00] transition hover:text-[#FF7300]"
+          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#7C3AED] transition hover:text-[#6C35E8]"
         >
           <ArrowLeft size={16} /> Back to Home
         </Link>
 
         <div className="mb-8 border-b border-gray-100 pb-6">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-orange-50 px-4 py-1.5 text-xs font-bold text-[#FF8A00]">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#F1ECFF] px-4 py-1.5 text-xs font-bold text-[#7C3AED]">
             <Truck size={16} /> Fast & Reliable Dispatch
           </div>
           <h1 className="text-2xl font-extrabold text-[#1E1E1E] md:text-3xl">
@@ -28,12 +28,12 @@ function ShippingPolicy() {
           {/* Timeline Table */}
           <section>
             <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <Clock size={18} className="text-[#FF8A00]" /> Estimated Delivery Timelines
+              <Clock size={18} className="text-[#7C3AED]" /> Estimated Delivery Timelines
             </h2>
 
             <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4 text-center">
-                <div className="text-xs font-bold uppercase tracking-wider text-[#FF8A00]">Vasai Local Area</div>
+              <div className="rounded-2xl border border-[#C4B5FD]/40 bg-[#F1ECFF]/50 p-4 text-center">
+                <div className="text-xs font-bold uppercase tracking-wider text-[#7C3AED]">Vasai Local Area</div>
                 <div className="mt-2 text-xl font-extrabold text-[#1E1E1E]">1 – 2 Days</div>
                 <p className="mt-1 text-xs text-gray-500">Vasai West & East, Nalasopara, Naigaon, Virar</p>
               </div>
@@ -55,7 +55,7 @@ function ShippingPolicy() {
           {/* Shipping Charges */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <CheckCircle2 size={18} className="text-[#FF8A00]" /> Shipping Charges & Free Delivery
+              <CheckCircle2 size={18} className="text-[#7C3AED]" /> Shipping Charges & Free Delivery
             </h2>
             <ul className="list-inside list-disc space-y-1.5 pl-2 text-gray-600">
               <li><strong>Free Delivery</strong> on all local orders in the Vasai region for orders above ₹499.</li>
@@ -67,10 +67,10 @@ function ShippingPolicy() {
           {/* Order Tracking */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <MapPin size={18} className="text-[#FF8A00]" /> Order Tracking & Delivery Updates
+              <MapPin size={18} className="text-[#7C3AED]" /> Order Tracking & Delivery Updates
             </h2>
             <p>
-              Once your order is packed and dispatched from Mumbai Collection, you will receive a confirmation message with the delivery agent/courier details. You can also track your order status anytime through the <Link to="/track-order" className="font-bold text-[#FF8A00] underline">Track My Order</Link> page.
+              Once your order is packed and dispatched from Mumbai Collection, you will receive a confirmation message with the delivery agent/courier details. You can also track your order status anytime through the <Link to="/track-order" className="font-bold text-[#7C3AED] underline">Track My Order</Link> page.
             </p>
           </section>
         </div>

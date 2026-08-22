@@ -1,11 +1,31 @@
 import axios from "axios";
 import wp from "../services/wordpress.js";
+import wcApi from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
-import { invalidateSessionCache } from "../middlewares/authMiddleware.js";
+import { COOKIE_NAMES, invalidateSessionCache } from "../middlewares/authMiddleware.js";
+
+const resolveContext = (req) => {
+  const panel = req.body?.context || req.query?.context || req.headers["x-mumbai-panel"];
+  if (panel === "admin") return "admin";
+  if (panel === "employee") return "employee";
+  if (panel === "customer") return "customer";
+
+  const origin = req.headers.origin;
+  if (origin && (origin === process.env.ADMIN_ORIGIN || origin.includes(":5174"))) {
+    return "admin";
+  }
+  if (origin && (origin === process.env.EMPLOYEE_ORIGIN || origin.includes(":5175"))) {
+    return "employee";
+  }
+
+  return "customer";
+};
 
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    const context = resolveContext(req);
+    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
 
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
@@ -16,7 +36,7 @@ export const login = async (req, res) => {
 
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
-        "mumbai_wp_auth",
+        cookieConfig.auth,
         `${data.cookie_name}=${data.session}`,
         {
           httpOnly: true,
@@ -29,7 +49,7 @@ export const login = async (req, res) => {
     }
 
     if (data.rest_nonce) {
-      res.cookie("mumbai_wp_nonce", data.rest_nonce, {
+      res.cookie(cookieConfig.nonce, data.rest_nonce, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
@@ -42,6 +62,7 @@ export const login = async (req, res) => {
       success: data.success,
       message: data.message,
       user: data.user,
+      context,
     });
   } catch (error) {
     const status = error.response?.status || 500;
@@ -62,12 +83,14 @@ export const login = async (req, res) => {
 
 export const logout = async (req, res) => {
   try {
-    const wpAuth = req.cookies?.mumbai_wp_auth;
+    const context = resolveContext(req);
+    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
+    const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
 
     if (wpAuth) {
       invalidateSessionCache(wpAuth);
 
-      // Invalidate session on WordPress server-side
+      // Invalidate session on WordPress server-side specifically for this session token
       await axios.post(
         `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
         {},
@@ -81,14 +104,15 @@ export const logout = async (req, res) => {
       ).catch(() => {});
     }
 
-    res.clearCookie("mumbai_wp_auth", {
+    // Clear only this panel's cookies, leaving other panels untouched
+    res.clearCookie(cookieConfig.auth, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
     });
 
-    res.clearCookie("mumbai_wp_nonce", {
+    res.clearCookie(cookieConfig.nonce, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -98,6 +122,7 @@ export const logout = async (req, res) => {
     res.json({
       success: true,
       message: "Logged out successfully.",
+      context,
     });
   } catch (error) {
     console.error("Logout error:", error.message);
@@ -188,11 +213,15 @@ export const resetPassword = async (req, res) => {
 
 export const me = async (req, res) => {
   try {
-    const wpAuth = req.cookies?.mumbai_wp_auth;
+    const context = resolveContext(req);
+    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
+    const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
 
     if (!wpAuth) {
       return res.status(401).json({
+        success: false,
         logged_in: false,
+        user: null,
         message: "No authentication cookie provided.",
       });
     }
@@ -208,13 +237,53 @@ export const me = async (req, res) => {
       }
     );
 
-    res.json(response.data);
-  } catch (error) {
-    res.status(error.response?.status || 401).json(
-      error.response?.data || {
+    const userId = response.data?.current_user_id;
+    const roles = Array.isArray(response.data?.roles) ? response.data.roles : [];
+    const loggedIn = response.data?.logged_in === true && !!userId;
+
+    if (!loggedIn) {
+      return res.status(401).json({
+        success: false,
         logged_in: false,
-        message: "Session verification failed.",
-      },
-    );
+        user: null,
+        message: "Session expired or invalid.",
+      });
+    }
+
+    let userDetails = {
+      id: userId,
+      roles,
+      name: "",
+      username: "",
+      email: "",
+    };
+
+    try {
+      const customerRes = await wcApi.get(`customers/${userId}`);
+      if (customerRes.data) {
+        const c = customerRes.data;
+        const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim();
+        userDetails.name = fullName || c.username || "";
+        userDetails.username = c.username || "";
+        userDetails.email = c.email || "";
+      }
+    } catch (wcErr) {
+      // Fallback: If customer endpoint returns 404 (e.g. administrator/shop_manager), keep default user details
+    }
+
+    res.json({
+      success: true,
+      logged_in: true,
+      current_user_id: userId,
+      roles,
+      user: userDetails,
+    });
+  } catch (error) {
+    res.status(error.response?.status || 401).json({
+      success: false,
+      logged_in: false,
+      user: null,
+      message: "Session verification failed.",
+    });
   }
 };

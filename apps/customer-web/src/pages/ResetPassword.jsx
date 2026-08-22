@@ -96,7 +96,7 @@ function ResetPassword() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white font-sans md:bg-[#F8F9F5]">
+    <div className="flex min-h-screen items-center justify-center bg-white font-sans md:bg-[#F7F7FB]">
       <div className="flex w-full flex-col px-6 pb-24 pt-8 md:w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
 
         {/* Back */}
@@ -104,7 +104,7 @@ function ResetPassword() {
         <button
           type="button"
           onClick={() => navigate("/login")}
-          className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-gray-600 transition hover:text-[#FF8A00]"
+          className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-gray-600 transition hover:text-[#7C3AED]"
         >
           <ArrowLeft size={18} />
           Back to Sign In
@@ -154,10 +154,10 @@ function ResetPassword() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
                     passwordError
                       ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#FF8A00]"
+                      : "border-gray-200 focus:border-[#7C3AED]"
                   }`}
                   required
                 />
@@ -205,10 +205,10 @@ function ResetPassword() {
                     setConfirmPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#FF8A00]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
                     confirmPasswordError
                       ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#FF8A00]"
+                      : "border-gray-200 focus:border-[#7C3AED]"
                   }`}
                   required
                 />
@@ -257,7 +257,7 @@ function ResetPassword() {
             <button
               type="submit"
               disabled={loading || !!success}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#FF8A00] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(255,138,0,0.25)] transition-all hover:bg-[#FF7300] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? "Updating..." : "Reset Password"}
 

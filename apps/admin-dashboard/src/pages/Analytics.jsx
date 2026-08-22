@@ -5,7 +5,6 @@ import {
   ShoppingBag,
   CheckCircle2,
   RotateCcw,
-  PieChart,
   BarChart3,
   Award,
   Users,
@@ -13,6 +12,7 @@ import {
   Truck,
   AlertCircle,
   Boxes,
+  XCircle,
 } from "lucide-react";
 import { getAnalytics } from "../services/adminApi";
 
@@ -26,8 +26,11 @@ function Analytics() {
       setLoading(true);
       setError("");
       const res = await getAnalytics();
-      if (res.success) {
+
+      if (res?.success) {
         setData(res.data);
+      } else {
+        throw new Error(res?.message || "Failed to load store analytics.");
       }
     } catch (err) {
       console.error("Fetch analytics error:", err);
@@ -41,7 +44,7 @@ function Analytics() {
     fetchAnalyticsData();
   }, []);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="space-y-6">
         <div className="h-8 w-60 animate-pulse rounded-lg bg-gray-200" />
@@ -54,7 +57,27 @@ function Analytics() {
     );
   }
 
-  const { revenue, orders, payments, topProducts, topCustomers, customerMetrics } = data;
+  if (error || !data) {
+    return (
+      <div className="rounded-3xl bg-white p-8 border border-gray-100 text-center shadow-sm space-y-4">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+          <AlertCircle size={24} />
+        </div>
+        <div>
+          <h3 className="text-base font-black text-gray-900">Unable to load analytics</h3>
+          <p className="text-xs text-gray-500 mt-1">{error || "Analytics reporting data is temporarily unavailable."}</p>
+        </div>
+        <button
+          onClick={fetchAnalyticsData}
+          className="inline-flex items-center gap-2 rounded-xl bg-[#FF8A00] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#FF7300] shadow-sm transition"
+        >
+          <RotateCcw size={14} /> Retry Analytics
+        </button>
+      </div>
+    );
+  }
+
+  const { revenue, orders, topProducts, topCustomers, customerMetrics } = data;
 
   return (
     <div className="space-y-8">
@@ -152,70 +175,24 @@ function Analytics() {
         </div>
       </div>
 
-      {/* Orders Status Distribution & Payment Split */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Order Fulfillment Pipeline */}
-        <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100 space-y-4">
+      {/* Cancelled Orders Summary */}
+      <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100 space-y-4">
+        <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-            <Package size={18} className="text-[#FF8A00]" /> Order Pipeline Breakdown
+            <XCircle size={18} className="text-rose-500" /> Cancelled Orders Summary
           </h3>
-
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div className="rounded-xl bg-blue-50/60 p-3 border border-blue-100">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">To Pack</div>
-              <div className="text-xl font-black text-blue-900 mt-1">{orders.processing}</div>
-            </div>
-
-            <div className="rounded-xl bg-orange-50/60 p-3 border border-orange-100">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[#FF8A00]">On the Way</div>
-              <div className="text-xl font-black text-gray-900 mt-1">{orders.outForDelivery}</div>
-            </div>
-
-            <div className="rounded-xl bg-emerald-50/60 p-3 border border-emerald-100">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Delivered</div>
-              <div className="text-xl font-black text-emerald-900 mt-1">{orders.completed}</div>
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center text-xs text-gray-500 pt-2 border-t border-gray-100">
-            <span>Cancelled / Failed Orders</span>
-            <span className="font-bold text-rose-600">{orders.cancelled} orders</span>
-          </div>
+          <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-600">
+            {orders.cancelled || 0} Total Cancelled
+          </span>
         </div>
 
-        {/* Payment Methods */}
-        <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100 space-y-4">
-          <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-            <PieChart size={18} className="text-[#FF8A00]" /> Payment Method Share
-          </h3>
-
-          <div className="space-y-4 pt-1">
-            <div>
-              <div className="flex justify-between text-xs font-bold text-gray-700 mb-1.5">
-                <span>Cash on Delivery (COD) ({payments.cod.count} orders)</span>
-                <span>₹{payments.cod.revenue.toLocaleString("en-IN")} ({payments.cod.percentage}%)</span>
-              </div>
-              <div className="h-2.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                <div
-                  style={{ width: `${payments.cod.percentage}%` }}
-                  className="h-full bg-[#FF8A00] rounded-full transition-all duration-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-bold text-gray-700 mb-1.5">
-                <span>Online / UPI ({payments.online.count} orders)</span>
-                <span>₹{payments.online.revenue.toLocaleString("en-IN")} ({payments.online.percentage}%)</span>
-              </div>
-              <div className="h-2.5 w-full rounded-full bg-gray-100 overflow-hidden">
-                <div
-                  style={{ width: `${payments.online.percentage}%` }}
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                />
-              </div>
-            </div>
-          </div>
+        <div className="rounded-xl bg-gray-50/70 p-6 text-center border border-dashed border-gray-200">
+          <p className="text-sm font-bold text-gray-800">
+            {orders.cancelled || 0} orders cancelled ({orders.total > 0 ? ((orders.cancelled / orders.total) * 100).toFixed(1) : 0}% of total catalog orders)
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Order fulfillment and dispatch pipeline operations are managed exclusively in the Employee Panel.
+          </p>
         </div>
       </div>
 

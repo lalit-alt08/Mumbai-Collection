@@ -62,7 +62,7 @@ function NetworkBanner() {
       aria-live="polite"
       className={`sticky top-0 z-[100] w-full transition-all duration-300 ${
         !isOnline
-          ? "bg-[#1E1E1E] text-white border-b border-[#FF8A00]/40 shadow-lg"
+          ? "bg-[#1E1E1E] text-white border-b border-[#7C3AED]/40 shadow-lg"
           : "bg-emerald-600 text-white shadow-md"
       }`}
     >
@@ -70,7 +70,7 @@ function NetworkBanner() {
         <div className="flex items-center gap-2.5">
           {!isOnline ? (
             <>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FF8A00]/20 text-[#FF8A00]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#7C3AED]/20 text-[#7C3AED]">
                 <WifiOff size={14} className="animate-pulse" />
               </span>
               <span>

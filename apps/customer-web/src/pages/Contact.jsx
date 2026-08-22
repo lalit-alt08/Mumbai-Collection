@@ -12,17 +12,17 @@ function Contact() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFF9F0] px-4 py-8 md:py-12">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-8 md:py-12">
       <div className="mx-auto max-w-4xl rounded-[24px] border border-gray-100 bg-white p-6 shadow-sm md:p-12">
         <Link
           to="/"
-          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#FF8A00] transition hover:text-[#FF7300]"
+          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#7C3AED] transition hover:text-[#6C35E8]"
         >
           <ArrowLeft size={16} /> Back to Home
         </Link>
 
         <div className="mb-8 border-b border-gray-100 pb-6">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-orange-50 px-4 py-1.5 text-xs font-bold text-[#FF8A00]">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#F1ECFF] px-4 py-1.5 text-xs font-bold text-[#7C3AED]">
             <MessageSquare size={16} /> We are here to help
           </div>
           <h1 className="text-2xl font-extrabold text-[#1E1E1E] md:text-3xl">
@@ -37,7 +37,7 @@ function Contact() {
           {/* Store & Contact Info */}
           <div className="space-y-6">
             <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                 <MapPin size={22} />
               </div>
               <div>
@@ -50,7 +50,7 @@ function Contact() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                 <Phone size={22} />
               </div>
               <div>
@@ -61,7 +61,7 @@ function Contact() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                 <Mail size={22} />
               </div>
               <div>
@@ -71,7 +71,7 @@ function Contact() {
             </div>
 
             <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#FF8A00]">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
                 <Clock size={22} />
               </div>
               <div>
@@ -86,8 +86,8 @@ function Contact() {
             <h2 className="mb-4 text-base font-bold text-[#1E1E1E]">Send us a Message</h2>
 
             {submitted ? (
-              <div className="rounded-xl bg-orange-50 p-6 text-center">
-                <CheckCircle2 size={40} className="mx-auto mb-2 text-[#FF8A00]" />
+              <div className="rounded-xl bg-[#F1ECFF] p-6 text-center">
+                <CheckCircle2 size={40} className="mx-auto mb-2 text-[#7C3AED]" />
                 <h3 className="font-bold text-[#1E1E1E]">Message Sent!</h3>
                 <p className="mt-1 text-xs text-gray-600">
                   Thank you! Our support team will get back to you shortly.
@@ -103,7 +103,7 @@ function Contact() {
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     placeholder="Enter your name"
-                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#FF8A00] focus:ring-2 focus:ring-[#FF8A00]/10"
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -116,7 +116,7 @@ function Contact() {
                     value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, "") })}
                     placeholder="10-digit mobile number"
-                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#FF8A00] focus:ring-2 focus:ring-[#FF8A00]/10"
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
@@ -128,13 +128,13 @@ function Contact() {
                     value={form.message}
                     onChange={(e) => setForm({ ...form, message: e.target.value })}
                     placeholder="How can we assist you?"
-                    className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm outline-none transition focus:border-[#FF8A00] focus:ring-2 focus:ring-[#FF8A00]/10"
+                    className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/10"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#FF8A00] text-sm font-bold text-white shadow-sm transition hover:bg-[#FF7300] active:scale-95"
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#7C3AED] text-sm font-bold text-white shadow-sm transition hover:bg-[#6C35E8] active:scale-95"
                 >
                   <Send size={16} /> Send Message
                 </button>

@@ -6,8 +6,9 @@ function FloatingCartBar() {
   const { cart } = useCart();
   const location = useLocation();
 
-  // Hide everywhere except Home page
-  if (location.pathname !== "/") {
+  // Hide on checkout, cart, success, and error pages
+  const hideOnPages = ["/cart", "/checkout", "/order-success", "/order-failed"];
+  if (hideOnPages.some((p) => location.pathname.startsWith(p))) {
     return null;
   }
 
@@ -27,7 +28,7 @@ function FloatingCartBar() {
     >
       <Link
         to="/cart"
-        className="flex w-full items-center justify-between overflow-hidden rounded-full bg-[#FF8A00] p-1.5 pr-3 shadow-[0_12px_40px_rgba(255,138,0,0.3)] transition-transform hover:scale-[1.02]"
+        className="flex w-full items-center justify-between overflow-hidden rounded-full bg-[#7C3AED] p-1.5 pr-3 shadow-[0_12px_40px_rgba(124,58,237,0.3)] transition-transform hover:scale-[1.02]"
       >
         <div className="flex items-center gap-2.5">
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-1">
@@ -42,7 +43,7 @@ function FloatingCartBar() {
             )}
           </div>
           <div className="flex flex-col text-white">
-            <span className="text-[11px] font-medium text-orange-100">
+            <span className="text-[11px] font-medium text-purple-100">
               {totalItems} item{totalItems > 1 ? "s" : ""}
             </span>
             <span className="text-[14px] font-bold">₹{totalPrice}</span>

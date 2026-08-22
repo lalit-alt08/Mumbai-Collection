@@ -3,19 +3,19 @@ import { ShieldCheck, Lock, Eye, FileText, Bell, PhoneCall, ArrowLeft } from "lu
 
 function PrivacyPolicy() {
   return (
-    <div className="min-h-screen bg-[#FFF9F0] px-4 py-8 md:py-12">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-8 md:py-12">
       <div className="mx-auto max-w-4xl rounded-[24px] border border-gray-100 bg-white p-6 shadow-sm md:p-12">
         {/* Back Link */}
         <Link
           to="/"
-          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#FF8A00] transition hover:text-[#FF7300]"
+          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#7C3AED] transition hover:text-[#6C35E8]"
         >
           <ArrowLeft size={16} /> Back to Home
         </Link>
 
         {/* Header */}
         <div className="mb-8 border-b border-gray-100 pb-6">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-orange-50 px-4 py-1.5 text-xs font-bold text-[#FF8A00]">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#F1ECFF] px-4 py-1.5 text-xs font-bold text-[#7C3AED]">
             <ShieldCheck size={16} /> Privacy & Data Protection
           </div>
           <h1 className="text-2xl font-extrabold text-[#1E1E1E] md:text-3xl">
@@ -31,7 +31,7 @@ function PrivacyPolicy() {
           {/* Section 1 */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <FileText size={18} className="text-[#FF8A00]" /> 1. Introduction
+              <FileText size={18} className="text-[#7C3AED]" /> 1. Introduction
             </h2>
             <p>
               Welcome to <strong>Mumbai Collection</strong> ("we", "our", or "us"). We operate retail stores in Vasai, Maharashtra and provide this online e-commerce platform to bring our quality fashion, apparel, accessories, toys, and lifestyle products directly to your doorstep. We respect your privacy and are committed to safeguarding your personal data in accordance with the Information Technology Act, 2000 and the Digital Personal Data Protection (DPDP) guidelines of India.
@@ -41,7 +41,7 @@ function PrivacyPolicy() {
           {/* Section 2 */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <Eye size={18} className="text-[#FF8A00]" /> 2. Information We Collect
+              <Eye size={18} className="text-[#7C3AED]" /> 2. Information We Collect
             </h2>
             <p className="mb-2">When you browse our store, create an account, or place an order, we may collect:</p>
             <ul className="list-inside list-disc space-y-1.5 pl-2 text-gray-600">
@@ -55,7 +55,7 @@ function PrivacyPolicy() {
           {/* Section 3 */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <Lock size={18} className="text-[#FF8A00]" /> 3. How We Use Your Information
+              <Lock size={18} className="text-[#7C3AED]" /> 3. How We Use Your Information
             </h2>
             <p className="mb-2">We use your data solely for lawful commercial purposes, including:</p>
             <ul className="list-inside list-disc space-y-1.5 pl-2 text-gray-600">
@@ -70,7 +70,7 @@ function PrivacyPolicy() {
           {/* Section 4 */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <ShieldCheck size={18} className="text-[#FF8A00]" /> 4. Payment & Data Security
+              <ShieldCheck size={18} className="text-[#7C3AED]" /> 4. Payment & Data Security
             </h2>
             <p>
               We implement industry-standard SSL encryption and secure session tokens to protect your personal details. 
@@ -81,7 +81,7 @@ function PrivacyPolicy() {
           {/* Section 5 */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <Bell size={18} className="text-[#FF8A00]" /> 5. Cookies & Cart Persistence
+              <Bell size={18} className="text-[#7C3AED]" /> 5. Cookies & Cart Persistence
             </h2>
             <p>
               Our website uses essential session cookies (e.g., authentication cookies and WooCommerce cart tokens) to remember items in your shopping bag and keep you logged in. You can clear cookies through your browser settings at any time, though some shopping features may require cookies to function correctly.
@@ -91,7 +91,7 @@ function PrivacyPolicy() {
           {/* Section 6 */}
           <section>
             <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-[#1E1E1E] md:text-lg">
-              <FileText size={18} className="text-[#FF8A00]" /> 6. Sharing with Third Parties
+              <FileText size={18} className="text-[#7C3AED]" /> 6. Sharing with Third Parties
             </h2>
             <p>
               We never sell, rent, or trade your personal information. We only share necessary data with trusted service providers strictly to fulfill your orders (such as local delivery staff in Vasai/Palghar/Mumbai, third-party logistics courier services, and transactional SMS/WhatsApp gateways).
@@ -99,9 +99,9 @@ function PrivacyPolicy() {
           </section>
 
           {/* Section 7 */}
-          <section className="rounded-2xl bg-orange-50/70 p-5 border border-orange-100">
+          <section className="rounded-2xl bg-[#F1ECFF]/70 p-5 border border-[#C4B5FD]/40">
             <h2 className="mb-2 flex items-center gap-2 text-base font-bold text-[#1E1E1E]">
-              <PhoneCall size={18} className="text-[#FF8A00]" /> 7. Contact Us & Grievance Redressal
+              <PhoneCall size={18} className="text-[#7C3AED]" /> 7. Contact Us & Grievance Redressal
             </h2>
             <p className="text-gray-700">
               If you have any questions regarding this Privacy Policy, wish to update your stored data, or have concerns regarding your account, please reach out to:

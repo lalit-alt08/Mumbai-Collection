@@ -4,6 +4,9 @@ import API_URL from "../config/api.js";
 const API = axios.create({
   baseURL: `${API_URL}/auth`,
   withCredentials: true,
+  headers: {
+    "X-Mumbai-Panel": "customer",
+  },
 });
 
 // Automatically retry once if the local development socket reset
@@ -28,6 +31,7 @@ export const login = async (email, password) => {
   const { data } = await API.post("/login", {
     email,
     password,
+    context: "customer",
   });
 
   return data;
@@ -39,12 +43,16 @@ export const register = async (userData) => {
 };
 
 export const getCurrentUser = async () => {
-  const { data } = await API.get("/me");
+  const { data } = await API.get("/me", {
+    params: { context: "customer" },
+  });
   return data;
 };
 
 export const logout = async () => {
-  const { data } = await API.post("/logout");
+  const { data } = await API.post("/logout", {
+    context: "customer",
+  });
   return data;
 };
 

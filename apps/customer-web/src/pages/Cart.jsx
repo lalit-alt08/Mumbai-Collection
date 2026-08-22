@@ -70,7 +70,7 @@ function Cart() {
         </p>
         <button
           onClick={() => navigate("/")}
-          className="rounded-full bg-[#FF8A00] px-8 py-3.5 font-semibold text-white transition-all hover:bg-[#FF7300] active:scale-95 shadow-[0_4px_20px_rgba(255,138,0,0.2)]"
+          className="rounded-full bg-[#7C3AED] px-8 py-3.5 font-semibold text-white transition-all hover:bg-[#6C35E8] active:scale-95 shadow-[0_4px_20px_rgba(124,58,237,0.2)]"
         >
           Start Shopping
         </button>
