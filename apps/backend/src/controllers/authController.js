@@ -21,11 +21,41 @@ const resolveContext = (req) => {
   return "customer";
 };
 
+const getCookieOptions = (req) => {
+  const isHttps =
+    req.secure ||
+    req.headers["x-forwarded-proto"] === "https" ||
+    process.env.NODE_ENV === "production";
+
+  return {
+    httpOnly: true,
+    secure: isHttps,
+    sameSite: isHttps ? "none" : "lax",
+    maxAge: 24 * 60 * 60 * 1000,
+    path: "/",
+  };
+};
+
+const getClearCookieOptions = (req) => {
+  const isHttps =
+    req.secure ||
+    req.headers["x-forwarded-proto"] === "https" ||
+    process.env.NODE_ENV === "production";
+
+  return {
+    httpOnly: true,
+    secure: isHttps,
+    sameSite: isHttps ? "none" : "lax",
+    path: "/",
+  };
+};
+
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
+    const cookieOptions = getCookieOptions(req);
 
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
@@ -38,24 +68,12 @@ export const login = async (req, res) => {
       res.cookie(
         cookieConfig.auth,
         `${data.cookie_name}=${data.session}`,
-        {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          maxAge: 24 * 60 * 60 * 1000,
-          path: "/",
-        }
+        cookieOptions
       );
     }
 
     if (data.rest_nonce) {
-      res.cookie(cookieConfig.nonce, data.rest_nonce, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 24 * 60 * 60 * 1000,
-        path: "/",
-      });
+      res.cookie(cookieConfig.nonce, data.rest_nonce, cookieOptions);
     }
 
     res.json({
@@ -86,6 +104,7 @@ export const logout = async (req, res) => {
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
+    const clearOptions = getClearCookieOptions(req);
 
     if (wpAuth) {
       invalidateSessionCache(wpAuth);
@@ -105,19 +124,8 @@ export const logout = async (req, res) => {
     }
 
     // Clear only this panel's cookies, leaving other panels untouched
-    res.clearCookie(cookieConfig.auth, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
-
-    res.clearCookie(cookieConfig.nonce, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
+    res.clearCookie(cookieConfig.auth, clearOptions);
+    res.clearCookie(cookieConfig.nonce, clearOptions);
 
     res.json({
       success: true,

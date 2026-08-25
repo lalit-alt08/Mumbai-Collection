@@ -39,8 +39,13 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) or in allowed list
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV === "development") {
+      // Allow requests with no origin (like mobile apps or curl) or in allowed list / Vercel domains
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app") ||
+        process.env.NODE_ENV === "development"
+      ) {
         return callback(null, true);
       }
       return callback(new Error(`CORS origin not allowed: ${origin}`));

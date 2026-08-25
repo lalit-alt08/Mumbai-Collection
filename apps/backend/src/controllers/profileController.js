@@ -148,33 +148,22 @@ export const deleteAccount = async (req, res) => {
     });
 
     // 3. Clear customer auth cookies on response
-    res.clearCookie(cookieConfig.auth, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
+    const isHttps =
+      req.secure ||
+      req.headers["x-forwarded-proto"] === "https" ||
+      process.env.NODE_ENV === "production";
 
-    res.clearCookie(cookieConfig.nonce, {
+    const clearOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isHttps,
+      sameSite: isHttps ? "none" : "lax",
       path: "/",
-    });
+    };
 
-    res.clearCookie("mumbai_wp_auth", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
-
-    res.clearCookie("mumbai_wp_nonce", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
+    res.clearCookie(cookieConfig.auth, clearOptions);
+    res.clearCookie(cookieConfig.nonce, clearOptions);
+    res.clearCookie("mumbai_wp_auth", clearOptions);
+    res.clearCookie("mumbai_wp_nonce", clearOptions);
 
     res.json({
       success: true,
