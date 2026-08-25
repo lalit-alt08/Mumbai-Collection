@@ -76,6 +76,21 @@ app.use(
 );
 
 app.use(express.json());
+// TEMP AUTH DEBUG — remove after diagnosis
+app.use((req, res, next) => {
+  if (req.path === "/api/auth/login" || req.path === "/api/auth/me") {
+    console.log("\n========== AUTH DEBUG ==========");
+    console.log("Method:", req.method);
+    console.log("URL:", req.originalUrl);
+    console.log("Origin:", req.headers.origin);
+    console.log("Host:", req.headers.host);
+    console.log("X-Forwarded-Proto:", req.headers["x-forwarded-proto"]);
+    console.log("Cookie:", req.headers.cookie ? "PRESENT" : "MISSING");
+    console.log("================================\n");
+  }
+
+  next();
+});
 
 app.use("/api/store", storeRoutes);
 app.use("/api/media", mediaRoutes);
