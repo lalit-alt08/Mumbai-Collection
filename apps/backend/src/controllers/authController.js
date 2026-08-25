@@ -57,37 +57,12 @@ export const login = async (req, res) => {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const cookieOptions = getCookieOptions(req);
 
-    console.log("========== WP AUTH REQUEST DEBUG ==========");
-    console.log(`Path: /wp-json/mumbai-auth/v1/login`);
-    console.log(`Context: ${context}`);
-    console.log(`Email: ${email || "missing"}`);
-    console.log(`Origin: ${req.headers.origin || "none"}`);
-    console.log(`User-Agent: ${req.headers["user-agent"] || "none"}`);
-    console.log(`Body Contains Email: ${Boolean(email) ? "YES" : "NO"}`);
-    console.log(`Body Contains Password: ${Boolean(password) ? "YES" : "NO"}`);
-    console.log("===========================================");
-
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
       password,
     });
 
     const data = response.data;
-    console.log("========== WP AUTH RESPONSE DEBUG ==========");
-    console.log(`HTTP Status: ${response.status}`);
-    console.log(`Response Code: ${data.code || (data.success ? "success" : "none")}`);
-    console.log(`Safe Message: ${data.message || "none"}`);
-    console.log("============================================");
-
-    console.log("========== COOKIE SETTING DEBUG ==========");
-    console.log(`WordPress Login Succeeded: ${data.success ? "YES" : "NO"}`);
-    console.log(`Auth Cookie Name: ${cookieConfig.auth}`);
-    console.log(`Nonce Cookie Name: ${cookieConfig.nonce}`);
-    console.log(`Cookie Options - secure: ${cookieOptions.secure}`);
-    console.log(`Cookie Options - sameSite: ${cookieOptions.sameSite}`);
-    console.log(`Cookie Options - httpOnly: ${cookieOptions.httpOnly}`);
-    console.log(`Cookie Options - path: ${cookieOptions.path}`);
-    console.log(`res.headersSent before res.cookie: ${res.headersSent}`);
 
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
@@ -101,15 +76,6 @@ export const login = async (req, res) => {
       res.cookie(cookieConfig.nonce, data.rest_nonce, cookieOptions);
     }
 
-    const setCookieHeaders = res.getHeader("Set-Cookie");
-    const safeSetCookie = Array.isArray(setCookieHeaders)
-      ? setCookieHeaders.map((c) => c.split("=")[0] + "=[REDACTED_VALUE]; " + c.split(";").slice(1).join(";"))
-      : setCookieHeaders ? setCookieHeaders.split("=")[0] + "=[REDACTED_VALUE]; " + setCookieHeaders.split(";").slice(1).join(";") : "NONE";
-
-    console.log(`res.headersSent after res.cookie: ${res.headersSent}`);
-    console.log(`Generated Set-Cookie Headers: ${JSON.stringify(safeSetCookie)}`);
-    console.log("==========================================");
-
     res.json({
       success: data.success,
       message: data.message,
@@ -118,18 +84,6 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     const status = error.response?.status || 500;
-    const wpCode = error.response?.data?.code || "none";
-    const wpMessage = error.response?.data?.message || error.message || "Unable to login.";
-
-    console.log(`[LOGIN DEBUG] Upstream WordPress HTTP status: ${status} (code: ${wpCode})`);
-
-    if (status === 401) {
-      console.log(`[LOGIN DEBUG] Rejecting login (HTTP 401): WordPress authentication failed (${wpMessage})`);
-    } else if (status === 429) {
-      console.log(`[LOGIN DEBUG] Rejecting login (HTTP 429): Account locked due to rate limiting (${wpMessage})`);
-    } else {
-      console.log(`[LOGIN DEBUG] Login controller error (HTTP ${status}): ${wpMessage}`);
-    }
 
     // 401 and 429 are expected authentication responses.
     if (status !== 401 && status !== 429) {

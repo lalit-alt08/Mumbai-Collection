@@ -47,10 +47,6 @@ router.use(async (req, res) => {
 
   const targetUrl = `${WP_BASE_URL}/wp-content/uploads/${normalized.replace(/\\/g, "/")}`;
 
-  console.log(`[MediaProxy] 1. Incoming media path: ${req.originalUrl || req.path}`);
-  console.log(`[MediaProxy] 2. Normalized media path: ${normalized}`);
-  console.log(`[MediaProxy] 3. Exact WordPress URL being requested: ${targetUrl}`);
-
   try {
     let response;
     try {
@@ -62,12 +58,10 @@ router.use(async (req, res) => {
         timeout: 10000,
         validateStatus: (status) => status === 200,
       });
-      console.log(`[MediaProxy] 4. Upstream HTTP status: ${response.status} from ${targetUrl}`);
     } catch (err) {
       if (err.response?.status === 404 && normalized.includes(".SY522.")) {
         const altPath = normalized.replace(".SY522.", "._SY522_.");
         const altUrl = `${WP_BASE_URL}/wp-content/uploads/${altPath.replace(/\\/g, "/")}`;
-        console.log(`[MediaProxy] 3b. Trying alternative path: ${altUrl}`);
         response = await axios({
           method: "GET",
           url: altUrl,
@@ -76,9 +70,7 @@ router.use(async (req, res) => {
           timeout: 10000,
           validateStatus: (status) => status === 200,
         });
-        console.log(`[MediaProxy] 4. Upstream HTTP status: ${response.status} (resolved via alternative path ${altUrl})`);
       } else {
-        console.log(`[MediaProxy] 4. Upstream HTTP status: ${err.response?.status || 500} (${err.message})`);
         throw err;
       }
     }
