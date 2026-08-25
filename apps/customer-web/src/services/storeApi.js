@@ -1,6 +1,7 @@
 import axios from "axios";
+import API_URL from "../config/api.js";
 
-const STORE_API = import.meta.env.VITE_STORE_API_URL || "/api/store";
+const STORE_API = `${API_URL}/store`;
 
 let nonce = localStorage.getItem("wc_nonce") || "";
 let cartToken = localStorage.getItem("wc_cart_token") || "";
