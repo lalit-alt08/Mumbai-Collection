@@ -97,6 +97,10 @@ router.use(async (req, res) => {
       res.setHeader("ETag", response.headers["etag"]);
     }
 
+    // Explicitly allow cross-origin embedding by frontend apps (e.g. Vercel deployment)
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
     res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
 
     return response.data.pipe(res);
