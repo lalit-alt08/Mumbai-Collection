@@ -79,6 +79,16 @@ export const login = async (req, res) => {
     console.log(`Safe Message: ${data.message || "none"}`);
     console.log("============================================");
 
+    console.log("========== COOKIE SETTING DEBUG ==========");
+    console.log(`WordPress Login Succeeded: ${data.success ? "YES" : "NO"}`);
+    console.log(`Auth Cookie Name: ${cookieConfig.auth}`);
+    console.log(`Nonce Cookie Name: ${cookieConfig.nonce}`);
+    console.log(`Cookie Options - secure: ${cookieOptions.secure}`);
+    console.log(`Cookie Options - sameSite: ${cookieOptions.sameSite}`);
+    console.log(`Cookie Options - httpOnly: ${cookieOptions.httpOnly}`);
+    console.log(`Cookie Options - path: ${cookieOptions.path}`);
+    console.log(`res.headersSent before res.cookie: ${res.headersSent}`);
+
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
         cookieConfig.auth,
@@ -90,6 +100,15 @@ export const login = async (req, res) => {
     if (data.rest_nonce) {
       res.cookie(cookieConfig.nonce, data.rest_nonce, cookieOptions);
     }
+
+    const setCookieHeaders = res.getHeader("Set-Cookie");
+    const safeSetCookie = Array.isArray(setCookieHeaders)
+      ? setCookieHeaders.map((c) => c.split("=")[0] + "=[REDACTED_VALUE]; " + c.split(";").slice(1).join(";"))
+      : setCookieHeaders ? setCookieHeaders.split("=")[0] + "=[REDACTED_VALUE]; " + setCookieHeaders.split(";").slice(1).join(";") : "NONE";
+
+    console.log(`res.headersSent after res.cookie: ${res.headersSent}`);
+    console.log(`Generated Set-Cookie Headers: ${JSON.stringify(safeSetCookie)}`);
+    console.log("==========================================");
 
     res.json({
       success: data.success,
