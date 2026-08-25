@@ -2,8 +2,8 @@ import { Link } from "react-router-dom";
 
 function Footer() {
   return (
-    <footer className="mt-16 rounded-t-[24px] bg-[#05071A] pt-12 pb-8 shadow-[0_-4px_30px_rgba(0,0,0,0.15)] text-white">
-      <div className="mx-auto max-w-7xl px-6 md:px-8">
+    <footer className="mt-8 sm:mt-10 md:mt-12 rounded-t-[24px] bg-[#05071A] pt-8 sm:pt-10 pb-24 sm:pb-12 shadow-[0_-4px_30px_rgba(0,0,0,0.15)] text-white">
+      <div className="mx-auto max-w-7xl px-5 sm:px-6 md:px-8">
 
         <div className="grid grid-cols-2 gap-8 md:gap-12">
 

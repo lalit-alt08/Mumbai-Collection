@@ -21,7 +21,9 @@ export function CartProvider({ children }) {
   };
 
   useEffect(() => {
-    refreshCart();
+    refreshCart().catch((err) => {
+      console.warn("Initial cart fetch skipped:", err?.message || err);
+    });
   }, []);
 
   return (

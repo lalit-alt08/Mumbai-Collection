@@ -10,11 +10,13 @@ const api = axios.create({
   },
 });
 
-// Automatically retry once if the local development socket reset, and handle 401 session expiry
+// Automatically retry once if the local development socket reset (GET requests only - never retry mutations)
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
+    const isGetMethod =
+      config?.method && config.method.toLowerCase() === "get";
 
     // Handle session expiration
     if (error.response?.status === 401 && !window.location.pathname.includes("/login")) {
@@ -22,7 +24,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (!config || config._retry || error.response) {
+    if (!config || config._retry || error.response || !isGetMethod) {
       return Promise.reject(error);
     }
 

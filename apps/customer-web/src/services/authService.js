@@ -9,16 +9,23 @@ const API = axios.create({
   },
 });
 
-// Automatically retry once if the local development socket reset
+// Automatically retry once if the local development socket reset (GET requests only - never retry mutations)
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
-    if (!config || config._retry || error.response) {
+    const isGetMethod =
+      config?.method && config.method.toLowerCase() === "get";
+
+    if (!config || config._retry || error.response || !isGetMethod) {
       return Promise.reject(error);
     }
 
-    if (error.message?.includes("Network Error") || error.code === "ERR_NETWORK") {
+    if (
+      error.message?.includes("Network Error") ||
+      error.code === "ERR_NETWORK" ||
+      error.code === "ECONNRESET"
+    ) {
       config._retry = true;
       return API(config);
     }
@@ -70,5 +77,12 @@ export const resetPassword = async (token, password) => {
     password,
   });
 
+  return data;
+};
+
+export const deleteAccount = async () => {
+  const { data } = await axios.delete(`${API_URL}/profile`, {
+    withCredentials: true,
+  });
   return data;
 };

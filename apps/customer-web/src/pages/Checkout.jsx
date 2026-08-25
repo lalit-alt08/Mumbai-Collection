@@ -88,11 +88,40 @@ function Checkout() {
     : cart.items.reduce(
         (acc, item) =>
           acc +
-          (Number(item.totals.line_subtotal) ||
-            Number(item.totals.line_total) ||
+          (Number(item.totals?.line_subtotal) ||
+            Number(item.totals?.line_total) ||
             0),
         0,
       ) / 100;
+
+  const MIN_ORDER_VALUE = 500;
+  if (itemsTotal < MIN_ORDER_VALUE) {
+    const shortfall = Math.max(0, MIN_ORDER_VALUE - itemsTotal);
+    return (
+      <div className="mx-auto flex max-w-[520px] flex-col items-center justify-center px-6 py-20 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-800 font-black text-lg border border-amber-200 shadow-xs">
+          ₹500
+        </div>
+        <h2 className="mt-4 text-xl font-extrabold text-[#1E1E1E]">
+          Minimum Order Value Not Met
+        </h2>
+        <p className="mt-2 text-sm font-semibold text-gray-600">
+          A minimum product order value of <span className="font-extrabold text-gray-900">₹500</span> is required to place an order.
+        </p>
+        <p className="mt-1.5 text-xs font-bold text-amber-800">
+          Please add <span className="font-extrabold text-amber-950 underline decoration-amber-500 decoration-2">₹{shortfall}</span> more of products to your cart.
+        </p>
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={() => navigate("/cart")}
+            className="rounded-full bg-[#7C3AED] px-7 py-3 text-xs font-extrabold text-white shadow-[0_4px_16px_rgba(124,58,237,0.25)] hover:bg-[#6C35E8] active:scale-95 transition cursor-pointer"
+          >
+            Return to Cart
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-5 md:px-6 md:py-6">

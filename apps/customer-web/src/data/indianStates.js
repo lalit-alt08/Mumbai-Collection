@@ -66,7 +66,22 @@ export const isValidIndianPhone = (phone) => {
   return /^[6-9]\d{9}$/.test(digits);
 };
 
-export const isValidIndianPincode = (pincode) => {
-  const digits = (pincode || "").replace(/\D/g, "");
-  return /^[1-9][0-9]{5}$/.test(digits);
+// Local Store Delivery Regions (Geo-fenced to Vasai & Nallasopara)
+export const DELIVERY_REGIONS = [
+  "Vasai West",
+  "Vasai East",
+  "Nallasopara West",
+  "Nallasopara East",
+];
+
+export const DEFAULT_STORE_STATE = {
+  code: "MH",
+  name: "Maharashtra",
 };
+
+export const isValidDeliveryRegion = (region) => {
+  if (!region || typeof region !== "string") return false;
+  const clean = region.trim().toLowerCase();
+  return DELIVERY_REGIONS.some((r) => r.toLowerCase() === clean);
+};
+

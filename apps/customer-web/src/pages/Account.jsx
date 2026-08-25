@@ -1,124 +1,282 @@
-import {
-  ChevronRight,
-  User,
-  ShoppingBag,
-  MessageCircle,
-  MapPin,
-  ArrowLeft,
-} from "lucide-react";
-
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import axios from "axios";
+import API_URL from "../config/api.js";
+import {
+  User,
+  ShoppingBag,
+  Heart,
+  MapPin,
+  HelpCircle,
+  ChevronRight,
+  ArrowLeft,
+  LogOut,
+  Pencil,
+  Package,
+} from "lucide-react";
 
 function Account() {
   const { user, logout } = useAuth();
-const navigate = useNavigate();
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadProfile = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/profile`, {
+          withCredentials: true,
+        });
+        if (isMounted && res.data?.profile) {
+          setProfile(res.data.profile);
+        }
+      } catch (err) {
+        // Fallback to user context
+      }
+    };
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const username = user?.username || user?.display_name || "Customer";
+  const fullName = profile?.full_name || user?.name || user?.display_name || "Customer";
+  const avatarInitials =
+    (fullName || username)
+      .split(" ")
+      .map((w) => w[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "MC";
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      navigate("/", { replace: true });
+    }
+  };
 
   return (
-    <div className="bg-[#F7F7FB] font-sans text-[#1E1E1E] md:flex md:min-h-screen md:items-center md:justify-center md:bg-[#F7F7FB] md:p-6">
-      {/* Container for Desktop Centering */}
-      <div className="mx-auto min-h-screen w-full bg-white shadow-sm md:min-h-fit md:w-full md:max-w-4xl md:rounded-[24px] md:border md:border-gray-100 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
-
-        <div className="px-5 pb-12 pt-8 md:px-20 md:py-10">
-          {/* Back to Home Button */}
+    <div className="min-h-screen bg-[#F8F9FD] text-[#111827] px-4 pt-4 pb-28 sm:px-6 md:pt-8 md:pb-16">
+      <div className="mx-auto max-w-xl space-y-4 sm:space-y-5">
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* TOP BAR / NAVIGATION                                       */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
             aria-label="Back to Home"
-            className="mb-8 flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition-colors hover:bg-[#7C3AED] hover:text-white md:mb-8"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-xs border border-gray-200 transition-all hover:border-[#7C3AED]/40 hover:bg-[#F5F3FF] hover:text-[#7C3AED] active:scale-95 cursor-pointer"
           >
-            <ArrowLeft size={20} strokeWidth={2.5} />
+            <ArrowLeft size={17} strokeWidth={2.4} />
           </button>
-          
-          {/* Profile Section */}
-          <div className="mb-10 flex items-center gap-4 md:mb-10 md:gap-8">
-            <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-full bg-[#E8D9F6] text-[#7A3EBE] md:h-[120px] md:w-[120px]">
-              <User fill="currentColor" strokeWidth={1} className="mt-1 h-9 w-9 md:h-[60px] md:w-[60px]" />
-            </div>
-            <div>
-              <h2 className="text-[20px] font-bold text-black md:text-[32px]">
-                {user?.name || user?.username || user?.display_name || "Customer"}
-              </h2>
-              <p className="mt-0.5 text-[15px] font-medium text-gray-500 md:mt-2 md:text-[18px]">
-                {user?.email || "+91 9876543210"}
-              </p>
-            </div>
-          </div>
+          <h1 className="text-xl font-extrabold tracking-tight text-[#111827] sm:text-2xl">
+            My Account
+          </h1>
+        </div>
 
-          {/* Menu Items */}
-          <div className="mb-12 flex flex-col gap-4 md:mb-10 md:grid md:grid-cols-2 md:gap-6">
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* PROFILE HERO CARD (COMPACT & CLEAN)                        */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <div className="relative overflow-hidden rounded-[24px] border border-[#7C3AED]/20 bg-gradient-to-br from-[#FAF5FF] via-white to-[#F5F3FF] p-4 sm:p-5 shadow-[0_8px_30px_rgba(124,58,237,0.05)]">
+          {/* Subtle Decorative Background Blur */}
+          <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#7C3AED]/10 blur-2xl" />
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              {/* Avatar */}
+              <div className="flex h-13 w-13 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#7C3AED] to-[#9333EA] text-white font-black text-xl shadow-[0_4px_16px_rgba(124,58,237,0.25)] ring-3 ring-white">
+                {avatarInitials}
+              </div>
+
+              {/* Name & Username */}
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg sm:text-xl font-extrabold text-[#111827] tracking-tight truncate">
+                  {username}
+                </h2>
+                <p className="text-xs sm:text-sm font-semibold text-[#4B5563] truncate mt-0.5">
+                  {fullName}
+                </p>
+              </div>
+            </div>
+
+            {/* Edit Action Pill */}
             <button
               onClick={() => navigate("/account/profile")}
-              className="group flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:border-[#7C3AED]/30 hover:bg-[#F1ECFF] md:p-6 md:shadow-md md:hover:-translate-y-1"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-white border border-[#7C3AED]/30 px-4 py-1.5 text-xs font-extrabold text-[#6D28D9] shadow-xs transition-all hover:bg-[#7C3AED] hover:text-white active:scale-95 cursor-pointer"
             >
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-black transition-colors group-hover:bg-white group-hover:text-[#7C3AED] md:h-[60px] md:w-[60px]">
-                  <User strokeWidth={2} className="h-5 w-5 md:h-7 md:w-7" />
+              <Pencil size={13} />
+              <span>Edit</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* UNIFIED ACCOUNT HUB SECTION                                */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <div className="space-y-2">
+          <div className="px-1 text-xs font-extrabold tracking-wider uppercase text-[#6B7280]">
+            Account & Preferences
+          </div>
+
+          <div className="overflow-hidden rounded-[22px] border border-gray-200/90 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.03)] divide-y divide-gray-100">
+            {/* 1. Personal Profile */}
+            <button
+              onClick={() => navigate("/account/profile")}
+              className="group flex w-full items-center justify-between p-4 transition-colors hover:bg-[#FAF8FF] active:bg-[#F5F3FF] cursor-pointer text-left"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9] transition-colors group-hover:bg-[#DDD6FE] group-hover:scale-105">
+                  <User size={19} strokeWidth={2.2} />
                 </div>
-                <span className="text-[16px] font-bold text-black md:text-[20px]">Profile</span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    Personal Information
+                  </h3>
+                  <p className="text-xs font-semibold text-[#4B5563] mt-0.5">
+                    Name, age, phone & security
+                  </p>
+                </div>
               </div>
-              <ChevronRight strokeWidth={2.5} className="h-[18px] w-[18px] text-gray-400 transition-all group-hover:translate-x-1 group-hover:text-[#7C3AED] md:h-[24px] md:w-[24px]" />
+
+              <ChevronRight
+                size={17}
+                className="text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#6D28D9]"
+              />
             </button>
 
+            {/* 2. Orders */}
             <button
               onClick={() => navigate("/account/orders")}
-              className="group flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:border-[#7C3AED]/30 hover:bg-[#F1ECFF] md:p-6 md:shadow-md md:hover:-translate-y-1"
+              className="group flex w-full items-center justify-between p-4 transition-colors hover:bg-[#FAF8FF] active:bg-[#F5F3FF] cursor-pointer text-left"
             >
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-black transition-colors group-hover:bg-white group-hover:text-[#7C3AED] md:h-[60px] md:w-[60px]">
-                  <ShoppingBag strokeWidth={2} className="h-5 w-5 md:h-7 md:w-7" />
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9] transition-colors group-hover:bg-[#DDD6FE] group-hover:scale-105">
+                  <Package size={19} strokeWidth={2.2} />
                 </div>
-                <span className="text-[16px] font-bold text-black md:text-[20px]">Orders</span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    My Orders
+                  </h3>
+                  <p className="text-xs font-semibold text-[#4B5563] mt-0.5">
+                    Track live deliveries & purchase history
+                  </p>
+                </div>
               </div>
-              <ChevronRight strokeWidth={2.5} className="h-[18px] w-[18px] text-gray-400 transition-all group-hover:translate-x-1 group-hover:text-[#7C3AED] md:h-[24px] md:w-[24px]" />
+
+              <ChevronRight
+                size={17}
+                className="text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#6D28D9]"
+              />
             </button>
 
+            {/* 3. My Wishlist */}
             <button
-              onClick={() => navigate("/support")}
-              className="group flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:border-[#7C3AED]/30 hover:bg-[#F1ECFF] md:p-6 md:shadow-md md:hover:-translate-y-1"
+              onClick={() => navigate("/account/favorites")}
+              className="group flex w-full items-center justify-between p-4 transition-colors hover:bg-[#FAF8FF] active:bg-[#F5F3FF] cursor-pointer text-left"
             >
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-black transition-colors group-hover:bg-white group-hover:text-[#7C3AED] md:h-[60px] md:w-[60px]">
-                  <MessageCircle strokeWidth={2} className="h-5 w-5 md:h-7 md:w-7" />
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-pink-100/70 text-pink-700 transition-colors group-hover:bg-pink-200/80 group-hover:scale-105">
+                  <Heart size={19} strokeWidth={2.2} />
                 </div>
-                <span className="text-[16px] font-bold text-black md:text-[20px]">Customer Support</span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    My Wishlist
+                  </h3>
+                  <p className="text-xs font-semibold text-[#4B5563] mt-0.5">
+                    Saved favorite products
+                  </p>
+                </div>
               </div>
-              <ChevronRight strokeWidth={2.5} className="h-[18px] w-[18px] text-gray-400 transition-all group-hover:translate-x-1 group-hover:text-[#7C3AED] md:h-[24px] md:w-[24px]" />
+
+              <ChevronRight
+                size={17}
+                className="text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#6D28D9]"
+              />
             </button>
 
+            {/* 4. Saved Addresses */}
             <button
               onClick={() => navigate("/account/addresses")}
-              className="group flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:border-[#7C3AED]/30 hover:bg-[#F1ECFF] md:p-6 md:shadow-md md:hover:-translate-y-1"
+              className="group flex w-full items-center justify-between p-4 transition-colors hover:bg-[#FAF8FF] active:bg-[#F5F3FF] cursor-pointer text-left"
             >
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-black transition-colors group-hover:bg-white group-hover:text-[#7C3AED] md:h-[60px] md:w-[60px]">
-                  <MapPin strokeWidth={2} className="h-5 w-5 md:h-7 md:w-7" />
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9] transition-colors group-hover:bg-[#DDD6FE] group-hover:scale-105">
+                  <MapPin size={19} strokeWidth={2.2} />
                 </div>
-                <span className="text-[16px] font-bold text-black md:text-[20px]">Saved Addresses</span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    Saved Addresses
+                  </h3>
+                  <p className="text-xs font-semibold text-[#4B5563] mt-0.5">
+                    Home & Office delivery locations
+                  </p>
+                </div>
               </div>
-              <ChevronRight strokeWidth={2.5} className="h-[18px] w-[18px] text-gray-400 transition-all group-hover:translate-x-1 group-hover:text-[#7C3AED] md:h-[24px] md:w-[24px]" />
-            </button>
-          </div>
 
-          {/* Logout Button */}
-          <div className="mb-8 flex justify-center md:mb-10">
+              <ChevronRight
+                size={17}
+                className="text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#6D28D9]"
+              />
+            </button>
+
+            {/* 5. Customer Support */}
             <button
-              onClick={async () => {
-                await logout();
-                navigate("/", { replace: true });
-              }}
-              className="rounded-xl border border-[#7C3AED] bg-white px-10 py-2.5 text-[15px] font-bold text-[#7C3AED] transition hover:bg-[#F1ECFF] active:scale-95 md:rounded-2xl md:px-14 md:py-3.5 md:text-[18px]"
+              onClick={() => navigate("/support")}
+              className="group flex w-full items-center justify-between p-4 transition-colors hover:bg-[#FAF8FF] active:bg-[#F5F3FF] cursor-pointer text-left"
             >
-              Log Out
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100/70 text-amber-800 transition-colors group-hover:bg-amber-200/80 group-hover:scale-105">
+                  <HelpCircle size={19} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    Help & Customer Support
+                  </h3>
+                  <p className="text-xs font-semibold text-[#4B5563] mt-0.5">
+                    Contact store, FAQs & delivery help
+                  </p>
+                </div>
+              </div>
+
+              <ChevronRight
+                size={17}
+                className="text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[#6D28D9]"
+              />
             </button>
           </div>
+        </div>
 
-          {/* Brand Footer */}
-          <div className="flex justify-center opacity-40">
-            <span className="text-[28px] font-bold lowercase tracking-tight text-gray-400 md:text-[40px]">
-              Mumbai collection
-            </span>
-          </div>
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* LOGOUT ACTION CARD                                         */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <div className="pt-1">
+          <button
+            onClick={handleLogout}
+            className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-white px-5 py-3.5 text-sm font-bold text-red-600 shadow-xs transition-all hover:bg-red-50 hover:border-red-300 active:scale-[0.99] cursor-pointer"
+          >
+            <LogOut
+              size={17}
+              className="transition-transform group-hover:-translate-x-0.5 text-red-600"
+            />
+            <span>Log Out</span>
+          </button>
+        </div>
 
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* BRAND WATERMARK                                            */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <div className="pt-4 pb-2 text-center">
+          <p className="text-sm font-black tracking-widest text-[#1F2937] uppercase">
+            Mumbai Collection
+          </p>
+          <p className="text-xs font-semibold text-[#4B5563] mt-1">
+            Vasai Store • Fast Local Delivery
+          </p>
         </div>
       </div>
     </div>

@@ -3,6 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Boxes,
+  PackagePlus,
+  FolderPlus,
   Truck,
   Store,
   Menu,
@@ -10,6 +12,7 @@ import {
   CircleDot,
   LogOut,
   UserCheck,
+  Sliders,
 } from "lucide-react";
 
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
@@ -22,8 +25,11 @@ function EmployeeLayout() {
   const { logout, user } = useEmployeeAuth();
 
   const navigation = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Products & Stock", href: "/products", icon: Boxes },
+    { name: "Dashboard", href: "/", exact: true, icon: LayoutDashboard },
+    { name: "Products & Stock", href: "/products", exact: true, icon: Boxes },
+    { name: "Add Product", href: "/products/add", exact: true, icon: PackagePlus },
+    { name: "Add Category", href: "/categories/add", exact: true, icon: FolderPlus },
+    { name: "Homepage Banners", href: "/banners", exact: true, icon: Sliders },
     { name: "Orders & Dispatch", href: "/orders", icon: Truck },
   ];
 
@@ -34,6 +40,9 @@ function EmployeeLayout() {
 
   const getPageTitle = () => {
     if (location.pathname === "/") return "Operational Dashboard";
+    if (location.pathname === "/products/add") return "Add New Product";
+    if (location.pathname === "/categories/add") return "Category Management";
+    if (location.pathname === "/banners") return "Homepage Banner Management";
     if (location.pathname.startsWith("/products")) return "Product Inventory";
     if (location.pathname.startsWith("/orders")) return "Orders & Dispatch Pipeline";
     return "Employee Panel";
@@ -88,8 +97,8 @@ function EmployeeLayout() {
             const Icon = item.icon;
 
             const isActive =
-              item.href === "/"
-                ? location.pathname === "/"
+              item.exact
+                ? location.pathname === item.href
                 : location.pathname.startsWith(item.href);
 
             return (

@@ -28,11 +28,9 @@ export const fetchRelatedProducts = async (
   currentProductId
 ) => {
   const response = await api.get("products", {
-    params: {
-      category: categoryId,
-      exclude: currentProductId,
-      per_page: 4,
-    },
+    category: categoryId,
+    exclude: currentProductId,
+    per_page: 4,
   });
 
   if (!Array.isArray(response.data)) {
@@ -44,10 +42,8 @@ export const fetchRelatedProducts = async (
 
 export const searchProducts = async (search) => {
   const response = await api.get("products", {
-    params: {
-      search,
-      per_page: 20,
-    },
+    search,
+    per_page: 20,
   });
 
   if (!Array.isArray(response.data)) {
@@ -63,7 +59,7 @@ export const fetchProductsByCategory = async (categoryId) => {
   if (isNaN(Number(categoryId))) {
     try {
       const catRes = await api.get("products/categories", {
-        params: { slug: categoryId },
+        slug: categoryId,
       });
       if (Array.isArray(catRes.data) && catRes.data.length > 0) {
         targetCategory = catRes.data[0].id;
@@ -74,10 +70,8 @@ export const fetchProductsByCategory = async (categoryId) => {
   }
 
   const response = await api.get("products", {
-    params: {
-      category: targetCategory,
-      per_page: 20,
-    },
+    category: targetCategory,
+    per_page: 50,
   });
 
   if (!Array.isArray(response.data)) {
@@ -85,4 +79,39 @@ export const fetchProductsByCategory = async (categoryId) => {
   }
 
   return response.data;
+};
+
+export const fetchCategories = async () => {
+  const response = await api.get("products/categories", {
+    per_page: 100,
+    hide_empty: false,
+  });
+
+  if (!Array.isArray(response.data)) {
+    throw new Error("Invalid WooCommerce categories response");
+  }
+
+  // Sort by menu_order ascending (new categories with menu_order 0 or unassigned appear at the end)
+  const sorted = [...response.data].sort((a, b) => {
+    const orderA = typeof a.menu_order === "number" && a.menu_order > 0 ? a.menu_order : 9999;
+    const orderB = typeof b.menu_order === "number" && b.menu_order > 0 ? b.menu_order : 9999;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.id - b.id;
+  });
+
+  return sorted.map((c) => ({
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    count: c.count,
+    menu_order: c.menu_order || 0,
+    image: c.image
+      ? {
+          id: c.image.id,
+          src: c.image.src,
+          name: c.image.name,
+          alt: c.image.alt,
+        }
+      : null,
+  }));
 };

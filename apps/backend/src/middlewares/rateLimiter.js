@@ -25,7 +25,7 @@ export const createRateLimiter = ({
       return next();
     }
 
-    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
     const now = Date.now();
 
     const record = requests.get(ip);

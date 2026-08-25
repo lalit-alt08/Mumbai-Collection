@@ -23,23 +23,32 @@ import ShippingPolicy from "../pages/ShippingPolicy";
 import ReturnPolicy from "../pages/ReturnPolicy";
 import Terms from "../pages/Terms";
 import PrivacyPolicy from "../pages/PrivacyPolicy";
+import Categories from "../pages/Categories";
+import Favorites from "../pages/Favorites";
+import ScrollToTop from "../components/layout/ScrollToTop";
 
 function AppRouter() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <Routes>
         <Route element={<MainLayout />}>
           <Route path="/" element={<Home />} />
           <Route path="/cart" element={<Cart />} />
+          <Route path="/favorites" element={<Favorites />} />
+          <Route path="/categories" element={<Categories />} />
+          <Route path="/category" element={<Categories />} />
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/profile-setup" element={<ProfileSetup />} />
             <Route path="/account" element={<Account />} />
+            <Route path="/orders" element={<Orders />} />
             <Route path="/account/orders" element={<Orders />} />
             <Route path="/account/addresses" element={<Addresses />} />
             <Route path="/account/profile" element={<Profile />} />
+            <Route path="/account/favorites" element={<Favorites />} />
           </Route>
 
           <Route path="/product/:id" element={<ProductDetails />} />
@@ -47,9 +56,12 @@ function AppRouter() {
           <Route path="/order-success/:id" element={<OrderSuccess />} />
 
           {/* Customer & Policy Pages */}
+          <Route path="/orders/:orderId/track" element={<TrackOrder />} />
+          <Route path="/account/orders/:orderId/track" element={<TrackOrder />} />
+          <Route path="/track-order/:orderId" element={<TrackOrder />} />
+          <Route path="/track-order" element={<TrackOrder />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/support" element={<Contact />} />
-          <Route path="/track-order" element={<TrackOrder />} />
           <Route path="/shipping-policy" element={<ShippingPolicy />} />
           <Route path="/return-policy" element={<ReturnPolicy />} />
           <Route path="/terms" element={<Terms />} />

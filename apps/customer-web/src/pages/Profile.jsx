@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
 import { useAuth } from "../context/AuthContext";
@@ -12,16 +13,25 @@ import {
   X,
   Check,
   Loader2,
+  ArrowLeft,
+  AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import axios from "axios";
+import ConfirmModal from "../components/common/ConfirmModal.jsx";
 
 function Profile() {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { user, deleteAccount } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Delete account state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -215,6 +225,40 @@ function Profile() {
   };
 
   // ==============================
+  // DELETE ACCOUNT
+  // ==============================
+
+  const handleDeleteAccount = async () => {
+    if (isDeleting) return;
+
+    try {
+      setIsDeleting(true);
+      setError("");
+
+      await deleteAccount();
+      setShowDeleteModal(false);
+
+      navigate("/", {
+        replace: true,
+        state: {
+          accountDeleted: true,
+          message: "Your account has been permanently deleted.",
+        },
+      });
+    } catch (err) {
+      console.error("❌ DELETE ACCOUNT ERROR:", err.response?.data || err.message);
+
+      setError(
+        err.response?.data?.message ||
+          "Failed to delete account. Please try again or contact support."
+      );
+      setShowDeleteModal(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // ==============================
   // LOADING
   // ==============================
 
@@ -243,18 +287,32 @@ function Profile() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F7FB] px-5 py-8 md:px-10">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 py-6 sm:px-5 md:px-10 md:py-10 pb-28 sm:pb-16">
       <div className="mx-auto max-w-4xl">
 
         {/* HEADER */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-extrabold text-[#1E1E1E]">
-            My Profile
-          </h1>
-
-          <p className="mt-2 text-gray-500">
-            Manage your personal information.
-          </p>
+        <div className="mb-6 flex items-center gap-3.5 sm:mb-8">
+          <button
+            onClick={() => {
+              if (window.history.state && window.history.state.idx > 0) {
+                navigate(-1);
+              } else {
+                navigate("/account", { replace: true });
+              }
+            }}
+            aria-label="Back to Account"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-[#7C3AED] hover:text-white hover:border-[#7C3AED] cursor-pointer active:scale-95"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <h1 className="text-[26px] font-extrabold tracking-tight text-[#1E1E1E] sm:text-[32px]">
+              My Profile
+            </h1>
+            <p className="text-xs text-gray-500 font-medium sm:text-sm">
+              Manage your personal information.
+            </p>
+          </div>
         </div>
 
         {/* SUCCESS */}
@@ -533,7 +591,50 @@ function Profile() {
           )}
 
         </div>
+
+        {/* DANGER ZONE: DELETE ACCOUNT */}
+        <div className="mt-8 rounded-3xl border border-red-200/80 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-red-600">
+                <AlertTriangle size={15} />
+                <span>Danger Zone</span>
+              </div>
+              <h3 className="mt-1 text-lg font-black text-gray-900 sm:text-xl">
+                Delete Account Permanently
+              </h3>
+              <p className="mt-1 text-xs text-gray-500 sm:text-sm leading-relaxed max-w-lg">
+                Permanently delete your Mumbai Collection customer account, saved addresses, and favorites. This action cannot be undone.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-2xl border-2 border-red-200 bg-red-50 px-5 text-sm font-extrabold text-red-600 shadow-sm transition hover:bg-red-600 hover:border-red-600 hover:text-white active:scale-[0.98] cursor-pointer"
+            >
+              <Trash2 size={17} />
+              <span>Delete Account</span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* DELETE ACCOUNT CONFIRMATION MODAL */}
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          if (!isDeleting) setShowDeleteModal(false);
+        }}
+        onConfirm={handleDeleteAccount}
+        title="Delete Account Permanently?"
+        message="Are you sure you want to permanently delete your Mumbai Collection account? All your profile data, saved addresses, and favorites will be permanently erased and you will be logged out immediately."
+        confirmText="Yes, Delete Account"
+        cancelText="Keep Account"
+        isLoading={isDeleting}
+        variant="danger"
+        icon={AlertTriangle}
+      />
     </div>
   );
 }

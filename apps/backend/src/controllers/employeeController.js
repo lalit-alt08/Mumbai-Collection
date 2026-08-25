@@ -1,4 +1,38 @@
 import api from "../config/woocommerce.js";
+import { uploadMedia } from "../services/wordpressMediaService.js";
+
+/**
+ * Upload Product Image to WordPress Media Library for Employee Panel
+ */
+export const uploadEmployeeMedia = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided.",
+      });
+    }
+
+    const { id, url } = await uploadMedia(req.file);
+
+    res.json({
+      success: true,
+      url,
+      id,
+    });
+  } catch (error) {
+    console.error("Employee media upload error:", error.response?.data || error.message);
+    const statusCode = error.response?.status || 500;
+    res.status(statusCode).json({
+      success: false,
+      message:
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to upload image to WordPress Media Library.",
+      code: error.response?.data?.code || "media_upload_error",
+    });
+  }
+};
 
 /**
  * Get Orders with search and status filtering for Employee Panel
@@ -332,12 +366,13 @@ export const getEmployeeOverview = async (req, res) => {
       return new Date(b.date_created) - new Date(a.date_created);
     });
 
-    // Low stock products (< 5 items or marked out of stock)
+    // Low stock products (strictly low stock: stock > 0 and <= 5 items)
     const lowStockProducts = products
       .filter((p) => {
-        if (p.stock_status === "outofstock") return true;
-        if (p.manage_stock && p.stock_quantity !== null && p.stock_quantity <= 5)
-          return true;
+        if (p.stock_status === "outofstock") return false;
+        const qty = p.stock_quantity;
+        if (qty !== null && qty !== undefined && qty > 0 && qty <= 5) return true;
+        if (p.manage_stock && qty !== null && qty !== undefined && qty > 0 && qty <= 5) return true;
         return false;
       })
       .map((p) => ({

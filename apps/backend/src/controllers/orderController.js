@@ -76,6 +76,8 @@ const formatCustomerOrder = (order) => {
     status_color: statusColor,
     tracking_stage: trackingStage,
     date_created: order.date_created,
+    date_completed: order.date_completed || null,
+    date_modified: order.date_modified || null,
     total: order.total,
     currency_symbol: order.currency_symbol || "₹",
     payment_method_title: order.payment_method_title || order.payment_method || "Cash on Delivery",
@@ -132,7 +134,7 @@ export const getCustomerOrders = async (req, res) => {
       });
     }
 
-    // 1. Fetch authenticated user's registered email from WooCommerce customer record
+    // 1. Resolve authenticated customer's verified email from WooCommerce customer record
     let customerEmail = "";
     try {
       const customerRes = await api.get(`customers/${userId}`);
@@ -140,31 +142,46 @@ export const getCustomerOrders = async (req, res) => {
         customerEmail = customerRes.data.email.trim().toLowerCase();
       }
     } catch (custErr) {
-      console.warn("Could not fetch WooCommerce customer email:", custErr.message);
+      console.warn("Could not fetch customer email for user", userId, custErr.message);
     }
 
-    // 2. Fetch recent orders from WooCommerce
-    const response = await api.get("orders", {
-      per_page: 100,
-      orderby: "date",
-      order: "desc",
-    });
+    // 2. Query WooCommerce using the customer's verified email (scoped search)
+    // If no email could be resolved, fall back to querying by customer ID
+    let rawOrders = [];
+    if (customerEmail) {
+      const searchRes = await api.get("orders", {
+        search: customerEmail,
+        per_page: 50,
+        orderby: "date",
+        order: "desc",
+      });
+      rawOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
+    } else {
+      const customerOrderRes = await api.get("orders", {
+        customer: userId,
+        per_page: 50,
+        orderby: "date",
+        order: "desc",
+      });
+      rawOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
+    }
 
-    const allOrders = Array.isArray(response.data) ? response.data : [];
-
-    // 3. Filter orders matching either customer_id OR verified customer email
-    const matchedOrders = allOrders.filter((order) => {
+    // 3. Strict secondary in-memory authorization guard:
+    // Accept an order ONLY when billing.email matches verified customerEmail,
+    // or customer_id matches authenticated userId (for future orders).
+    const normalizedUserId = Number(userId);
+    const verifiedOrders = rawOrders.filter((order) => {
       const orderCustomerId = Number(order.customer_id);
       const orderBillingEmail = (order.billing?.email || "").trim().toLowerCase();
 
-      const isUserIdMatch = orderCustomerId > 0 && orderCustomerId === Number(userId);
       const isEmailMatch = Boolean(customerEmail && orderBillingEmail === customerEmail);
+      const isIdMatch = normalizedUserId > 0 && orderCustomerId === normalizedUserId;
 
-      return isUserIdMatch || isEmailMatch;
+      return isEmailMatch || isIdMatch;
     });
 
     // 4. Format clean, customer-facing order objects with live delivery metadata sync
-    const formattedOrders = matchedOrders.map(formatCustomerOrder);
+    const formattedOrders = verifiedOrders.map(formatCustomerOrder);
 
     res.json({
       success: true,

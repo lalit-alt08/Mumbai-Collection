@@ -1,4 +1,4 @@
-import { Gift, Truck } from "lucide-react";
+import { Gift, Truck, AlertCircle } from "lucide-react";
 
 function CartSummary({
   cart,
@@ -7,6 +7,9 @@ function CartSummary({
   delivery,
   tax,
   total,
+  canCheckout = true,
+  shortfall = 0,
+  minOrderValue = 500,
   onCheckout,
 }) {
   return (
@@ -18,6 +21,40 @@ function CartSummary({
           <span className="text-[14px] font-semibold text-blue-700">
             You saved ₹{discount} on this order
           </span>
+        </div>
+      )}
+
+      {/* Minimum Order Value Alert (Subtotal < ₹500) */}
+      {!canCheckout && (
+        <div className="rounded-[22px] border border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/80 to-orange-50/70 p-4.5 shadow-[0_4px_20px_rgba(245,158,11,0.08)] animate-in fade-in duration-200">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white font-black text-xs shadow-xs">
+              ₹500
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-amber-900">
+                  Minimum Order Value
+                </h4>
+                <span className="rounded-md bg-amber-200/90 px-2 py-0.5 text-[10px] font-black text-amber-900">
+                  Required
+                </span>
+              </div>
+              <p className="text-xs font-semibold text-amber-900 mt-1 leading-snug">
+                Add <span className="font-black text-amber-950 underline decoration-amber-500 decoration-2">₹{shortfall}</span> more to reach the minimum order value of ₹500.
+              </p>
+              <p className="text-[11px] font-medium text-amber-700 mt-1">
+                * Delivery charges do not count toward the ₹500 product minimum.
+              </p>
+              {/* Dynamic progress bar */}
+              <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-amber-200/70">
+                <div
+                  className="h-full rounded-full bg-[#7C3AED] transition-all duration-300"
+                  style={{ width: `${Math.min(100, (itemsTotal / minOrderValue) * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -105,12 +142,29 @@ function CartSummary({
           </span>
         </div>
 
-        <button
-          onClick={onCheckout}
-          className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#7C3AED] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#6C35E8] hover:shadow-[0_4px_20px_rgba(124,58,237,0.25)] active:scale-95"
-        >
-          Proceed to Checkout &rarr;
-        </button>
+        {canCheckout ? (
+          <button
+            onClick={onCheckout}
+            className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#7C3AED] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#6C35E8] hover:shadow-[0_4px_20px_rgba(124,58,237,0.25)] active:scale-95 cursor-pointer"
+          >
+            Proceed to Checkout &rarr;
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            title={`Add ₹${shortfall} more to reach minimum order value of ₹500`}
+            className="flex h-[52px] w-[55%] flex-col items-center justify-center rounded-[20px] bg-gray-100 text-gray-400 font-bold border border-gray-200 cursor-not-allowed opacity-90 transition-all duration-200"
+          >
+            <span className="text-[12px] font-black text-gray-600 leading-tight">
+              Min. Order ₹500
+            </span>
+            <span className="text-[10px] font-bold text-amber-700 leading-tight">
+              Add ₹{shortfall} more
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );

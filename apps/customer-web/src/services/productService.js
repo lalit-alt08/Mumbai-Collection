@@ -47,3 +47,13 @@ export const getProductsByCategory = async (categoryId) => {
 
   return response.data;
 };
+
+export const getCategories = async () => {
+  const response = await axios.get(`${API}/products/categories`);
+  return response.data;
+};
+
+export const getBanners = async () => {
+  const response = await axios.get(`${API}/banners`);
+  return response.data;
+};

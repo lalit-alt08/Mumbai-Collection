@@ -1,8 +1,16 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useState,
+  useEffect,
+  useContext,
+} from "react";
+
 import {
   getCurrentUser,
   logout as logoutApi,
+  deleteAccount as deleteAccountApi,
 } from "../services/authService";
+
 import { clearCartSession } from "../services/storeApi";
 
 const AuthContext = createContext();
@@ -66,10 +74,8 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-
       // Call Node → WordPress logout
       await logoutApi();
-
     } catch (error) {
       console.error(
         "LOGOUT API ERROR:",
@@ -80,7 +86,20 @@ export function AuthProvider({ children }) {
       setUser(null);
       localStorage.removeItem("user");
       clearCartSession();
+    }
+  };
 
+  // ==========================================
+  // DELETE ACCOUNT
+  // ==========================================
+
+  const deleteAccount = async () => {
+    try {
+      await deleteAccountApi();
+    } finally {
+      setUser(null);
+      localStorage.removeItem("user");
+      clearCartSession();
     }
   };
 
@@ -90,6 +109,7 @@ export function AuthProvider({ children }) {
         user,
         login,
         logout,
+        deleteAccount,
         isAuthenticated: !!user,
         loading,
       }}

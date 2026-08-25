@@ -5,6 +5,7 @@ import { getProductById } from "../services/productService";
 import ProductGallery from "../components/product/ProductGallery";
 import ProductInfo from "../components/product/ProductInfo";
 import ProductDescription from "../components/product/ProductDescription";
+import ProductReviews from "../components/product/ProductReviews";
 import RelatedProducts from "../components/product/RelatedProducts";
 
 function ProductDetails() {
@@ -52,7 +53,7 @@ function ProductDetails() {
         <p className="mb-8 text-[#6B7280]">The product you are looking for does not exist or has been removed.</p>
         <button
           onClick={() => navigate("/")}
-          className="rounded-full bg-[#7C3AED] px-8 py-3 font-semibold text-white shadow-[0_4px_16px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-95"
+          className="rounded-full bg-[#7C3AED] px-8 py-3 font-semibold text-white shadow-[0_4px_16px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-95 cursor-pointer"
         >
           Return Home
         </button>
@@ -63,13 +64,14 @@ function ProductDetails() {
   return (
     <div className="min-h-screen bg-[#F7F7FB] text-[#1F2937]">
       <div className="mx-auto w-full max-w-3xl pb-32 lg:max-w-7xl lg:px-8 lg:pb-12">
-        <section className="lg:grid lg:grid-cols-[45%_1fr] lg:gap-10 lg:pt-8">
+        <section key={product.id} className="lg:grid lg:grid-cols-[45%_1fr] lg:gap-10 lg:pt-8">
           <div className="lg:sticky lg:top-8 h-fit z-10 w-full">
             <ProductGallery product={product} />
           </div>
           <div className="p-4 space-y-4 lg:p-0 z-20 w-full">
             <ProductInfo product={product} />
             <ProductDescription product={product} />
+            <ProductReviews productId={product.id} />
             <RelatedProducts product={product} />
           </div>
         </section>

@@ -2,8 +2,9 @@ import {
   fetchProducts,
   fetchProductById,
   fetchRelatedProducts,
-   searchProducts,
-   fetchProductsByCategory,
+  searchProducts,
+  fetchProductsByCategory,
+  fetchCategories,
 } from "../services/productService.js";
 
 export const getAllProducts = async (req, res) => {
@@ -98,6 +99,20 @@ export const getProductsByCategory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch category products",
+    });
+  }
+};
+
+export const getAllCategories = async (req, res) => {
+  try {
+    const categories = await fetchCategories();
+    res.json(categories);
+  } catch (error) {
+    console.error("Get all categories error:", error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch categories",
+      categories: [],
     });
   }
 };

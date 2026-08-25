@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
 import { useNavigate } from "react-router-dom";
@@ -18,7 +18,7 @@ import { getIndianStateCode } from "../../data/indianStates";
 function BillingForm() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { refreshCart } = useCart();
+  const { cart, refreshCart } = useCart();
 
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
@@ -26,6 +26,7 @@ function BillingForm() {
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const isSubmittingRef = useRef(false);
 
   // Load saved addresses
   useEffect(() => {
@@ -69,12 +70,32 @@ function BillingForm() {
   );
 
   const handlePlaceOrder = async () => {
+    if (isSubmittingRef.current) return;
+
     if (!selectedAddress) {
       setError("Please select a delivery address.");
       return;
     }
 
+    const itemsSubtotal = cart?.totals?.total_items
+      ? Number(cart.totals.total_items) / 100
+      : (cart?.items || []).reduce(
+          (acc, item) =>
+            acc +
+            (Number(item.totals?.line_subtotal) ||
+              Number(item.totals?.line_total) ||
+              0),
+          0,
+        ) / 100;
+
+    if (itemsSubtotal < 500) {
+      const shortfall = Math.max(0, 500 - itemsSubtotal);
+      setError(`Add ₹${shortfall} more to reach the minimum order value of ₹500.`);
+      return;
+    }
+
     try {
+      isSubmittingRef.current = true;
       setLoading(true);
       setError("");
 
@@ -91,7 +112,7 @@ function BillingForm() {
       const userPhone =
         (selectedAddress.phone || "").replace(/\D/g, "") || "9999999999";
       const cleanPincode =
-        (selectedAddress.pincode || "").replace(/\D/g, "") || "401202";
+        (selectedAddress.pincode || "").replace(/\D/g, "") || "";
 
       const billingAddress = {
         first_name: firstName,
@@ -100,7 +121,7 @@ function BillingForm() {
         phone: userPhone,
         address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
-        city: selectedAddress.city || "Vasai",
+        city: selectedAddress.city || "Vasai West",
         state: stateCode,
         postcode: cleanPincode,
         country: "IN",
@@ -112,7 +133,7 @@ function BillingForm() {
         phone: userPhone,
         address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
-        city: selectedAddress.city || "Vasai",
+        city: selectedAddress.city || "Vasai West",
         state: stateCode,
         postcode: cleanPincode,
         country: "IN",
@@ -139,6 +160,7 @@ function BillingForm() {
           "Failed to place order. Please try again.",
       );
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -284,7 +306,7 @@ function BillingForm() {
                           </>
                         )}
                         <br />
-                        {address.city}, {address.state} - {address.pincode}
+                        {address.city}, Maharashtra
                       </p>
                     </div>
 

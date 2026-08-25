@@ -1,147 +1,171 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { Phone, Mail, MapPin, Clock, MessageSquare, Send, CheckCircle2, ArrowLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Phone,
+  Mail,
+  MapPin,
+  Clock,
+  ArrowLeft,
+  MessageCircle,
+  ExternalLink,
+  HelpCircle,
+} from "lucide-react";
 
 function Contact() {
-  const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", message: "" });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setSubmitted(true);
-  };
+  const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-[#F7F7FB] px-4 py-8 md:py-12">
-      <div className="mx-auto max-w-4xl rounded-[24px] border border-gray-100 bg-white p-6 shadow-sm md:p-12">
-        <Link
-          to="/"
-          className="mb-6 inline-flex items-center gap-2 text-sm font-bold text-[#7C3AED] transition hover:text-[#6C35E8]"
-        >
-          <ArrowLeft size={16} /> Back to Home
-        </Link>
-
-        <div className="mb-8 border-b border-gray-100 pb-6">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-[#F1ECFF] px-4 py-1.5 text-xs font-bold text-[#7C3AED]">
-            <MessageSquare size={16} /> We are here to help
-          </div>
-          <h1 className="text-2xl font-extrabold text-[#1E1E1E] md:text-3xl">
-            Contact Us & Customer Support
-          </h1>
-          <p className="mt-2 text-sm text-[#666666]">
-            Get in touch with the Mumbai Collection team in Vasai
-          </p>
-        </div>
-
-        <div className="grid gap-8 md:grid-cols-2">
-          {/* Store & Contact Info */}
-          <div className="space-y-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
-                <MapPin size={22} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-[#1E1E1E]">Store Address</h2>
-                <p className="mt-1 text-sm text-gray-600">
-                  Mumbai Collection Retail Store<br />
-                  Vasai, Maharashtra – 401202, India
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
-                <Phone size={22} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-[#1E1E1E]">Phone & WhatsApp</h2>
-                <p className="mt-1 text-sm text-gray-600">+91 98765 43210</p>
-                <p className="text-xs text-gray-400">Available on WhatsApp for instant order help</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
-                <Mail size={22} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-[#1E1E1E]">Email Support</h2>
-                <p className="mt-1 text-sm text-gray-600">support@mumbaicollection.in</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF] text-[#7C3AED]">
-                <Clock size={22} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-[#1E1E1E]">Store Timings</h2>
-                <p className="mt-1 text-sm text-gray-600">Monday – Sunday: 10:00 AM – 9:30 PM</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Message Form */}
-          <div className="rounded-2xl border border-gray-100 bg-[#F9FAF8] p-6">
-            <h2 className="mb-4 text-base font-bold text-[#1E1E1E]">Send us a Message</h2>
-
-            {submitted ? (
-              <div className="rounded-xl bg-[#F1ECFF] p-6 text-center">
-                <CheckCircle2 size={40} className="mx-auto mb-2 text-[#7C3AED]" />
-                <h3 className="font-bold text-[#1E1E1E]">Message Sent!</h3>
-                <p className="mt-1 text-xs text-gray-600">
-                  Thank you! Our support team will get back to you shortly.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Your Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Enter your name"
-                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/10"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Phone Number *</label>
-                  <input
-                    type="tel"
-                    required
-                    maxLength={10}
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, "") })}
-                    placeholder="10-digit mobile number"
-                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/10"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Message / Query *</label>
-                  <textarea
-                    rows={3}
-                    required
-                    value={form.message}
-                    onChange={(e) => setForm({ ...form, message: e.target.value })}
-                    placeholder="How can we assist you?"
-                    className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/10"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#7C3AED] text-sm font-bold text-white shadow-sm transition hover:bg-[#6C35E8] active:scale-95"
-                >
-                  <Send size={16} /> Send Message
-                </button>
-              </form>
-            )}
+    <div className="min-h-screen bg-[#F8F9FD] text-[#111827] px-4 pt-3 pb-28 sm:px-6 md:pt-6 md:pb-16">
+      <div className="mx-auto max-w-2xl space-y-3.5 sm:space-y-4">
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* COMPACT TOP BAR                                            */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            aria-label="Go Back"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-xs border border-gray-200 transition-all hover:border-[#7C3AED]/40 hover:bg-[#F5F3FF] hover:text-[#7C3AED] active:scale-95 cursor-pointer"
+          >
+            <ArrowLeft size={17} strokeWidth={2.4} />
+          </button>
+          <div>
+            <h1 className="text-lg font-extrabold tracking-tight text-[#111827] sm:text-xl md:text-2xl">
+              Help & Customer Support
+            </h1>
           </div>
         </div>
+
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* DIRECT CONTACT CHANNELS CARD                               */}
+        {/* ────────────────────────────────────────────────────────── */}
+        <section className="rounded-[20px] border border-gray-200/90 bg-white p-4 sm:p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-3.5">
+          <div className="flex items-center gap-2.5 border-b border-gray-100 pb-2.5">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-lg bg-[#EDE9FE] text-[#6D28D9]">
+              <HelpCircle size={17} strokeWidth={2.2} />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-extrabold text-[#111827]">
+                Store Contact Channels
+              </h2>
+              <p className="text-[11px] font-medium text-gray-500">
+                Reach our team directly for instant order & delivery help
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* WhatsApp Support (Click to chat) */}
+            <a
+              href="https://wa.me/919876543210?text=Hi%20Mumbai%20Collection,%20I%20need%20help%20with%20my%20order"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center justify-between rounded-xl border border-emerald-200/90 bg-emerald-50/60 p-3.5 transition-all hover:bg-emerald-50 hover:border-emerald-300 hover:shadow-xs active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                  <MessageCircle size={19} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-xs sm:text-sm font-extrabold text-emerald-950">
+                      WhatsApp Quick Help
+                    </h3>
+                    <span className="rounded bg-emerald-200/80 px-1.5 py-0.2 text-[9px] font-bold text-emerald-900 uppercase">
+                      Fastest
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-emerald-800 mt-0.5">
+                    +91 98765 43210
+                  </p>
+                  <p className="text-[11px] font-medium text-emerald-700 mt-0.5">
+                    Instant reply for order tracking & item inquiries
+                  </p>
+                </div>
+              </div>
+              <ExternalLink
+                size={16}
+                className="text-emerald-600 transition-transform group-hover:translate-x-0.5 shrink-0"
+              />
+            </a>
+
+            {/* Direct Phone Call */}
+            <a
+              href="tel:+919876543210"
+              className="group flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 transition-all hover:bg-[#F5F3FF] hover:border-[#7C3AED]/40 active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9] shadow-xs">
+                  <Phone size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    Phone Call Support
+                  </h3>
+                  <p className="text-xs font-bold text-gray-800 mt-0.5">
+                    +91 98765 43210
+                  </p>
+                  <p className="text-[11px] font-medium text-gray-500">
+                    Direct Vasai retail store line
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-[#7C3AED] group-hover:underline">
+                Call Now
+              </span>
+            </a>
+
+            {/* Email Support */}
+            <a
+              href="mailto:support@mumbaicollection.in"
+              className="group flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 transition-all hover:bg-[#F5F3FF] hover:border-[#7C3AED]/40 active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9] shadow-xs">
+                  <Mail size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-[#111827] group-hover:text-[#6D28D9] transition-colors">
+                    Email Support
+                  </h3>
+                  <p className="text-xs font-bold text-gray-800 mt-0.5 truncate">
+                    support@mumbaicollection.in
+                  </p>
+                  <p className="text-[11px] font-medium text-gray-500">
+                    Queries answered within 24 hours
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-[#7C3AED] group-hover:underline">
+                Send Email
+              </span>
+            </a>
+
+            {/* Store Address & Operating Hours */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              <div className="flex items-start gap-2.5 rounded-xl border border-gray-200/90 bg-gray-50/60 p-3">
+                <MapPin size={16} className="mt-0.5 shrink-0 text-[#7C3AED]" />
+                <div className="text-xs">
+                  <span className="font-extrabold text-[#111827]">Vasai Store Address</span>
+                  <p className="text-gray-600 font-medium mt-0.5 leading-snug">
+                    Mumbai Collection Retail Store<br />
+                    Vasai, Maharashtra – 401202
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5 rounded-xl border border-gray-200/90 bg-gray-50/60 p-3">
+                <Clock size={16} className="mt-0.5 shrink-0 text-[#7C3AED]" />
+                <div className="text-xs">
+                  <span className="font-extrabold text-[#111827]">Store Hours</span>
+                  <p className="text-gray-600 font-medium mt-0.5 leading-snug">
+                    Monday – Sunday<br />
+                    10:00 AM – 9:30 PM (Daily)
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

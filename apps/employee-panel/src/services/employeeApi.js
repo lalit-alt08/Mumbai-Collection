@@ -10,12 +10,17 @@ const api = axios.create({
   },
 });
 
-// Automatic retry for transient connection drops
+// Automatic retry for transient connection drops (GET requests only - never retry mutations)
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const isGetMethod =
+      originalRequest?.method &&
+      originalRequest.method.toLowerCase() === "get";
+
     if (
+      isGetMethod &&
       error.message &&
       (error.message.includes("Network Error") ||
         error.code === "ECONNRESET" ||
@@ -71,8 +76,17 @@ export const updateProduct = async (id, data) => {
   return res.data;
 };
 
-export const createProduct = async (data) => {
-  const res = await api.post("/products", data);
+export const deleteProduct = async (id) => {
+  const res = await api.delete(`/products/${id}`);
+  return res.data;
+};
+
+export const createProduct = async (data, headers = {}) => {
+  const config = {};
+  if (headers && Object.keys(headers).length > 0) {
+    config.headers = headers;
+  }
+  const res = await api.post("/products", data, config);
   return res.data;
 };
 
@@ -80,11 +94,53 @@ export const uploadProductImage = async (file) => {
   const formData = new FormData();
   formData.append("image", file);
 
-  const res = await api.post("/upload", formData, {
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
-  });
+  const res = await api.post("/upload", formData);
+  return res.data;
+};
+
+export const getCategories = async () => {
+  const res = await api.get("/categories");
+  return res.data;
+};
+
+export const createCategory = async (data, headers = {}) => {
+  const config = {};
+  if (headers && Object.keys(headers).length > 0) {
+    config.headers = headers;
+  }
+  const res = await api.post("/categories", data, config);
+  return res.data;
+};
+
+export const updateCategory = async (id, data, headers = {}) => {
+  const config = {};
+  if (headers && Object.keys(headers).length > 0) {
+    config.headers = headers;
+  }
+  const res = await api.put(`/categories/${id}`, data, config);
+  return res.data;
+};
+
+export const reorderCategories = async (categoryIds, headers = {}) => {
+  const config = {};
+  if (headers && Object.keys(headers).length > 0) {
+    config.headers = headers;
+  }
+  const res = await api.put("/categories/reorder", { category_ids: categoryIds }, config);
+  return res.data;
+};
+
+export const getBanners = async () => {
+  const res = await api.get("/banners");
+  return res.data;
+};
+
+export const updateBanners = async (banners, headers = {}) => {
+  const config = {};
+  if (headers && Object.keys(headers).length > 0) {
+    config.headers = headers;
+  }
+  const res = await api.put("/banners", { banners }, config);
   return res.data;
 };
 

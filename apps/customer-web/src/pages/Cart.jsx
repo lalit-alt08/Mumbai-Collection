@@ -43,7 +43,10 @@ function Cart() {
     }
   };
 
+  const MIN_ORDER_VALUE = 500;
+
   const handleCheckout = () => {
+    if (itemsTotal < MIN_ORDER_VALUE) return;
     if (!isAuthenticated) {
       navigate("/login", { state: { from: "/checkout" } });
       return;
@@ -141,6 +144,9 @@ function Cart() {
           delivery={delivery}
           tax={tax}
           total={total}
+          canCheckout={itemsTotal >= MIN_ORDER_VALUE}
+          shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
+          minOrderValue={MIN_ORDER_VALUE}
           onCheckout={handleCheckout}
         />
       </div>

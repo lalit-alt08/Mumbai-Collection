@@ -9,7 +9,6 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
-  RotateCcw,
   HelpCircle,
   MapPin,
   Receipt,
@@ -140,40 +139,27 @@ function Orders() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F7FB] px-4 py-6 md:py-10">
+    <div className="min-h-screen bg-[#F7F7FB] px-4 pt-6 pb-28 sm:pb-24 md:pt-10 md:pb-16">
       <div className="mx-auto max-w-4xl">
-        {/* Top Header Card */}
-        <div className="mb-6 flex flex-col gap-4 rounded-[24px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:flex-row md:items-center md:justify-between md:p-6">
+        {/* Top Header Bar */}
+        <div className="mb-4 sm:mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate("/account")}
               aria-label="Back to Account"
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-[#7C3AED] hover:text-white"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-xs border border-gray-200 transition-all hover:border-[#7C3AED]/40 hover:bg-[#F5F3FF] hover:text-[#7C3AED] active:scale-95 cursor-pointer"
             >
-              <ArrowLeft size={18} />
+              <ArrowLeft size={17} strokeWidth={2.4} />
             </button>
-            <div>
-              <h1 className="text-xl font-extrabold text-[#1E1E1E] md:text-2xl">
-                My Orders
-              </h1>
-              <p className="text-xs font-medium text-gray-500">
-                {orders.length} order{orders.length !== 1 ? "s" : ""} placed under{" "}
-                <span className="font-semibold text-gray-700">{user?.email || "your account"}</span>
-              </p>
-            </div>
+            <h1 className="text-xl font-extrabold tracking-tight text-[#111827] sm:text-2xl">
+              My Orders
+            </h1>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={fetchOrders}
-              className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition hover:bg-gray-50"
-            >
-              <RotateCcw size={13} />
-              Refresh
-            </button>
             <Link
               to="/"
-              className="rounded-full bg-[#7C3AED] px-5 py-2 text-xs font-bold text-white transition hover:bg-[#6C35E8] shadow-sm active:scale-95"
+              className="flex h-9 items-center rounded-full bg-[#7C3AED] px-4 py-1.5 text-xs font-extrabold text-white shadow-xs transition-all hover:bg-[#6C35E8] active:scale-95 cursor-pointer"
             >
               Shop More
             </Link>
@@ -433,13 +419,15 @@ function Orders() {
                           {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>
 
-                        <Link
-                          to={`/track-order?id=${order.id}`}
-                          className="flex items-center gap-1.5 rounded-xl bg-[#F1ECFF] px-4 py-2 text-xs font-bold text-[#7C3AED] transition hover:bg-[#E0D4FC]"
-                        >
-                          <Truck size={14} />
-                          Track Live
-                        </Link>
+                        {!["cancelled", "failed", "refunded"].includes(order.status) && (
+                          <Link
+                            to={`/orders/${order.id}/track`}
+                            className="flex items-center gap-1.5 rounded-xl bg-[#F1ECFF] px-4 py-2 text-xs font-bold text-[#7C3AED] transition hover:bg-[#E0D4FC]"
+                          >
+                            <Truck size={14} />
+                            Track Live
+                          </Link>
+                        )}
                       </div>
                     </div>
 

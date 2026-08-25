@@ -174,33 +174,7 @@ function ProductInfo({ product }) {
         </div>
       </div>
 
-      {/* Floating View Cart Pill (Mobile only when items exist) */}
-      {cart?.items?.length > 0 && (
-        <div
-          className="fixed left-1/2 z-[110] flex w-max -translate-x-1/2 items-center justify-between gap-6 rounded-full bg-[#7C3AED] p-1.5 pl-2 pr-1.5 shadow-[0_12px_40px_rgba(124,58,237,0.3)] animate-[fadeIn_0.3s_ease-out] md:hidden"
-          style={{ bottom: "calc(96px + env(safe-area-inset-bottom))" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-1">
-              <img src={cart.items[0].images?.[0]?.src} alt="" className="h-full w-full object-contain" />
-            </div>
-            <div className="flex flex-col pr-2">
-              <span className="text-[12px] font-bold text-white leading-none">View Cart</span>
-              <span className="text-[10px] font-medium text-white/90 mt-0.5">
-                {cart.items_count} item{cart.items_count > 1 ? "s" : ""}
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => navigate("/cart")}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#7C3AED] transition-transform hover:scale-105"
-          >
-            <ChevronRight size={18} strokeWidth={3} />
-          </button>
-        </div>
-      )}
-
-      {/* Sticky Bottom Purchase Bar (Mobile) */}
+      {/* Sticky Bottom Purchase Bar (Mobile & Split-Screen < lg) */}
       <div
         className="fixed bottom-0 left-0 right-0 z-[100] w-full border-t border-gray-200 bg-white px-4 pt-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden"
         style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))", marginBottom: "0" }}

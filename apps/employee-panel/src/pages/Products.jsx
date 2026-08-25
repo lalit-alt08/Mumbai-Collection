@@ -15,12 +15,15 @@ import {
   AlertCircle,
   Loader2,
   Plus,
+  Trash2,
+  Camera,
 } from "lucide-react";
 import {
   getProducts,
   updateProduct,
   createProduct,
   uploadProductImage,
+  deleteProduct,
 } from "../services/employeeApi.js";
 
 function Products() {
@@ -42,6 +45,11 @@ function Products() {
   const [editForm, setEditForm] = useState({ regular_price: "", stock_quantity: "" });
   const [savingId, setSavingId] = useState(null);
 
+  // Delete product state
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const isDeletingRef = useRef(false);
+
   // Add Product Modal & Upload state
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProduct, setNewProduct] = useState({
@@ -55,7 +63,8 @@ function Products() {
   const [creating, setCreating] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imagePreview, setImagePreview] = useState("");
-  const fileInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
 
   // Toast Notification state
   const [toast, setToast] = useState(null);
@@ -85,7 +94,10 @@ function Products() {
         page,
         per_page: perPage,
         search: debouncedSearch || undefined,
-        stock_status: stockFilter !== "all" ? stockFilter : undefined,
+        stock_status:
+          stockFilter === "instock" || stockFilter === "outofstock"
+            ? stockFilter
+            : undefined,
       });
       if (res.success) {
         setProducts(res.products || []);
@@ -168,6 +180,33 @@ function Products() {
     }
   };
 
+  const handleDeleteProduct = async (product) => {
+    if (!product || isDeletingRef.current || deletingId) return;
+
+    try {
+      isDeletingRef.current = true;
+      setDeletingId(product.id);
+      const res = await deleteProduct(product.id);
+      if (res.success) {
+        showToast(`Product "${product.name}" deleted successfully.`);
+        setDeleteConfirmProduct(null);
+        setProducts((prev) => prev.filter((p) => p.id !== product.id));
+        setTotalProducts((t) => Math.max(0, t - 1));
+      } else {
+        showToast(res.message || "Failed to delete product.", "error");
+      }
+    } catch (err) {
+      console.error("Delete product error:", err);
+      showToast(
+        err.response?.data?.message || err.message || "Failed to delete product.",
+        "error"
+      );
+    } finally {
+      isDeletingRef.current = false;
+      setDeletingId(null);
+    }
+  };
+
   const handleImageFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -199,6 +238,8 @@ function Products() {
       setImagePreview("");
     } finally {
       setUploadingImage(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
     }
   };
 
@@ -239,8 +280,19 @@ function Products() {
     }
   };
 
+  const displayedProducts = products.filter((product) => {
+    const stock = product.stock_quantity ?? 0;
+    const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
+    const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+
+    if (stockFilter === "outofstock") return isOutOfStock;
+    if (stockFilter === "lowstock") return isLowStock;
+    if (stockFilter === "instock") return !isOutOfStock && stock > 5;
+    return true;
+  });
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-5">
       {/* Toast Notification */}
       {toast && (
         <div
@@ -255,45 +307,14 @@ function Products() {
         </div>
       )}
 
-      {/* Header Banner */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-black tracking-tight text-gray-900 flex items-center gap-2">
-            <Boxes size={22} className="text-emerald-600" />
-            Product Inventory & Quick Stock
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Quickly adjust in-store prices, update shelf quantities, and register incoming stock.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={fetchProductList}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm hover:bg-gray-50 transition cursor-pointer"
-          >
-            <RotateCcw size={14} className={loading ? "animate-spin" : ""} />
-            Refresh
-          </button>
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-emerald-500 transition cursor-pointer"
-          >
-            <Plus size={16} />
-            + Add In-Store Product
-          </button>
-        </div>
-      </div>
-
       {/* Filter Tabs & Search Bar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-gray-200 bg-white p-3.5 sm:p-4 shadow-xs">
         {/* Filter Pills */}
         <div className="flex flex-wrap gap-1.5">
           {[
             { id: "all", label: "All Items" },
             { id: "instock", label: "In Stock" },
+            { id: "lowstock", label: "Low Stock" },
             { id: "outofstock", label: "Out of Stock" },
           ].map((tab) => (
             <button
@@ -302,9 +323,9 @@ function Products() {
                 setStockFilter(tab.id);
                 setPage(1);
               }}
-              className={`rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+              className={`rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer active:scale-95 ${
                 stockFilter === tab.id
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-300"
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-xs"
                   : "text-gray-600 hover:bg-gray-100"
               }`}
             >
@@ -313,16 +334,37 @@ function Products() {
           ))}
         </div>
 
-        {/* Search Bar */}
-        <div className="relative w-full sm:w-72">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by title, SKU..."
-            className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2 pl-9 pr-4 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
-          />
+        {/* Search Bar & Refresh */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-72">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title, SKU..."
+              className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2 pl-9 pr-4 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
+            />
+          </div>
+
+          <button
+            onClick={fetchProductList}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:bg-gray-50 transition cursor-pointer disabled:opacity-50 shrink-0"
+            title="Refresh Inventory"
+          >
+            <RotateCcw size={13} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer shrink-0 active:scale-95"
+            title="Add New Product"
+          >
+            <Plus size={14} />
+            Add Product
+          </button>
         </div>
       </div>
 
@@ -345,9 +387,9 @@ function Products() {
               <RotateCcw size={14} /> Retry
             </button>
           </div>
-        ) : products.length === 0 ? (
+        ) : displayedProducts.length === 0 ? (
           <div className="py-16 text-center text-xs font-medium text-gray-400">
-            No products found matching your search.
+            No products found matching your filter criteria.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -363,12 +405,12 @@ function Products() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
-                {products.map((product) => {
+                {displayedProducts.map((product) => {
                   const isEditing = editingId === product.id;
                   const isSaving = savingId === product.id;
                   const stock = product.stock_quantity ?? 0;
                   const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
-                  const isLowStock = !isOutOfStock && stock <= 5;
+                  const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
 
                   return (
                     <tr key={product.id} className="hover:bg-gray-50/80 transition">
@@ -444,7 +486,7 @@ function Products() {
                               : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           }`}
                         >
-                          {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock (<=5)" : "In Stock"}
+                          {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
                         </span>
                       </td>
 
@@ -468,13 +510,23 @@ function Products() {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handleStartEdit(product)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:border-emerald-300 hover:text-emerald-600 transition cursor-pointer"
-                          >
-                            <Edit2 size={12} />
-                            Edit Stock / Price
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleStartEdit(product)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:border-emerald-300 hover:text-emerald-600 transition cursor-pointer"
+                            >
+                              <Edit2 size={12} />
+                              Edit Stock / Price
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmProduct(product)}
+                              disabled={deletingId === product.id}
+                              className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition cursor-pointer disabled:opacity-50"
+                              title="Delete Product"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -606,30 +658,53 @@ function Products() {
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
                   Product Image (WordPress Media Upload)
                 </label>
+                
+                {/* Hidden Inputs for Gallery and Camera */}
                 <input
                   type="file"
-                  ref={fileInputRef}
+                  ref={galleryInputRef}
                   onChange={handleImageFileChange}
                   accept="image/jpeg,image/png,image/webp,image/gif"
                   className="hidden"
                 />
 
-                <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  ref={cameraInputRef}
+                  onChange={handleImageFileChange}
+                  capture="environment"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                />
+
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  {/* Take Photo Button */}
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => cameraInputRef.current?.click()}
                     disabled={uploadingImage}
-                    className="flex items-center gap-2 rounded-xl border border-dashed border-emerald-400 bg-emerald-50/50 px-4 py-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50 transition cursor-pointer disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50 shadow-2xs active:scale-95"
+                  >
+                    <Camera size={14} />
+                    Take Photo
+                  </button>
+
+                  {/* From Gallery Button */}
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer disabled:opacity-50 active:scale-95"
                   >
                     {uploadingImage ? (
                       <>
                         <Loader2 size={14} className="animate-spin" />
-                        Uploading to WP Media...
+                        Uploading...
                       </>
                     ) : (
                       <>
-                        <Upload size={14} />
-                        Choose Photo
+                        <ImageIcon size={14} />
+                        From Gallery
                       </>
                     )}
                   </button>
@@ -638,12 +713,12 @@ function Products() {
                     <img
                       src={imagePreview}
                       alt="Preview"
-                      className="h-12 w-12 rounded-xl object-cover border border-gray-200 bg-gray-100"
+                      className="h-11 w-11 rounded-xl object-cover border border-gray-200 bg-gray-100 shadow-2xs"
                     />
                   )}
                 </div>
                 {newProduct.image_url && (
-                  <p className="mt-1 text-[11px] text-emerald-600 font-medium truncate">
+                  <p className="mt-1.5 text-[11px] text-emerald-600 font-medium truncate">
                     ✓ Uploaded: {newProduct.image_url}
                   </p>
                 )}
@@ -667,6 +742,72 @@ function Products() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Product Confirmation Modal */}
+      {deleteConfirmProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-100 mb-4">
+              <Trash2 size={24} />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-black text-gray-900">
+                Delete Product Permanently?
+              </h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Are you sure you want to delete <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span>?
+              </p>
+
+              {deleteConfirmProduct.image && (
+                <div className="mx-auto h-16 w-16 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 p-1 my-2">
+                  <img
+                    src={deleteConfirmProduct.image}
+                    alt={deleteConfirmProduct.name}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+              )}
+
+              <div className="rounded-2xl bg-rose-50/60 p-3 border border-rose-100 text-left text-[11px] text-rose-700 space-y-1 mt-3">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle size={13} /> Immediate Store-Wide Removal
+                </div>
+                <p className="text-rose-600/90 text-[10.5px]">
+                  This product will be permanently deleted from WooCommerce and will immediately disappear from the store catalog.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-5 border-t border-gray-100 mt-5">
+              <button
+                type="button"
+                disabled={deletingId === deleteConfirmProduct.id}
+                onClick={() => setDeleteConfirmProduct(null)}
+                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === deleteConfirmProduct.id}
+                onClick={() => handleDeleteProduct(deleteConfirmProduct)}
+                className="flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50 transition cursor-pointer active:scale-95"
+              >
+                {deletingId === deleteConfirmProduct.id ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} /> Delete Product
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

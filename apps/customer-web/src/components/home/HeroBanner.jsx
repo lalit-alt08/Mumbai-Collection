@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -6,35 +7,113 @@ import { Autoplay, Pagination } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/pagination";
 
-import banner from "../../data/banner";
+import staticBanners from "../../data/banner.js";
+import { getBanners } from "../../services/productService.js";
+
+// Normalize static fallback banners
+const FALLBACK_BANNERS = staticBanners.map((item, idx) => ({
+  id: item.id || `static-${idx + 1}`,
+  title: item.title || `Featured Collection #${idx + 1}`,
+  link: item.link || "/categories",
+  desktop_image: item.image || "/banner/Art.webp",
+  mobile_image: item.image || "/banner/Art.webp",
+  is_active: true,
+}));
 
 function HeroBanner() {
+  const [banners, setBanners] = useState(FALLBACK_BANNERS);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLiveBanners = async () => {
+      try {
+        const res = await getBanners();
+        if (!isMounted) return;
+
+        const liveList = res?.banners || (Array.isArray(res) ? res : []);
+        const activeList = liveList.filter(
+          (b) => b && b.is_active !== false && (b.desktop_image || b.mobile_image)
+        );
+
+        if (activeList.length > 0) {
+          setBanners(activeList.slice(0, 3));
+        }
+      } catch (err) {
+        // Silent fallback: keep static fallback banners if WordPress/API is unreachable
+        console.warn("HeroBanner live fetch failed, using fallback banners:", err?.message || err);
+      }
+    };
+
+    loadLiveBanners();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const displayBanners = banners.length > 0 ? banners.slice(0, 3) : FALLBACK_BANNERS;
+  const isMultiSlide = displayBanners.length > 1;
+
   return (
     <Swiper
-      modules={[Autoplay, Pagination]}
-      autoplay={{
-        delay: 5000,
-        disableOnInteraction: false,
-      }}
-      pagination={{
-        clickable: true,
-      }}
+      modules={isMultiSlide ? [Autoplay, Pagination] : []}
+      autoplay={
+        isMultiSlide
+          ? {
+              delay: 5000,
+              disableOnInteraction: false,
+            }
+          : false
+      }
+      pagination={
+        isMultiSlide
+          ? {
+              clickable: true,
+            }
+          : false
+      }
       speed={700}
-      loop
-      className="mt-2 overflow-hidden rounded-[24px] shadow-sm md:mt-4 md:shadow-md"
+      loop={isMultiSlide}
+      className="overflow-hidden rounded-[18px] sm:rounded-[22px] shadow-xs md:shadow-sm"
     >
-      {banner.map((item) => (
-        <SwiperSlide key={item.id}>
-          <Link to={item.link}>
+      {displayBanners.map((item, index) => {
+        const desktopSrc = item.desktop_image || item.mobile_image || "/banner/Art.webp";
+        const mobileSrc = item.mobile_image || item.desktop_image || "/banner/Art.webp";
+
+        const BannerImage = (
+          <picture className="block w-full">
+            {/* Mobile Viewport (< 640px) */}
+            <source media="(max-width: 639px)" srcSet={mobileSrc} />
+            {/* Desktop / Tablet Viewport (>= 640px) */}
+            <source media="(min-width: 640px)" srcSet={desktopSrc} />
             <img
-              src={item.image}
-              alt=""
-              loading="lazy"
-              className="aspect-[16/8] w-full rounded-[24px] object-cover md:aspect-auto md:object-contain"
+              src={desktopSrc}
+              alt={item.title || "Mumbai Collection Promotional Banner"}
+              loading={index === 0 ? "eager" : "lazy"}
+              className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
+              onError={(e) => {
+                // Emergency fallback if remote image fails to load
+                if (e.currentTarget.src !== window.location.origin + "/banner/Art.webp") {
+                  e.currentTarget.src = "/banner/Art.webp";
+                }
+              }}
             />
-          </Link>
-        </SwiperSlide>
-      ))}
+          </picture>
+        );
+
+        return (
+          <SwiperSlide key={item.id || index}>
+            {item.link ? (
+              <Link to={item.link} className="block w-full cursor-pointer focus:outline-none">
+                {BannerImage}
+              </Link>
+            ) : (
+              <div className="block w-full">{BannerImage}</div>
+            )}
+          </SwiperSlide>
+        );
+      })}
     </Swiper>
   );
 }

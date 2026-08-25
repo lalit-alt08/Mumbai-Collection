@@ -5,17 +5,30 @@ import {
   getEmployeeOrders,
   updateOrderStatus,
   getEmployeeOverview,
+  uploadEmployeeMedia,
 } from "../controllers/employeeController.js";
 
 import {
   getAdminProducts,
   updateProduct,
   createProduct,
-  uploadProductImage,
-} from "../controllers/adminController.js";
+} from "../controllers/adminProductController.js";
+
+import {
+  getAdminCategories,
+  createCategory,
+  updateCategory,
+  reorderCategories,
+} from "../controllers/adminCategoryController.js";
+
+import {
+  getEmployeeBanners,
+  updateEmployeeBanners,
+} from "../controllers/bannerController.js";
 
 import { requireAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
+import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -93,10 +106,42 @@ router.get(
   getAdminProducts
 );
 
+router.get(
+  "/categories",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  getAdminCategories
+);
+
+router.post(
+  "/categories",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  requireIdempotency,
+  createCategory
+);
+
+router.put(
+  "/categories/reorder",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  requireIdempotency,
+  reorderCategories
+);
+
+router.put(
+  "/categories/:id",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  requireIdempotency,
+  updateCategory
+);
+
 router.post(
   "/products",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  requireIdempotency,
   createProduct
 );
 
@@ -114,12 +159,31 @@ router.patch(
   updateProduct
 );
 
+// NOTE: Product deletion is intentionally not available to employees.
+// Only administrators may delete products (via adminRoutes).
+
 router.post(
   "/upload",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   handleImageUpload,
-  uploadProductImage
+  uploadEmployeeMedia
+);
+
+// Homepage Banners Management (Max 3)
+router.get(
+  "/banners",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  getEmployeeBanners
+);
+
+router.put(
+  "/banners",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  requireIdempotency,
+  updateEmployeeBanners
 );
 
 export default router;

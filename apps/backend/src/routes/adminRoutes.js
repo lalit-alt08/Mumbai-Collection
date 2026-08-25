@@ -3,17 +3,27 @@ import multer from "multer";
 
 import {
   getDashboardOverview,
+  getAdminAnalytics,
+} from "../controllers/adminAnalyticsController.js";
+
+import {
   getAdminProducts,
   updateProduct,
   deleteProduct,
   createProduct,
   uploadProductImage,
-  getAdminCustomers,
-  getAdminAnalytics,
-} from "../controllers/adminController.js";
+} from "../controllers/adminProductController.js";
+
+import { getAdminCustomers } from "../controllers/adminCustomerController.js";
+
+import {
+  getAdminOrders,
+  updateAdminOrderStatus,
+} from "../controllers/adminOrderController.js";
 
 import { requireAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
+import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -99,6 +109,7 @@ router.post(
   "/products",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  requireIdempotency,
   createProduct
 );
 
@@ -118,6 +129,21 @@ router.get(
   getAdminCustomers
 );
 
+// Order Management (H4: previously orphaned — now mounted)
+router.get(
+  "/orders",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  getAdminOrders
+);
+
+router.put(
+  "/orders/:id/status",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  updateAdminOrderStatus
+);
+
 // Dedicated Deep Analytics & Reporting
 router.get(
   "/analytics",
@@ -127,3 +153,4 @@ router.get(
 );
 
 export default router;
+

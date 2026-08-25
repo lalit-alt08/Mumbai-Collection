@@ -1,16 +1,17 @@
 import { Link } from "react-router-dom";
-import logo from "../../assets/Logo.png";
+import logo from "../../assets/Logo.jpg";
 
-function Logo() {
+function Logo({ className = "h-13 md:h-14 lg:h-[58px] xl:h-[62px] w-auto max-w-full" }) {
   return (
     <Link
       to="/"
-      className="flex items-center flex-shrink-0"
+      className="flex items-center justify-center"
+      aria-label="Mumbai Collection Home"
     >
       <img
         src={logo}
         alt="Mumbai Collection"
-        className="h-14 w-auto sm:h-16 md:h-20"
+        className={`${className} object-contain`}
       />
     </Link>
   );
