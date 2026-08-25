@@ -52,17 +52,20 @@ const getClearCookieOptions = (req) => {
 
 export const login = async (req, res) => {
   try {
-     // TEMP LOGIN DEBUG — remove after diagnosis
-  console.log("\n========== LOGIN CONTROLLER DEBUG ==========");
-  console.log("Email received:", req.body?.email);
-  console.log("Password received:", req.body?.password ? "YES" : "NO");
-  console.log("Context:", req.body?.context || req.query?.context);
-  console.log("============================================\n");
-  
     const { email, password } = req.body;
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const cookieOptions = getCookieOptions(req);
+
+    console.log("========== WP AUTH REQUEST DEBUG ==========");
+    console.log(`Path: /wp-json/mumbai-auth/v1/login`);
+    console.log(`Context: ${context}`);
+    console.log(`Email: ${email || "missing"}`);
+    console.log(`Origin: ${req.headers.origin || "none"}`);
+    console.log(`User-Agent: ${req.headers["user-agent"] || "none"}`);
+    console.log(`Body Contains Email: ${Boolean(email) ? "YES" : "NO"}`);
+    console.log(`Body Contains Password: ${Boolean(password) ? "YES" : "NO"}`);
+    console.log("===========================================");
 
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
@@ -70,6 +73,11 @@ export const login = async (req, res) => {
     });
 
     const data = response.data;
+    console.log("========== WP AUTH RESPONSE DEBUG ==========");
+    console.log(`HTTP Status: ${response.status}`);
+    console.log(`Response Code: ${data.code || (data.success ? "success" : "none")}`);
+    console.log(`Safe Message: ${data.message || "none"}`);
+    console.log("============================================");
 
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
@@ -91,6 +99,18 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     const status = error.response?.status || 500;
+    const wpCode = error.response?.data?.code || "none";
+    const wpMessage = error.response?.data?.message || error.message || "Unable to login.";
+
+    console.log(`[LOGIN DEBUG] Upstream WordPress HTTP status: ${status} (code: ${wpCode})`);
+
+    if (status === 401) {
+      console.log(`[LOGIN DEBUG] Rejecting login (HTTP 401): WordPress authentication failed (${wpMessage})`);
+    } else if (status === 429) {
+      console.log(`[LOGIN DEBUG] Rejecting login (HTTP 429): Account locked due to rate limiting (${wpMessage})`);
+    } else {
+      console.log(`[LOGIN DEBUG] Login controller error (HTTP ${status}): ${wpMessage}`);
+    }
 
     // 401 and 429 are expected authentication responses.
     if (status !== 401 && status !== 429) {
