@@ -52,6 +52,13 @@ const getClearCookieOptions = (req) => {
 
 export const login = async (req, res) => {
   try {
+     // TEMP LOGIN DEBUG — remove after diagnosis
+  console.log("\n========== LOGIN CONTROLLER DEBUG ==========");
+  console.log("Email received:", req.body?.email);
+  console.log("Password received:", req.body?.password ? "YES" : "NO");
+  console.log("Context:", req.body?.context || req.query?.context);
+  console.log("============================================\n");
+  
     const { email, password } = req.body;
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
