@@ -12,6 +12,7 @@ import {
   getAdminProducts,
   updateProduct,
   createProduct,
+  deleteProduct,
 } from "../controllers/adminProductController.js";
 
 import {
@@ -159,8 +160,12 @@ router.patch(
   updateProduct
 );
 
-// NOTE: Product deletion is intentionally not available to employees.
-// Only administrators may delete products (via adminRoutes).
+router.delete(
+  "/products/:id",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  deleteProduct
+);
 
 router.post(
   "/upload",

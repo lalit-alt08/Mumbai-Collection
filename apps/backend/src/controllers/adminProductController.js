@@ -201,14 +201,15 @@ export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!id) {
+    const numericId = Number(id);
+    if (!id || isNaN(numericId) || numericId <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Product ID is required.",
+        message: "A valid numeric Product ID is required.",
       });
     }
 
-    const response = await api.delete(`products/${encodeURIComponent(id)}`, {
+    const response = await api.delete(`products/${encodeURIComponent(numericId)}`, {
       force: true,
     });
 
