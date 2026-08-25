@@ -1,6 +1,7 @@
 import express from "express";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 const router = express.Router();
 
@@ -43,7 +44,7 @@ async function proxyStoreApi(req, res) {
       res.setHeader("Set-Cookie", response.headers["set-cookie"]);
     }
 
-    return res.status(response.status).json(response.data);
+    return res.status(response.status).json(transformMediaUrls(response.data, req));
   } catch (error) {
     console.error("Store API proxy error:", error.response?.data || error.message);
     const status = error.response?.status || 502;
