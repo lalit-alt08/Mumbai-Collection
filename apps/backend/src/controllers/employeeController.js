@@ -1,5 +1,6 @@
 import api from "../config/woocommerce.js";
 import { uploadMedia } from "../services/wordpressMediaService.js";
+import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 
 /**
  * Upload Product Image to WordPress Media Library for Employee Panel
@@ -17,7 +18,7 @@ export const uploadEmployeeMedia = async (req, res) => {
 
     res.json({
       success: true,
-      url,
+      url: transformMediaUrl(url, req),
       id,
     });
   } catch (error) {
@@ -163,7 +164,7 @@ export const getEmployeeOrders = async (req, res) => {
       total: totalOrders,
       totalPages: totalPages,
       count: formatted.length,
-      orders: formatted,
+      orders: transformMediaUrls(formatted, req),
     });
   } catch (error) {
     console.error("Get employee orders error:", error.response?.data || error.message);

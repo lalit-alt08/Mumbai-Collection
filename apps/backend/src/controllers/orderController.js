@@ -1,6 +1,7 @@
 import api from "../config/woocommerce.js";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 /**
  * Fetch authenticated customer's orders from WooCommerce
@@ -186,7 +187,7 @@ export const getCustomerOrders = async (req, res) => {
     res.json({
       success: true,
       count: formattedOrders.length,
-      orders: formattedOrders,
+      orders: transformMediaUrls(formattedOrders, req),
     });
   } catch (error) {
     console.error("Get customer orders error:", error.response?.data || error.message);
@@ -225,7 +226,7 @@ export const getOrderById = async (req, res) => {
     }
 
     // Ownership verification matching authenticated user ID or verified email
-    const orderCustomerId = Number(order.customer_id);
+    const orderCustomerId = Number(order.customer_id || 0);
     const orderBillingEmail = (order.billing?.email || "").trim().toLowerCase();
     
     let isOwner = orderCustomerId > 0 && orderCustomerId === Number(userId);
@@ -251,7 +252,7 @@ export const getOrderById = async (req, res) => {
 
     res.json({
       success: true,
-      order: formatCustomerOrder(order),
+      order: transformMediaUrls(formatCustomerOrder(order), req),
     });
   } catch (error) {
     console.error("Get order by ID error:", error.response?.data || error.message);

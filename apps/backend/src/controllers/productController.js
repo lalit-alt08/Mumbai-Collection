@@ -6,18 +6,19 @@ import {
   fetchProductsByCategory,
   fetchCategories,
 } from "../services/productService.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 export const getAllProducts = async (req, res) => {
   try {
     const products = await fetchProducts();
 
     if (Array.isArray(products)) {
-      return res.json(products);
+      return res.json(transformMediaUrls(products, req));
     }
 
     // If WooCommerce/service returns { products: [...] }
     if (Array.isArray(products?.products)) {
-      return res.json(products.products);
+      return res.json(transformMediaUrls(products.products, req));
     }
 
     console.error("Unexpected products response:", products);
@@ -43,7 +44,7 @@ export const getProductById = async (req, res) => {
   try {
     const product = await fetchProductById(req.params.id);
 
-    res.json(product);
+    res.json(transformMediaUrls(product, req));
   } catch (error) {
     console.error(error);
 
@@ -60,7 +61,7 @@ export const getRelatedProducts = async (req, res) => {
 
     const products = await fetchRelatedProducts(categoryId, currentProductId);
 
-    res.json(products);
+    res.json(transformMediaUrls(products, req));
   } catch (error) {
     console.error(error);
 
@@ -77,7 +78,7 @@ export const searchAllProducts = async (req, res) => {
 
     const products = await searchProducts(q);
 
-    res.json(products);
+    res.json(transformMediaUrls(products, req));
   } catch (error) {
     console.error(error.response?.data || error.message);
 
@@ -94,7 +95,7 @@ export const getProductsByCategory = async (req, res) => {
 
     const products = await fetchProductsByCategory(categoryId);
 
-    res.json(products);
+    res.json(transformMediaUrls(products, req));
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -106,7 +107,7 @@ export const getProductsByCategory = async (req, res) => {
 export const getAllCategories = async (req, res) => {
   try {
     const categories = await fetchCategories();
-    res.json(categories);
+    res.json(transformMediaUrls(categories, req));
   } catch (error) {
     console.error("Get all categories error:", error.response?.data || error.message);
     res.status(500).json({

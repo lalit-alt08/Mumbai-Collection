@@ -1,5 +1,6 @@
 import api from "../config/woocommerce.js";
 import { uploadMedia } from "../services/wordpressMediaService.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 /**
  * Product Input Validation Helper
@@ -127,7 +128,7 @@ export const getAdminProducts = async (req, res) => {
       total: totalProducts,
       totalPages,
       count: formatted.length,
-      products: formatted,
+      products: transformMediaUrls(formatted, req),
     });
   } catch (error) {
     console.error("Get admin products error:", error.response?.data || error.message);
@@ -182,7 +183,7 @@ export const updateProduct = async (req, res) => {
     res.json({
       success: true,
       message: `Product #${id} updated successfully.`,
-      product: response.data,
+      product: transformMediaUrls(response.data, req),
     });
   } catch (error) {
     console.error("Update product error:", error.response?.data || error.message);
@@ -244,7 +245,7 @@ export const uploadProductImage = async (req, res) => {
 
     res.json({
       success: true,
-      url,
+      url: transformMediaUrl(url, req),
       id,
     });
   } catch (error) {
@@ -341,7 +342,7 @@ export const createProduct = async (req, res) => {
     res.status(201).json({
       success: true,
       message: "Product created successfully.",
-      product: response.data,
+      product: transformMediaUrls(response.data, req),
     });
   } catch (error) {
     console.error("Create product error:", error.response?.data || error.message);

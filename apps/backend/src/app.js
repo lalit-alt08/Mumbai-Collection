@@ -14,6 +14,7 @@ import favoritesRoutes from "./routes/favoritesRoute.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import bannerRoutes from "./routes/bannerRoutes.js";
 import storeRoutes from "./routes/storeRoutes.js";
+import mediaRoutes from "./routes/mediaRoutes.js";
 
 const app = express();
 
@@ -76,6 +77,7 @@ app.use(
 app.use(express.json());
 
 app.use("/api/store", storeRoutes);
+app.use("/api/media", mediaRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/reviews", reviewRoutes);

@@ -1,4 +1,5 @@
 import api from "../config/woocommerce.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 /**
  * Get Product Categories from WooCommerce
@@ -20,24 +21,26 @@ export const getAdminCategories = async (req, res) => {
       return a.id - b.id;
     });
 
+    const formattedCategories = sorted.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      parent: c.parent,
+      count: c.count,
+      menu_order: c.menu_order || 0,
+      image: c.image
+        ? {
+            id: c.image.id,
+            src: c.image.src,
+            name: c.image.name,
+            alt: c.image.alt,
+          }
+        : null,
+    }));
+
     res.json({
       success: true,
-      categories: sorted.map((c) => ({
-        id: c.id,
-        name: c.name,
-        slug: c.slug,
-        parent: c.parent,
-        count: c.count,
-        menu_order: c.menu_order || 0,
-        image: c.image
-          ? {
-              id: c.image.id,
-              src: c.image.src,
-              name: c.image.name,
-              alt: c.image.alt,
-            }
-          : null,
-      })),
+      categories: transformMediaUrls(formattedCategories, req),
     });
   } catch (error) {
     console.error("Get categories error:", error.response?.data || error.message);

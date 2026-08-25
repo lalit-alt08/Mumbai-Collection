@@ -2,6 +2,7 @@ import {
   getBanners,
   saveBanners,
 } from "../services/bannerService.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 /**
  * Public Endpoint: Get Active Homepage Banners for Customer Web
@@ -15,7 +16,7 @@ export const getPublicBanners = async (req, res) => {
     res.json({
       success: true,
       count: activeBanners.length,
-      banners: activeBanners,
+      banners: transformMediaUrls(activeBanners, req),
     });
   } catch (error) {
     console.error("Get public banners error:", error.message);
@@ -38,7 +39,7 @@ export const getEmployeeBanners = async (req, res) => {
     res.json({
       success: true,
       count: banners.length,
-      banners,
+      banners: transformMediaUrls(banners, req),
     });
   } catch (error) {
     console.error("Get employee banners error:", error.message);
@@ -78,7 +79,7 @@ export const updateEmployeeBanners = async (req, res) => {
       success: true,
       message: "Homepage banners updated and published to WordPress successfully.",
       count: savedBanners.length,
-      banners: savedBanners,
+      banners: transformMediaUrls(savedBanners, req),
     });
   } catch (error) {
     console.error("Update employee banners error:", error.response?.data || error.message);
