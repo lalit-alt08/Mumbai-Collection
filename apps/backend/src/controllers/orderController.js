@@ -146,32 +146,51 @@ export const getCustomerOrders = async (req, res) => {
       console.warn("Could not fetch customer email for user", userId, custErr.message);
     }
 
-    // 2. Query WooCommerce using the customer's verified email (scoped search)
-    // If no email could be resolved, fall back to querying by customer ID
-    let rawOrders = [];
-    if (customerEmail) {
-      const searchRes = await api.get("orders", {
-        search: customerEmail,
-        per_page: 50,
-        orderby: "date",
-        order: "desc",
-      });
-      rawOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
-    } else {
+    // 2. Query WooCommerce using the customer's verified ID and verified email
+    let idOrders = [];
+    try {
       const customerOrderRes = await api.get("orders", {
         customer: userId,
         per_page: 50,
         orderby: "date",
         order: "desc",
       });
-      rawOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
+      idOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
+    } catch (idErr) {
+      console.warn("Could not query orders by customer ID:", idErr.message);
+    }
+
+    let emailOrders = [];
+    if (customerEmail) {
+      try {
+        const searchRes = await api.get("orders", {
+          search: customerEmail,
+          per_page: 50,
+          orderby: "date",
+          order: "desc",
+        });
+        emailOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
+      } catch (emailErr) {
+        console.warn("Could not query orders by email search:", emailErr.message);
+      }
+    }
+
+    // Merge and deduplicate by WooCommerce order ID
+    const mergedOrders = [...idOrders];
+    const existingIds = new Set(idOrders.map((o) => o.id));
+
+    for (const order of emailOrders) {
+      if (!existingIds.has(order.id)) {
+        mergedOrders.push(order);
+        existingIds.add(order.id);
+      }
     }
 
     // 3. Strict secondary in-memory authorization guard:
     // Accept an order ONLY when billing.email matches verified customerEmail,
-    // or customer_id matches authenticated userId (for future orders).
+    // or customer_id matches authenticated userId.
     const normalizedUserId = Number(userId);
-    const verifiedOrders = rawOrders.filter((order) => {
+    const verifiedOrders = mergedOrders.filter((order) => {
       const orderCustomerId = Number(order.customer_id);
       const orderBillingEmail = (order.billing?.email || "").trim().toLowerCase();
 
@@ -183,6 +202,9 @@ export const getCustomerOrders = async (req, res) => {
 
     // 4. Format clean, customer-facing order objects with live delivery metadata sync
     const formattedOrders = verifiedOrders.map(formatCustomerOrder);
+
+    // Sort formatted orders consistently by date, newest first
+    formattedOrders.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
 
     res.json({
       success: true,
