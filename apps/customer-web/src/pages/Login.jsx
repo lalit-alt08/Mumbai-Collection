@@ -70,26 +70,6 @@ function Login() {
       // Save logged-in user
       loginUser(response.user);
 
-      // Check whether profile + address information is complete
-      const profileResponse = await axios.get(
-        `${API_URL}/profile/complete`,
-        {
-          withCredentials: true,
-        },
-      );
-
-      const profileComplete = profileResponse.data.complete === true;
-
-      // Incomplete user → Profile Setup (forward destination state)
-      if (!profileComplete) {
-        navigate("/profile-setup", {
-          replace: true,
-          state: location.state,
-        });
-
-        return;
-      }
-
       /*
        * Existing/complete user.
        *
