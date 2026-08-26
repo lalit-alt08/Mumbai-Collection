@@ -29,10 +29,22 @@ export function AuthProvider({ children }) {
         const response = await getCurrentUser();
 
         if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
+          const cachedUser = JSON.parse(localStorage.getItem("user") || "{}");
           const userData = response.user || {
             id: response.current_user_id,
             roles: response.roles || [],
           };
+
+          // Recover email, name, and username from cache if missing from restored session data
+          if (!userData.email && cachedUser.email) {
+            userData.email = cachedUser.email;
+          }
+          if (!userData.name && cachedUser.name) {
+            userData.name = cachedUser.name;
+          }
+          if (!userData.username && cachedUser.username) {
+            userData.username = cachedUser.username;
+          }
 
           setUser(userData);
 
