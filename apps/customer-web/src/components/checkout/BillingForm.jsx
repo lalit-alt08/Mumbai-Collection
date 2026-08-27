@@ -108,7 +108,20 @@ function BillingForm() {
       const lastName = nameParts.join(" ") || firstName; // Fallback to firstName if single name
 
       const stateCode = getIndianStateCode(selectedAddress.state);
-      const userEmail = (user?.email || selectedAddress.email || "").trim() || "orders@mumbaicollection.in";
+      const cachedEmail = (() => {
+        try {
+          return JSON.parse(localStorage.getItem("user") || "{}")?.email || "";
+        } catch {
+          return "";
+        }
+      })();
+
+      const userEmail = (user?.email || selectedAddress.email || cachedEmail || "").trim();
+      if (!userEmail) {
+        setError("Please ensure your account has a valid email address before placing an order.");
+        return;
+      }
+
       const userPhone =
         (selectedAddress.phone || "").replace(/\D/g, "") || "9999999999";
       const cleanPincode =

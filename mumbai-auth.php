@@ -299,7 +299,7 @@ function mumbai_login(WP_REST_Request $request)
     /*
      * Create ONE session token and use it everywhere.
      */
-    $expiration = time() + DAY_IN_SECONDS;
+    $expiration = time() + (30 * DAY_IN_SECONDS);
     $session_manager = WP_Session_Tokens::get_instance($signon->ID);
     $session_token   = $session_manager->create($expiration);
     /*
@@ -578,7 +578,8 @@ function mumbai_logout(WP_REST_Request $request)
          * Extract the session token from the cookie and
          * destroy only THIS session (not all devices).
          */
-        $token = wp_get_session_token();
+        $parsed = wp_parse_auth_cookie($cookie_value, 'logged_in');
+        $token = $parsed ? ($parsed['token'] ?? '') : wp_get_session_token();
         $session_manager = WP_Session_Tokens::get_instance($user_id);
         if ($token) {
             $session_manager->destroy($token);

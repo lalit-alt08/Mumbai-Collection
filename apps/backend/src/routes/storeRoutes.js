@@ -19,8 +19,19 @@ async function proxyStoreApi(req, res) {
   const forwardHeaders = {};
   if (req.headers.nonce) forwardHeaders["Nonce"] = req.headers.nonce;
   if (req.headers["cart-token"]) forwardHeaders["Cart-Token"] = req.headers["cart-token"];
-  if (req.headers.cookie) forwardHeaders["Cookie"] = req.headers.cookie;
   if (req.headers["content-type"]) forwardHeaders["Content-Type"] = req.headers["content-type"];
+
+  // Map customer auth cookie to native WordPress auth cookie so WooCommerce Store API resolves the logged-in customer
+  const customerAuth =
+    req.cookies?.mumbai_customer_auth ||
+    req.cookies?.mumbai_wp_auth ||
+    req.cookies?.mumbai_admin_auth;
+
+  if (customerAuth) {
+    forwardHeaders["Cookie"] = customerAuth;
+  } else if (req.headers.cookie) {
+    forwardHeaders["Cookie"] = req.headers.cookie;
+  }
 
   try {
     const response = await axios({
