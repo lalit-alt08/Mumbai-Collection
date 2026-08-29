@@ -7,7 +7,7 @@ const API = axios.create({
 });
 
 export const getMyOrders = async (email) => {
-  const response = await API.get("/", {
+  const response = await API.get("", {
     params: email ? { email } : {},
   });
   return response.data;

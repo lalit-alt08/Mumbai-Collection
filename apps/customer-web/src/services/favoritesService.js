@@ -14,7 +14,7 @@ const api = axios.create({
  * Fetch all favorites for logged-in customer
  */
 export const getFavorites = async () => {
-  const res = await api.get("/");
+  const res = await api.get("");
   return res.data;
 };
 
