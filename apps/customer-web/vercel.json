@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://frost-everybody-stake-conduct.trycloudflare.com/api/:path*"
+      "destination": "https://cuts-paperbacks-fleece-demand.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",
