@@ -736,7 +736,7 @@ function ProfileSetup() {
                 </div>
 
                 {/* DELIVERY REGION (4 OPTIONS WITH SMOOTH SCROLL) */}
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-2 min-w-0">
                   <div className="mb-1.5 flex items-center justify-between">
                     <label className="block text-xs font-bold text-gray-700">
                       Delivery Region / Area <span className="text-[#7C3AED]">*</span>
