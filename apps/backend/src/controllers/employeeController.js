@@ -225,9 +225,10 @@ export const updateOrderStatus = async (req, res) => {
 
     const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
 
-    // Invalidate cached overview/analytics immediately upon status transition
+    // Invalidate cached overview/analytics/customers immediately upon status transition
     serverCache.invalidatePrefix("employee:overview");
     serverCache.invalidatePrefix("admin:analytics");
+    serverCache.invalidatePrefix("admin:customers");
 
     // Structured operational audit log
     logAuditEvent({
@@ -434,7 +435,7 @@ export const getEmployeeOverview = async (req, res) => {
       },
     };
 
-    serverCache.set("employee:overview", responsePayload, 20000);
+    serverCache.set("employee:overview", responsePayload, 60000);
 
     res.json(responsePayload);
   } catch (error) {

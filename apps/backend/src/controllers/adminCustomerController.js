@@ -1,4 +1,5 @@
 import api from "../config/woocommerce.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 /**
  * Fetch all WooCommerce orders using server-side pagination (H5 fix).
@@ -39,8 +40,12 @@ export const getAdminCustomers = async (req, res) => {
     const pageNum = Math.max(1, Number(page) || 1);
     const limit = Math.min(100, Math.max(1, Number(per_page) || 20));
 
-    // Fetch ALL orders via paginated requests to aggregate customer LTV (H5 fix)
-    const orders = await fetchAllOrders();
+    // Fetch orders via coalesced cache (120s TTL) to prevent repeated 20-page scans
+    const orders = await serverCache.getOrFetch(
+      "admin:customers:orders",
+      fetchAllOrders,
+      120000
+    );
     const customerMap = new Map();
 
 

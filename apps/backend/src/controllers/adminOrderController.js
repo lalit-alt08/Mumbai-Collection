@@ -74,6 +74,7 @@ export const updateAdminOrderStatus = async (req, res) => {
     });
 
     serverCache.invalidatePrefix("admin:analytics");
+    serverCache.invalidatePrefix("admin:customers");
     serverCache.invalidatePrefix("employee:overview");
 
     logAuditEvent({
