@@ -7,16 +7,21 @@
 
 const idempotencyStore = new Map();
 const IDEMPOTENCY_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
+const MAX_IDEMPOTENCY_STORE_SIZE = 2000;
+const MAX_KEY_LENGTH = 128;
+const MAX_PROCESSING_TIMEOUT_MS = 30 * 1000; // 30s max processing wait
 
-// Periodic cleanup of expired keys
+// Periodic cleanup of expired and abandoned keys
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of idempotencyStore.entries()) {
-    if (now - entry.timestamp > IDEMPOTENCY_TTL_MS) {
+    const isExpired = now - entry.timestamp > IDEMPOTENCY_TTL_MS;
+    const isAbandonedProcessing = entry.status === "processing" && (now - entry.timestamp > MAX_PROCESSING_TIMEOUT_MS);
+    if (isExpired || isAbandonedProcessing) {
       idempotencyStore.delete(key);
     }
   }
-}, 5 * 60 * 1000).unref();
+}, 30 * 1000).unref();
 
 export const requireIdempotency = (req, res, next) => {
   const idempotencyKey =
@@ -24,11 +29,26 @@ export const requireIdempotency = (req, res, next) => {
     req.headers["idempotency-key"] ||
     req.body?.idempotency_key;
 
-  if (!idempotencyKey || typeof idempotencyKey !== "string" || !idempotencyKey.trim()) {
+  if (
+    !idempotencyKey ||
+    typeof idempotencyKey !== "string" ||
+    !idempotencyKey.trim() ||
+    idempotencyKey.trim().length > MAX_KEY_LENGTH
+  ) {
     return next();
   }
 
-  const key = idempotencyKey.trim();
+  const rawKey = idempotencyKey.trim();
+  const userId = req.wpUserId || req.ip || "anon";
+  const routePath = `${req.baseUrl || ""}${req.path || ""}`;
+  const key = `${userId}:${req.method}:${routePath}:${rawKey}`;
+
+  // Enforce bounded store size before adding
+  if (idempotencyStore.size >= MAX_IDEMPOTENCY_STORE_SIZE && !idempotencyStore.has(key)) {
+    const oldestKey = idempotencyStore.keys().next().value;
+    if (oldestKey) idempotencyStore.delete(oldestKey);
+  }
+
   const cached = idempotencyStore.get(key);
 
   if (cached) {

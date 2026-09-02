@@ -1,4 +1,5 @@
 import api from "../config/woocommerce.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 /**
  * Fetch all WooCommerce orders using server-side pagination (H5 fix).
@@ -35,6 +36,10 @@ async function fetchAllOrders() {
  */
 export const getDashboardOverview = async (req, res) => {
   try {
+    const cachedOverview = serverCache.get("admin:analytics:overview");
+    if (cachedOverview) {
+      return res.json(cachedOverview);
+    }
     // 1. Fetch ALL orders via paginated WooCommerce requests (H5 fix)
     const orders = await fetchAllOrders();
 
@@ -157,7 +162,7 @@ export const getDashboardOverview = async (req, res) => {
       avgOrderValue: orders.length > 0 ? Math.round(totalRevenue / Math.max(1, (orders.length - cancelledOrdersCount))) : 0,
     };
 
-    res.json({
+    const responsePayload = {
       success: true,
       summary: summaryData,
       salesTrend: Array.from(last7DaysMap.values()),
@@ -169,7 +174,11 @@ export const getDashboardOverview = async (req, res) => {
         lowStockProducts: lowStockProducts.slice(0, 6),
         recentOrders,
       },
-    });
+    };
+
+    serverCache.set("admin:analytics:overview", responsePayload, 120000);
+
+    res.json(responsePayload);
   } catch (error) {
     console.error("Admin dashboard overview error:", error.response?.data || error.message);
     res.status(500).json({
@@ -184,6 +193,11 @@ export const getDashboardOverview = async (req, res) => {
  */
 export const getAdminAnalytics = async (req, res) => {
   try {
+    const cachedAnalytics = serverCache.get("admin:analytics:deep");
+    if (cachedAnalytics) {
+      return res.json(cachedAnalytics);
+    }
+
     // Fetch ALL orders via paginated requests (H5 fix)
     const orders = await fetchAllOrders();
 
@@ -331,7 +345,7 @@ export const getAdminAnalytics = async (req, res) => {
     const repeatCustomersCount = Array.from(customerSalesMap.values()).filter((c) => c.ordersCount > 1).length;
     const repeatRate = customerSalesMap.size > 0 ? Math.round((repeatCustomersCount / customerSalesMap.size) * 100) : 0;
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: {
         revenue: {
@@ -370,7 +384,11 @@ export const getAdminAnalytics = async (req, res) => {
           repeatCustomerRate: repeatRate,
         },
       },
-    });
+    };
+
+    serverCache.set("admin:analytics:deep", responsePayload, 120000);
+
+    res.json(responsePayload);
   } catch (error) {
     console.error("Get admin analytics error:", error.response?.data || error.message);
     const statusCode = error.response?.status || 500;

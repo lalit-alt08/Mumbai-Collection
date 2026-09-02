@@ -58,19 +58,43 @@ function Dashboard() {
     }
   };
 
-  // Initial load + 6s live background polling
+  // Initial load + 30s visibility-aware polling
   useEffect(() => {
     fetchOverview(false);
 
-    pollTimerRef.current = setInterval(() => {
-      fetchOverview(true);
-    }, 6000);
+    const startPolling = () => {
+      if (!pollTimerRef.current && !document.hidden) {
+        pollTimerRef.current = setInterval(() => {
+          if (!document.hidden) {
+            fetchOverview(true);
+          }
+        }, 30000);
+      }
+    };
 
-    return () => {
+    const stopPolling = () => {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // Tab became visible again: refresh immediately and resume polling
+        fetchOverview(true);
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

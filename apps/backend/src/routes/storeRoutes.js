@@ -59,12 +59,11 @@ async function proxyStoreApi(req, res) {
   } catch (error) {
     console.error("Store API proxy error:", error.response?.data || error.message);
     const status = error.response?.status || 502;
-    return res.status(status).json(
-      error.response?.data || {
-        success: false,
-        message: "Failed to communicate with store backend.",
-      }
-    );
+    return res.status(status).json({
+      success: false,
+      message: "Store service is temporarily unavailable. Please try again.",
+      code: "store_gateway_error",
+    });
   }
 }
 

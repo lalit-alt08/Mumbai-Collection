@@ -55,3 +55,9 @@ export const authLimiter = createRateLimiter({
   max: 20, // 20 attempts per 15 minutes
   message: "Too many authentication attempts. Please try again in a few minutes.",
 });
+
+export const uploadLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 30, // 30 uploads per 10 minutes
+  message: "Upload rate limit reached. Please wait a few minutes before uploading again.",
+});

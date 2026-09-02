@@ -1,6 +1,8 @@
 import api from "../config/woocommerce.js";
 import { uploadMedia } from "../services/wordpressMediaService.js";
 import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
+import { serverCache } from "../utils/memoryCache.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 
 /**
  * Upload Product Image to WordPress Media Library for Employee Panel
@@ -223,6 +225,19 @@ export const updateOrderStatus = async (req, res) => {
 
     const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
 
+    // Invalidate cached overview/analytics immediately upon status transition
+    serverCache.invalidatePrefix("employee:overview");
+    serverCache.invalidatePrefix("admin:analytics");
+
+    // Structured operational audit log
+    logAuditEvent({
+      req,
+      action: "ORDER_STATUS_UPDATE",
+      targetType: "order",
+      targetId: id,
+      details: { newStatus: status },
+    });
+
     res.json({
       success: true,
       message: `Order #${id} status updated to ${status}.`,
@@ -244,6 +259,10 @@ export const updateOrderStatus = async (req, res) => {
  */
 export const getEmployeeOverview = async (req, res) => {
   try {
+    const cachedData = serverCache.get("employee:overview");
+    if (cachedData) {
+      return res.json(cachedData);
+    }
     const [ordersRes, productsRes] = await Promise.all([
       api.get("orders", {
         per_page: 100,
@@ -401,7 +420,7 @@ export const getEmployeeOverview = async (req, res) => {
       todayDate: todayDateString,
     };
 
-    res.json({
+    const responsePayload = {
       success: true,
       summary,
       ordersNeedingAction: actionOrders,
@@ -413,7 +432,11 @@ export const getEmployeeOverview = async (req, res) => {
         lowStockProducts: lowStockProducts.slice(0, 6),
         recentOrders: recentOrdersFormatted.slice(0, 10),
       },
-    });
+    };
+
+    serverCache.set("employee:overview", responsePayload, 20000);
+
+    res.json(responsePayload);
   } catch (error) {
     console.error("Employee overview error:", error.response?.data || error.message);
     res.status(500).json({

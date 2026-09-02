@@ -1,6 +1,8 @@
 import api from "../config/woocommerce.js";
 import { uploadMedia } from "../services/wordpressMediaService.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { serverCache } from "../utils/memoryCache.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 
 /**
  * Product Input Validation Helper
@@ -180,6 +182,17 @@ export const updateProduct = async (req, res) => {
 
     const response = await api.put(`products/${encodeURIComponent(id)}`, updatePayload);
 
+    // Invalidate catalog cache so public storefront immediately reflects changes
+    serverCache.invalidatePrefix("catalog:");
+
+    logAuditEvent({
+      req,
+      action: "PRODUCT_UPDATE",
+      targetType: "product",
+      targetId: id,
+      details: updatePayload,
+    });
+
     res.json({
       success: true,
       message: `Product #${id} updated successfully.`,
@@ -212,6 +225,16 @@ export const deleteProduct = async (req, res) => {
 
     const response = await api.delete(`products/${encodeURIComponent(numericId)}`, {
       force: true,
+    });
+
+    // Invalidate catalog cache so public storefront immediately reflects changes
+    serverCache.invalidatePrefix("catalog:");
+
+    logAuditEvent({
+      req,
+      action: "PRODUCT_DELETE",
+      targetType: "product",
+      targetId: numericId,
     });
 
     res.json({
@@ -338,6 +361,17 @@ export const createProduct = async (req, res) => {
     }
 
     const response = await api.post("products", payload);
+
+    // Invalidate catalog cache so public storefront immediately reflects new product
+    serverCache.invalidatePrefix("catalog:");
+
+    logAuditEvent({
+      req,
+      action: "PRODUCT_CREATE",
+      targetType: "product",
+      targetId: response.data?.id,
+      details: { name: payload.name, price: payload.regular_price, sku: payload.sku },
+    });
 
     res.status(201).json({
       success: true,

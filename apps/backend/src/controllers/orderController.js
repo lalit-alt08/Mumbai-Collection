@@ -135,6 +135,9 @@ export const getCustomerOrders = async (req, res) => {
       });
     }
 
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
+
     // 1. Resolve authenticated customer's verified email from WooCommerce customer record
     let customerEmail = "";
     try {
@@ -146,43 +149,41 @@ export const getCustomerOrders = async (req, res) => {
       console.warn("Could not fetch customer email for user", userId, custErr.message);
     }
 
-    // 2. Query WooCommerce using the customer's verified ID and verified email
-    let idOrders = [];
+    // 2. Query WooCommerce using the customer's verified ID
+    let rawOrders = [];
+    let totalOrders = 0;
+    let totalPages = 1;
+
     try {
       const customerOrderRes = await api.get("orders", {
         customer: userId,
-        per_page: 50,
+        page,
+        per_page: limit,
         orderby: "date",
         order: "desc",
       });
-      idOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
+      rawOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
+      totalOrders = Number(customerOrderRes.headers?.["x-wp-total"]) || rawOrders.length;
+      totalPages = Number(customerOrderRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
     } catch (idErr) {
       console.warn("Could not query orders by customer ID:", idErr.message);
     }
 
-    let emailOrders = [];
-    if (customerEmail) {
+    // Fallback for legacy accounts whose past orders were placed under email before user account linkage
+    if (rawOrders.length === 0 && customerEmail && page === 1) {
       try {
         const searchRes = await api.get("orders", {
           search: customerEmail,
-          per_page: 50,
+          page: 1,
+          per_page: limit,
           orderby: "date",
           order: "desc",
         });
-        emailOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
+        rawOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
+        totalOrders = Number(searchRes.headers?.["x-wp-total"]) || rawOrders.length;
+        totalPages = Number(searchRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
       } catch (emailErr) {
-        console.warn("Could not query orders by email search:", emailErr.message);
-      }
-    }
-
-    // Merge and deduplicate by WooCommerce order ID
-    const mergedOrders = [...idOrders];
-    const existingIds = new Set(idOrders.map((o) => o.id));
-
-    for (const order of emailOrders) {
-      if (!existingIds.has(order.id)) {
-        mergedOrders.push(order);
-        existingIds.add(order.id);
+        console.warn("Could not query orders by email search fallback:", emailErr.message);
       }
     }
 
@@ -190,7 +191,7 @@ export const getCustomerOrders = async (req, res) => {
     // Accept an order ONLY when billing.email matches verified customerEmail,
     // or customer_id matches authenticated userId.
     const normalizedUserId = Number(userId);
-    const verifiedOrders = mergedOrders.filter((order) => {
+    const verifiedOrders = rawOrders.filter((order) => {
       const orderCustomerId = Number(order.customer_id);
       const orderBillingEmail = (order.billing?.email || "").trim().toLowerCase();
 
@@ -208,6 +209,10 @@ export const getCustomerOrders = async (req, res) => {
 
     res.json({
       success: true,
+      page,
+      per_page: limit,
+      total: totalOrders,
+      totalPages,
       count: formattedOrders.length,
       orders: transformMediaUrls(formattedOrders, req),
     });

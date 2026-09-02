@@ -30,6 +30,8 @@ import {
 import { requireAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
+import { validateImageBuffer } from "../utils/imageValidator.js";
+import { uploadLimiter } from "../middlewares/rateLimiter.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -68,6 +70,22 @@ const handleImageUpload = (req, res, next) => {
         message: err.message || "Invalid image upload.",
       });
     }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided.",
+      });
+    }
+
+    const validation = validateImageBuffer(req.file);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: validation.message,
+      });
+    }
+
     next();
   });
 };
@@ -169,6 +187,7 @@ router.delete(
 
 router.post(
   "/upload",
+  uploadLimiter,
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   handleImageUpload,

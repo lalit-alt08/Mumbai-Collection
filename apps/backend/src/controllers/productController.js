@@ -7,10 +7,12 @@ import {
   fetchCategories,
 } from "../services/productService.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await fetchProducts();
+    const cacheKey = `catalog:products:all:${JSON.stringify(req.query || {})}`;
+    const products = await serverCache.getOrFetch(cacheKey, () => fetchProducts(), 60000);
 
     if (Array.isArray(products)) {
       return res.json(transformMediaUrls(products, req));
@@ -21,18 +23,13 @@ export const getAllProducts = async (req, res) => {
       return res.json(transformMediaUrls(products.products, req));
     }
 
-    console.error("Unexpected products response:", products);
-
     return res.status(500).json({
       success: false,
       message: "Invalid products response.",
       products: [],
     });
   } catch (error) {
-    console.error(
-      "Get all products error:",
-      error.response?.data || error.message
-    );
+    console.error("Get all products error:", error.response?.data || error.message);
 
     return res.status(500).json({
       success: false,
@@ -40,13 +37,16 @@ export const getAllProducts = async (req, res) => {
     });
   }
 };
+
 export const getProductById = async (req, res) => {
   try {
-    const product = await fetchProductById(req.params.id);
+    const productId = req.params.id;
+    const cacheKey = `catalog:product:${productId}`;
+    const product = await serverCache.getOrFetch(cacheKey, () => fetchProductById(productId), 120000);
 
     res.json(transformMediaUrls(product, req));
   } catch (error) {
-    console.error(error);
+    console.error("Get product by ID error:", error.response?.data || error.message);
 
     res.status(500).json({
       success: false,
@@ -58,12 +58,16 @@ export const getProductById = async (req, res) => {
 export const getRelatedProducts = async (req, res) => {
   try {
     const { categoryId, currentProductId } = req.query;
-
-    const products = await fetchRelatedProducts(categoryId, currentProductId);
+    const cacheKey = `catalog:related:${categoryId || ""}:${currentProductId || ""}`;
+    const products = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchRelatedProducts(categoryId, currentProductId),
+      120000
+    );
 
     res.json(transformMediaUrls(products, req));
   } catch (error) {
-    console.error(error);
+    console.error("Get related products error:", error.response?.data || error.message);
 
     res.status(500).json({
       success: false,
@@ -75,16 +79,20 @@ export const getRelatedProducts = async (req, res) => {
 export const searchAllProducts = async (req, res) => {
   try {
     const { q } = req.query;
-
-    const products = await searchProducts(q);
+    const cacheKey = `catalog:search:${(q || "").trim().toLowerCase()}`;
+    const products = await serverCache.getOrFetch(
+      cacheKey,
+      () => searchProducts(q),
+      30000
+    );
 
     res.json(transformMediaUrls(products, req));
   } catch (error) {
-    console.error(error.response?.data || error.message);
+    console.error("Search products error:", error.response?.data || error.message);
 
     res.status(500).json({
       success: false,
-      message: error.response?.data?.message || error.message || "Failed to search products",
+      message: "Failed to search products",
     });
   }
 };
@@ -92,11 +100,17 @@ export const searchAllProducts = async (req, res) => {
 export const getProductsByCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-
-    const products = await fetchProductsByCategory(categoryId);
+    const cacheKey = `catalog:category:${categoryId}`;
+    const products = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchProductsByCategory(categoryId),
+      120000
+    );
 
     res.json(transformMediaUrls(products, req));
   } catch (error) {
+    console.error("Get category products error:", error.response?.data || error.message);
+
     res.status(500).json({
       success: false,
       message: "Failed to fetch category products",
@@ -106,7 +120,13 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const categories = await fetchCategories();
+    const cacheKey = `catalog:categories:all:${JSON.stringify(req.query || {})}`;
+    const categories = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchCategories(),
+      120000
+    );
+
     res.json(transformMediaUrls(categories, req));
   } catch (error) {
     console.error("Get all categories error:", error.response?.data || error.message);

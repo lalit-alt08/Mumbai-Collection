@@ -15,6 +15,7 @@ import reviewRoutes from "./routes/reviewRoutes.js";
 import bannerRoutes from "./routes/bannerRoutes.js";
 import storeRoutes from "./routes/storeRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
+import { verifyCsrf } from "./middlewares/csrfMiddleware.js";
 
 const app = express();
 
@@ -28,26 +29,38 @@ app.use(
   })
 );
 
-const allowedOrigins = [
+const rawAllowedOrigins = [
   process.env.CUSTOMER_ORIGIN || "http://localhost:5173",
   process.env.ADMIN_ORIGIN || "http://localhost:5174",
   process.env.EMPLOYEE_ORIGIN || "http://localhost:5175",
   process.env.CLIENT_ORIGIN,
   process.env.FRONTEND_URL,
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()) : []),
 ].filter(Boolean);
+
+const allowedOrigins = [...new Set(rawAllowedOrigins)];
+
+const isDevLocalhost = (origin) => {
+  if (process.env.NODE_ENV !== "development") return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+};
 
 app.use(cookieParser());
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) or in allowed list / Vercel domains
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        origin.endsWith(".vercel.app") ||
-        process.env.NODE_ENV === "development"
-      ) {
+      // Allow requests with no origin (like mobile apps or curl) or explicitly allowed origins
+      if (!origin || allowedOrigins.includes(origin) || isDevLocalhost(origin)) {
         return callback(null, true);
       }
       return callback(new Error(`CORS origin not allowed: ${origin}`));
@@ -76,6 +89,9 @@ app.use(
 );
 
 app.use(express.json());
+
+// CSRF Protection for cookie-authenticated state-changing requests
+app.use(verifyCsrf(allowedOrigins));
 
 app.use("/api/store", storeRoutes);
 app.use("/api/media", mediaRoutes);

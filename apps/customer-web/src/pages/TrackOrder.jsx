@@ -94,7 +94,7 @@ function TrackOrder() {
     }
   }, [activeOrderId]);
 
-  // Lightweight Polling (every 5 seconds while order is actively being fulfilled)
+  // Visibility-aware polling (every 20 seconds while order is actively being fulfilled)
   useEffect(() => {
     if (!activeOrderId || !order) return;
 
@@ -114,15 +114,39 @@ function TrackOrder() {
     }
 
     setIsPolling(true);
-    pollTimerRef.current = setInterval(() => {
-      fetchOrder(activeOrderId, true);
-    }, 5000);
 
-    return () => {
+    const startPolling = () => {
+      if (!pollTimerRef.current && !document.hidden) {
+        pollTimerRef.current = setInterval(() => {
+          if (!document.hidden) {
+            fetchOrder(activeOrderId, true);
+          }
+        }, 20000);
+      }
+    };
+
+    const stopPolling = () => {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        fetchOrder(activeOrderId, true);
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [activeOrderId, order?.status]);
 

@@ -1,5 +1,6 @@
 import api from "../config/woocommerce.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 /**
  * Get Product Categories from WooCommerce
@@ -91,6 +92,9 @@ export const createCategory = async (req, res) => {
     const response = await api.post("products/categories", payload);
     const cat = response.data;
 
+    // Invalidate catalog cache so public categories immediately update
+    serverCache.invalidatePrefix("catalog:");
+
     res.status(201).json({
       success: true,
       message: `Category "${cat.name}" created successfully.`,
@@ -178,6 +182,9 @@ export const updateCategory = async (req, res) => {
     const response = await api.put(`products/categories/${numericId}`, payload);
     const cat = response.data;
 
+    // Invalidate catalog cache so public categories immediately update
+    serverCache.invalidatePrefix("catalog:");
+
     res.json({
       success: true,
       message: `Category "${cat.name}" updated successfully.`,
@@ -264,6 +271,9 @@ export const reorderCategories = async (req, res) => {
         )
       );
     }
+
+    // Invalidate catalog cache so public categories immediately reflect new merchandising order
+    serverCache.invalidatePrefix("catalog:");
 
     res.json({
       success: true,

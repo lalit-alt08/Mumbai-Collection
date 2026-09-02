@@ -1,4 +1,6 @@
 import api from "../config/woocommerce.js";
+import { serverCache } from "../utils/memoryCache.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 
 /**
  * Admin Order Management Controller (Placeholder / Extensible domain controller)
@@ -69,6 +71,17 @@ export const updateAdminOrderStatus = async (req, res) => {
     const response = await api.put(`orders/${encodeURIComponent(id)}`, {
       status,
       meta_data: [{ key: "_delivery_status", value: status }],
+    });
+
+    serverCache.invalidatePrefix("admin:analytics");
+    serverCache.invalidatePrefix("employee:overview");
+
+    logAuditEvent({
+      req,
+      action: "ADMIN_ORDER_STATUS_UPDATE",
+      targetType: "order",
+      targetId: id,
+      details: { newStatus: status },
     });
 
     res.json({
