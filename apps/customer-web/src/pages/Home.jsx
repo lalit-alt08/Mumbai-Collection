@@ -118,28 +118,29 @@ function Home() {
       <HeroBanner />
 
       {/* Desktop Only: Shop by Category Grid */}
-      <CategoryGrid />
+      <CategoryGrid categories={categories} />
 
-      {/* ================= MOBILE VIEW (< md) ================= */}
-      {/* Dynamic Category-by-Category Horizontal Product Carousels */}
-      <div className="space-y-6 md:hidden">
+      {/* Category-by-Category Responsive Product Sections */}
+      <div className="space-y-6 md:space-y-8 lg:space-y-10">
         {loading ? (
-          /* Mobile Loading Skeleton */
-          <div className="space-y-5">
+          /* Responsive Loading Skeleton */
+          <div className="space-y-5 md:space-y-8">
             {[1, 2].map((s) => (
-              <div key={s} className="space-y-2.5 animate-pulse">
+              <div key={s} className="space-y-2.5 md:space-y-4 animate-pulse">
                 <div className="flex items-center justify-between">
-                  <div className="h-5 w-28 bg-gray-200 rounded-md" />
-                  <div className="h-4 w-16 bg-gray-200 rounded-md" />
+                  <div className="h-5 md:h-6 w-28 md:w-36 bg-gray-200 rounded-md" />
+                  <div className="h-4 md:h-5 w-16 md:w-20 bg-gray-200 rounded-md" />
                 </div>
-                <div className="flex gap-3.5 sm:gap-4 overflow-hidden -mx-3.5 px-3.5 sm:-mx-5 sm:px-5">
-                  {[1, 2, 3].map((card) => (
+                <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4 md:gap-4.5 overflow-hidden md:overflow-visible -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 md:mx-0 md:px-0">
+                  {[1, 2, 3, 4].map((card) => (
                     <div
                       key={card}
-                      className="w-[160px] sm:w-[175px] h-52 shrink-0 rounded-[18px] bg-white p-2.5 border border-gray-100 shadow-xs"
+                      className={`w-[160px] sm:w-[175px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-white p-2.5 md:p-3.5 border border-gray-100 shadow-xs ${
+                        card === 4 ? "hidden md:block" : ""
+                      }`}
                     >
-                      <div className="aspect-square w-full rounded-[12px] bg-gray-100 mb-2" />
-                      <div className="h-3 w-3/4 bg-gray-100 rounded mb-1.5" />
+                      <div className="aspect-square w-full rounded-[12px] md:rounded-[14px] bg-gray-100 mb-2 md:mb-3" />
+                      <div className="h-3 md:h-4 w-3/4 bg-gray-100 rounded mb-1.5 md:mb-2" />
                       <div className="h-4 w-1/2 bg-gray-100 rounded" />
                     </div>
                   ))}
@@ -149,28 +150,34 @@ function Home() {
           </div>
         ) : categorySections.length > 0 ? (
           categorySections.map((section) => (
-            <section key={section.id} className="space-y-2.5">
-              {/* Category Header with View All Link */}
+            <section key={section.id} className="space-y-2.5 md:space-y-3.5">
+              {/* Category Header with Responsive View All Link */}
               <div className="flex items-center justify-between">
-                <h2 className="text-base sm:text-lg font-extrabold text-[#111827] tracking-tight">
+                <h2 className="text-base sm:text-lg md:text-xl font-extrabold text-[#111827] tracking-tight">
                   {section.name}
                 </h2>
 
                 <Link
                   to={`/category/${section.id || section.slug}`}
-                  className="flex items-center gap-0.5 text-xs font-bold text-[#7C3AED] transition-colors hover:text-[#6D28D9] active:scale-95"
+                  className="flex items-center gap-0.5 md:gap-1 text-xs md:text-sm font-bold text-[#7C3AED] transition-colors hover:text-[#6D28D9] active:scale-95 group"
                 >
-                  <span>View All</span>
-                  <ChevronRight size={14} strokeWidth={2.5} />
+                  <span>
+                    View All<span className="hidden md:inline"> ({section.products.length})</span>
+                  </span>
+                  <ChevronRight
+                    size={14}
+                    strokeWidth={2.5}
+                    className="md:w-4 md:h-4 transition-transform group-hover:translate-x-0.5"
+                  />
                 </Link>
               </div>
 
-              {/* Horizontal Scroll Product Carousel */}
-              <div className="flex gap-3.5 sm:gap-4 overflow-x-auto pb-2 pt-1 -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 scroll-px-3.5 sm:scroll-px-5 scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x snap-mandatory">
+              {/* Single Unified Product Display: Horizontal Carousel on Mobile (< md), Grid on Desktop (>= md) */}
+              <div className="flex overflow-x-auto pb-2 pt-1 -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 scroll-px-3.5 sm:scroll-px-5 scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x snap-mandatory gap-3.5 sm:gap-4 md:grid md:grid-cols-3 lg:grid-cols-4 md:gap-4 md:gap-4.5 md:overflow-visible md:pb-0 md:pt-0 md:mx-0 md:px-0">
                 {section.products.map((product) => (
                   <div
                     key={product.id}
-                    className="w-[160px] sm:w-[175px] shrink-0 snap-start flex flex-col"
+                    className="w-[160px] sm:w-[175px] shrink-0 snap-start flex flex-col md:w-full md:shrink md:snap-align-none"
                   >
                     <ProductCard product={product} />
                   </div>
@@ -179,74 +186,8 @@ function Home() {
             </section>
           ))
         ) : (
-          <div className="rounded-[18px] bg-white p-6 text-center border border-gray-100 shadow-xs">
-            <p className="text-sm font-semibold text-gray-500">No products available at the moment.</p>
-          </div>
-        )}
-      </div>
-
-      {/* ================= DESKTOP VIEW (>= md) ================= */}
-      {/* Dynamic Category-by-Category Product Grids */}
-      <div className="hidden md:block space-y-8 lg:space-y-10">
-        {loading ? (
-          <div className="space-y-8">
-            {[1, 2].map((s) => (
-              <div key={s} className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="h-6 w-36 bg-gray-200 rounded-md" />
-                  <div className="h-5 w-20 bg-gray-200 rounded-md" />
-                </div>
-                <div className="grid grid-cols-3 lg:grid-cols-4 gap-4">
-                  {[1, 2, 3, 4].map((n) => (
-                    <div
-                      key={n}
-                      className="h-64 rounded-[20px] bg-white p-3.5 border border-gray-100 animate-pulse"
-                    >
-                      <div className="aspect-square w-full rounded-[14px] bg-gray-100 mb-3" />
-                      <div className="h-4 w-3/4 bg-gray-100 rounded mb-2" />
-                      <div className="h-4 w-1/2 bg-gray-100 rounded" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : categorySections.length > 0 ? (
-          categorySections.map((section) => (
-            <section key={section.id} className="space-y-3.5">
-              {/* Category Header with View All Link */}
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg sm:text-xl font-extrabold text-[#111827] tracking-tight">
-                  {section.name}
-                </h2>
-
-                <Link
-                  to={`/category/${section.id || section.slug}`}
-                  className="flex items-center gap-1 text-sm font-bold text-[#7C3AED] transition-colors hover:text-[#6D28D9] active:scale-95 group"
-                >
-                  <span>View All ({section.products.length})</span>
-                  <ChevronRight
-                    size={16}
-                    strokeWidth={2.5}
-                    className="transition-transform group-hover:translate-x-0.5"
-                  />
-                </Link>
-              </div>
-
-              {/* Desktop Product Grid */}
-              <div className="grid grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4 md:gap-4.5">
-                {section.products.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                  />
-                ))}
-              </div>
-            </section>
-          ))
-        ) : (
-          <div className="rounded-[20px] bg-white p-8 text-center border border-gray-100 shadow-xs">
-            <p className="text-base font-semibold text-gray-500">No products available at the moment.</p>
+          <div className="rounded-[18px] md:rounded-[20px] bg-white p-6 md:p-8 text-center border border-gray-100 shadow-xs">
+            <p className="text-sm md:text-base font-semibold text-gray-500">No products available at the moment.</p>
           </div>
         )}
       </div>

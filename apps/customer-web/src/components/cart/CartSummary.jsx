@@ -1,4 +1,4 @@
-import { Gift, Truck, AlertCircle } from "lucide-react";
+import { Gift, Truck } from "lucide-react";
 
 function CartSummary({
   cart,

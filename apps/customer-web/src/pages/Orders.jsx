@@ -13,7 +13,6 @@ import {
   MapPin,
   Receipt,
   AlertCircle,
-  ExternalLink,
 } from "lucide-react";
 import { getMyOrders } from "../services/orderService";
 import { useAuth } from "../context/AuthContext";

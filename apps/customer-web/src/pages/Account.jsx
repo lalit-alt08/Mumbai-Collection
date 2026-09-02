@@ -5,7 +5,6 @@ import axios from "axios";
 import API_URL from "../config/api.js";
 import {
   User,
-  ShoppingBag,
   Heart,
   MapPin,
   HelpCircle,

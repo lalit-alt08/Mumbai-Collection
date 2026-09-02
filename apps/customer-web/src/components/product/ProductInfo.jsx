@@ -5,7 +5,7 @@ import {
   removeCartItem,
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
-import { Minus, Plus, ChevronRight, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 
 function ProductInfo({ product }) {

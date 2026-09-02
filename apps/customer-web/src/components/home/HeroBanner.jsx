@@ -72,7 +72,6 @@ function HeroBanner() {
 
   return (
     <Swiper
-      key={displayBanners.map((b) => b.id).join("-")}
       modules={isMultiSlide ? [Autoplay, Pagination] : []}
       autoplay={
         isMultiSlide
@@ -96,20 +95,28 @@ function HeroBanner() {
       {displayBanners.map((item, index) => {
         const desktopSrc = item.desktop_image || item.mobile_image;
         const mobileSrc = item.mobile_image || item.desktop_image;
+        const hasDistinctImages = Boolean(desktopSrc && mobileSrc && desktopSrc !== mobileSrc);
 
-        const BannerImage = (
+        const BannerImage = hasDistinctImages ? (
           <picture className="block w-full">
             {/* Mobile Viewport (< 640px) */}
-            {mobileSrc && <source media="(max-width: 639px)" srcSet={mobileSrc} />}
+            <source media="(max-width: 639px)" srcSet={mobileSrc} />
             {/* Desktop / Tablet Viewport (>= 640px) */}
-            {desktopSrc && <source media="(min-width: 640px)" srcSet={desktopSrc} />}
+            <source media="(min-width: 640px)" srcSet={desktopSrc} />
             <img
-              src={desktopSrc || mobileSrc}
+              src={desktopSrc}
               alt={item.title || "Mumbai Collection Promotional Banner"}
               loading={index === 0 ? "eager" : "lazy"}
               className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
             />
           </picture>
+        ) : (
+          <img
+            src={desktopSrc || mobileSrc}
+            alt={item.title || "Mumbai Collection Promotional Banner"}
+            loading={index === 0 ? "eager" : "lazy"}
+            className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
+          />
         );
 
         return (

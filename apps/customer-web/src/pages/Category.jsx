@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { getProductsByCategory } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
 import categories from "../data/category.js";
-import { ArrowLeft, Sparkles, ShoppingBag } from "lucide-react";
+import { ArrowLeft, ShoppingBag } from "lucide-react";
 
 function Category() {
   const { categoryId } = useParams();

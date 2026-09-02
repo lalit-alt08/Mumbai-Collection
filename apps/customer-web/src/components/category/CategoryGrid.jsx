@@ -1,28 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import staticCategories from "../../data/category.js";
 import CategoryCard from "./CategoryCard";
-import { getCategories } from "../../services/productService.js";
 
-function CategoryGrid() {
-  const [categories, setCategories] = useState(staticCategories);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadCategories = async () => {
-      try {
-        const liveData = await getCategories();
-        if (isMounted && Array.isArray(liveData) && liveData.length > 0) {
-          setCategories(liveData);
-        }
-      } catch (err) {
-        console.warn("Using fallback category list:", err.message);
-      }
-    };
-    loadCategories();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+function CategoryGrid({ categories: propCategories = [] }) {
+  // Use categories passed from Home.jsx or fallback to static data
+  const categories = propCategories.length > 0 ? propCategories : staticCategories;
 
   // Filter out system "Uncategorized" and empty categories (count === 0) from customer category browsing
   const displayCategories = useMemo(() => {
