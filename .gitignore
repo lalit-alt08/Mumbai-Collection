@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 .pnpm-store/
 
@@ -6,6 +6,9 @@ node_modules/
 dist/
 dist-ssr/
 build/
+.vite/
+.vite-temp/
+**/.vite-temp/
 
 # Environment and secrets
 .env
@@ -15,6 +18,7 @@ build/
 
 # Logs
 logs/
+apps/backend/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
