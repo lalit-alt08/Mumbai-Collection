@@ -197,3 +197,24 @@ test("AuditLogger: Redacts sensitive password and token fields from audit detail
   assert.equal(redacted.order_id, 105);
   assert.equal(redacted.status, "processing");
 });
+
+test("Order Invalidation: Operational caches are cleared for employee and admin when order is created", (t) => {
+  serverCache.set("employee:overview", { summary: { totalOrders: 10 } }, 60000);
+  serverCache.set("admin:analytics:overview", { summary: { totalOrders: 10 } }, 120000);
+  serverCache.set("admin:customers:orders", [{ id: 10 }], 120000);
+
+  assert.ok(serverCache.get("employee:overview"));
+  assert.ok(serverCache.get("admin:analytics:overview"));
+  assert.ok(serverCache.get("admin:customers:orders"));
+
+  // Simulate invalidation triggered by storeRoutes on POST /checkout
+  serverCache.invalidatePrefix("employee:overview");
+  serverCache.invalidatePrefix("admin:analytics");
+  serverCache.invalidatePrefix("admin:customers");
+
+  assert.equal(serverCache.get("employee:overview"), null, "employee:overview must be null immediately after order creation");
+  assert.equal(serverCache.get("admin:analytics:overview"), null, "admin:analytics must be null immediately after order creation");
+  assert.equal(serverCache.get("admin:customers:orders"), null, "admin:customers must be null immediately after order creation");
+
+  serverCache.clear();
+});

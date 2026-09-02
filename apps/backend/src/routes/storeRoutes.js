@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 const router = express.Router();
 
@@ -53,6 +54,19 @@ async function proxyStoreApi(req, res) {
     }
     if (response.headers["set-cookie"]) {
       res.setHeader("Set-Cookie", response.headers["set-cookie"]);
+    }
+
+    // Real-time invalidation: Immediately clear operational caches upon successful order placement
+    if (
+      req.method === "POST" &&
+      targetPath.replace(/\/+$/, "") === "/checkout" &&
+      response.status >= 200 &&
+      response.status < 300
+    ) {
+      serverCache.invalidatePrefix("employee:overview");
+      serverCache.invalidatePrefix("admin:analytics");
+      serverCache.invalidatePrefix("admin:customers");
+      serverCache.invalidatePrefix("catalog:products");
     }
 
     return res.status(response.status).json(transformMediaUrls(response.data, req));
