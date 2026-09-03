@@ -74,6 +74,10 @@ function FloatingCartBar() {
     "/contact",
     "/support",
     "/favorites",
+    "/return-policy",
+    "/shipping-policy",
+    "/terms",
+    "/privacy-policy",
   ];
 
   const hasItems = cart && cart.items && cart.items.length > 0;

@@ -25,6 +25,10 @@ function MainLayout() {
     "/favorites",
     "/contact",
     "/support",
+    "/return-policy",
+    "/shipping-policy",
+    "/terms",
+    "/privacy-policy",
   ];
 
   const isHeaderHidden = hideHeaderPages.some((p) =>
@@ -44,6 +48,10 @@ function MainLayout() {
     "/favorites",
     "/contact",
     "/support",
+    "/return-policy",
+    "/shipping-policy",
+    "/terms",
+    "/privacy-policy",
   ];
 
   const isFullWidth = fullWidthPages.some((p) =>
