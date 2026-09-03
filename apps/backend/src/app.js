@@ -85,6 +85,7 @@ app.use(
       "cart-token",
     ],
     credentials: true,
+    maxAge: 86400,
   })
 );
 

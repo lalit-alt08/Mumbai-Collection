@@ -55,3 +55,26 @@ test("Integration: Undefined /api routes return clean standardized 404 JSON", as
     server.close();
   }
 });
+
+test("Integration: CORS preflight OPTIONS returns Access-Control-Max-Age: 86400", async (t) => {
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/products`, {
+      method: "OPTIONS",
+      headers: {
+        "Origin": "http://localhost:5173",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "Cart-Token, Nonce, X-Mumbai-Panel",
+      },
+    });
+
+    assert.equal(res.status, 204);
+    assert.equal(res.headers.get("access-control-max-age"), "86400");
+    assert.equal(res.headers.get("access-control-allow-origin"), "http://localhost:5173");
+  } finally {
+    server.close();
+  }
+});
