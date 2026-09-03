@@ -107,48 +107,6 @@ function ReturnPolicy() {
 
       {/* ================= CONTENT CONTAINER ================= */}
       <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6 space-y-5">
-        {/* ================= HERO HIGHLIGHT BANNER ================= */}
-        <div className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#7C3AED] via-[#6D28D9] to-[#4C1D95] p-5 text-white shadow-[0_12px_32px_rgba(124,58,237,0.2)] sm:p-7">
-          <div className="relative z-10 space-y-3">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wider text-purple-100 backdrop-blur-md">
-              <Clock size={13} className="text-amber-300" />
-              Blinkit-Speed 72-Hour Guarantee
-            </div>
-
-            <h2 className="text-xl font-black tracking-tight sm:text-2xl md:text-3xl leading-snug">
-              Fast, Transparent & Hassle-Free Returns
-            </h2>
-
-            <p className="text-xs sm:text-sm text-purple-100 max-w-2xl leading-relaxed">
-              Because we are your local Vasai store, you never have to wait days for customer support. Report any eligible issue within <strong>72 hours of delivery</strong> in <strong>100% untouched condition</strong> for instant doorstep pickup, replacement, or refund.
-            </p>
-
-            {/* 4 Quick Badges */}
-            <div className="grid grid-cols-2 gap-2 pt-2 sm:grid-cols-4 sm:gap-3">
-              <div className="rounded-xl bg-white/10 p-2.5 backdrop-blur-xs border border-white/10">
-                <p className="text-[11px] font-medium text-purple-200">Window</p>
-                <p className="text-sm font-black text-white">72 Hours</p>
-              </div>
-              <div className="rounded-xl bg-white/10 p-2.5 backdrop-blur-xs border border-white/10">
-                <p className="text-[11px] font-medium text-purple-200">Condition</p>
-                <p className="text-sm font-black text-white">100% Untouched</p>
-              </div>
-              <div className="rounded-xl bg-white/10 p-2.5 backdrop-blur-xs border border-white/10">
-                <p className="text-[11px] font-medium text-purple-200">Pickup</p>
-                <p className="text-sm font-black text-white">Vasai Doorstep</p>
-              </div>
-              <div className="rounded-xl bg-white/10 p-2.5 backdrop-blur-xs border border-white/10">
-                <p className="text-[11px] font-medium text-purple-200">Refunds</p>
-                <p className="text-sm font-black text-white">Instant UPI</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Decorative Background Circles */}
-          <div className="pointer-events-none absolute -right-12 -bottom-12 h-56 w-56 rounded-full bg-purple-500/20 blur-2xl" />
-          <div className="pointer-events-none absolute -top-8 right-12 h-32 w-32 rounded-full bg-amber-400/10 blur-xl" />
-        </div>
-
         {/* ================= 1. THE 72-HOUR RULE CARD ================= */}
         <div className="rounded-[20px] border border-gray-100 bg-white p-5 shadow-xs sm:p-6 space-y-3">
           <div className="flex items-center gap-2.5">
