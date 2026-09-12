@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        working-directory: apps/backend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install employee-panel dependencies
+        working-directory: apps/employee-panel
+        run: pnpm install --frozen-lockfile
+
+      - name: Install customer-web dependencies
+        working-directory: apps/customer-web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run backend tests
+        working-directory: apps/backend
+        run: pnpm test
+
+      - name: Run employee-panel tests
+        working-directory: apps/employee-panel
+        run: pnpm test
+
+      - name: Build employee-panel
+        working-directory: apps/employee-panel
+        run: pnpm build
+
+      - name: Build customer-web
+        working-directory: apps/customer-web
+        run: pnpm build

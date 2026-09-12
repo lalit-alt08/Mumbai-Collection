@@ -36,8 +36,8 @@ function Categories() {
         if (isMounted && Array.isArray(liveData) && liveData.length > 0) {
           setCategories(liveData);
         }
-      } catch (err) {
-        console.warn("Using static category fallback:", err.message);
+      } catch {
+        // Fallback handled seamlessly
       }
     };
     loadCategories();

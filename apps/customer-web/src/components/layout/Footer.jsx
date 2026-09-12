@@ -40,13 +40,6 @@ function Footer() {
 
             <div className="flex flex-col gap-3 text-sm text-[#7B8195]">
               <Link
-                to="/shipping-policy"
-                className="hover:text-[#7C3AED] transition-colors"
-              >
-                Shipping Policy
-              </Link>
-
-              <Link
                 to="/return-policy"
                 className="hover:text-[#7C3AED] transition-colors"
               >

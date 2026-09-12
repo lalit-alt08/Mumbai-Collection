@@ -1,8 +1,63 @@
+import axios from "axios";
 import api from "../config/woocommerce.js";
-import { uploadMedia } from "../services/wordpressMediaService.js";
-import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { httpsAgent } from "../config/httpAgent.js";
+import {
+  uploadMedia,
+  markMediaAttached,
+  deleteMediaIfUnreferenced,
+  cleanupPendingOrphanMedia,
+} from "../services/wordpressMediaService.js";
+import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
+import { logError, logger } from "../utils/logger.js";
+
+/**
+ * Fetch Live Product Stock Counts (Cached for 60s)
+ */
+export const fetchStockCounts = async () => {
+  return serverCache.getOrFetch("product_stock_counts", async () => {
+    // 1. Try WordPress custom endpoint if MUMBAI_INTERNAL_API_KEY is configured
+    try {
+      const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+      const internalKey = process.env.MUMBAI_INTERNAL_API_KEY;
+      if (internalKey) {
+        const res = await axios.get(`${wpBaseUrl}/wp-json/mumbai-auth/v1/products/stock-counts`, {
+          headers: { "X-Mumbai-Internal-Key": internalKey },
+          httpsAgent,
+          timeout: 4000,
+        });
+        if (res.data?.success && res.data?.counts) {
+          return res.data.counts;
+        }
+      }
+    } catch (wpErr) {
+      // Fall through to WooCommerce query
+    }
+
+    // 2. Fallback: query WooCommerce with per_page=1 to extract x-wp-total headers
+    try {
+      const [allRes, inStockRes, outOfStockRes, lowStockRes] = await Promise.all([
+        api.get("products", { per_page: 1, status: "publish" }).catch(() => null),
+        api.get("products", { per_page: 1, stock_status: "instock", status: "publish" }).catch(() => null),
+        api.get("products", { per_page: 1, stock_status: "outofstock", status: "publish" }).catch(() => null),
+        api.get("products", { per_page: 1, stock_status: "lowstock", status: "publish" }).catch(() => null),
+      ]);
+
+      const all = Number(allRes?.headers?.["x-wp-total"]) || 0;
+      const outofstock = Number(outOfStockRes?.headers?.["x-wp-total"]) || 0;
+      const lowstock = Number(lowStockRes?.headers?.["x-wp-total"]) || 0;
+      let instock = Number(inStockRes?.headers?.["x-wp-total"]) || 0;
+      if (!instock && all > 0) {
+        instock = Math.max(0, all - outofstock - lowstock);
+      }
+
+      return { all, instock, lowstock, outofstock };
+    } catch (wcErr) {
+      return { all: 0, instock: 0, lowstock: 0, outofstock: 0 };
+    }
+  }, 60000);
+};
 
 /**
  * Product Input Validation Helper
@@ -71,7 +126,7 @@ export const validateProductInput = ({
 };
 
 /**
- * Get Products for Inventory Manager with Server-Side Pagination & Search
+ * Get Products for Inventory Manager with Server-Side Pagination, Search & Stock Filters
  */
 export const getAdminProducts = async (req, res) => {
   try {
@@ -80,6 +135,21 @@ export const getAdminProducts = async (req, res) => {
     const pageNum = Math.max(1, Number(page) || 1);
     const limit = Math.min(100, Math.max(1, Number(per_page) || 20));
 
+    const cleanCategory = category && category !== "all" ? String(category).trim() : "all";
+    const cleanSearch = search && search.trim() ? search.trim().toLowerCase() : "";
+    const ALLOWED_STOCK_STATUSES = ["instock", "outofstock", "onbackorder", "lowstock"];
+    const cleanStockStatus = stock_status && ALLOWED_STOCK_STATUSES.includes(stock_status) ? stock_status : "all";
+
+    const cacheKey = `admin_products:${pageNum}:${limit}:${cleanCategory}:${cleanStockStatus}:${cleanSearch}`;
+
+    const cachedData = serverCache.get(cacheKey);
+    if (cachedData) {
+      return res.json({
+        ...cachedData,
+        products: transformMediaUrls(cachedData.products, req),
+      });
+    }
+
     const queryParams = {
       page: pageNum,
       per_page: limit,
@@ -87,24 +157,35 @@ export const getAdminProducts = async (req, res) => {
       order: "desc",
     };
 
-    if (category && category !== "all") {
-      queryParams.category = category;
+    if (cleanCategory !== "all") {
+      queryParams.category = cleanCategory;
     }
 
-    const ALLOWED_STOCK_STATUSES = ["instock", "outofstock", "onbackorder"];
-    if (stock_status && ALLOWED_STOCK_STATUSES.includes(stock_status)) {
-      queryParams.stock_status = stock_status;
+    if (cleanStockStatus !== "all") {
+      queryParams.stock_status = cleanStockStatus;
     }
 
-    if (search && search.trim()) {
+    if (cleanSearch) {
       queryParams.search = search.trim();
     }
 
-    const response = await api.get("products", queryParams);
+    // Stock counts are independent of the search term. Avoid recalculating the
+    // full catalog summary for every keystroke; use the existing cache during
+    // searches and refresh it on the unfiltered inventory view.
+    const stockCountsPromise = cleanSearch
+      ? Promise.resolve(serverCache.get("product_stock_counts"))
+      : fetchStockCounts();
+
+    // Parallel fetch: query filtered products and stock summary counts
+    const [response, stockCounts] = await Promise.all([
+      api.get("products", queryParams),
+      stockCountsPromise,
+    ]);
+
     const products = Array.isArray(response.data) ? response.data : [];
 
-    const totalProducts = Number(response.headers["x-wp-total"]) || products.length;
-    const totalPages = Number(response.headers["x-wp-totalpages"]) || Math.ceil(totalProducts / limit) || 1;
+    const totalProducts = Number(response.headers?.["x-wp-total"]) || products.length;
+    const totalPages = Number(response.headers?.["x-wp-totalpages"]) || Math.ceil(totalProducts / limit) || 1;
 
     const formatted = products.map((p) => ({
       id: p.id,
@@ -123,17 +204,26 @@ export const getAdminProducts = async (req, res) => {
       date_created: p.date_created,
     }));
 
-    res.json({
+    const resultPayload = {
       success: true,
       page: pageNum,
       per_page: limit,
       total: totalProducts,
       totalPages,
       count: formatted.length,
+      counts: stockCounts,
+      products: formatted,
+    };
+
+    // Cache product list for 60 seconds
+    serverCache.set(cacheKey, resultPayload, 60000);
+
+    res.json({
+      ...resultPayload,
       products: transformMediaUrls(formatted, req),
     });
   } catch (error) {
-    console.error("Get admin products error:", error.response?.data || error.message);
+    logError(req, error, "Get admin products error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
@@ -182,7 +272,9 @@ export const updateProduct = async (req, res) => {
 
     const response = await api.put(`products/${encodeURIComponent(id)}`, updatePayload);
 
-    // Invalidate catalog cache so public storefront immediately reflects changes
+    // Invalidate product list, stock counts, and public catalog caches
+    serverCache.invalidatePrefix("admin_products:");
+    serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
 
     logAuditEvent({
@@ -193,13 +285,25 @@ export const updateProduct = async (req, res) => {
       details: updatePayload,
     });
 
+    // If images were updated, mark them as attached
+    if (req.body.images || req.body.image_url) {
+      const updatedMediaIds = (response.data?.images || []).map((img) => img.id).filter(Boolean);
+      if (updatedMediaIds.length > 0) {
+        try {
+          await markMediaAttached(updatedMediaIds, Number(id));
+        } catch (attachErr) {
+          logger.warn({ id, err: attachErr.message }, "[adminProductController] Failed to mark media attached for updated product");
+        }
+      }
+    }
+
     res.json({
       success: true,
       message: `Product #${id} updated successfully.`,
       product: transformMediaUrls(response.data, req),
     });
   } catch (error) {
-    console.error("Update product error:", error.response?.data || error.message);
+    logError(req, error, "Update product error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
@@ -227,7 +331,9 @@ export const deleteProduct = async (req, res) => {
       force: true,
     });
 
-    // Invalidate catalog cache so public storefront immediately reflects changes
+    // Invalidate product list, stock counts, and public catalog caches
+    serverCache.invalidatePrefix("admin_products:");
+    serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
 
     logAuditEvent({
@@ -237,13 +343,23 @@ export const deleteProduct = async (req, res) => {
       targetId: numericId,
     });
 
+    // Safely cleanup product media that is completely unreferenced elsewhere
+    const deletedImages = (response.data?.images || []).map((img) => img.id).filter(Boolean);
+    if (deletedImages.length > 0) {
+      try {
+        await deleteMediaIfUnreferenced(deletedImages, { context: "product_deletion" });
+      } catch (cleanErr) {
+        logger.warn({ numericId, err: cleanErr.message }, "[adminProductController] Media cleanup after deleting product failed");
+      }
+    }
+
     res.json({
       success: true,
       message: `Product #${id} permanently deleted from store catalog.`,
       product: response.data,
     });
   } catch (error) {
-    console.error("Delete product error:", error.response?.data || error.message);
+    logError(req, error, "Delete product error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
@@ -264,7 +380,7 @@ export const uploadProductImage = async (req, res) => {
       });
     }
 
-    const { id, url } = await uploadMedia(req.file);
+    const { id, url } = await uploadMedia(req.file, { uploaderId: req.user?.id });
 
     res.json({
       success: true,
@@ -272,7 +388,7 @@ export const uploadProductImage = async (req, res) => {
       id,
     });
   } catch (error) {
-    console.error("Admin media upload error:", error.response?.data || error.message);
+    logError(req, error, "Admin media upload error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
@@ -362,28 +478,63 @@ export const createProduct = async (req, res) => {
 
     const response = await api.post("products", payload);
 
-    // Invalidate catalog cache so public storefront immediately reflects new product
+    // Invalidate product list, stock counts, and public catalog caches
+    serverCache.invalidatePrefix("admin_products:");
+    serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+
+    const createdProduct = response.data;
+    const createdProductId = createdProduct?.id;
+
+    // Transition newly uploaded images from 'pending' to 'attached'
+    const attachedMediaIds = (createdProduct?.images || []).map((img) => img.id).filter(Boolean);
+    if (attachedMediaIds.length > 0 && createdProductId) {
+      try {
+        await markMediaAttached(attachedMediaIds, createdProductId);
+      } catch (attachErr) {
+        logger.warn({ createdProductId, err: attachErr.message }, "[adminProductController] Failed to mark media attached for product");
+      }
+    }
 
     logAuditEvent({
       req,
       action: "PRODUCT_CREATE",
       targetType: "product",
-      targetId: response.data?.id,
+      targetId: createdProductId,
       details: { name: payload.name, price: payload.regular_price, sku: payload.sku },
     });
 
     res.status(201).json({
       success: true,
       message: "Product created successfully.",
-      product: transformMediaUrls(response.data, req),
+      product: transformMediaUrls(createdProduct, req),
     });
   } catch (error) {
-    console.error("Create product error:", error.response?.data || error.message);
+    logError(req, error, "Create product error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
       message: error.response?.data?.message || error.message || "Failed to create product.",
+    });
+  }
+};
+
+/**
+ * Manually trigger orphan media cleanup (older than 24h)
+ */
+export const triggerOrphanCleanup = async (req, res) => {
+  try {
+    const result = await cleanupPendingOrphanMedia();
+    res.json({
+      success: true,
+      message: "Orphan media cleanup completed.",
+      ...result,
+    });
+  } catch (error) {
+    logError(req, error, "Trigger orphan cleanup error");
+    res.status(500).json({
+      success: false,
+      message: error.response?.data?.message || error.message || "Failed to run orphan media cleanup.",
     });
   }
 };

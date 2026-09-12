@@ -1,37 +1,48 @@
 /**
  * Lightweight, zero-dependency in-memory rate limiter
- * Protects auth routes from brute-force and spam attacks.
+ * Protects auth and upload routes from brute-force and spam attacks.
  */
 export const createRateLimiter = ({
   windowMs = 15 * 60 * 1000, // 15 minutes
   max = 15,                  // max attempts
   message = "Too many requests. Please try again later.",
+  keyGenerator,
 } = {}) => {
   const requests = new Map();
 
   // Periodic cleanup every 10 minutes to prevent memory growth
-  setInterval(() => {
+  const cleanupTimer = setInterval(() => {
     const now = Date.now();
-    for (const [ip, data] of requests.entries()) {
+    for (const [key, data] of requests.entries()) {
       if (now - data.startTime > windowMs) {
-        requests.delete(ip);
+        requests.delete(key);
       }
     }
-  }, 10 * 60 * 1000).unref();
+  }, 10 * 60 * 1000);
 
-  return (req, res, next) => {
+  if (cleanupTimer && typeof cleanupTimer.unref === "function") {
+    cleanupTimer.unref();
+  }
+
+  const limiter = (req, res, next) => {
     // In local development or if disabled, pass through
     if (process.env.DISABLE_RATE_LIMIT === "true") {
       return next();
     }
 
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
-    const now = Date.now();
+    let key;
+    if (typeof keyGenerator === "function") {
+      key = keyGenerator(req);
+    }
+    if (!key) {
+      key = req.ip || req.socket?.remoteAddress || "unknown";
+    }
 
-    const record = requests.get(ip);
+    const now = Date.now();
+    const record = requests.get(key);
 
     if (!record || now - record.startTime > windowMs) {
-      requests.set(ip, { count: 1, startTime: now });
+      requests.set(key, { count: 1, startTime: now });
       return next();
     }
 
@@ -48,6 +59,14 @@ export const createRateLimiter = ({
     record.count += 1;
     next();
   };
+
+  limiter.reset = () => {
+    requests.clear();
+  };
+
+  limiter.keyGenerator = keyGenerator;
+
+  return limiter;
 };
 
 export const authLimiter = createRateLimiter({
@@ -58,6 +77,41 @@ export const authLimiter = createRateLimiter({
 
 export const uploadLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 30, // 30 uploads per 10 minutes
+  max: 30, // 30 uploads per 10 minutes per authenticated user (or per IP if unauthenticated)
   message: "Upload rate limit reached. Please wait a few minutes before uploading again.",
+  keyGenerator: (req) => {
+    const userId = req.user?.id || req.wpUserId;
+    if (userId) {
+      return `user:${userId}`;
+    }
+    const ip = req.ip || req.socket?.remoteAddress || "unknown";
+    return `ip:${ip}`;
+  },
+});
+
+export const storeLimiter = createRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,            // 120 requests per minute per IP
+  message: "Too many store requests. Please slow down.",
+});
+
+export const checkoutLimiter = createRateLimiter({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 5,                  // 5 checkout attempts per 5 minutes per IP/user
+  message: "Too many checkout attempts. Please try again in a few minutes.",
+  keyGenerator: (req) => {
+    const userId = req.user?.id || req.wpUserId;
+    if (userId) {
+      return `checkout:user:${userId}`;
+    }
+    const customerAuth =
+      req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_wp_auth;
+    if (customerAuth) {
+      return `checkout:cookie:${customerAuth.slice(-32)}`;
+    }
+    const forwarded = req.headers?.["x-forwarded-for"];
+    const clientIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : (req.ip || req.socket?.remoteAddress || "unknown");
+    return `checkout:ip:${clientIp}`;
+  },
 });

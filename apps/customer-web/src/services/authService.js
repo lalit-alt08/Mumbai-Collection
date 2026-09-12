@@ -7,6 +7,7 @@ const API = axios.create({
   headers: {
     "X-Mumbai-Panel": "customer",
   },
+  timeout: 12000,
 });
 
 // Automatically retry once if the local development socket reset (GET requests only - never retry mutations)
@@ -38,6 +39,15 @@ export const login = async (email, password) => {
   const { data } = await API.post("/login", {
     email,
     password,
+    context: "customer",
+  });
+
+  return data;
+};
+
+export const googleLogin = async (credential) => {
+  const { data } = await API.post("/google-login", {
+    credential,
     context: "customer",
   });
 
@@ -83,6 +93,25 @@ export const resetPassword = async (token, password) => {
 export const deleteAccount = async () => {
   const { data } = await axios.delete(`${API_URL}/profile`, {
     withCredentials: true,
+  });
+  return data;
+};
+
+export const sendOtp = async (phone, purpose = "verify_phone") => {
+  const { data } = await API.post("/otp/send", { phone, purpose });
+  return data;
+};
+
+export const verifyOtp = async (phone, otp, purpose = "verify_phone") => {
+  const { data } = await API.post("/otp/verify", { phone, otp, purpose });
+  return data;
+};
+
+export const resetPasswordOtp = async (phone, reset_token, new_password) => {
+  const { data } = await API.post("/otp/reset-password", {
+    phone,
+    reset_token,
+    new_password,
   });
   return data;
 };

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 
 function ProtectedRoute() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, handleSessionExpired } = useAuth();
   const location = useLocation();
 
   const [checkingProfile, setCheckingProfile] = useState(true);
@@ -34,19 +34,21 @@ function ProtectedRoute() {
 
         setProfileComplete(response.data.complete === true);
       } catch (error) {
-        console.error(
-          "PROFILE COMPLETION CHECK ERROR:",
-          error.response?.data || error.message
-        );
-
-        setProfileComplete(false);
+        if (error.response?.status === 401) {
+          if (handleSessionExpired) {
+            handleSessionExpired();
+          }
+          setProfileComplete(false);
+        } else {
+          setProfileComplete(false);
+        }
       } finally {
         setCheckingProfile(false);
       }
     };
 
     checkProfile();
-  }, [isAuthenticated, loading, location.pathname]);
+  }, [isAuthenticated, loading, location.pathname, handleSessionExpired]);
 
   // AuthContext is still restoring/checking the login session
   if (loading) {

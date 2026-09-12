@@ -20,6 +20,7 @@ import {
   reorderCategories,
   uploadProductImage,
 } from "../services/employeeApi.js";
+import { compressImage, CATEGORY_MAX_DIMENSION } from "../utils/imageCompressor.js";
 
 import AddCategoryForm from "../components/category/AddCategoryForm.jsx";
 import CategoryOrderItem from "../components/category/CategoryOrderItem.jsx";
@@ -99,7 +100,6 @@ function AddCategory() {
         setCategoriesList(res);
       }
     } catch (err) {
-      console.error("Fetch categories error:", err);
       setListError(err.response?.data?.message || err.message || "Failed to load store categories.");
     } finally {
       setLoadingList(false);
@@ -193,8 +193,7 @@ function AddCategory() {
       });
 
       showToast("Merchandising order saved & published!");
-    } catch (err) {
-      console.error("Failed to persist category order:", err);
+    } catch {
       showToast("Failed to save category order. Refreshing list...", "error");
       fetchCategoryList();
     } finally {
@@ -225,9 +224,17 @@ function AddCategory() {
       return;
     }
 
-    const preview = URL.createObjectURL(file);
+    // Compress category image client-side before upload (max 1200px preserving aspect ratio, WebP 0.85 with JPEG fallback)
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
+    } catch {
+      // Fall back to original file if compression fails
+    }
+
+    const preview = URL.createObjectURL(fileToUpload);
     const newImgState = {
-      file,
+      file: fileToUpload,
       preview,
       url: "",
       mediaId: null,
@@ -240,10 +247,10 @@ function AddCategory() {
     if (error) setError("");
 
     try {
-      const uploadRes = await uploadProductImage(file);
+      const uploadRes = await uploadProductImage(fileToUpload);
       if (uploadRes.success && (uploadRes.url || uploadRes.id)) {
         setImage({
-          file,
+          file: fileToUpload,
           preview,
           url: uploadRes.url,
           mediaId: uploadRes.id,
@@ -254,7 +261,7 @@ function AddCategory() {
         showToast("Category image uploaded to WordPress Media Library!");
       } else {
         setImage({
-          file,
+          file: fileToUpload,
           preview,
           url: "",
           mediaId: null,
@@ -266,7 +273,7 @@ function AddCategory() {
       }
     } catch (err) {
       setImage({
-        file,
+        file: fileToUpload,
         preview,
         url: "",
         mediaId: null,
@@ -283,6 +290,9 @@ function AddCategory() {
   };
 
   const handleRemoveImage = () => {
+    if (image?.preview && typeof image.preview === "string" && image.preview.startsWith("blob:")) {
+      URL.revokeObjectURL(image.preview);
+    }
     setImage(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -346,7 +356,6 @@ function AddCategory() {
         setError(res.message || "Failed to create category in WooCommerce.");
       }
     } catch (err) {
-      console.error("Create category error:", err);
       setError(
         err.response?.data?.message || err.message || "Failed to create category. Please try again."
       );
@@ -378,6 +387,9 @@ function AddCategory() {
 
   const handleCloseUpdateModal = () => {
     if (updating) return;
+    if (updateImagePreview && typeof updateImagePreview === "string" && updateImagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(updateImagePreview);
+    }
     setEditingCategory(null);
     setUpdateName("");
     setUpdateImageFile(null);
@@ -386,7 +398,7 @@ function AddCategory() {
     setUpdateStatusText("");
   };
 
-  const handleUpdateImageSelect = (e) => {
+  const handleUpdateImageSelect = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
@@ -405,12 +417,27 @@ function AddCategory() {
       return;
     }
 
-    setUpdateImageFile(file);
-    setUpdateImagePreview(URL.createObjectURL(file));
+    if (updateImagePreview && typeof updateImagePreview === "string" && updateImagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(updateImagePreview);
+    }
+
+    // Compress category update image client-side (max 1200px preserving aspect ratio, WebP 0.85 with JPEG fallback)
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
+    } catch {
+      // Fall back to original file if compression fails
+    }
+
+    setUpdateImageFile(fileToUpload);
+    setUpdateImagePreview(URL.createObjectURL(fileToUpload));
     if (updateError) setUpdateError("");
   };
 
   const handleCancelNewImage = () => {
+    if (updateImagePreview && typeof updateImagePreview === "string" && updateImagePreview.startsWith("blob:")) {
+      URL.revokeObjectURL(updateImagePreview);
+    }
     setUpdateImageFile(null);
     setUpdateImagePreview("");
     if (updateFileInputRef.current) updateFileInputRef.current.value = "";
@@ -478,7 +505,6 @@ function AddCategory() {
         setUpdateError(res.message || "Failed to update category.");
       }
     } catch (err) {
-      console.error("Update category error:", err);
       setUpdateError(
         err.response?.data?.message || err.message || "Failed to update category. Please try again."
       );
@@ -508,7 +534,7 @@ function AddCategory() {
       {/* TOP HEADER: Category Management */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-4 sm:pb-5">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2">
             <Link
               to="/products"
               className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
@@ -516,7 +542,7 @@ function AddCategory() {
               <ArrowLeft size={14} /> Back to Products
             </Link>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 mt-2 flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 sm:mt-2 flex items-center gap-2">
             <FolderPlus size={24} className="text-emerald-600" />
             Category Management
           </h1>

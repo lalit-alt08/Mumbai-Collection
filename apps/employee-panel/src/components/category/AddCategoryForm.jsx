@@ -12,6 +12,7 @@ import {
   RefreshCw,
   ChevronUp,
 } from "lucide-react";
+import { compressImage, CATEGORY_MAX_DIMENSION } from "../../utils/imageCompressor.js";
 
 function AddCategoryForm({
   show,
@@ -168,7 +169,7 @@ function AddCategoryForm({
                     <ImageIcon size={20} />
                   </div>
                   <p className="text-xs font-bold text-gray-700">Click to choose 1 category photo</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WebP up to 10MB</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WebP (auto-optimized to max 1200px)</p>
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col justify-between space-y-3">

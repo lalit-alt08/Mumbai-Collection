@@ -48,8 +48,8 @@ function Login() {
     } catch (err) {
       if (err.response?.status === 401) {
         setError(err.response.data?.message || "Invalid email or password.");
-      } else if (err.response?.status === 403) {
-        setError("Your account does not have employee access permissions.");
+      } else if (err.response?.status === 403 || err.message?.includes("employee access permissions")) {
+        setError("This account does not have employee access permissions.");
       } else if (err.response?.status === 429) {
         setError(
           err.response.data?.message ||

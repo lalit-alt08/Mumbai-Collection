@@ -20,8 +20,7 @@ function ProductDetails() {
       try {
         const data = await getProductById(id);
         setProduct(data);
-      } catch (error) {
-        console.error(error);
+      } catch {
         setProduct(null);
       } finally {
         setLoading(false);

@@ -8,12 +8,17 @@ import {
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
 import { useFavorites } from "../../context/FavoritesContext";
+import { getCatalogImageUrl } from "../../utils/imageUtils";
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
   const { cart, refreshCart } = useCart();
   const { isFavorited, toggleFavorite } = useFavorites();
   const [updatingCart, setUpdatingCart] = useState(false);
+
+  const primaryImage = product?.images?.[0];
+  const cardImageUrl = getCatalogImageUrl(primaryImage);
+  const cardImageAlt = primaryImage?.alt || primaryImage?.name || product?.name || "Product image";
 
   const favorited = isFavorited(product?.id);
 
@@ -64,10 +69,13 @@ function ProductCard({ product }) {
         {/* Fixed Aspect Image Viewport */}
         <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[12px] sm:rounded-[14px] p-1.5 bg-[#FAFBFD]">
           <img
-            src={product.images?.[0]?.src}
-            alt={product.name}
+            src={cardImageUrl}
+            alt={cardImageAlt}
+            width="300"
+            height="300"
             className="h-full w-full object-contain transition-transform duration-300 hover:scale-105"
             loading="lazy"
+            decoding="async"
           />
 
           {/* Discount Badge */}
@@ -142,8 +150,8 @@ function ProductCard({ product }) {
                     setUpdatingCart(true);
                     await addToWooCart(product.id);
                     await refreshCart();
-                  } catch (error) {
-                    console.error(error);
+                  } catch {
+                    // Handled by cart refresh / UI state
                   } finally {
                     setUpdatingCart(false);
                   }
@@ -165,8 +173,8 @@ function ProductCard({ product }) {
                         await updateCartItem(cartItem.key, cartItem.quantity - 1);
                       }
                       await refreshCart();
-                    } catch (error) {
-                      console.error(error);
+                    } catch {
+                      // Handled by cart refresh / UI state
                     } finally {
                       setUpdatingCart(false);
                     }
@@ -188,8 +196,8 @@ function ProductCard({ product }) {
                       setUpdatingCart(true);
                       await updateCartItem(cartItem.key, cartItem.quantity + 1);
                       await refreshCart();
-                    } catch (error) {
-                      console.error(error);
+                    } catch {
+                      // Handled by cart refresh / UI state
                     } finally {
                       setUpdatingCart(false);
                     }

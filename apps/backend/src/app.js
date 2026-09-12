@@ -15,16 +15,72 @@ import reviewRoutes from "./routes/reviewRoutes.js";
 import bannerRoutes from "./routes/bannerRoutes.js";
 import storeRoutes from "./routes/storeRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
+import storeHoursRoutes from "./routes/storeHoursRoutes.js";
 import { verifyCsrf } from "./middlewares/csrfMiddleware.js";
+import { storeLimiter } from "./middlewares/rateLimiter.js";
+import pinoHttp from "pino-http";
+import crypto from "crypto";
+import { logger, sanitizeError } from "./utils/logger.js";
 
 const app = express();
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
+app.use(pinoHttp({
+  logger,
+  genReqId: (req, res) => {
+    const requestId = req.headers["x-request-id"] || crypto.randomUUID();
+    res.setHeader("X-Request-ID", requestId);
+    return requestId;
+  },
+  customLogLevel: (req, res, error) => {
+    if (error || res.statusCode >= 500) return "error";
+    if (res.statusCode >= 400) return "warn";
+    return "silent";
+  },
+  serializers: {
+    req: (req) => ({ id: req.id, method: req.method, url: req.originalUrl || req.url }),
+    res: (res) => ({ statusCode: res.statusCode }),
+    err: sanitizeError,
+  },
+}));
+
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        fontSrc: ["'self'", "https:", "data:"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        // Google SSO + pre-whitelisting for future Razorpay iframe
+        frameSrc: [
+          "'self'",
+          "https://accounts.google.com",
+          "https://api.razorpay.com",
+        ],
+        imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        objectSrc: ["'none'"],
+        // Google SSO + pre-whitelisting for future Razorpay script SDK
+        scriptSrc: [
+          "'self'",
+          "https://accounts.google.com",
+          "https://checkout.razorpay.com",
+        ],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: ["'self'", "https:", "'unsafe-inline'"],
+        // Google APIs + pre-whitelisting for future Razorpay API/telemetry
+        connectSrc: [
+          "'self'",
+          "https://accounts.google.com",
+          "https://api.razorpay.com",
+          "https://lumberjack.razorpay.com",
+        ],
+        upgradeInsecureRequests: null,
+      },
+    },
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
@@ -94,7 +150,7 @@ app.use(express.json());
 // CSRF Protection for cookie-authenticated state-changing requests
 app.use(verifyCsrf(allowedOrigins));
 
-app.use("/api/store", storeRoutes);
+app.use("/api/store", storeLimiter, storeRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/favorites", favoritesRoutes);
@@ -106,6 +162,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/employee", employeeRoutes);
 app.use("/api/banners", bannerRoutes);
+app.use("/api/store-hours", storeHoursRoutes);
 
 app.get("/", (req, res) => {
   res.send("Backend is running");
@@ -125,7 +182,7 @@ app.use((err, req, res, next) => {
   const isDev = process.env.NODE_ENV === "development";
 
   if (status >= 500) {
-    console.error("Unhandled API Error:", err.stack || err.message);
+    logger.error({ err: sanitizeError(err), requestId: req.id }, "Unhandled API error");
   }
 
   res.status(status).json({

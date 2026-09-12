@@ -1,14 +1,16 @@
 import { User, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { register, login as loginApi } from "../services/authService";
+import { register, login as loginApi, googleLogin as googleLoginService } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
+
 
 function Register() {
   const navigate = useNavigate();
   const { login: loginUser } = useAuth();
 
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -18,7 +20,8 @@ function Register() {
 
   const [loading, setLoading] = useState(false);
 
-  const [nameError, setNameError] = useState("");
+  const [firstNameError, setFirstNameError] = useState("");
+  const [lastNameError, setLastNameError] = useState("");
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
@@ -27,7 +30,8 @@ function Register() {
   const handleRegister = async (e) => {
     e.preventDefault();
 
-    setNameError("");
+    setFirstNameError("");
+    setLastNameError("");
     setEmailError("");
     setPasswordError("");
     setConfirmPasswordError("");
@@ -35,12 +39,21 @@ function Register() {
 
     let hasError = false;
 
-    // Name validation
-    if (!name.trim()) {
-      setNameError("Name is required.");
+    // First Name validation
+    if (!firstName.trim()) {
+      setFirstNameError("First name is required.");
       hasError = true;
-    } else if (name.trim().length < 2) {
-      setNameError("Name must be at least 2 characters.");
+    } else if (firstName.trim().length < 2) {
+      setFirstNameError("First name must be at least 2 characters.");
+      hasError = true;
+    }
+
+    // Last Name validation
+    if (!lastName.trim()) {
+      setLastNameError("Last name is required.");
+      hasError = true;
+    } else if (lastName.trim().length < 2) {
+      setLastNameError("Last name must be at least 2 characters.");
       hasError = true;
     }
 
@@ -78,8 +91,14 @@ function Register() {
     try {
       setLoading(true);
 
+      const cleanFirst = firstName.trim();
+      const cleanLast = lastName.trim();
+      const cleanFullName = `${cleanFirst} ${cleanLast}`;
+
       await register({
-        name: name.trim(),
+        first_name: cleanFirst,
+        last_name: cleanLast,
+        name: cleanFullName,
         email: email.trim(),
         password,
       });
@@ -91,8 +110,6 @@ function Register() {
 
       navigate("/profile-setup");
     } catch (err) {
-      console.error(err);
-
       const backendMessage =
         typeof err.response?.data?.message === "string"
           ? err.response.data.message
@@ -112,6 +129,39 @@ function Register() {
     }
   };
 
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    const handleStart = () => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setLoading(true);
+      setError("");
+    };
+    const handleError = (e) => {
+      setError(e.detail);
+      setLoading(false);
+      submittingRef.current = false;
+    };
+    const handleEnd = () => {
+      setLoading(false);
+      submittingRef.current = false;
+    };
+
+    window.addEventListener("google-auth-start", handleStart);
+    window.addEventListener("google-auth-error", handleError);
+    window.addEventListener("google-auth-end", handleEnd);
+
+    // Tell GlobalGoogleLogin that the portal target is mounted
+    window.dispatchEvent(new CustomEvent("google-login-ready"));
+
+    return () => {
+      window.removeEventListener("google-auth-start", handleStart);
+      window.removeEventListener("google-auth-error", handleError);
+      window.removeEventListener("google-auth-end", handleEnd);
+    };
+  }, []);
+
   return (
     <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F7F7FB]">
       <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
@@ -129,39 +179,77 @@ function Register() {
           </div>
 
           <form onSubmit={handleRegister} className="flex flex-col gap-5">
-            {/* Name */}
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* First Name */}
+              <div>
+                <label className="mb-2 block text-[13px] font-bold text-gray-700">
+                  First Name
+                </label>
 
-            <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
-                Full Name
-              </label>
+                <div className="relative flex items-center">
+                  <div className="absolute left-4 text-gray-400">
+                    <User size={18} strokeWidth={2} />
+                  </div>
 
-              <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
-                  <User size={20} strokeWidth={2} />
+                  <input
+                    type="text"
+                    autoComplete="given-name"
+                    placeholder="e.g. Rahul"
+                    value={firstName}
+                    onChange={(e) => {
+                      setFirstName(e.target.value);
+                      setFirstNameError("");
+                      setError("");
+                    }}
+                    className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-11 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                      firstNameError
+                        ? "border-red-300 focus:border-red-400"
+                        : "border-gray-200 focus:border-[#7C3AED]"
+                    }`}
+                    required
+                  />
                 </div>
 
-                <input
-                  type="text"
-                  placeholder="Enter your full name"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    setNameError("");
-                    setError("");
-                  }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
-                    nameError
-                      ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#7C3AED]"
-                  }`}
-                  required
-                />
+                {firstNameError && (
+                  <p className="mt-2 text-sm text-red-600">{firstNameError}</p>
+                )}
               </div>
 
-              {nameError && (
-                <p className="mt-2 text-sm text-red-600">{nameError}</p>
-              )}
+              {/* Last Name */}
+              <div>
+                <label className="mb-2 block text-[13px] font-bold text-gray-700">
+                  Last Name
+                </label>
+
+                <div className="relative flex items-center">
+                  <div className="absolute left-4 text-gray-400">
+                    <User size={18} strokeWidth={2} />
+                  </div>
+
+                  <input
+                    type="text"
+                    autoComplete="family-name"
+                    placeholder="e.g. Sharma"
+                    value={lastName}
+                    onChange={(e) => {
+                      setLastName(e.target.value);
+                      setLastNameError("");
+                      setError("");
+                    }}
+                    className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-11 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                      lastNameError
+                        ? "border-red-300 focus:border-red-400"
+                        : "border-gray-200 focus:border-[#7C3AED]"
+                    }`}
+                    required
+                  />
+                </div>
+
+                {lastNameError && (
+                  <p className="mt-2 text-sm text-red-600">{lastNameError}</p>
+                )}
+              </div>
             </div>
 
             {/* Email */}
@@ -178,6 +266,7 @@ function Register() {
 
                 <input
                   type="email"
+                  autoComplete="email"
                   placeholder="name@example.com"
                   value={email}
                   onChange={(e) => {
@@ -213,6 +302,7 @@ function Register() {
 
                 <input
                   type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => {
@@ -256,6 +346,7 @@ function Register() {
 
                 <input
                   type={showConfirmPassword ? "text" : "password"}
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => {
@@ -311,6 +402,15 @@ function Register() {
               {!loading && <ArrowRight size={20} />}
             </button>
           </form>
+
+          <div className="mt-6 flex items-center justify-center">
+            <div className="h-px w-full bg-gray-200"></div>
+            <span className="px-4 text-[13px] font-medium text-gray-400">OR</span>
+            <div className="h-px w-full bg-gray-200"></div>
+          </div>
+
+          <div className="mt-6 flex justify-center" id="google-login-portal-target">
+          </div>
 
           {/* Login */}
 

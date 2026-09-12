@@ -41,8 +41,8 @@ function ProductReviews({ productId }) {
         setTotalReviews(data.totalReviews || 0);
         setRatingDistribution(data.ratingDistribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 });
       }
-    } catch (err) {
-      console.warn("Failed to load reviews:", err.message);
+    } catch {
+      // Failed to load reviews, handled by UI empty state
     } finally {
       setLoading(false);
     }
@@ -127,13 +127,7 @@ function ProductReviews({ productId }) {
     }
   };
 
-  const currentUserReview = reviews.find(
-    (r) =>
-      user &&
-      r.reviewerEmail &&
-      user.email &&
-      r.reviewerEmail.toLowerCase() === user.email.toLowerCase()
-  );
+  const currentUserReview = reviews.find((r) => r.isOwner === true);
 
   return (
     <section className="rounded-[24px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] md:p-6 border border-gray-100 space-y-6">
@@ -362,11 +356,7 @@ function ProductReviews({ productId }) {
           </div>
         ) : (
           reviews.map((r) => {
-            const isOwnReview =
-              user &&
-              r.reviewerEmail &&
-              user.email &&
-              r.reviewerEmail.toLowerCase() === user.email.toLowerCase();
+            const isOwnReview = r.isOwner === true;
 
             const reviewDate = r.dateCreated
               ? new Date(r.dateCreated).toLocaleDateString("en-IN", {
@@ -385,7 +375,7 @@ function ProductReviews({ productId }) {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs sm:text-sm font-bold text-[#1F2937]">
-                        {r.reviewer || "Shopper"}
+                        {r.reviewer || "Customer"}
                       </span>
                       {r.verified && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">

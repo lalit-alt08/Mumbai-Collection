@@ -5,6 +5,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { logger } from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +18,7 @@ try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
   }
 } catch (err) {
-  console.warn("[AuditLogger] Could not initialize logs directory:", err.message);
+  logger.warn({ err: err.message }, "[AuditLogger] Could not initialize logs directory");
 }
 
 /**
@@ -92,9 +93,16 @@ export const logAuditEvent = ({
   targetId,
   details = {},
 }) => {
+  const actorRole =
+    req?.wpUserRole ||
+    req?.user?.role ||
+    (Array.isArray(req?.user?.roles) && req.user.roles[0]) ||
+    (req?.authContext === "admin" ? "administrator" : req?.authContext) ||
+    "guest";
+
   const actor = {
     id: req?.wpUserId || req?.user?.id || "unauthenticated",
-    role: req?.wpUserRole || req?.user?.role || "guest",
+    role: actorRole,
     email: maskEmail(req?.wpUserEmail || req?.user?.email),
     ip: req?.ip || req?.socket?.remoteAddress || "unknown",
     userAgent: req?.headers?.["user-agent"] ? req.headers["user-agent"].slice(0, 100) : "unknown",
@@ -121,10 +129,10 @@ export const logAuditEvent = ({
     fs.appendFile(AUDIT_LOG_PATH, `${jsonLine}\n`, (err) => {
       if (err) {
         // Fail open: logging error must never break the user HTTP transaction
-        console.warn("[AuditLogger] Failed to write audit log entry:", err.message);
+        logger.warn({ err: err.message }, "[AuditLogger] Failed to write audit log entry");
       }
     });
   } catch (err) {
-    console.warn("[AuditLogger] Persistent log write exception:", err.message);
+    logger.warn({ err: err.message }, "[AuditLogger] Persistent log write exception");
   }
 };

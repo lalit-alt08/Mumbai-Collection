@@ -12,20 +12,44 @@ import {
   deleteProduct,
   createProduct,
   uploadProductImage,
+  triggerOrphanCleanup,
 } from "../controllers/adminProductController.js";
 
-import { getAdminCustomers } from "../controllers/adminCustomerController.js";
+import {
+  getAdminCustomers,
+} from "../controllers/adminCustomerController.js";
 
 import {
   getAdminOrders,
   updateAdminOrderStatus,
 } from "../controllers/adminOrderController.js";
 
+import {
+  getAdminEmployees,
+  requestEmployeeAccess,
+  approveEmployee,
+  rejectEmployee,
+  updateEmployeeStatus,
+  revokeEmployeeSessions,
+} from "../controllers/adminEmployeeController.js";
+
+import {
+  getAdminStoreHours,
+  updateAdminStoreHours,
+} from "../controllers/adminStoreHoursController.js";
+
+import {
+  lookupCustomerSuspension,
+  suspendCustomer,
+  unsuspendCustomer,
+} from "../controllers/adminCustomerSuspensionController.js";
+
 import { requireAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { validateImageBuffer } from "../utils/imageValidator.js";
 import { uploadLimiter } from "../middlewares/rateLimiter.js";
+import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -99,6 +123,7 @@ router.get(
   "/products",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ query: schemas.pagination }),
   getAdminProducts
 );
 
@@ -106,6 +131,7 @@ router.put(
   "/products/:id",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.productUpdate }),
   updateProduct
 );
 
@@ -113,6 +139,7 @@ router.patch(
   "/products/:id",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.productUpdate }),
   updateProduct
 );
 
@@ -120,6 +147,7 @@ router.delete(
   "/products/:id",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam }),
   deleteProduct
 );
 
@@ -128,16 +156,24 @@ router.post(
   requireAuth("admin"),
   requireRole(["administrator"]),
   requireIdempotency,
+  validateRequest({ body: schemas.productCreate }),
   createProduct
 );
 
 router.post(
   "/upload",
-  uploadLimiter,
   requireAuth("admin"),
   requireRole(["administrator"]),
+  uploadLimiter,
   handleImageUpload,
   uploadProductImage
+);
+
+router.post(
+  "/media/cleanup-orphans",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  triggerOrphanCleanup
 );
 
 // Customers Directory
@@ -145,6 +181,7 @@ router.get(
   "/customers",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ query: schemas.pagination }),
   getAdminCustomers
 );
 
@@ -153,6 +190,7 @@ router.get(
   "/orders",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ query: schemas.pagination }),
   getAdminOrders
 );
 
@@ -160,6 +198,15 @@ router.put(
   "/orders/:id/status",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.orderStatus }),
+  updateAdminOrderStatus
+);
+
+router.patch(
+  "/orders/:id/status",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.orderStatus }),
   updateAdminOrderStatus
 );
 
@@ -169,6 +216,88 @@ router.get(
   requireAuth("admin"),
   requireRole(["administrator"]),
   getAdminAnalytics
+);
+
+// Employee Access & Staff Directory Management
+router.get(
+  "/employees",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ query: schemas.pagination }),
+  getAdminEmployees
+);
+
+router.post(
+  "/employees/access",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ body: schemas.employeeAccess }),
+  requestEmployeeAccess
+);
+
+router.patch(
+  "/employees/:id/approve",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.employeeRole }),
+  approveEmployee
+);
+
+router.patch(
+  "/employees/:id/reject",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.employeeReject }),
+  rejectEmployee
+);
+
+router.patch(
+  "/employees/:id/status",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, body: schemas.employeeStatus }),
+  updateEmployeeStatus
+);
+
+router.post(
+  "/employees/:id/revoke-sessions",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam }),
+  revokeEmployeeSessions
+);
+
+// Store Operating Hours Configuration
+router.get(
+  "/store-hours",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  getAdminStoreHours
+);
+
+// Customer Suspension Management
+router.get(
+  "/customer-suspension/lookup",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ query: schemas.suspensionLookup }),
+  lookupCustomerSuspension
+);
+
+router.post(
+  "/customer-suspension/suspend",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ body: schemas.suspension }),
+  suspendCustomer
+);
+
+router.post(
+  "/customer-suspension/unsuspend",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ body: schemas.unsuspension }),
+  unsuspendCustomer
 );
 
 export default router;

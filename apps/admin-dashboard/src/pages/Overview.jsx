@@ -10,28 +10,27 @@ import {
   CheckCircle2,
   Truck,
   RotateCcw,
-  IndianRupee,
   Boxes,
   Users,
   Calendar,
 } from "lucide-react";
 import { getOverview } from "../services/adminApi";
+import { formatOrderDateTimeIST, getStatusBadgeClass } from "../utils/recentOrdersFormatter.js";
 
 function Overview() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (isRefresh = false) => {
     try {
       setLoading(true);
       setError("");
-      const res = await getOverview();
+      const res = await getOverview(isRefresh ? { refresh: "true" } : {});
       if (res.success) {
         setData(res.data);
       }
     } catch (err) {
-      console.error("Dashboard load error:", err);
       setError("Failed to load dashboard metrics. Check backend connection.");
     } finally {
       setLoading(false);
@@ -39,7 +38,7 @@ function Overview() {
   };
 
   useEffect(() => {
-    fetchDashboardData();
+    fetchDashboardData(false);
   }, []);
 
   if (loading) {
@@ -60,7 +59,7 @@ function Overview() {
       <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
         <p className="text-sm font-semibold text-red-600">{error || "Could not load data"}</p>
         <button
-          onClick={fetchDashboardData}
+          onClick={() => fetchDashboardData(true)}
           className="mt-4 rounded-full bg-red-600 px-6 py-2 text-xs font-bold text-white hover:bg-red-700"
         >
           Retry Connection
@@ -89,20 +88,12 @@ function Overview() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchDashboardData}
+            onClick={() => fetchDashboardData(true)}
             className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm transition hover:bg-gray-50"
           >
             <RotateCcw size={14} />
             Refresh Data
           </button>
-
-          <Link
-            to="/orders"
-            className="flex items-center gap-2 rounded-xl bg-[#FF8A00] px-5 py-2.5 text-xs font-bold text-white shadow-[0_4px_16px_rgba(255,138,0,0.3)] transition hover:bg-[#FF7300] active:scale-95"
-          >
-            <Package size={14} />
-            Fulfill Orders
-          </Link>
         </div>
       </div>
 
@@ -252,62 +243,147 @@ function Overview() {
       </div>
 
       {/* Recent Orders Live Stream with Instant Status Changer */}
-      <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100">
-        <div className="flex items-center justify-between mb-6">
+      <div className="rounded-2xl bg-white p-4 sm:p-6 shadow-sm border border-gray-100">
+        <div className="mb-4 sm:mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-gray-900">Recent Customer Orders</h2>
             <p className="text-xs font-medium text-gray-500">Live order overview across the store</p>
           </div>
+          <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live
+          </span>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile View: Clean Card-Based Layout (md:hidden) */}
+        <div className="space-y-3 md:hidden">
+          {!recentOrders || recentOrders.length === 0 ? (
+            <div className="py-10 text-center text-xs font-medium text-gray-500 bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
+              No orders received yet.
+            </div>
+          ) : (
+            recentOrders.map((o) => (
+              <div
+                key={o.id}
+                className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-2xs transition hover:border-gray-200"
+              >
+                {/* Header: Order ID + Date & Status */}
+                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-gray-100">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-black text-gray-900 shrink-0">
+                      #{o.order_number}
+                    </span>
+                    <span className="text-[11px] font-medium text-gray-400 truncate">
+                      • {formatOrderDateTimeIST(o.date)}
+                    </span>
+                  </div>
+                  <span
+                    className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${getStatusBadgeClass(
+                      o.status
+                    )}`}
+                  >
+                    {o.status}
+                  </span>
+                </div>
+
+                {/* Customer Details & Item Count */}
+                <div className="py-2.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-xs text-gray-900 truncate">
+                      {o.customer_name}
+                    </div>
+                    {(o.customer_phone || o.customer_email) && (
+                      <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
+                        {o.customer_phone ? (
+                          <a
+                            href={`tel:${o.customer_phone}`}
+                            className="hover:text-primary transition font-medium text-gray-600"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {o.customer_phone}
+                          </a>
+                        ) : (
+                          <span className="truncate">{o.customer_email}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-gray-700 border border-gray-200/60">
+                      <ShoppingBag size={12} className="text-gray-400" />
+                      {o.items_count} item{o.items_count !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Footer: Payment Method & Total Price */}
+                <div className="flex items-center justify-between pt-2.5 border-t border-gray-100/80 bg-gray-50/50 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
+                  <span className="text-[11px] text-gray-500 font-medium flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {o.payment_method || "Cash on delivery"}
+                  </span>
+                  <div className="text-right">
+                    <span className="text-sm font-black text-gray-900 tracking-tight">
+                      ₹{o.total}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop View: Preserved Table Layout (hidden md:block) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-gray-100 bg-gray-50/50 text-[11px] font-extrabold uppercase tracking-wider text-gray-400">
               <tr>
                 <th className="py-3 px-4">Order #</th>
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Items</th>
-                <th className="py-3 px-4">Total Paid</th>
+                <th className="py-3 px-4">Order Total</th>
                 <th className="py-3 px-4 text-right">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
-              {recentOrders.map((o) => (
-                <tr key={o.id} className="hover:bg-gray-50/60 transition">
-                  <td className="py-4 px-4 font-bold text-gray-900">
-                    #{o.order_number}
-                    <div className="text-[10px] text-gray-400 font-normal">
-                      {new Date(o.date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                  </td>
-                  <td className="py-4 px-4">
-                    <div className="font-bold text-gray-900">{o.customer_name}</div>
-                    <div className="text-[10px] text-gray-400">{o.customer_phone || o.customer_email}</div>
-                  </td>
-                  <td className="py-4 px-4 font-semibold text-gray-700">
-                    {o.items_count} item{o.items_count !== 1 ? "s" : ""}
-                  </td>
-                  <td className="py-4 px-4 font-black text-gray-900">
-                    ₹{o.total}
-                    <div className="text-[10px] text-gray-400 font-normal">{o.payment_method}</div>
-                  </td>
-                  <td className="py-4 px-4 text-right">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-extrabold ${
-                        o.status === "completed"
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          : o.status === "processing"
-                          ? "bg-blue-50 text-blue-700 border border-blue-200"
-                          : o.status === "out-for-delivery" || o.status === "dispatched"
-                          ? "bg-orange-50 text-[#FF8A00] border border-orange-200"
-                          : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {o.status}
-                    </span>
+              {!recentOrders || recentOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center text-xs font-medium text-gray-500">
+                    No orders received yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                recentOrders.map((o) => (
+                  <tr key={o.id} className="hover:bg-gray-50/60 transition">
+                    <td className="py-4 px-4 font-bold text-gray-900">
+                      #{o.order_number}
+                      <div className="text-[10px] text-gray-400 font-normal">
+                        {formatOrderDateTimeIST(o.date)}
+                      </div>
+                    </td>
+                    <td className="py-4 px-4">
+                      <div className="font-bold text-gray-900">{o.customer_name}</div>
+                      <div className="text-[10px] text-gray-400">{o.customer_phone || o.customer_email}</div>
+                    </td>
+                    <td className="py-4 px-4 font-semibold text-gray-700">
+                      {o.items_count} item{o.items_count !== 1 ? "s" : ""}
+                    </td>
+                    <td className="py-4 px-4 font-black text-gray-900">
+                      ₹{o.total}
+                      <div className="text-[10px] text-gray-400 font-normal">{o.payment_method}</div>
+                    </td>
+                    <td className="py-4 px-4 text-right">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-extrabold ${getStatusBadgeClass(
+                          o.status
+                        )}`}
+                      >
+                        {o.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

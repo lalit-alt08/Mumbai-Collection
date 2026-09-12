@@ -1,5 +1,7 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
+import { parseFirstAndLastName } from "../utils/nameFormatter.js";
+import { logError } from "../utils/logger.js";
 
 const ALLOWED_DELIVERY_REGIONS = [
   "vasai west",
@@ -45,10 +47,7 @@ export const getAddresses = async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error(
-      "Get addresses error:",
-      error.response?.data || error.message,
-    );
+    logError(req, error, "Get addresses error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -66,7 +65,6 @@ export const saveAddress = async (req, res) => {
   try {
     const {
       type,
-      full_name,
       phone,
       address_line1,
       address_line2,
@@ -74,6 +72,8 @@ export const saveAddress = async (req, res) => {
       state,
       pincode,
     } = req.body;
+
+    const { firstName, lastName } = parseFirstAndLastName(req.body);
 
     const normalizedType = String(type || "").trim().toLowerCase();
     if (!["home", "office"].includes(normalizedType)) {
@@ -91,13 +91,21 @@ export const saveAddress = async (req, res) => {
       });
     }
 
-    const cleanFullName = String(full_name || "").trim();
-    if (!cleanFullName || cleanFullName.length < 2) {
+    if (!firstName) {
       return res.status(400).json({
         success: false,
-        message: "Full name is required (at least 2 characters).",
+        message: "First name is required.",
       });
     }
+
+    if (!lastName) {
+      return res.status(400).json({
+        success: false,
+        message: "Last name is required.",
+      });
+    }
+
+    const cleanFullName = `${firstName} ${lastName}`;
 
     const cleanPhone = String(phone || "").trim().replace(/\D/g, "");
     if (!cleanPhone || cleanPhone.length < 10) {
@@ -144,6 +152,8 @@ export const saveAddress = async (req, res) => {
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses`,
       {
         type: normalizedType,
+        first_name: firstName,
+        last_name: lastName,
         full_name: cleanFullName,
         phone: cleanPhone,
         address_line1: cleanAddress1,
@@ -164,10 +174,7 @@ export const saveAddress = async (req, res) => {
 
     res.status(201).json(response.data);
   } catch (error) {
-    console.error(
-      "Save address error:",
-      error.response?.data || error.message
-    );
+    logError(req, error, "Save address error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -187,7 +194,6 @@ export const updateAddress = async (req, res) => {
 
     const {
       type,
-      full_name,
       phone,
       address_line1,
       address_line2,
@@ -195,6 +201,8 @@ export const updateAddress = async (req, res) => {
       state,
       pincode,
     } = req.body;
+
+    const { firstName, lastName } = parseFirstAndLastName(req.body);
 
     const normalizedType = String(type || "").trim().toLowerCase();
     if (!["home", "office"].includes(normalizedType)) {
@@ -212,13 +220,21 @@ export const updateAddress = async (req, res) => {
       });
     }
 
-    const cleanFullName = String(full_name || "").trim();
-    if (!cleanFullName || cleanFullName.length < 2) {
+    if (!firstName) {
       return res.status(400).json({
         success: false,
-        message: "Full name is required (at least 2 characters).",
+        message: "First name is required.",
       });
     }
+
+    if (!lastName) {
+      return res.status(400).json({
+        success: false,
+        message: "Last name is required.",
+      });
+    }
+
+    const cleanFullName = `${firstName} ${lastName}`;
 
     const cleanPhone = String(phone || "").trim().replace(/\D/g, "");
     if (!cleanPhone || cleanPhone.length < 10) {
@@ -265,6 +281,8 @@ export const updateAddress = async (req, res) => {
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses/${encodeURIComponent(id)}`,
       {
         type: normalizedType,
+        first_name: firstName,
+        last_name: lastName,
         full_name: cleanFullName,
         phone: cleanPhone,
         address_line1: cleanAddress1,
@@ -285,10 +303,7 @@ export const updateAddress = async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error(
-      "Update address error:",
-      error.response?.data || error.message
-    );
+    logError(req, error, "Update address error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -320,10 +335,7 @@ export const deleteAddress = async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error(
-      "Delete address error:",
-      error.response?.data || error.message,
-    );
+    logError(req, error, "Delete address error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {

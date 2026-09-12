@@ -1,19 +1,13 @@
 import { useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft,
-  RotateCcw,
   Clock,
   PackageCheck,
   AlertCircle,
   CheckCircle2,
   XCircle,
   MessageCircle,
-  Store,
-  Sparkles,
-  CreditCard,
-  Box,
   Truck,
-  ChevronRight,
 } from "lucide-react";
 
 function ReturnPolicy() {
@@ -26,51 +20,6 @@ function ReturnPolicy() {
       navigate("/");
     }
   };
-
-  const categories = [
-    {
-      name: "Toys, Board Games & Kids",
-      badge: "72h Replacement",
-      badgeColor: "bg-purple-100 text-purple-700",
-      rule: "Free replacement for broken parts, transit damage, or missing components. Must be in unopened outer box with untouched factory seal.",
-      icon: "🧸",
-    },
-    {
-      name: "PlayStation & Gaming Gear",
-      badge: "72h Tech Replacement",
-      badgeColor: "bg-blue-100 text-blue-700",
-      rule: "Replacement only for Dead-on-Arrival (DOA) or functional factory defects. Must include all cables, manuals, untouched packaging & matching serials.",
-      icon: "🎮",
-    },
-    {
-      name: "Stationery & Art Supplies",
-      badge: "72h Easy Swap",
-      badgeColor: "bg-emerald-100 text-emerald-700",
-      rule: "Immediate replacement if markers are dried out, sketchbooks bent, or wrong shade received. Items must be completely unused & in original plastic wrapper.",
-      icon: "🎨",
-    },
-    {
-      name: "Electronics, Cables & Audio",
-      badge: "72h Verification",
-      badgeColor: "bg-amber-100 text-amber-700",
-      rule: "Functional defects covered. Must include original box, blister pack, and all accessories. Physical drop damage or water exposure is not eligible.",
-      icon: "🔌",
-    },
-    {
-      name: "Gifts, Clocks & Novelties",
-      badge: "72h Damage Cover",
-      badgeColor: "bg-rose-100 text-rose-700",
-      rule: "Full replacement for glass cracks, transit dents, or defects. Share a quick unboxing picture to trigger instant local doorstep replacement.",
-      icon: "🎁",
-    },
-    {
-      name: "Hygiene & Personal Care",
-      badge: "Non-Returnable",
-      badgeColor: "bg-gray-100 text-gray-600",
-      rule: "Socks, personal grooming items, and unsealed consumables are non-returnable once opened due to strict health and sanitation regulations.",
-      icon: "🛡️",
-    },
-  ];
 
   return (
     <div className="min-h-screen bg-[#F7F8FA] text-[#1E1E1E] pb-24 lg:pb-16">
@@ -95,7 +44,7 @@ function ReturnPolicy() {
         </div>
 
         <a
-          href="https://wa.me/919876543210?text=Hi%20Mumbai%20Collection,%20I%20have%20a%20question%20regarding%20returns."
+          href="https://wa.me/917339951567?text=Hi%20Mumbai%20Collection,%20I%20have%20a%20question%20regarding%20returns."
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 rounded-full bg-[#25D366]/10 px-3 py-1.5 text-xs font-bold text-[#128C7E] transition hover:bg-[#25D366]/20 active:scale-95"
@@ -211,169 +160,7 @@ function ReturnPolicy() {
           </div>
         </div>
 
-        {/* ================= 3. CATEGORY SPECIFIC MATRIX ================= */}
-        <div className="rounded-[20px] border border-gray-100 bg-white p-5 shadow-xs sm:p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Box size={19} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">
-                3. Category-Specific Return Guidelines
-              </h3>
-              <p className="text-xs text-gray-500">
-                Tailored rules for Mumbai Collection's product categories
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {categories.map((cat, idx) => (
-              <div
-                key={idx}
-                className="rounded-xl border border-gray-100 bg-gray-50/50 p-3.5 space-y-1.5 transition hover:border-purple-200 hover:bg-white"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 font-bold text-xs sm:text-sm text-gray-900">
-                    <span>{cat.icon}</span>
-                    <span>{cat.name}</span>
-                  </div>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${cat.badgeColor}`}
-                  >
-                    {cat.badge}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 leading-relaxed">
-                  {cat.rule}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ================= 4. STEP-BY-STEP RETURN TIMELINE (BLINKIT STYLE) ================= */}
-        <div className="rounded-[20px] border border-gray-100 bg-white p-5 shadow-xs sm:p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <RotateCcw size={19} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">
-                4. How to Raise a Return or Replacement (4 Simple Steps)
-              </h3>
-              <p className="text-xs text-gray-500">
-                Average resolution time: under 4 hours across Vasai-Virar
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3.5 space-y-1.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#7C3AED] text-xs font-black text-white">
-                1
-              </div>
-              <h4 className="text-xs font-bold text-gray-900">Raise in 72h</h4>
-              <p className="text-[11px] text-gray-600 leading-normal">
-                Open <Link to="/orders" className="text-[#7C3AED] font-semibold underline">My Orders</Link> or tap WhatsApp button with your Order ID.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3.5 space-y-1.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#7C3AED] text-xs font-black text-white">
-                2
-              </div>
-              <h4 className="text-xs font-bold text-gray-900">Share Visual Proof</h4>
-              <p className="text-[11px] text-gray-600 leading-normal">
-                Send 2 clear photos or a 10-second unboxing video showing the intact seal or defect.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3.5 space-y-1.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#7C3AED] text-xs font-black text-white">
-                3
-              </div>
-              <h4 className="text-xs font-bold text-gray-900">Doorstep Pickup</h4>
-              <p className="text-[11px] text-gray-600 leading-normal">
-                Our Vasai delivery agent visits your doorstep to verify the untouched condition.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3.5 space-y-1.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#7C3AED] text-xs font-black text-white">
-                4
-              </div>
-              <h4 className="text-xs font-bold text-gray-900">Instant Resolution</h4>
-              <p className="text-[11px] text-gray-600 leading-normal">
-                Immediate item replacement handed over, or 100% refund initiated via UPI/source.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* ================= 5. VASAI STORE WALK-IN ADVANTAGE ================= */}
-        <div className="rounded-[20px] border border-purple-200 bg-gradient-to-r from-purple-50 via-white to-purple-50 p-5 shadow-xs sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#7C3AED] text-white shadow-xs">
-              <Store size={20} />
-            </div>
-            <div>
-              <div className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#7C3AED]">
-                <Sparkles size={11} /> Local Vasai Advantage
-              </div>
-              <h3 className="text-sm sm:text-base font-bold text-gray-900">
-                Instant In-Store Walk-in Exchange
-              </h3>
-              <p className="text-xs text-gray-600 mt-0.5">
-                Don't want to wait for pickup? Walk into our physical retail store in Vasai with your digital order confirmation for an immediate on-the-spot swap!
-              </p>
-            </div>
-          </div>
-
-          <Link
-            to="/contact"
-            className="shrink-0 rounded-full bg-[#7C3AED] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#6D28D9] active:scale-95 shadow-xs flex items-center gap-1.5"
-          >
-            Find Our Store <ChevronRight size={14} />
-          </Link>
-        </div>
-
-        {/* ================= 6. REFUNDS & TIMELINES ================= */}
-        <div className="rounded-[20px] border border-gray-100 bg-white p-5 shadow-xs sm:p-6 space-y-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-              <CreditCard size={19} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-gray-900">
-                5. Refund Modes & Timelines
-              </h3>
-              <p className="text-xs text-gray-500">
-                Direct and transparent processing with zero deduction fees
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3 pt-1">
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-1">
-              <p className="text-xs font-bold text-gray-800">UPI / Wallets</p>
-              <p className="text-xs text-emerald-600 font-semibold">Instant to 4 Hours</p>
-              <p className="text-[11px] text-gray-500">Google Pay, PhonePe, Paytm after pickup verification.</p>
-            </div>
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-1">
-              <p className="text-xs font-bold text-gray-800">Cards & Net Banking</p>
-              <p className="text-xs text-blue-600 font-semibold">24 to 48 Hours</p>
-              <p className="text-[11px] text-gray-500">Standard bank settlement back to original card.</p>
-            </div>
-            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3 space-y-1">
-              <p className="text-xs font-bold text-gray-800">Cash on Delivery (COD)</p>
-              <p className="text-xs text-purple-600 font-semibold">Instant UPI / Store Credit</p>
-              <p className="text-[11px] text-gray-500">Directly transferred to your preferred UPI ID.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* ================= 7. DIRECT SUPPORT & ACTION FOOTER ================= */}
+        {/* ================= DIRECT SUPPORT & ACTION FOOTER ================= */}
         <div className="rounded-[20px] border border-gray-100 bg-white p-5 text-center shadow-xs sm:p-7 space-y-3">
           <h3 className="text-base font-bold text-gray-900">
             Have Questions About an Existing Order?
@@ -384,7 +171,7 @@ function ReturnPolicy() {
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a
-              href="https://wa.me/919876543210?text=Hi%20Mumbai%20Collection,%20I%20would%20like%20to%20request%20a%20return/replacement%20for%20my%20order."
+              href="https://wa.me/917339951567?text=Hi%20Mumbai%20Collection,%20I%20would%20like%20to%20request%20a%20return/replacement%20for%20my%20order."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-5 py-2.5 text-xs font-bold text-white transition hover:bg-[#1EBE5D] active:scale-95 shadow-sm"

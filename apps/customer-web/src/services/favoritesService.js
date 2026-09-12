@@ -8,6 +8,7 @@ const api = axios.create({
   headers: {
     "X-Mumbai-Panel": "customer",
   },
+  timeout: 12000,
 });
 
 /**

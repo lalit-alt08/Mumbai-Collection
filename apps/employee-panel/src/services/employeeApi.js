@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_BASE = import.meta.env?.VITE_API_URL || "http://localhost:5000/api";
 
 const api = axios.create({
   baseURL: `${API_BASE}/employee`,
@@ -8,6 +8,7 @@ const api = axios.create({
   headers: {
     "X-Mumbai-Panel": "employee",
   },
+  timeout: 12000,
 });
 
 // Automatic retry for transient connection drops (GET requests only - never retry mutations)
@@ -36,7 +37,7 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
-      if (window.location.pathname !== "/login") {
+      if (typeof window !== "undefined" && window.location?.pathname !== "/login") {
         window.location.href = "/login";
       }
     }
@@ -67,7 +68,41 @@ export const updateEmployeeOrderStatus = updateOrderStatus;
 
 // Inventory & Products Management
 export const getProducts = async (params = {}) => {
-  const res = await api.get("/products", { params });
+  const cleanParams = {};
+
+  if (params.page !== undefined && params.page !== null) {
+    cleanParams.page = Number(params.page) || 1;
+  }
+  if (params.per_page !== undefined && params.per_page !== null) {
+    cleanParams.per_page = Number(params.per_page) || 20;
+  }
+  if (typeof params.search === "string" && params.search.trim() !== "") {
+    cleanParams.search = params.search.trim();
+  }
+  if (
+    typeof params.stock_status === "string" &&
+    params.stock_status.trim() !== "" &&
+    params.stock_status !== "all"
+  ) {
+    cleanParams.stock_status = params.stock_status.trim();
+  }
+  if (
+    typeof params.category === "string" &&
+    params.category.trim() !== "" &&
+    params.category !== "all"
+  ) {
+    cleanParams.category = params.category.trim();
+  }
+
+  // Forward any additional custom parameters for backwards compatibility
+  const knownKeys = new Set(["page", "per_page", "search", "stock_status", "category"]);
+  for (const [key, val] of Object.entries(params)) {
+    if (!knownKeys.has(key) && val !== undefined && val !== null && val !== "") {
+      cleanParams[key] = val;
+    }
+  }
+
+  const res = await api.get("/products", { params: cleanParams });
   return res.data;
 };
 
@@ -90,11 +125,24 @@ export const createProduct = async (data, headers = {}) => {
   return res.data;
 };
 
-export const uploadProductImage = async (file) => {
+export const uploadProductImage = async (file, options = {}) => {
   const formData = new FormData();
   formData.append("image", file);
 
-  const res = await api.post("/upload", formData);
+  const config = {};
+  if (options.onUploadProgress) {
+    config.onUploadProgress = options.onUploadProgress;
+  }
+  if (options.signal) {
+    config.signal = options.signal;
+  }
+
+  const res = await api.post("/upload", formData, config);
+  return res.data;
+};
+
+export const deleteMedia = async (mediaId) => {
+  const res = await api.delete(`/media/${mediaId}`);
   return res.data;
 };
 

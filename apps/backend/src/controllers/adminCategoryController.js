@@ -1,6 +1,7 @@
 import api from "../config/woocommerce.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { logError, logger } from "../utils/logger.js";
 
 /**
  * Get Product Categories from WooCommerce
@@ -44,7 +45,7 @@ export const getAdminCategories = async (req, res) => {
       categories: transformMediaUrls(formattedCategories, req),
     });
   } catch (error) {
-    console.error("Get categories error:", error.response?.data || error.message);
+    logError(req, error, "Get categories error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
@@ -114,7 +115,7 @@ export const createCategory = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Create category error:", error.response?.data || error.message);
+    logError(req, error, "Create category error");
     const statusCode = error.response?.status || 500;
     const rawMessage = error.response?.data?.message || error.message || "Failed to create category.";
 
@@ -204,7 +205,7 @@ export const updateCategory = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Update category error:", error.response?.data || error.message);
+    logError(req, error, "Update category error");
     const statusCode = error.response?.status || 500;
     const rawMessage = error.response?.data?.message || error.message || "Failed to update category.";
 
@@ -259,14 +260,14 @@ export const reorderCategories = async (req, res) => {
         update: updateBatch,
       });
     } catch (batchErr) {
-      console.warn("Batch reorder fallback to parallel updates:", batchErr.message);
+      logger.warn({ err: batchErr.message }, "Batch reorder fallback to parallel updates");
       // Fallback: update each category's menu_order
       await Promise.all(
         validIds.map((id, index) =>
           api.put(`products/categories/${id}`, {
             menu_order: index + 1,
           }).catch((err) => {
-            console.error(`Failed to update menu_order for category #${id}:`, err.message);
+            logger.error({ id, err: err.message }, "Failed to update menu_order for category");
           })
         )
       );
@@ -281,7 +282,7 @@ export const reorderCategories = async (req, res) => {
       ordered_ids: validIds,
     });
   } catch (error) {
-    console.error("Reorder categories error:", error.response?.data || error.message);
+    logError(req, error, "Reorder categories error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,

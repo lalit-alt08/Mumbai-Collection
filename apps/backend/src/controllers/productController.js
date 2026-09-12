@@ -6,6 +6,7 @@ import {
   fetchProductsByCategory,
   fetchCategories,
 } from "../services/productService.js";
+import { logError } from "../utils/logger.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 
@@ -29,7 +30,7 @@ export const getAllProducts = async (req, res) => {
       products: [],
     });
   } catch (error) {
-    console.error("Get all products error:", error.response?.data || error.message);
+    logError(req, error, "Get all products error");
 
     return res.status(500).json({
       success: false,
@@ -46,7 +47,7 @@ export const getProductById = async (req, res) => {
 
     res.json(transformMediaUrls(product, req));
   } catch (error) {
-    console.error("Get product by ID error:", error.response?.data || error.message);
+    logError(req, error, "Get product by ID error");
 
     res.status(500).json({
       success: false,
@@ -67,7 +68,7 @@ export const getRelatedProducts = async (req, res) => {
 
     res.json(transformMediaUrls(products, req));
   } catch (error) {
-    console.error("Get related products error:", error.response?.data || error.message);
+    logError(req, error, "Get related products error");
 
     res.status(500).json({
       success: false,
@@ -88,7 +89,7 @@ export const searchAllProducts = async (req, res) => {
 
     res.json(transformMediaUrls(products, req));
   } catch (error) {
-    console.error("Search products error:", error.response?.data || error.message);
+    logError(req, error, "Search products error");
 
     res.status(500).json({
       success: false,
@@ -100,20 +101,48 @@ export const searchAllProducts = async (req, res) => {
 export const getProductsByCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const cacheKey = `catalog:category:${categoryId}`;
-    const products = await serverCache.getOrFetch(
+    const page = parseInt(req.query.page, 10) || 1;
+    const perPage = parseInt(req.query.per_page || req.query.limit, 10) || 20;
+
+    const cacheKey = `catalog:category:${categoryId}:${page}:${perPage}`;
+    const result = await serverCache.getOrFetch(
       cacheKey,
-      () => fetchProductsByCategory(categoryId),
+      () => fetchProductsByCategory(categoryId, { page, per_page: perPage }),
       120000
     );
 
-    res.json(transformMediaUrls(products, req));
+    if (result && Array.isArray(result.products)) {
+      return res.json({
+        success: true,
+        page: result.page,
+        per_page: result.per_page,
+        total: result.total,
+        totalPages: result.totalPages,
+        products: transformMediaUrls(result.products, req),
+      });
+    }
+
+    if (Array.isArray(result)) {
+      return res.json({
+        success: true,
+        page: 1,
+        per_page: result.length,
+        total: result.length,
+        totalPages: 1,
+        products: transformMediaUrls(result, req),
+      });
+    }
+
+    res.json(transformMediaUrls(result, req));
   } catch (error) {
-    console.error("Get category products error:", error.response?.data || error.message);
+    logError(req, error, "Get category products error");
 
     res.status(500).json({
       success: false,
       message: "Failed to fetch category products",
+      products: [],
+      total: 0,
+      totalPages: 0,
     });
   }
 };
@@ -129,7 +158,7 @@ export const getAllCategories = async (req, res) => {
 
     res.json(transformMediaUrls(categories, req));
   } catch (error) {
-    console.error("Get all categories error:", error.response?.data || error.message);
+    logError(req, error, "Get all categories error");
     res.status(500).json({
       success: false,
       message: "Failed to fetch categories",

@@ -14,19 +14,20 @@ import {
   createOrUpdateReview,
 } from "../controllers/reviewController.js";
 
-import { requireAuth } from "../middlewares/authMiddleware.js";
+import { requireAuth, optionalAuth } from "../middlewares/authMiddleware.js";
+import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 
 const router = express.Router();
 
-router.get("/", getAllProducts);
-router.get("/categories", getAllCategories);
-router.get("/search", searchAllProducts);
-router.get("/related", getRelatedProducts);
-router.get("/category/:categoryId", getProductsByCategory);
-router.get("/:id", getProductById);
+router.get("/", validateRequest({ query: schemas.pagination }), getAllProducts);
+router.get("/categories", validateRequest({ query: schemas.pagination }), getAllCategories);
+router.get("/search", validateRequest({ query: schemas.pagination }), searchAllProducts);
+router.get("/related", validateRequest({ query: schemas.pagination }), getRelatedProducts);
+router.get("/category/:categoryId", validateRequest({ params: schemas.categoryIdParam, query: schemas.pagination }), getProductsByCategory);
+router.get("/:id", validateRequest({ params: schemas.idParam }), getProductById);
 
 // Product Reviews
-router.get("/:productId/reviews", getProductReviews);
-router.post("/:productId/reviews", requireAuth("customer"), createOrUpdateReview);
+router.get("/:productId/reviews", validateRequest({ params: schemas.productIdParam }), optionalAuth, getProductReviews);
+router.post("/:productId/reviews", validateRequest({ params: schemas.productIdParam, body: schemas.review }), requireAuth("customer"), createOrUpdateReview);
 
 export default router;

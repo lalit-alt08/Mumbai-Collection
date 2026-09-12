@@ -7,6 +7,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { getCategoryImageUrl } from "../../utils/categoryImage.js";
+import { compressImage, CATEGORY_MAX_DIMENSION } from "../../utils/imageCompressor.js";
 
 function UpdateCategoryModal({
   editingCategory,

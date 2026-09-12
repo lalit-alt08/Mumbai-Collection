@@ -6,6 +6,7 @@
  */
 
 const idempotencyStore = new Map();
+import { logger } from "../utils/logger.js";
 const IDEMPOTENCY_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
 const MAX_IDEMPOTENCY_STORE_SIZE = 2000;
 const MAX_KEY_LENGTH = 128;
@@ -53,7 +54,7 @@ export const requireIdempotency = (req, res, next) => {
 
   if (cached) {
     if (cached.status === "completed") {
-      console.log(`[Idempotency] Returning cached response for key: ${key}`);
+      logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning cached idempotent response");
       return res.status(cached.statusCode).json({
         ...cached.body,
         _idempotent: true,
@@ -61,7 +62,7 @@ export const requireIdempotency = (req, res, next) => {
     }
 
     if (cached.status === "processing") {
-      console.log(`[Idempotency] Concurrent in-flight request detected for key: ${key}`);
+      logger.info({ route: req.route?.path || req.path, method: req.method }, "Concurrent idempotent request detected");
       // Wait for ongoing request to finish
       const checkInterval = setInterval(() => {
         const latest = idempotencyStore.get(key);

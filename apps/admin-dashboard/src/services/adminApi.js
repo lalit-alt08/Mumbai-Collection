@@ -8,6 +8,7 @@ const api = axios.create({
   headers: {
     "X-Mumbai-Panel": "admin",
   },
+  timeout: 12000,
 });
 
 // Automatically retry once if the local development socket reset (GET requests only - never retry mutations)
@@ -41,8 +42,8 @@ api.interceptors.response.use(
   }
 );
 
-export const getOverview = async () => {
-  const res = await api.get("/overview");
+export const getOverview = async (params = {}) => {
+  const res = await api.get("/overview", { params });
   return res.data;
 };
 
@@ -83,7 +84,67 @@ export const getCustomers = async (params = {}) => {
   return res.data;
 };
 
-export const getAnalytics = async () => {
-  const res = await api.get("/analytics");
+export const getAnalytics = async (params = {}) => {
+  const res = await api.get("/analytics", { params });
+  return res.data;
+};
+
+// Employee Access & Staff Directory Management
+export const getEmployees = async (params = {}) => {
+  const res = await api.get("/employees", { params });
+  return res.data;
+};
+
+export const requestEmployeeAccess = async (data) => {
+  const res = await api.post("/employees/access", data);
+  return res.data;
+};
+
+export const approveEmployee = async (id, data) => {
+  const res = await api.patch(`/employees/${id}/approve`, data);
+  return res.data;
+};
+
+export const rejectEmployee = async (id, data) => {
+  const res = await api.patch(`/employees/${id}/reject`, data);
+  return res.data;
+};
+
+export const updateEmployeeStatus = async (id, data) => {
+  const res = await api.patch(`/employees/${id}/status`, data);
+  return res.data;
+};
+
+export const revokeEmployeeSessions = async (id) => {
+  const res = await api.post(`/employees/${id}/revoke-sessions`);
+  return res.data;
+};
+
+// Store Operating Hours Configuration
+export const getStoreHours = async () => {
+  const res = await api.get("/store-hours");
+  return res.data;
+};
+
+export const updateStoreHours = async (data) => {
+  const res = await api.put("/store-hours", data);
+  return res.data;
+};
+
+// Customer Suspension Management
+export const lookupCustomerSuspension = async (email) => {
+  const res = await api.get("/customer-suspension/lookup", {
+    params: { email },
+  });
+  return res.data;
+};
+
+export const suspendCustomer = async (data) => {
+  const res = await api.post("/customer-suspension/suspend", data);
+  return res.data;
+};
+
+export const unsuspendCustomer = async (data) => {
+  const res = await api.post("/customer-suspension/unsuspend", data);
   return res.data;
 };

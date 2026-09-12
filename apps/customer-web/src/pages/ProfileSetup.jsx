@@ -24,23 +24,37 @@ import {
   isValidDeliveryRegion,
   isValidIndianPhone,
 } from "../data/indianStates.js";
+import { sendOtp, verifyOtp } from "../services/authService";
+import { useAuth } from "../context/AuthContext";
 
 function ProfileSetup() {
   const navigate = useNavigate();
   const location = useLocation();
   const addressSectionRef = useRef(null);
+  const { user, refreshUser, handleSessionExpired } = useAuth();
 
   const [form, setForm] = useState({
-    full_name: "",
+    first_name: "",
+    last_name: "",
     age: "",
     phone: "",
   });
+
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+  const [initialVerifiedPhone, setInitialVerifiedPhone] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState("");
+  const [otpSuccess, setOtpSuccess] = useState("");
+  const [cooldown, setCooldown] = useState(0);
 
   const [addresses, setAddresses] = useState([]);
 
   const [addressForm, setAddressForm] = useState({
     type: "home",
-    full_name: "",
+    first_name: "",
+    last_name: "",
     phone: "",
     address_line1: "",
     address_line2: "",
@@ -56,6 +70,15 @@ function ProfileSetup() {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [addressError, setAddressError] = useState("");
 
+  // Cooldown timer for OTP resend
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
   // Load existing profile & addresses on mount
   useEffect(() => {
     let isMounted = true;
@@ -69,13 +92,31 @@ function ProfileSetup() {
         });
 
         const profileData = response.data.profile || {};
+        const isVerified = response.data.is_phone_verified === true;
+        const verifiedPhone = response.data.verified_phone || user?.verified_phone || "";
+        const loadedPhone = response.data.billing_phone || profileData.phone || user?.phone || "";
+
+        const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
+        const nameTokens = rawFullName.trim().split(/\s+/);
+        const initialFirst = profileData.first_name || user?.first_name || nameTokens[0] || "";
+        const initialLast = profileData.last_name || user?.last_name || (nameTokens.length > 1 ? nameTokens.slice(1).join(" ") : "");
 
         if (isMounted) {
           setForm({
-            full_name: profileData.full_name || "",
+            first_name: initialFirst,
+            last_name: initialLast,
             age: profileData.age || "",
-            phone: profileData.phone || "",
+            phone: loadedPhone,
           });
+
+          // Server-derived verification: only true if server says is_phone_verified AND loadedPhone matches verifiedPhone
+          if (isVerified && loadedPhone && verifiedPhone && loadedPhone === verifiedPhone) {
+            setIsPhoneVerified(true);
+            setInitialVerifiedPhone(loadedPhone);
+          } else {
+            setIsPhoneVerified(false);
+            setInitialVerifiedPhone("");
+          }
         }
 
         const addressRes = await axios.get(`${API_URL}/addresses`, {
@@ -86,10 +127,17 @@ function ProfileSetup() {
           setAddresses(addressRes.data.addresses || []);
         }
       } catch (error) {
-        console.error(
-          "PROFILE LOAD ERROR:",
-          error.response?.data || error.message
-        );
+        if (error.response?.status === 401) {
+          if (handleSessionExpired) {
+            handleSessionExpired();
+          }
+          navigate("/login", {
+            replace: true,
+            state: { from: location.pathname + location.search },
+          });
+          return;
+        }
+
         if (isMounted) {
           setMessage({
             type: "error",
@@ -113,12 +161,79 @@ function ProfileSetup() {
     let { name, value } = e.target;
     if (name === "phone") {
       value = value.replace(/\D/g, "").slice(0, 10);
+      if (initialVerifiedPhone && value === initialVerifiedPhone) {
+        setIsPhoneVerified(true);
+        setOtpSent(false);
+      } else {
+        setIsPhoneVerified(false);
+        if (value !== form.phone) {
+          setOtpSent(false);
+          setOtp("");
+          setOtpError("");
+          setOtpSuccess("");
+        }
+      }
     }
     setForm((prev) => ({
       ...prev,
       [name]: value,
     }));
     setMessage({ type: "", text: "" });
+  };
+
+  const handleSendOtp = async () => {
+    setOtpError("");
+    setOtpSuccess("");
+
+    if (!isValidIndianPhone(form.phone)) {
+      setOtpError("Please enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+
+    try {
+      setOtpLoading(true);
+      const res = await sendOtp(form.phone, "verify_phone");
+      setOtpSent(true);
+      setOtpSuccess(res.message || "Verification code sent to your mobile number.");
+      setCooldown(60);
+    } catch (err) {
+      setOtpError(err.response?.data?.message || "Unable to send verification code. Please try again.");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setOtpError("");
+    setOtpSuccess("");
+
+    const cleanOtp = String(otp || "").trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setOtpError("Please enter the 6-digit verification code.");
+      return;
+    }
+
+    try {
+      setOtpLoading(true);
+      const res = await verifyOtp(form.phone, cleanOtp, "verify_phone");
+      if (res.success) {
+        const verifiedNum = res.verified_phone || res.phone || form.phone;
+        setIsPhoneVerified(true);
+        setInitialVerifiedPhone(verifiedNum);
+        setOtpSent(false);
+        setOtp("");
+        setOtpSuccess("Mobile number verified successfully!");
+        if (refreshUser) {
+          await refreshUser();
+        }
+      } else {
+        setOtpError(res.message || "Verification failed. Please try again.");
+      }
+    } catch (err) {
+      setOtpError(err.response?.data?.message || "Invalid or expired verification code.");
+    } finally {
+      setOtpLoading(false);
+    }
   };
 
   const handleAddressChange = (e) => {
@@ -138,7 +253,8 @@ function ProfileSetup() {
     setAddressError("");
     setAddressForm({
       type,
-      full_name: form.full_name || "",
+      first_name: form.first_name || "",
+      last_name: form.last_name || "",
       phone: form.phone || "",
       address_line1: "",
       address_line2: "",
@@ -151,9 +267,14 @@ function ProfileSetup() {
   const editAddress = (address) => {
     setEditingAddressId(address.id);
     setAddressError("");
+    const nameParts = (address.full_name || "").trim().split(/\s+/);
+    const parsedFirst = address.first_name || nameParts[0] || "";
+    const parsedLast = address.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+
     setAddressForm({
       type: address.type,
-      full_name: address.full_name || "",
+      first_name: parsedFirst,
+      last_name: parsedLast,
       phone: address.phone || "",
       address_line1: address.address_line1 || "",
       address_line2: address.address_line2 || "",
@@ -166,8 +287,13 @@ function ProfileSetup() {
   const handleAddressSubmit = async () => {
     setAddressError("");
 
-    if (!addressForm.full_name.trim()) {
-      setAddressError("Please enter recipient's full name.");
+    if (!addressForm.first_name.trim()) {
+      setAddressError("First name is required.");
+      return;
+    }
+
+    if (!addressForm.last_name.trim()) {
+      setAddressError("Last name is required.");
       return;
     }
 
@@ -191,15 +317,24 @@ function ProfileSetup() {
     }
 
     try {
+      const cleanFirst = addressForm.first_name.trim();
+      const cleanLast = addressForm.last_name.trim();
+      const payload = {
+        ...addressForm,
+        first_name: cleanFirst,
+        last_name: cleanLast,
+        full_name: `${cleanFirst} ${cleanLast}`,
+      };
+
       let response;
       if (editingAddressId) {
         response = await axios.put(
           `${API_URL}/addresses/${editingAddressId}`,
-          addressForm,
+          payload,
           { withCredentials: true }
         );
       } else {
-        response = await axios.post(`${API_URL}/addresses`, addressForm, {
+        response = await axios.post(`${API_URL}/addresses`, payload, {
           withCredentials: true,
         });
       }
@@ -214,10 +349,17 @@ function ProfileSetup() {
           : "Address added successfully.",
       });
     } catch (error) {
-      console.error(
-        "ADDRESS SAVE ERROR:",
-        error.response?.data || error.message
-      );
+      if (error.response?.status === 401) {
+        if (handleSessionExpired) {
+          handleSessionExpired();
+        }
+        navigate("/login", {
+          replace: true,
+          state: { from: location.pathname + location.search },
+        });
+        return;
+      }
+
       setAddressError(
         error.response?.data?.message || "Unable to save address."
       );
@@ -236,10 +378,17 @@ function ProfileSetup() {
         text: "Address removed successfully.",
       });
     } catch (error) {
-      console.error(
-        "ADDRESS DELETE ERROR:",
-        error.response?.data || error.message
-      );
+      if (error.response?.status === 401) {
+        if (handleSessionExpired) {
+          handleSessionExpired();
+        }
+        navigate("/login", {
+          replace: true,
+          state: { from: location.pathname + location.search },
+        });
+        return;
+      }
+
       setMessage({
         type: "error",
         text: error.response?.data?.message || "Unable to delete address.",
@@ -252,10 +401,18 @@ function ProfileSetup() {
     setMessage({ type: "", text: "" });
 
     // 1. Personal Details Validation
-    if (!form.full_name.trim()) {
+    if (!form.first_name.trim()) {
       setMessage({
         type: "error",
-        text: "Please enter your full name.",
+        text: "First name is required.",
+      });
+      return;
+    }
+
+    if (!form.last_name.trim()) {
+      setMessage({
+        type: "error",
+        text: "Last name is required.",
       });
       return;
     }
@@ -276,7 +433,19 @@ function ProfileSetup() {
       return;
     }
 
-    // 2. Strict Address Requirement Check
+    // 2. Strict Mobile Phone OTP Verification Check
+    if (!isPhoneVerified) {
+      setMessage({
+        type: "error",
+        text: "Please verify your mobile number with OTP before saving your profile.",
+      });
+      if (!otpSent) {
+        handleSendOtp();
+      }
+      return;
+    }
+
+    // 3. Strict Address Requirement Check
     if (addresses.length === 0) {
       setMessage({
         type: "error",
@@ -295,15 +464,25 @@ function ProfileSetup() {
     try {
       setSaving(true);
 
+      const cleanFirst = form.first_name.trim();
+      const cleanLast = form.last_name.trim();
+      const cleanFullName = `${cleanFirst} ${cleanLast}`;
+
       await axios.put(
         `${API_URL}/profile`,
         {
-          full_name: form.full_name,
+          first_name: cleanFirst,
+          last_name: cleanLast,
+          full_name: cleanFullName,
           age: Number(form.age),
           phone: form.phone,
         },
         { withCredentials: true }
       );
+
+      if (refreshUser) {
+        await refreshUser();
+      }
 
       setMessage({
         type: "success",
@@ -315,10 +494,17 @@ function ProfileSetup() {
         navigate(destination, { replace: true });
       }, 500);
     } catch (error) {
-      console.error(
-        "PROFILE SAVE ERROR:",
-        error.response?.data || error.message
-      );
+      if (error.response?.status === 401) {
+        if (handleSessionExpired) {
+          handleSessionExpired();
+        }
+        navigate("/login", {
+          replace: true,
+          state: { from: location.pathname + location.search },
+        });
+        return;
+      }
+
       setMessage({
         type: "error",
         text: error.response?.data?.message || "Unable to save profile.",
@@ -408,25 +594,52 @@ function ProfileSetup() {
               </div>
 
               <div className="space-y-3">
-                {/* Full Name */}
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-gray-700">
-                    Full Name <span className="text-[#7C3AED]">*</span>
-                  </label>
-                  <div className="relative">
-                    <User
-                      size={15}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                    />
-                    <input
-                      type="text"
-                      name="full_name"
-                      value={form.full_name}
-                      onChange={handleChange}
-                      placeholder="e.g. Rahul Sharma"
-                      required
-                      className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-9 pr-3 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
-                    />
+                {/* First Name & Last Name */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* First Name */}
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-700">
+                      First Name <span className="text-[#7C3AED]">*</span>
+                    </label>
+                    <div className="relative">
+                      <User
+                        size={15}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
+                      <input
+                        type="text"
+                        name="first_name"
+                        autoComplete="given-name"
+                        value={form.first_name}
+                        onChange={handleChange}
+                        placeholder="e.g. Rahul"
+                        required
+                        className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-9 pr-3 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Last Name */}
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-700">
+                      Last Name <span className="text-[#7C3AED]">*</span>
+                    </label>
+                    <div className="relative">
+                      <User
+                        size={15}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
+                      <input
+                        type="text"
+                        name="last_name"
+                        autoComplete="family-name"
+                        value={form.last_name}
+                        onChange={handleChange}
+                        placeholder="e.g. Sharma"
+                        required
+                        className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-9 pr-3 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -458,10 +671,21 @@ function ProfileSetup() {
 
                   {/* Mobile Number */}
                   <div>
-                    <label className="mb-1 block text-xs font-bold text-gray-700">
-                      Mobile Number <span className="text-[#7C3AED]">*</span>
-                    </label>
-                    <div className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-gray-700">
+                        Mobile Number <span className="text-[#7C3AED]">*</span>
+                      </label>
+                      {isPhoneVerified ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 size={11} /> Verified
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">
+                          Unverified
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative flex items-center">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">
                         +91
                       </span>
@@ -472,13 +696,96 @@ function ProfileSetup() {
                         name="phone"
                         value={form.phone}
                         onChange={handleChange}
-                        placeholder="9876543210"
+                        placeholder=""
                         required
-                        className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-11 pr-3 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
+                        className={`h-10 w-full rounded-xl border bg-gray-50/50 pl-11 pr-20 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:bg-white focus:ring-3 ${
+                          isPhoneVerified
+                            ? "border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/10"
+                            : "border-gray-200 focus:border-[#7C3AED] focus:ring-[#7C3AED]/10"
+                        }`}
                       />
+                      {!isPhoneVerified && (
+                        <button
+                          type="button"
+                          onClick={handleSendOtp}
+                          disabled={otpLoading || form.phone.length !== 10 || cooldown > 0}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-[#7C3AED] px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {otpLoading ? "..." : (otpSent ? (cooldown > 0 ? `${cooldown}s` : "Resend") : "Verify")}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* 6-Digit OTP Verification Box */}
+                {otpSent && !isPhoneVerified && (
+                  <div className="mt-2 rounded-xl border border-[#7C3AED]/25 bg-[#F5F3FF]/70 p-3 sm:p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#6D28D9]">
+                        <ShieldCheck size={15} />
+                        <span>Enter 6-Digit Code</span>
+                      </div>
+                      <span className="text-[11px] text-gray-500 font-semibold">
+                        Sent to +91 {form.phone}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={otp}
+                        onChange={(e) => {
+                          setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
+                          setOtpError("");
+                        }}
+                        placeholder="••••••"
+                        autoFocus
+                        className="h-10 flex-1 rounded-lg border border-gray-300 bg-white px-3 text-center text-base font-extrabold tracking-[0.3em] text-gray-900 outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyOtp}
+                        disabled={otpLoading || otp.length !== 6}
+                        className="h-10 rounded-lg bg-[#7C3AED] px-3.5 sm:px-4 text-xs font-bold text-white transition hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {otpLoading ? "Verifying..." : "Verify Code"}
+                      </button>
+                    </div>
+
+                    {otpError && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-600">
+                        <AlertCircle size={13} className="shrink-0" />
+                        <span>{otpError}</span>
+                      </div>
+                    )}
+
+                    {otpSuccess && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600">
+                        <CheckCircle2 size={13} className="shrink-0" />
+                        <span>{otpSuccess}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-0.5 text-[11px]">
+                      <span className="text-gray-500">Didn't receive SMS?</span>
+                      {cooldown > 0 ? (
+                        <span className="font-semibold text-gray-400">Resend in {cooldown}s</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleSendOtp}
+                          disabled={otpLoading}
+                          className="font-bold text-[#7C3AED] hover:underline"
+                        >
+                          Resend Code
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -668,14 +975,31 @@ function ProfileSetup() {
               <div className="grid gap-2.5 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-bold text-gray-700">
-                    Recipient Name <span className="text-[#7C3AED]">*</span>
+                    First Name <span className="text-[#7C3AED]">*</span>
                   </label>
                   <input
                     type="text"
-                    name="full_name"
-                    value={addressForm.full_name}
+                    name="first_name"
+                    autoComplete="given-name"
+                    value={addressForm.first_name}
                     onChange={handleAddressChange}
-                    placeholder="Full name"
+                    placeholder="First name"
+                    required
+                    className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 text-xs sm:text-sm font-semibold outline-none focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-gray-700">
+                    Last Name <span className="text-[#7C3AED]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="last_name"
+                    autoComplete="family-name"
+                    value={addressForm.last_name}
+                    onChange={handleAddressChange}
+                    placeholder="Last name"
                     required
                     className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 text-xs sm:text-sm font-semibold outline-none focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
                   />
@@ -696,7 +1020,7 @@ function ProfileSetup() {
                       name="phone"
                       value={addressForm.phone}
                       onChange={handleAddressChange}
-                      placeholder="9876543210"
+                      placeholder=""
                       required
                       className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-10 pr-3 text-xs sm:text-sm font-semibold outline-none focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
                     />

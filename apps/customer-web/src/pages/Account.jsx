@@ -16,9 +16,18 @@ import {
 } from "lucide-react";
 
 function Account() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState(null);
+
+  // Instant synchronous hydration from cache to prevent any flashing
+  const [profile, setProfile] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem("user_profile") || "null");
+      return cached;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -29,6 +38,16 @@ function Account() {
         });
         if (isMounted && res.data?.profile) {
           setProfile(res.data.profile);
+          try {
+            localStorage.setItem("user_profile", JSON.stringify(res.data.profile));
+          } catch {}
+          if (updateUser && res.data.profile.full_name) {
+            updateUser({
+              name: res.data.profile.full_name,
+              full_name: res.data.profile.full_name,
+              phone: res.data.profile.phone,
+            });
+          }
         }
       } catch (err) {
         // Fallback to user context
@@ -40,10 +59,28 @@ function Account() {
     };
   }, []);
 
-  const username = user?.username || user?.display_name || "Customer";
-  const fullName = profile?.full_name || user?.name || user?.display_name || "Customer";
+  const isStoreName = (str) => {
+    if (!str || typeof str !== "string") return true;
+    const s = str.trim().toLowerCase();
+    return s === "mumbaicollection" || s === "mumbai collection" || s === "mumbai_collection";
+  };
+
+  const displayName =
+    (!isStoreName(profile?.full_name) ? profile?.full_name?.trim() : "") ||
+    (!isStoreName(user?.full_name) ? user?.full_name?.trim() : "") ||
+    (!isStoreName(user?.name) ? user?.name?.trim() : "") ||
+    (!isStoreName(user?.username) ? user?.username?.trim() : "") ||
+    "Customer";
+
+  const displayContact =
+    profile?.phone?.trim() ||
+    user?.phone?.trim() ||
+    profile?.email?.trim() ||
+    user?.email?.trim() ||
+    "";
+
   const avatarInitials =
-    (fullName || username)
+    displayName
       .split(" ")
       .map((w) => w[0])
       .filter(Boolean)
@@ -92,14 +129,16 @@ function Account() {
                 {avatarInitials}
               </div>
 
-              {/* Name & Username */}
+              {/* Name & Contact Details */}
               <div className="min-w-0 flex-1">
-                <h2 className="text-lg sm:text-xl font-extrabold text-[#111827] tracking-tight truncate">
-                  {username}
+                <h2 className="text-lg sm:text-xl font-extrabold text-[#111827] tracking-tight truncate capitalize">
+                  {displayName}
                 </h2>
-                <p className="text-xs sm:text-sm font-semibold text-[#4B5563] truncate mt-0.5">
-                  {fullName}
-                </p>
+                {displayContact && (
+                  <p className="text-xs sm:text-sm font-semibold text-[#4B5563] truncate mt-0.5">
+                    {displayContact}
+                  </p>
+                )}
               </div>
             </div>
 

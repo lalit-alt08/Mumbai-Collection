@@ -6,6 +6,7 @@ import {
   updateOrderStatus,
   getEmployeeOverview,
   uploadEmployeeMedia,
+  deleteEmployeeMedia,
 } from "../controllers/employeeController.js";
 
 import {
@@ -30,28 +31,21 @@ import {
 import { requireAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
-import { validateImageBuffer } from "../utils/imageValidator.js";
+import {
+  EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
+  validateImageBuffer,
+} from "../utils/imageValidator.js";
 import { uploadLimiter } from "../middlewares/rateLimiter.js";
+import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max
+    fileSize: EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/gif",
-    ];
-
-    if (!allowedTypes.includes(file.mimetype)) {
-      const err = new Error("Only image files (JPEG, PNG, WebP, GIF) are allowed.");
-      err.code = "INVALID_FILE_TYPE";
-      return cb(err, false);
-    }
-
+    // Do not trust the client-provided MIME type. The authoritative
+    // content/dimension validator runs after Multer has buffered the file.
     cb(null, true);
   },
 });
@@ -62,7 +56,7 @@ const handleImageUpload = (req, res, next) => {
       if (err.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
-          message: "File size exceeds the 10MB limit.",
+          message: "File size exceeds the 5MB limit.",
         });
       }
       return res.status(400).json({
@@ -78,7 +72,9 @@ const handleImageUpload = (req, res, next) => {
       });
     }
 
-    const validation = validateImageBuffer(req.file);
+    const validation = validateImageBuffer(req.file, {
+      maxFileSizeBytes: EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
+    });
     if (!validation.valid) {
       return res.status(400).json({
         success: false,
@@ -92,7 +88,7 @@ const handleImageUpload = (req, res, next) => {
 
 const router = express.Router();
 
-const ALLOWED_EMPLOYEE_ROLES = ["employee", "shop_manager", "administrator"];
+const ALLOWED_EMPLOYEE_ROLES = ["employee", "administrator"];
 
 // Employee Dashboard / Operations Overview Counts
 router.get(
@@ -107,6 +103,7 @@ router.get(
   "/orders",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ query: schemas.pagination }),
   getEmployeeOrders
 );
 
@@ -114,6 +111,7 @@ router.patch(
   "/orders/:id/status",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam, body: schemas.orderStatus }),
   updateOrderStatus
 );
 
@@ -122,6 +120,7 @@ router.get(
   "/products",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ query: schemas.pagination }),
   getAdminProducts
 );
 
@@ -137,6 +136,7 @@ router.post(
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   requireIdempotency,
+  validateRequest({ body: schemas.categoryCreate }),
   createCategory
 );
 
@@ -145,6 +145,7 @@ router.put(
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   requireIdempotency,
+  validateRequest({ body: schemas.categoryReorder }),
   reorderCategories
 );
 
@@ -153,6 +154,7 @@ router.put(
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   requireIdempotency,
+  validateRequest({ params: schemas.idParam, body: schemas.categoryUpdate }),
   updateCategory
 );
 
@@ -161,6 +163,7 @@ router.post(
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   requireIdempotency,
+  validateRequest({ body: schemas.productCreate }),
   createProduct
 );
 
@@ -168,6 +171,7 @@ router.put(
   "/products/:id",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam, body: schemas.productUpdate }),
   updateProduct
 );
 
@@ -175,6 +179,7 @@ router.patch(
   "/products/:id",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam, body: schemas.productUpdate }),
   updateProduct
 );
 
@@ -182,16 +187,24 @@ router.delete(
   "/products/:id",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam }),
   deleteProduct
 );
 
 router.post(
   "/upload",
-  uploadLimiter,
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
+  uploadLimiter,
   handleImageUpload,
   uploadEmployeeMedia
+);
+
+router.delete(
+  "/media/:id",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  deleteEmployeeMedia
 );
 
 // Homepage Banners Management (Max 3)

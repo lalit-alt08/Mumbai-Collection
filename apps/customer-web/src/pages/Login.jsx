@@ -1,10 +1,11 @@
 import { Mail, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import API_URL from "../config/api.js";
-import { login } from "../services/authService";
+import { login, googleLogin as googleLoginService } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
+
 
 function Login() {
   const navigate = useNavigate();
@@ -98,7 +99,6 @@ function Login() {
             "Too many login attempts. Please try again later.",
         );
       } else {
-        console.error("LOGIN ERROR:", err);
         setError("Unable to connect to the server. Please try again.");
       }
     } finally {
@@ -106,6 +106,39 @@ function Login() {
       submittingRef.current = false;
     }
   };
+
+  // Listen to GlobalGoogleLogin events
+  
+  useEffect(() => {
+    const handleStart = () => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setLoading(true);
+      setError("");
+    };
+    const handleError = (e) => {
+      setError(e.detail);
+      setLoading(false);
+      submittingRef.current = false;
+    };
+    const handleEnd = () => {
+      setLoading(false);
+      submittingRef.current = false;
+    };
+
+    window.addEventListener("google-auth-start", handleStart);
+    window.addEventListener("google-auth-error", handleError);
+    window.addEventListener("google-auth-end", handleEnd);
+
+    // Tell GlobalGoogleLogin that the portal target is mounted
+    window.dispatchEvent(new CustomEvent("google-login-ready"));
+
+    return () => {
+      window.removeEventListener("google-auth-start", handleStart);
+      window.removeEventListener("google-auth-error", handleError);
+      window.removeEventListener("google-auth-end", handleEnd);
+    };
+  }, []);
 
   return (
     <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F7F7FB]">
@@ -222,6 +255,15 @@ function Login() {
               {!loading && <ArrowRight size={20} />}
             </button>
           </form>
+
+          <div className="mt-6 flex items-center justify-center">
+            <div className="h-px w-full bg-gray-200"></div>
+            <span className="px-4 text-[13px] font-medium text-gray-400">OR</span>
+            <div className="h-px w-full bg-gray-200"></div>
+          </div>
+
+          <div className="mt-6 flex justify-center" id="google-login-portal-target">
+          </div>
 
           {/* Footer */}
           <p className="mt-8 text-center text-[14px] text-gray-500">

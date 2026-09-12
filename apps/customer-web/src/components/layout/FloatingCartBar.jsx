@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { useCart } from "../../context/CartContext";
+import { getCatalogImageUrl } from "../../utils/imageUtils";
 
 function FloatingCartBar() {
   const { cart } = useCart();
@@ -91,7 +92,8 @@ function FloatingCartBar() {
 
   const totalPrice =
     hasItems && cart.totals ? Number(cart.totals.total_price) / 100 : 0;
-  const firstItemImage = hasItems ? cart.items[0]?.images?.[0]?.src : null;
+  const firstItemImage = hasItems ? getCatalogImageUrl(cart.items[0]) : null;
+  const firstItemAlt = hasItems ? cart.items[0]?.name || "Cart item" : "Cart item";
 
   // Responsive bottom positioning:
   // On product pages below 'lg' (1024px), the fixed bottom purchase bar is visible at bottom-0 (~76px + safe-area).
@@ -124,7 +126,7 @@ function FloatingCartBar() {
             {firstItemImage ? (
               <img
                 src={firstItemImage}
-                alt=""
+                alt={firstItemAlt}
                 className="h-full w-full rounded-full object-contain"
               />
             ) : (

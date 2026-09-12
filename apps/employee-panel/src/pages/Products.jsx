@@ -17,14 +17,25 @@ import {
   Plus,
   Trash2,
   Camera,
+  Copy,
+  Filter,
+  ChevronDown,
 } from "lucide-react";
 import {
   getProducts,
   updateProduct,
   createProduct,
   uploadProductImage,
+  deleteMedia,
   deleteProduct,
+  getCategories,
 } from "../services/employeeApi.js";
+import { compressImage, MAX_FILE_SIZE_BYTES } from "../utils/imageCompressor.js";
+import {
+  validateAdjustInput,
+  applyProductAdjustment,
+  calculateStockStep,
+} from "../utils/productAdjuster.js";
 
 function Products() {
   const [products, setProducts] = useState([]);
@@ -34,21 +45,31 @@ function Products() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
 
-  // Pagination state
+  // Category filter state
+  const [categories, setCategories] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [isMobileCategoryOpen, setIsMobileCategoryOpen] = useState(false);
+  const mobileCategoryRef = useRef(null);
+
+  // Pagination & Per-Page state (20 / 50 / 100)
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
-  const perPage = 20;
 
-  // Inline editing state
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ regular_price: "", stock_quantity: "" });
-  const [savingId, setSavingId] = useState(null);
+  // SKU copy feedback state
+  const [copiedSkuId, setCopiedSkuId] = useState(null);
+
+  // Quick Adjust Modal/Bottom-Sheet state (Desktop & Mobile)
+  const [quickAdjustProduct, setQuickAdjustProduct] = useState(null);
+  const [adjustForm, setAdjustForm] = useState({ regular_price: "", sale_price: "", stock_quantity: "" });
+  const [adjustSaving, setAdjustSaving] = useState(false);
 
   // Delete product state
   const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const isDeletingRef = useRef(false);
+  const requestIdRef = useRef(0);
 
   // Add Product Modal & Upload state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -59,12 +80,67 @@ function Products() {
     stock_quantity: 10,
     description: "",
     image_url: "",
+    media_id: null,
   });
   const [creating, setCreating] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [imagePreview, setImagePreview] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const galleryInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+  const imagePreviewRef = useRef("");
+  const pendingMediaIdRef = useRef(null);
+  const uploadAbortControllerRef = useRef(null);
+
+  useEffect(() => {
+    imagePreviewRef.current = imagePreview;
+  }, [imagePreview]);
+
+  useEffect(() => {
+    pendingMediaIdRef.current = newProduct.media_id;
+  }, [newProduct.media_id]);
+
+  // Safely revoke object URL, abort active upload, and clear image preview state (with optional pending cleanup)
+  const clearImagePreview = (shouldCleanup = false) => {
+    if (uploadAbortControllerRef.current) {
+      try {
+        uploadAbortControllerRef.current.abort();
+      } catch {}
+      uploadAbortControllerRef.current = null;
+    }
+    setUploadingImage(false);
+    setUploadProgress(0);
+
+    if (imagePreviewRef.current && typeof imagePreviewRef.current === "string" && imagePreviewRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(imagePreviewRef.current);
+    }
+    setImagePreview("");
+    if (shouldCleanup && pendingMediaIdRef.current) {
+      const idToClean = pendingMediaIdRef.current;
+      pendingMediaIdRef.current = null;
+      deleteMedia(idToClean).catch(() => {});
+      setNewProduct((prev) => ({ ...prev, image_url: "", media_id: null }));
+    }
+  };
+
+  // Cleanup object URL and abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (uploadAbortControllerRef.current) {
+        try {
+          uploadAbortControllerRef.current.abort();
+        } catch {}
+      }
+      if (imagePreviewRef.current && typeof imagePreviewRef.current === "string" && imagePreviewRef.current.startsWith("blob:")) {
+        URL.revokeObjectURL(imagePreviewRef.current);
+      }
+    };
+  }, []);
+
+  const handleCloseAddModal = () => {
+    clearImagePreview(true);
+    setShowAddModal(false);
+  };
 
   // Toast Notification state
   const [toast, setToast] = useState(null);
@@ -79,14 +155,58 @@ function Products() {
   // Debounce search input by 400ms
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery.trim());
+      const normalized = searchQuery.trim();
+      setDebouncedSearch(normalized.length >= 2 ? normalized : "");
       setPage(1);
     }, 400);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Fetch categories on mount for category filtering
+  useEffect(() => {
+    let isMounted = true;
+    getCategories()
+      .then((res) => {
+        if (isMounted && res?.success && Array.isArray(res.categories)) {
+          setCategories(res.categories);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Close mobile category dropdown on outside click or Escape
+  useEffect(() => {
+    if (!isMobileCategoryOpen) return;
+
+    const handleClickOutside = (event) => {
+      if (mobileCategoryRef.current && !mobileCategoryRef.current.contains(event.target)) {
+        setIsMobileCategoryOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsMobileCategoryOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMobileCategoryOpen]);
+
   const fetchProductList = async () => {
+    const currentRequestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError("");
@@ -94,89 +214,96 @@ function Products() {
         page,
         per_page: perPage,
         search: debouncedSearch || undefined,
-        stock_status:
-          stockFilter === "instock" || stockFilter === "outofstock"
-            ? stockFilter
-            : undefined,
+        stock_status: stockFilter !== "all" ? stockFilter : undefined,
+        category: categoryFilter !== "all" ? categoryFilter : undefined,
       });
+
+      // Ignore responses from outdated / superseded requests
+      if (currentRequestId !== requestIdRef.current) {
+        return;
+      }
+
       if (res.success) {
         setProducts(res.products || []);
-        setTotalProducts(res.total || res.products?.length || 0);
-        setTotalPages(res.totalPages || Math.ceil((res.total || 1) / perPage) || 1);
+        setTotalProducts(res.total !== undefined ? res.total : (res.products?.length || 0));
+        setTotalPages(res.totalPages !== undefined ? res.totalPages : (Math.ceil((res.total || 1) / perPage) || 1));
       }
     } catch (err) {
-      console.error("Fetch products error:", err);
+      if (currentRequestId !== requestIdRef.current) {
+        return;
+      }
       setError(err.response?.data?.message || err.message || "Failed to load catalog products.");
     } finally {
-      setLoading(false);
+      if (currentRequestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchProductList();
-  }, [page, debouncedSearch, stockFilter]);
+  }, [page, perPage, debouncedSearch, stockFilter, categoryFilter]);
 
-  const handleStartEdit = (product) => {
-    setEditingId(product.id);
-    setEditForm({
+  const handleCopySku = (product, e) => {
+    e?.stopPropagation?.();
+    const skuToCopy = product.sku || `#${product.id}`;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(skuToCopy).catch(() => {});
+    }
+    setCopiedSkuId(product.id);
+    showToast(`SKU "${skuToCopy}" copied!`, "success");
+    setTimeout(() => {
+      setCopiedSkuId((curr) => (curr === product.id ? null : curr));
+    }, 2000);
+  };
+
+  const handleOpenQuickAdjust = (product) => {
+    setQuickAdjustProduct(product);
+    setAdjustForm({
       regular_price: product.regular_price || product.price || "",
+      sale_price: product.sale_price || "",
       stock_quantity: product.stock_quantity ?? 0,
     });
   };
 
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setEditForm({ regular_price: "", stock_quantity: "" });
+  const handleCloseQuickAdjust = () => {
+    if (adjustSaving) return;
+    setQuickAdjustProduct(null);
+    setAdjustForm({ regular_price: "", sale_price: "", stock_quantity: "" });
   };
 
-  const handleSaveEdit = async (productId) => {
+  const handleSaveQuickAdjust = async () => {
+    if (!quickAdjustProduct || adjustSaving) return;
+
+    const validation = validateAdjustInput(adjustForm);
+    if (!validation.isValid) {
+      showToast(validation.error, "error");
+      return;
+    }
+
     try {
-      setSavingId(productId);
-      const updateData = {};
-
-      if (editForm.regular_price !== "") {
-        const numPrice = Number(editForm.regular_price);
-        if (isNaN(numPrice) || numPrice < 0) {
-          showToast("Price must be a valid positive number.", "error");
-          setSavingId(null);
-          return;
-        }
-        updateData.regular_price = String(numPrice);
-      }
-
-      if (editForm.stock_quantity !== "") {
-        const numStock = Number(editForm.stock_quantity);
-        if (isNaN(numStock) || numStock < 0 || !Number.isInteger(numStock)) {
-          showToast("Stock must be a non-negative integer.", "error");
-          setSavingId(null);
-          return;
-        }
-        updateData.stock_quantity = numStock;
-      }
-
-      const res = await updateProduct(productId, updateData);
+      setAdjustSaving(true);
+      const res = await updateProduct(quickAdjustProduct.id, validation.updateData);
       if (res.success) {
         setProducts((prev) =>
           prev.map((p) =>
-            p.id === productId
-              ? {
-                  ...p,
-                  price: editForm.regular_price !== "" ? editForm.regular_price : p.price,
-                  regular_price: editForm.regular_price !== "" ? editForm.regular_price : p.regular_price,
-                  stock_quantity: editForm.stock_quantity !== "" ? Number(editForm.stock_quantity) : p.stock_quantity,
-                  stock_status: Number(editForm.stock_quantity) > 0 ? "instock" : "outofstock",
-                }
+            p.id === quickAdjustProduct.id
+              ? applyProductAdjustment(p, adjustForm)
               : p
           )
         );
         showToast("Product updated successfully!");
-        setEditingId(null);
+        handleCloseQuickAdjust();
+      } else {
+        showToast(res.message || "Failed to update product.", "error");
       }
     } catch (err) {
-      console.error("Save product error:", err);
-      showToast(err.response?.data?.message || "Failed to update product.", "error");
+      showToast(
+        err.response?.data?.message || err.message || "Failed to update product.",
+        "error"
+      );
     } finally {
-      setSavingId(null);
+      setAdjustSaving(false);
     }
   };
 
@@ -190,13 +317,28 @@ function Products() {
       if (res.success) {
         showToast(`Product "${product.name}" deleted successfully.`);
         setDeleteConfirmProduct(null);
-        setProducts((prev) => prev.filter((p) => p.id !== product.id));
-        setTotalProducts((t) => Math.max(0, t - 1));
+
+        // 1. Update product list and handle empty page edge case
+        setProducts((prev) => {
+          const updated = prev.filter((p) => p.id !== product.id);
+          // If the page is now empty and we are beyond page 1, navigate back one page
+          if (updated.length === 0 && page > 1) {
+            setPage((p) => Math.max(1, p - 1));
+          }
+          return updated;
+        });
+
+        // 2. Decrement totalProducts and recalculate totalPages so pagination stays valid
+        setTotalProducts((t) => {
+          const newTotal = Math.max(0, t - 1);
+          const newTotalPages = Math.ceil(newTotal / perPage) || 1;
+          setTotalPages(newTotalPages);
+          return newTotal;
+        });
       } else {
         showToast(res.message || "Failed to delete product.", "error");
       }
     } catch (err) {
-      console.error("Delete product error:", err);
       showToast(
         err.response?.data?.message || err.message || "Failed to delete product.",
         "error"
@@ -211,32 +353,79 @@ function Products() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate type and size (10MB)
+    // Validate type and size (5MB)
     const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     if (!validTypes.includes(file.type)) {
       showToast("Only JPG, PNG, WebP, and GIF images are allowed.", "error");
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showToast("Image file size must be less than 10MB.", "error");
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      showToast("Image file size must be less than 5MB.", "error");
       return;
     }
 
-    setImagePreview(URL.createObjectURL(file));
+    // If a previous pending image was uploaded without creating a product, safely clean it up
+    if (pendingMediaIdRef.current) {
+      const oldMediaId = pendingMediaIdRef.current;
+      pendingMediaIdRef.current = null;
+      deleteMedia(oldMediaId).catch(() => {});
+    }
+
+    // Revoke any previous preview object URL before creating a new one
+    clearImagePreview(false);
+
+    // Compress image client-side before upload (max 1600px, WebP 0.85 with JPEG fallback)
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImage(file);
+    } catch {
+      // Fall back to original file if compression fails
+    }
+
+    const previewUrl = URL.createObjectURL(fileToUpload);
+    setImagePreview(previewUrl);
+
+    const controller = new AbortController();
+    uploadAbortControllerRef.current = controller;
 
     try {
       setUploadingImage(true);
-      const res = await uploadProductImage(file);
-      if (res.success && res.url) {
-        setNewProduct((prev) => ({ ...prev, image_url: res.url }));
+      setUploadProgress(0);
+      const res = await uploadProductImage(fileToUpload, {
+        signal: controller.signal,
+        onUploadProgress: (progressEvent) => {
+          if (controller.signal.aborted) return;
+          const percent = progressEvent.total
+            ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            : 50;
+          setUploadProgress(Math.min(percent, 99));
+        },
+      });
+
+      if (controller.signal.aborted) return;
+
+      if (res.success && (res.url || res.id)) {
+        setUploadProgress(100);
+        setNewProduct((prev) => ({ ...prev, image_url: res.url, media_id: res.id }));
+        pendingMediaIdRef.current = res.id;
         showToast("Image uploaded to WordPress Media Library!");
       }
     } catch (err) {
-      console.error("Upload error:", err);
+      if (
+        controller.signal.aborted ||
+        err.name === "AbortError" ||
+        err.name === "CanceledError" ||
+        err.code === "ERR_CANCELED"
+      ) {
+        return;
+      }
       showToast(err.response?.data?.message || "Failed to upload image.", "error");
-      setImagePreview("");
+      clearImagePreview(false);
     } finally {
+      if (uploadAbortControllerRef.current === controller) {
+        uploadAbortControllerRef.current = null;
+      }
       setUploadingImage(false);
       if (galleryInputRef.current) galleryInputRef.current.value = "";
       if (cameraInputRef.current) cameraInputRef.current.value = "";
@@ -257,10 +446,20 @@ function Products() {
 
     try {
       setCreating(true);
-      const res = await createProduct(newProduct);
+      const payload = {
+        ...newProduct,
+        images: newProduct.media_id
+          ? [{ id: Number(newProduct.media_id), src: newProduct.image_url }]
+          : newProduct.image_url
+          ? [{ src: newProduct.image_url }]
+          : [],
+      };
+      const res = await createProduct(payload);
       if (res.success) {
         showToast("New product created successfully!");
         setShowAddModal(false);
+        // Successfully attached: clear pending ref so it is preserved
+        pendingMediaIdRef.current = null;
         setNewProduct({
           name: "",
           regular_price: "",
@@ -268,28 +467,29 @@ function Products() {
           stock_quantity: 10,
           description: "",
           image_url: "",
+          media_id: null,
         });
-        setImagePreview("");
+        clearImagePreview(false);
         fetchProductList();
       }
     } catch (err) {
-      console.error("Create product error:", err);
       showToast(err.response?.data?.message || "Failed to create product.", "error");
     } finally {
       setCreating(false);
     }
   };
 
-  const displayedProducts = products.filter((product) => {
-    const stock = product.stock_quantity ?? 0;
-    const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
-    const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+  // Server-side filtering and pagination are authoritative
+  const displayedProducts = products;
 
-    if (stockFilter === "outofstock") return isOutOfStock;
-    if (stockFilter === "lowstock") return isLowStock;
-    if (stockFilter === "instock") return !isOutOfStock && stock > 5;
-    return true;
-  });
+  // Selected category label helper
+  const selectedCategoryObj = categories.find((c) => String(c.id) === String(categoryFilter));
+  const selectedCategoryLabel =
+    categoryFilter === "all"
+      ? "All Categories"
+      : selectedCategoryObj
+      ? `${selectedCategoryObj.name} ${selectedCategoryObj.count !== undefined ? `(${selectedCategoryObj.count})` : ""}`
+      : "All Categories";
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -307,9 +507,33 @@ function Products() {
         </div>
       )}
 
-      {/* Filter Tabs & Search Bar */}
+      {/* 1. Search Bar & Refresh (Above Filter Card) */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by title, SKU..."
+            className="w-full rounded-2xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-xs sm:text-sm text-gray-900 shadow-xs outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
+          />
+        </div>
+
+        <button
+          onClick={fetchProductList}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-700 shadow-xs hover:bg-gray-50 transition cursor-pointer disabled:opacity-50 shrink-0"
+          title="Refresh Inventory"
+        >
+          <RotateCcw size={13} className={loading ? "animate-spin" : ""} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
+      </div>
+
+      {/* 2. Filter Tabs & Category Selector Card */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-gray-200 bg-white p-3.5 sm:p-4 shadow-xs">
-        {/* Filter Pills */}
+        {/* Stock Filter Pills */}
         <div className="flex flex-wrap gap-1.5">
           {[
             { id: "all", label: "All Items" },
@@ -323,7 +547,7 @@ function Products() {
                 setStockFilter(tab.id);
                 setPage(1);
               }}
-              className={`rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer active:scale-95 ${
+              className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer active:scale-95 ${
                 stockFilter === tab.id
                   ? "bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-xs"
                   : "text-gray-600 hover:bg-gray-100"
@@ -334,49 +558,219 @@ function Products() {
           ))}
         </div>
 
-        {/* Search Bar & Refresh */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-72">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by title, SKU..."
-              className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2 pl-9 pr-4 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
+        {/* Mobile Custom Category Dropdown (<640px) */}
+        <div className="block sm:hidden relative w-full" ref={mobileCategoryRef}>
+          <button
+            type="button"
+            onClick={() => setIsMobileCategoryOpen((prev) => !prev)}
+            aria-haspopup="listbox"
+            aria-expanded={isMobileCategoryOpen}
+            className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-2xs transition cursor-pointer active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Filter size={13} className="text-gray-400 shrink-0" />
+              <span className="truncate">{selectedCategoryLabel}</span>
+            </div>
+            <ChevronDown
+              size={14}
+              className={`text-gray-400 transition-transform duration-200 shrink-0 ml-2 ${
+                isMobileCategoryOpen ? "rotate-180 text-emerald-600" : ""
+              }`}
             />
-          </div>
-
-          <button
-            onClick={fetchProductList}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:bg-gray-50 transition cursor-pointer disabled:opacity-50 shrink-0"
-            title="Refresh Inventory"
-          >
-            <RotateCcw size={13} className={loading ? "animate-spin" : ""} />
-            Refresh
           </button>
 
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer shrink-0 active:scale-95"
-            title="Add New Product"
-          >
-            <Plus size={14} />
-            Add Product
-          </button>
+          {isMobileCategoryOpen && (
+            <div
+              role="listbox"
+              aria-label="Filter by Category"
+              className="absolute top-full left-0 right-0 z-30 mt-1.5 w-full rounded-2xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-60 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150"
+            >
+              <button
+                type="button"
+                role="option"
+                aria-selected={categoryFilter === "all"}
+                onClick={() => {
+                  setCategoryFilter("all");
+                  setPage(1);
+                  setIsMobileCategoryOpen(false);
+                }}
+                className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                  categoryFilter === "all"
+                    ? "bg-emerald-50 text-emerald-900 font-extrabold"
+                    : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
+                }`}
+              >
+                <span>All Categories</span>
+                {categoryFilter === "all" && (
+                  <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
+                )}
+              </button>
+
+              {categories.map((c) => {
+                const isSelected = String(categoryFilter) === String(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setCategoryFilter(String(c.id));
+                      setPage(1);
+                      setIsMobileCategoryOpen(false);
+                    }}
+                    className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                      isSelected
+                        ? "bg-emerald-50 text-emerald-900 font-extrabold"
+                        : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="truncate">{c.name}</span>
+                      {c.count !== undefined && (
+                        <span className="text-[11px] font-medium text-gray-400 shrink-0">
+                          ({c.count})
+                        </span>
+                      )}
+                    </div>
+                    {isSelected && (
+                      <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
+
+        {/* Desktop Category Selector (>=640px) */}
+        <div className="hidden sm:block relative">
+          <Filter
+            size={13}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+          />
+          <select
+            value={categoryFilter}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setPage(1);
+            }}
+            className="w-full sm:w-auto h-8.5 rounded-xl border border-gray-200 bg-white pl-8 pr-7 text-xs font-bold text-gray-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition cursor-pointer shadow-2xs"
+            aria-label="Filter by Category"
+          >
+            <option value="all">All Categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name} {c.count !== undefined ? `(${c.count})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* 3. Add Product Button (Below Filter Card) */}
+      <div className="flex items-center justify-between sm:justify-end">
+        <p className="text-xs text-gray-500 font-medium hidden sm:block">
+          Total Products: <span className="font-bold text-gray-900">{totalProducts}</span>
+        </p>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-3 sm:py-2.5 text-xs sm:text-sm font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer shrink-0 active:scale-95"
+          title="Add New Product"
+        >
+          <Plus size={16} />
+          <span>Add Product</span>
+        </button>
       </div>
 
       {/* Main Inventory Table */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         {loading ? (
-          <div className="flex h-72 items-center justify-center">
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 size={24} className="animate-spin text-emerald-600" />
-              <p className="text-xs font-bold text-gray-400">Loading catalog...</p>
+          <>
+            {/* Mobile Skeletons (<640px) */}
+            <div className="block sm:hidden divide-y divide-gray-100">
+              {[...Array(4)].map((_, i) => (
+                <div key={`m-skel-${i}`} className="p-4 space-y-3 bg-white animate-pulse">
+                  {/* Thumbnail & Title Skeleton */}
+                  <div className="flex items-start gap-3">
+                    <div className="h-14 w-14 rounded-xl bg-gray-200 shrink-0" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="h-4 w-36 bg-gray-200 rounded-md" />
+                        <div className="h-4 w-16 bg-gray-200 rounded-full" />
+                      </div>
+                      <div className="h-3 w-20 bg-gray-100 rounded-md" />
+                      <div className="h-3 w-16 bg-gray-100 rounded-md" />
+                    </div>
+                  </div>
+                  {/* Price & Stock Skeleton */}
+                  <div className="flex items-center justify-between bg-gray-50/90 rounded-xl px-3.5 py-2.5 border border-gray-100">
+                    <div>
+                      <div className="h-2.5 w-8 bg-gray-200 rounded mb-1" />
+                      <div className="h-5 w-14 bg-gray-200 rounded-md" />
+                    </div>
+                    <div className="text-right">
+                      <div className="h-2.5 w-14 bg-gray-200 rounded mb-1 ml-auto" />
+                      <div className="h-4 w-12 bg-gray-200 rounded-md ml-auto" />
+                    </div>
+                  </div>
+                  {/* Actions Skeleton */}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <div className="flex-1 min-h-[44px] rounded-xl bg-gray-100 border border-gray-200" />
+                    <div className="h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl bg-gray-100 border border-gray-200 shrink-0" />
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+
+            {/* Desktop Table Skeletons (>=640px) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 text-[11px] font-bold uppercase tracking-wider text-gray-500 backdrop-blur-xs">
+                  <tr>
+                    <th className="px-6 py-3.5">Product</th>
+                    <th className="px-6 py-3.5">SKU / ID</th>
+                    <th className="px-6 py-3.5">Price</th>
+                    <th className="px-6 py-3.5">Stock &amp; Status</th>
+                    <th className="px-6 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {[...Array(6)].map((_, i) => (
+                    <tr key={`d-skel-${i}`} className="animate-pulse">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3.5">
+                          <div className="h-12 w-12 rounded-xl bg-gray-200 shrink-0" />
+                          <div className="space-y-1.5">
+                            <div className="h-3.5 w-44 bg-gray-200 rounded-md" />
+                            <div className="h-2.5 w-24 bg-gray-100 rounded-md" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-3.5 w-20 bg-gray-100 rounded-md" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="h-4 w-14 bg-gray-200 rounded-md" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-1.5">
+                          <div className="h-3.5 w-14 bg-gray-200 rounded-md" />
+                          <div className="h-3 w-16 bg-gray-100 rounded-full" />
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="h-7.5 w-24 rounded-xl bg-gray-100 border border-gray-200" />
+                          <div className="h-8 w-8 rounded-xl bg-gray-100 border border-gray-200" />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : error ? (
           <div className="p-8 text-center text-rose-600">
             <p className="text-sm font-bold">{error}</p>
@@ -392,177 +786,295 @@ function Products() {
             No products found matching your filter criteria.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-gray-100 bg-gray-50/75 text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                <tr>
-                  <th className="px-6 py-3.5">Product</th>
-                  <th className="px-6 py-3.5">SKU / ID</th>
-                  <th className="px-6 py-3.5">Price (₹)</th>
-                  <th className="px-6 py-3.5">Stock Level</th>
-                  <th className="px-6 py-3.5">Status</th>
-                  <th className="px-6 py-3.5 text-right">Quick Stock Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
-                {displayedProducts.map((product) => {
-                  const isEditing = editingId === product.id;
-                  const isSaving = savingId === product.id;
-                  const stock = product.stock_quantity ?? 0;
-                  const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
-                  const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+          <>
+            {/* Mobile Stacked Card Layout (<640px) */}
+            <div className="block sm:hidden divide-y divide-gray-100">
+              {displayedProducts.map((product) => {
+                const stock = product.stock_quantity ?? 0;
+                const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
+                const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+                const imgUrl =
+                  product.image ||
+                  product.images?.[0]?.src ||
+                  "https://placehold.co/56x56?text=Item";
+                const categoryName =
+                  product.categories?.map((c) => c.name).join(", ") || "General";
+                const displayPrice = product.regular_price || product.price || 0;
 
-                  return (
-                    <tr key={product.id} className="hover:bg-gray-50/80 transition">
-                      {/* Product Thumbnail & Title */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={product.image || product.images?.[0]?.src || "https://placehold.co/50x50?text=Item"}
-                            alt={product.name}
-                            className="h-12 w-12 rounded-xl object-cover bg-gray-100 border border-gray-200 shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <p className="font-bold text-gray-900 truncate max-w-xs sm:max-w-sm">
-                              {product.name}
-                            </p>
-                            <p className="text-[11px] text-gray-400 truncate">
-                              {product.categories?.map((c) => c.name).join(", ") || "General"}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* SKU / ID */}
-                      <td className="px-6 py-4 font-mono text-gray-500">
-                        {product.sku || `#${product.id}`}
-                      </td>
-
-                      {/* Regular Price (Editable) */}
-                      <td className="px-6 py-4">
-                        {isEditing ? (
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-400 font-bold">₹</span>
-                            <input
-                              type="number"
-                              value={editForm.regular_price}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, regular_price: e.target.value })
-                              }
-                              className="w-20 rounded-lg border border-emerald-500 px-2 py-1 text-xs font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500/20"
-                            />
-                          </div>
-                        ) : (
-                          <span className="font-bold text-gray-900">
-                            ₹{product.regular_price || product.price || 0}
+                return (
+                  <div
+                    key={`mobile-${product.id}`}
+                    className="p-4 space-y-3 bg-white hover:bg-gray-50/50 transition"
+                  >
+                    {/* Top Row: Thumbnail + Title + Category + SKU + Status */}
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={imgUrl}
+                        alt={product.name}
+                        className="h-14 w-14 rounded-xl object-cover bg-gray-100 border border-gray-200 shrink-0"
+                        loading="lazy"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2">
+                            {product.name}
+                          </h4>
+                          <span
+                            className={`inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              isOutOfStock
+                                ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                : isLowStock
+                                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            }`}
+                          >
+                            {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
                           </span>
-                        )}
-                      </td>
+                        </div>
+                        <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {categoryName}
+                        </p>
+                        <p className="font-mono text-[11px] text-gray-500 mt-0.5">
+                          {product.sku || `#${product.id}`}
+                        </p>
+                      </div>
+                    </div>
 
-                      {/* Stock Quantity (Editable) */}
-                      <td className="px-6 py-4">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={editForm.stock_quantity}
-                            onChange={(e) =>
-                              setEditForm({ ...editForm, stock_quantity: e.target.value })
-                            }
-                            className="w-16 rounded-lg border border-emerald-500 px-2 py-1 text-xs font-bold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500/20"
-                          />
-                        ) : (
-                          <span className="font-bold text-gray-900">{stock} units</span>
-                        )}
-                      </td>
-
-                      {/* Stock Status Badge */}
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                            isOutOfStock
-                              ? "bg-rose-50 text-rose-700 border border-rose-200"
-                              : isLowStock
-                              ? "bg-amber-50 text-amber-700 border border-amber-200"
-                              : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          }`}
-                        >
-                          {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
+                    {/* Metrics Row: Price & Stock Level */}
+                    <div className="flex items-center justify-between bg-gray-50/90 rounded-xl px-3.5 py-2.5 border border-gray-100">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-gray-400 block tracking-wider">
+                          Price
                         </span>
-                      </td>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-base font-extrabold text-gray-900">
+                            ₹{displayPrice}
+                          </span>
+                          {product.sale_price && Number(product.sale_price) < Number(displayPrice) && (
+                            <span className="text-[11px] font-bold text-rose-600">
+                              (Sale: ₹{product.sale_price})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-gray-400 block tracking-wider">
+                          Stock Level
+                        </span>
+                        <span className="text-xs font-bold text-gray-800">
+                          {stock} units
+                        </span>
+                      </div>
+                    </div>
 
-                      {/* Actions */}
-                      <td className="px-6 py-4 text-right">
-                        {isEditing ? (
-                          <div className="flex items-center justify-end gap-1.5">
+                    {/* Actions: Large Adjust Stock & Price button + 44x44px Touch Delete target */}
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenQuickAdjust(product)}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 font-bold text-xs transition cursor-pointer active:scale-[0.98]"
+                      >
+                        <Edit2 size={15} />
+                        <span>Adjust Stock &amp; Price</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmProduct(product)}
+                        disabled={deletingId === product.id}
+                        className="h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition cursor-pointer disabled:opacity-50 active:scale-95"
+                        title="Delete Product"
+                        aria-label="Delete Product"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Inventory Table (>=640px) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 text-[11px] font-bold uppercase tracking-wider text-gray-500 backdrop-blur-xs">
+                  <tr>
+                    <th className="px-6 py-3.5">Product</th>
+                    <th className="px-6 py-3.5">SKU / ID</th>
+                    <th className="px-6 py-3.5">Price</th>
+                    <th className="px-6 py-3.5">Stock &amp; Status</th>
+                    <th className="px-6 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
+                  {displayedProducts.map((product) => {
+                    const stock = product.stock_quantity ?? 0;
+                    const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
+                    const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+                    const imgUrl =
+                      product.image ||
+                      product.images?.[0]?.src ||
+                      "https://placehold.co/50x50?text=Item";
+                    const categoryName =
+                      product.categories?.map((c) => c.name).join(", ") || "General";
+                    const displayPrice = product.regular_price || product.price || 0;
+
+                    return (
+                      <tr key={product.id} className="hover:bg-slate-50/80 transition">
+                        {/* Product Column: Thumbnail, Name, Category */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3.5">
+                            <img
+                              src={imgUrl}
+                              alt={product.name}
+                              className="h-12 w-12 rounded-xl object-cover bg-gray-100 border border-gray-200 shrink-0"
+                              loading="lazy"
+                            />
+                            <div className="min-w-0 max-w-xs lg:max-w-md">
+                              <p className="font-bold text-gray-900 truncate" title={product.name}>
+                                {product.name}
+                              </p>
+                              <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                                {categoryName}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* SKU Column with optional copy action */}
+                        <td className="px-6 py-4">
+                          <div className="inline-flex items-center gap-1.5 group font-mono text-xs text-gray-600">
+                            <span>{product.sku || `#${product.id}`}</span>
                             <button
-                              onClick={() => handleSaveEdit(product.id)}
-                              disabled={isSaving}
-                              className="flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50"
+                              type="button"
+                              onClick={(e) => handleCopySku(product, e)}
+                              className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition cursor-pointer opacity-60 group-hover:opacity-100"
+                              title="Copy SKU"
+                              aria-label="Copy SKU"
                             >
-                              {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                              Save
-                            </button>
-                            <button
-                              onClick={handleCancelEdit}
-                              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
-                            >
-                              <X size={12} />
+                              {copiedSkuId === product.id ? (
+                                <Check size={12} className="text-emerald-600" />
+                              ) : (
+                                <Copy size={12} />
+                              )}
                             </button>
                           </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-1.5">
+                        </td>
+
+                        {/* Price Column */}
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="font-extrabold text-gray-900 text-xs">
+                              ₹{displayPrice}
+                            </span>
+                            {product.sale_price && Number(product.sale_price) < Number(displayPrice) && (
+                              <span className="text-[10px] text-rose-600 font-bold">
+                                Sale: ₹{product.sale_price}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Stock Column with clear stock/status indication */}
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-bold text-gray-900 text-xs">{stock} units</span>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                isOutOfStock
+                                  ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                  : isLowStock
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              }`}
+                            >
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  isOutOfStock ? "bg-rose-500" : isLowStock ? "bg-amber-500" : "bg-emerald-500"
+                                }`}
+                              />
+                              {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Actions: Quick Adjust + Delete */}
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => handleStartEdit(product)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:border-emerald-300 hover:text-emerald-600 transition cursor-pointer"
+                              type="button"
+                              onClick={() => handleOpenQuickAdjust(product)}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 hover:border-emerald-400 transition cursor-pointer active:scale-95 shadow-2xs"
                             >
                               <Edit2 size={12} />
-                              Edit Stock / Price
+                              <span>Quick Adjust</span>
                             </button>
                             <button
+                              type="button"
                               onClick={() => setDeleteConfirmProduct(product)}
                               disabled={deletingId === product.id}
-                              className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition cursor-pointer disabled:opacity-50"
+                              className="inline-flex items-center justify-center h-8 w-8 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 hover:border-rose-300 transition cursor-pointer disabled:opacity-50 active:scale-95 shadow-2xs"
                               title="Delete Product"
+                              aria-label="Delete Product"
                             >
                               <Trash2 size={13} />
                             </button>
                           </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
-        {/* Pagination Bar */}
-        {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50/50 px-6 py-4">
-            <p className="text-xs text-gray-500 font-medium">
-              Showing <span className="font-bold text-gray-900">{(page - 1) * perPage + 1}</span> to{" "}
-              <span className="font-bold text-gray-900">
-                {Math.min(page * perPage, totalProducts)}
-              </span>{" "}
-              of <span className="font-bold text-gray-900">{totalProducts}</span> products
-            </p>
+        {/* Pagination Bar with Per-Page Selector */}
+        {!loading && totalProducts > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0 border-t border-gray-100 bg-gray-50/50 px-4 sm:px-6 py-3.5 sm:py-4">
+            <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-center sm:justify-start">
+              <p className="text-xs text-gray-500 font-medium">
+                Showing <span className="font-bold text-gray-900">{(page - 1) * perPage + 1}</span> to{" "}
+                <span className="font-bold text-gray-900">
+                  {Math.min(page * perPage, totalProducts)}
+                </span>{" "}
+                of <span className="font-bold text-gray-900">{totalProducts}</span> products
+              </p>
+
+              {/* Rows Per Page Selector (20 / 50 / 100) */}
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="hidden sm:inline">Rows:</span>
+                <select
+                  value={perPage}
+                  onChange={(e) => {
+                    setPerPage(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-bold text-gray-700 outline-none focus:border-emerald-500 cursor-pointer shadow-2xs"
+                  aria-label="Rows per page"
+                >
+                  <option value={20}>20 / page</option>
+                  <option value={50}>50 / page</option>
+                  <option value={100}>100 / page</option>
+                </select>
+              </div>
+            </div>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(p - 1, 1))}
                 disabled={page <= 1}
-                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer"
+                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
               >
                 <ChevronLeft size={14} /> Prev
               </button>
               <span className="text-xs font-bold text-gray-700 px-2">
-                Page {page} of {totalPages}
+                Page {page} of {Math.max(1, totalPages)}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
                 disabled={page >= totalPages}
-                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer"
+                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
               >
                 Next <ChevronRight size={14} />
               </button>
@@ -570,6 +1082,176 @@ function Products() {
           </div>
         )}
       </div>
+
+      {/* Quick Adjust Stock & Price Bottom Sheet / Modal (Mobile) */}
+      {quickAdjustProduct && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200">
+          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+            {/* Mobile Pull Handle */}
+            <div className="mx-auto w-12 h-1.5 bg-gray-200 rounded-full mb-3 sm:hidden" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={
+                    quickAdjustProduct.image ||
+                    quickAdjustProduct.images?.[0]?.src ||
+                    "https://placehold.co/44x44?text=Item"
+                  }
+                  alt={quickAdjustProduct.name}
+                  className="h-11 w-11 rounded-xl object-cover border border-gray-200 shrink-0"
+                />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-gray-900 truncate">
+                    {quickAdjustProduct.name}
+                  </h3>
+                  <p className="text-[11px] font-mono text-gray-400">
+                    {quickAdjustProduct.sku || `#${quickAdjustProduct.id}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseQuickAdjust}
+                disabled={adjustSaving}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition cursor-pointer disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="mt-4 space-y-4">
+              {/* Stock Quantity */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Stock Quantity (Units)
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAdjustForm((prev) => ({
+                        ...prev,
+                        stock_quantity: calculateStockStep(prev.stock_quantity, -1),
+                      }))
+                    }
+                    className="h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border border-gray-200 bg-gray-50 text-gray-700 font-bold text-lg hover:bg-gray-100 flex items-center justify-center transition cursor-pointer active:scale-95"
+                    aria-label="Decrease stock by 1"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={adjustForm.stock_quantity}
+                    onChange={(e) =>
+                      setAdjustForm({ ...adjustForm, stock_quantity: e.target.value })
+                    }
+                    className="flex-1 min-h-[44px] rounded-xl border border-gray-200 px-3 text-center text-base font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAdjustForm((prev) => ({
+                        ...prev,
+                        stock_quantity: calculateStockStep(prev.stock_quantity, 1),
+                      }))
+                    }
+                    className="h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border border-gray-200 bg-gray-50 text-gray-700 font-bold text-lg hover:bg-gray-100 flex items-center justify-center transition cursor-pointer active:scale-95"
+                    aria-label="Increase stock by 1"
+                  >
+                    +
+                  </button>
+                </div>
+
+              </div>
+
+              {/* Regular Price & Sale Price Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Regular Price */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Regular Price (₹)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">
+                      ₹
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={adjustForm.regular_price}
+                      onChange={(e) =>
+                        setAdjustForm({ ...adjustForm, regular_price: e.target.value })
+                      }
+                      placeholder="0"
+                      className="w-full min-h-[44px] rounded-xl border border-gray-200 pl-8 pr-4 text-sm font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                </div>
+
+                {/* Sale Price */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Sale Price (₹)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">
+                      ₹
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={adjustForm.sale_price}
+                      onChange={(e) =>
+                        setAdjustForm({ ...adjustForm, sale_price: e.target.value })
+                      }
+                      placeholder="Optional"
+                      className="w-full min-h-[44px] rounded-xl border border-gray-200 pl-8 pr-4 text-sm font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCloseQuickAdjust}
+                  disabled={adjustSaving}
+                  className="flex-1 min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveQuickAdjust}
+                  disabled={adjustSaving}
+                  className="flex-1 min-h-[44px] flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                >
+                  {adjustSaving ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={15} />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add New Product Modal */}
       {showAddModal && (
@@ -583,7 +1265,7 @@ function Products() {
                 </p>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={handleCloseAddModal}
                 className="rounded-lg p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer"
               >
                 <X size={18} />
@@ -696,28 +1378,48 @@ function Products() {
                     disabled={uploadingImage}
                     className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer disabled:opacity-50 active:scale-95"
                   >
-                    {uploadingImage ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <ImageIcon size={14} />
-                        From Gallery
-                      </>
-                    )}
+                    <ImageIcon size={14} />
+                    From Gallery
                   </button>
 
                   {imagePreview && (
-                    <img
-                      src={imagePreview}
-                      alt="Preview"
-                      className="h-11 w-11 rounded-xl object-cover border border-gray-200 bg-gray-100 shadow-2xs"
-                    />
+                    <div className="relative group">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="h-11 w-11 rounded-xl object-cover border border-gray-200 bg-gray-100 shadow-2xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => clearImagePreview(true)}
+                        className="absolute -top-1.5 -right-1.5 bg-black/70 hover:bg-rose-600 text-white rounded-full p-0.5 transition cursor-pointer shadow-xs"
+                        title={uploadingImage ? "Cancel upload" : "Remove image"}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
                   )}
                 </div>
-                {newProduct.image_url && (
+
+                {uploadingImage && (
+                  <div className="mt-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium">
+                      <span className="flex items-center gap-1">
+                        <Loader2 size={12} className="animate-spin text-emerald-600" />
+                        Uploading to Media Library...
+                      </span>
+                      <span className="font-bold text-gray-700">{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
+                      <div
+                        className="h-full bg-emerald-500 transition-all duration-150 rounded-full"
+                        style={{ width: `${Math.max(5, uploadProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {!uploadingImage && newProduct.image_url && (
                   <p className="mt-1.5 text-[11px] text-emerald-600 font-medium truncate">
                     ✓ Uploaded: {newProduct.image_url}
                   </p>
@@ -727,7 +1429,7 @@ function Products() {
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={handleCloseAddModal}
                   className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
                 >
                   Cancel

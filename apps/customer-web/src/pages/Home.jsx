@@ -40,8 +40,8 @@ function Home() {
             setCategories(categoriesData.value);
           }
         }
-      } catch (err) {
-        console.error("Failed to load home data:", err);
+      } catch {
+        // Fallback or empty home state
       } finally {
         if (isMounted) setLoading(false);
       }

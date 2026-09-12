@@ -1,3 +1,5 @@
+import { getCatalogImageUrl } from "../../utils/imageUtils";
+
 function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
   const price = Number(item.prices?.price) / 100;
   const regularPrice = item.prices?.regular_price
@@ -13,8 +15,8 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
       {/* Product Image */}
       <div className="flex h-[90px] w-[90px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-[#ECECEC] bg-white p-1.5">
         <img
-          src={item.images?.[0]?.src}
-          alt={item.name}
+          src={getCatalogImageUrl(item)}
+          alt={item.name || "Cart item"}
           className="h-full w-full object-contain"
         />
       </div>

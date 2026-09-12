@@ -9,6 +9,7 @@ const authApi = axios.create({
   headers: {
     "X-Mumbai-Panel": "admin",
   },
+  timeout: 12000,
 });
 
 export const loginAdmin = async (email, password) => {

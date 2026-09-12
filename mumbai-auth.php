@@ -53,6 +53,19 @@ function mumbai_log($message) {
         error_log('[Mumbai Auth] ' . $message);
     }
 }
+
+/**
+ * Ensure the 'employee' role exists in WordPress
+ */
+add_action('init', function () {
+    if (!get_role('employee')) {
+        add_role('employee', 'Employee', [
+            'read'         => true,
+            'edit_posts'   => false,
+            'delete_posts' => false,
+        ]);
+    }
+});
 /*
  * ─────────────────────────────────────────────
  * COOKIE-BASED USER DETECTION
@@ -107,17 +120,6 @@ add_filter('determine_current_user', function ($user_id) {
  * ─────────────────────────────────────────────
  */
 add_action('rest_api_init', function () {
-    // Health check
-    register_rest_route('mumbai-auth/v1', '/test', [
-        'methods'             => 'GET',
-        'callback'            => function () {
-            return [
-                'success' => true,
-                'message' => 'Mumbai Auth API Working',
-            ];
-        },
-        'permission_callback' => '__return_true',
-    ]);
     // Auth endpoints (public)
     register_rest_route('mumbai-auth/v1', '/login', [
         'methods'             => 'POST',
@@ -144,10 +146,37 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_logout',
         'permission_callback' => '__return_true',
     ]);
+    register_rest_route('mumbai-auth/v1', '/sso', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_sso',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
     register_rest_route('mumbai-auth/v1', '/me', [
         'methods'             => 'GET',
         'callback'            => 'mumbai_me',
         'permission_callback' => '__return_true',
+    ]);
+    
+    // OTP Endpoints (Node.js only — require API key)
+    register_rest_route('mumbai-auth/v1', '/otp/store', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_otp_store',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/otp/verify', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_otp_verify',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/otp/invalidate', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_otp_invalidate',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/otp/reset-password', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_otp_reset_password',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     // Internal endpoints (Node.js only — require API key)
     register_rest_route('mumbai-auth/v1', '/addresses', [
@@ -213,6 +242,104 @@ add_action('rest_api_init', function () {
       'methods'             => ['PUT', 'POST'],
       'callback'            => 'mumbai_save_banners',
       'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    // Store Operating Hours endpoints
+    register_rest_route('mumbai-auth/v1', '/store-hours', [
+       'methods'             => 'GET',
+       'callback'            => 'mumbai_get_store_hours',
+       'permission_callback' => '__return_true',
+    ]);
+
+    register_rest_route('mumbai-auth/v1', '/store-hours', [
+      'methods'             => ['PUT', 'POST'],
+      'callback'            => 'mumbai_save_store_hours',
+      'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    // Media Orphan Cleanup & Lifecycle Management endpoints (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/media/track-pending', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_track_pending_media',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/media/mark-attached', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_mark_media_attached',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/media/delete-if-unreferenced', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_delete_media_if_unreferenced',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/media/cleanup-pending-orphans', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_cleanup_pending_orphans',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    // Live Inventory Stock Counts (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/products/stock-counts', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_get_product_stock_counts',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    // Employee Access & Allowlist Management (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/admin/employees', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_admin_get_employees',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/employees/access', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_request_employee_access',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/employees/approve', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_approve_employee',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/employees/reject', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_reject_employee',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/employees/status', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_update_employee_status',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/employees/revoke-sessions', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_revoke_employee_sessions',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    // Customer Directory Management (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/admin/customers', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_admin_get_customers',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    // Customer Suspension Management (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/admin/customer-suspension/lookup', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_admin_customer_suspension_lookup',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/customer-suspension/suspend', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_customer_suspension_suspend',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/customer-suspension/unsuspend', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_admin_customer_suspension_unsuspend',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
 });
 /*
@@ -349,15 +476,159 @@ function mumbai_login(WP_REST_Request $request)
 }
 /*
  * ─────────────────────────────────────────────
+ * SSO LOGIN / REGISTER (INTERNAL ONLY)
+ * ─────────────────────────────────────────────
+ * Forwards a pre-verified SSO user (e.g. Google)
+ * to WordPress, creating a session.
+ */
+function mumbai_sso(WP_REST_Request $request)
+{
+    $email      = sanitize_email($request->get_param('email'));
+    $name       = sanitize_text_field($request->get_param('name'));
+    $google_sub = sanitize_text_field($request->get_param('google_sub'));
+
+    if (!$email || !$google_sub) {
+        return new WP_Error('missing_data', 'Email and Google Sub are required for SSO.', ['status' => 400]);
+    }
+
+    $user = null;
+
+    // 1. Try finding by Google Sub
+    $users_by_sub = get_users([
+        'meta_key'   => '_google_sub',
+        'meta_value' => $google_sub,
+        'number'     => 1,
+        'fields'     => 'all',
+    ]);
+
+    if (!empty($users_by_sub)) {
+        $user = $users_by_sub[0];
+    }
+
+    // 2. Try finding by email (for first-time linking)
+    if (!$user) {
+        $user = get_user_by('email', $email);
+        
+        if ($user) {
+            // First time linking existing account to Google
+            update_user_meta($user->ID, '_google_sub', $google_sub);
+            mumbai_log("Linked Google Sub to existing user {$user->ID}");
+        }
+    }
+
+    // 3. Create new user if no match found
+    if (!$user) {
+        $email_prefix = current(explode('@', $email));
+        $username = sanitize_user($email_prefix, true);
+        if (empty($username)) {
+            $username = 'sso_' . wp_generate_password(8, false, false);
+        }
+        $original_username = $username;
+        $counter = 1;
+        while (username_exists($username)) {
+            $username = $original_username . $counter;
+            $counter++;
+        }
+
+        $random_password = wp_generate_password(16, true, true);
+        $user_id = wp_create_user($username, $random_password, $email);
+
+        if (is_wp_error($user_id)) {
+            return new WP_Error('registration_failed', $user_id->get_error_message(), ['status' => 500]);
+        }
+
+        $wp_user = new WP_User($user_id);
+        $wp_user->set_role('customer');
+
+        wp_update_user([
+            'ID'           => $user_id,
+            'display_name' => $name ? $name : $username,
+            'nickname'     => $name ? $name : $username,
+        ]);
+
+        update_user_meta($user_id, '_google_sub', $google_sub);
+
+        $user = get_user_by('id', $user_id);
+        mumbai_log("New user registered via SSO: {$user_id}");
+    }
+
+    // Clear any lockouts since SSO succeeds without password
+    delete_user_meta($user->ID, '_mumbai_failed_logins');
+    delete_user_meta($user->ID, '_mumbai_lockout_until');
+
+    wp_set_current_user($user->ID);
+
+    $expiration = time() + (30 * DAY_IN_SECONDS);
+    $session_manager = WP_Session_Tokens::get_instance($user->ID);
+    $session_token   = $session_manager->create($expiration);
+
+    wp_set_auth_cookie($user->ID, true, is_ssl(), $session_token);
+
+    $logged_in_cookie = wp_generate_auth_cookie($user->ID, $expiration, 'logged_in', $session_token);
+    $_COOKIE[LOGGED_IN_COOKIE] = $logged_in_cookie;
+    $rest_nonce = wp_create_nonce('wp_rest');
+
+    mumbai_log("User {$user->ID} logged in via SSO.");
+
+    return [
+        'success'     => true,
+        'message'     => 'SSO successful.',
+        'user'        => [
+            'id'       => $user->ID,
+            'name'     => $user->display_name,
+            'email'    => $user->user_email,
+            'username' => $user->user_login,
+        ],
+        'session'     => $logged_in_cookie,
+        'cookie_name' => LOGGED_IN_COOKIE,
+        'rest_nonce'  => $rest_nonce,
+    ];
+}
+
+/*
+ * ─────────────────────────────────────────────
  * REGISTER
  * ─────────────────────────────────────────────
  */
 function mumbai_register(WP_REST_Request $request)
 {
-    $name     = sanitize_text_field($request->get_param('name'));
-    $email    = sanitize_email($request->get_param('email'));
-    $password = $request->get_param('password');
-    if (!$name || !$email || !$password) {
+    $first_name = sanitize_text_field($request->get_param('first_name'));
+    $last_name  = sanitize_text_field($request->get_param('last_name'));
+    $name       = sanitize_text_field($request->get_param('name'));
+    $email      = sanitize_email($request->get_param('email'));
+    $password   = $request->get_param('password');
+
+    if (empty($first_name) || empty($last_name)) {
+        if (!empty($name)) {
+            $parts = preg_split('/\s+/', trim($name));
+            if (empty($first_name) && !empty($parts[0])) {
+                $first_name = $parts[0];
+            }
+            if (empty($last_name) && count($parts) > 1) {
+                $last_name = implode(' ', array_slice($parts, 1));
+            }
+        }
+    }
+
+    if (empty($first_name)) {
+        return new WP_Error(
+            'missing_first_name',
+            'First name is required.',
+            ['status' => 400]
+        );
+    }
+
+    if (empty($last_name)) {
+        return new WP_Error(
+            'missing_last_name',
+            'Last name is required.',
+            ['status' => 400]
+        );
+    }
+
+    $full_name = trim("{$first_name} {$last_name}");
+
+    if (!$email || !$password) {
         return new WP_Error(
             'missing_fields',
             'Name, email and password are required.',
@@ -415,9 +686,36 @@ function mumbai_register(WP_REST_Request $request)
 
     wp_update_user([
         'ID'           => $user_id,
-        'display_name' => $name,
-        'nickname'     => $name,
+        'first_name'   => $first_name,
+        'last_name'    => $last_name,
+        'display_name' => $full_name,
+        'nickname'     => $full_name,
     ]);
+
+    update_user_meta($user_id, 'billing_first_name', $first_name);
+    update_user_meta($user_id, 'billing_last_name', $last_name);
+    update_user_meta($user_id, 'shipping_first_name', $first_name);
+    update_user_meta($user_id, 'shipping_last_name', $last_name);
+
+    // Check if email was pre-allowlisted for employee access
+    $allowlist = get_option('_mumbai_employee_allowlist', []);
+    $norm_email = strtolower(trim($email));
+    if (is_array($allowlist) && isset($allowlist[$norm_email])) {
+        $entry = $allowlist[$norm_email];
+        update_user_meta($user_id, '_mumbai_employee_status', 'pending');
+        update_user_meta($user_id, '_mumbai_employee_requested_at', $entry['requested_at'] ?? time());
+        update_user_meta($user_id, '_mumbai_employee_notes', $entry['notes'] ?? '');
+        if (!empty($entry['requested_role'])) {
+            update_user_meta($user_id, '_mumbai_employee_requested_role', $entry['requested_role']);
+        }
+        if (!empty($entry['added_by'])) {
+            update_user_meta($user_id, '_mumbai_employee_added_by', $entry['added_by']);
+        }
+        unset($allowlist[$norm_email]);
+        update_option('_mumbai_employee_allowlist', $allowlist);
+        mumbai_log("Allowlisted employee registered as customer pending admin approval: {$user_id} ({$norm_email})");
+    }
+
     $user = get_user_by('id', $user_id);
     mumbai_log("New user registered: {$user_id}");
     return [
@@ -601,6 +899,53 @@ function mumbai_logout(WP_REST_Request $request)
  * Returns ONLY what the Node backend needs.
  * No cookie names, no debug data.
  */
+/**
+ * Normalize phone number to 10-digit Indian local format
+ */
+function mumbai_normalize_phone($phone) {
+    if (empty($phone)) return '';
+    $clean = preg_replace('/\D/', '', (string) $phone);
+    if (strlen($clean) === 12 && str_starts_with($clean, '91')) {
+        $clean = substr($clean, 2);
+    }
+    if (strlen($clean) === 11 && str_starts_with($clean, '0')) {
+        $clean = substr($clean, 1);
+    }
+    return $clean;
+}
+
+/**
+ * Effective Phone Verification Validator
+ * Cryptographically valid ONLY if:
+ * 1. _mumbai_is_phone_verified == 1 (or '1' or true)
+ * 2. _mumbai_verified_phone is not empty
+ * 3. billing_phone === _mumbai_verified_phone (both normalized)
+ *
+ * If _mumbai_verified_phone is missing, returns false (legacy unverified).
+ */
+function mumbai_is_user_phone_verified($user_id) {
+    if (!$user_id) {
+        return false;
+    }
+    $flag = get_user_meta($user_id, '_mumbai_is_phone_verified', true);
+    if (!($flag === '1' || $flag === 1 || $flag === true)) {
+        return false;
+    }
+    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+    if (empty($verified_phone)) {
+        return false;
+    }
+    $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
+    if (empty($billing_phone)) {
+        return false;
+    }
+
+    $clean_verified = mumbai_normalize_phone($verified_phone);
+    $clean_billing = mumbai_normalize_phone($billing_phone);
+
+    return (!empty($clean_verified) && $clean_verified === $clean_billing);
+}
+
 function mumbai_me()
 {
     if (!defined('LOGGED_IN_COOKIE')) {
@@ -630,10 +975,32 @@ function mumbai_me()
         ? get_user_by('id', $validated_user_id)
         : null;
 
+    $is_phone_verified = false;
+    $is_suspended = false;
+    $phone = '';
+    $verified_phone = '';
+    if ($user) {
+        $is_phone_verified = mumbai_is_user_phone_verified($user->ID);
+        $is_suspended = function_exists('mumbai_is_customer_suspended') ? mumbai_is_customer_suspended($user->ID) : false;
+        $verified_phone = (string) get_user_meta($user->ID, '_mumbai_verified_phone', true);
+        $phone = (string) get_user_meta($user->ID, 'billing_phone', true);
+        if (empty($phone)) {
+            $prof = get_user_meta($user->ID, '_mumbai_user_profile', true);
+            if (is_array($prof) && !empty($prof['phone'])) {
+                $phone = (string) $prof['phone'];
+            }
+        }
+    }
+
     return [
-        'logged_in'       => $validated_user_id > 0,
-        'current_user_id' => $validated_user_id,
-        'roles'           => $user ? array_values($user->roles) : [],
+        'logged_in'          => $validated_user_id > 0,
+        'current_user_id'    => $validated_user_id,
+        'email'              => $user ? (string) $user->user_email : '',
+        'roles'              => $user ? array_values($user->roles) : [],
+        'is_phone_verified'  => $is_phone_verified,
+        'is_suspended'       => $is_suspended,
+        'phone'              => $phone,
+        'verified_phone'     => $verified_phone,
     ];
 }
 /*
@@ -745,6 +1112,8 @@ function mumbai_save_address(WP_REST_Request $request)
         );
     }
     $type          = sanitize_key($request->get_param('type'));
+    $first_name    = sanitize_text_field($request->get_param('first_name'));
+    $last_name     = sanitize_text_field($request->get_param('last_name'));
     $full_name     = sanitize_text_field($request->get_param('full_name'));
     $phone         = sanitize_text_field($request->get_param('phone'));
     $address_line1 = sanitize_text_field($request->get_param('address_line1'));
@@ -752,6 +1121,37 @@ function mumbai_save_address(WP_REST_Request $request)
     $city          = sanitize_text_field($request->get_param('city'));
     $state         = sanitize_text_field($request->get_param('state'));
     $pincode       = sanitize_text_field($request->get_param('pincode'));
+
+    if (empty($first_name) || empty($last_name)) {
+        if (!empty($full_name)) {
+            $parts = preg_split('/\s+/', trim($full_name));
+            if (empty($first_name) && !empty($parts[0])) {
+                $first_name = $parts[0];
+            }
+            if (empty($last_name) && count($parts) > 1) {
+                $last_name = implode(' ', array_slice($parts, 1));
+            }
+        }
+    }
+
+    if (empty($first_name)) {
+        return new WP_Error(
+            'missing_first_name',
+            'First name is required.',
+            ['status' => 400]
+        );
+    }
+
+    if (empty($last_name)) {
+        return new WP_Error(
+            'missing_last_name',
+            'Last name is required.',
+            ['status' => 400]
+        );
+    }
+
+    $clean_full_name = trim("{$first_name} {$last_name}");
+
     if (!in_array($type, ['home', 'office'], true)) {
         return new WP_Error(
             'invalid_address_type',
@@ -759,7 +1159,7 @@ function mumbai_save_address(WP_REST_Request $request)
             ['status' => 400]
         );
     }
-    if (!$full_name || !$phone || !$address_line1 || !$city || !$state) {
+    if (!$phone || !$address_line1 || !$city || !$state) {
         return new WP_Error(
             'missing_address_fields',
             'Please provide all required address fields.',
@@ -773,7 +1173,9 @@ function mumbai_save_address(WP_REST_Request $request)
     $new_address = [
         'id'            => wp_generate_uuid4(),
         'type'          => $type,
-        'full_name'     => $full_name,
+        'first_name'    => $first_name,
+        'last_name'     => $last_name,
+        'full_name'     => $clean_full_name,
         'phone'         => $phone,
         'address_line1' => $address_line1,
         'address_line2' => $address_line2,
@@ -825,6 +1227,8 @@ function mumbai_update_address(WP_REST_Request $request)
         );
     }
     $type          = sanitize_key($request->get_param('type'));
+    $first_name    = sanitize_text_field($request->get_param('first_name'));
+    $last_name     = sanitize_text_field($request->get_param('last_name'));
     $full_name     = sanitize_text_field($request->get_param('full_name'));
     $phone         = sanitize_text_field($request->get_param('phone'));
     $address_line1 = sanitize_text_field($request->get_param('address_line1'));
@@ -832,6 +1236,37 @@ function mumbai_update_address(WP_REST_Request $request)
     $city          = sanitize_text_field($request->get_param('city'));
     $state         = sanitize_text_field($request->get_param('state'));
     $pincode       = sanitize_text_field($request->get_param('pincode'));
+
+    if (empty($first_name) || empty($last_name)) {
+        if (!empty($full_name)) {
+            $parts = preg_split('/\s+/', trim($full_name));
+            if (empty($first_name) && !empty($parts[0])) {
+                $first_name = $parts[0];
+            }
+            if (empty($last_name) && count($parts) > 1) {
+                $last_name = implode(' ', array_slice($parts, 1));
+            }
+        }
+    }
+
+    if (empty($first_name)) {
+        return new WP_Error(
+            'missing_first_name',
+            'First name is required.',
+            ['status' => 400]
+        );
+    }
+
+    if (empty($last_name)) {
+        return new WP_Error(
+            'missing_last_name',
+            'Last name is required.',
+            ['status' => 400]
+        );
+    }
+
+    $clean_full_name = trim("{$first_name} {$last_name}");
+
     if (!in_array($type, ['home', 'office'], true)) {
         return new WP_Error(
             'invalid_address_type',
@@ -839,7 +1274,7 @@ function mumbai_update_address(WP_REST_Request $request)
             ['status' => 400]
         );
     }
-    if (!$full_name || !$phone || !$address_line1 || !$city || !$state) {
+    if (!$phone || !$address_line1 || !$city || !$state) {
         return new WP_Error(
             'missing_address_fields',
             'Please provide all required address fields.',
@@ -857,7 +1292,9 @@ function mumbai_update_address(WP_REST_Request $request)
             $addresses[$index] = [
                 'id'            => $address_id,
                 'type'          => $type,
-                'full_name'     => $full_name,
+                'first_name'    => $first_name,
+                'last_name'     => $last_name,
+                'full_name'     => $clean_full_name,
                 'phone'         => $phone,
                 'address_line1' => $address_line1,
                 'address_line2' => $address_line2,
@@ -951,6 +1388,10 @@ function mumbai_get_profile(WP_REST_Request $request)
             ['status' => 401]
         );
     }
+    $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
+    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+    $is_phone_verified = mumbai_is_user_phone_verified($user_id);
+
     $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
     if (!is_array($profile)) {
         $profile = [
@@ -959,9 +1400,17 @@ function mumbai_get_profile(WP_REST_Request $request)
             'phone'     => '',
         ];
     }
+    // billing_phone is the canonical phone; sync it to profile
+    if (!empty($billing_phone)) {
+        $profile['phone'] = $billing_phone;
+    }
+
     return [
-        'success' => true,
-        'profile' => $profile,
+        'success'           => true,
+        'profile'           => $profile,
+        'is_phone_verified' => $is_phone_verified,
+        'verified_phone'    => $verified_phone,
+        'billing_phone'     => $billing_phone,
     ];
 }
 /*
@@ -979,10 +1428,43 @@ function mumbai_save_profile(WP_REST_Request $request)
             ['status' => 401]
         );
     }
-    $full_name = sanitize_text_field($request->get_param('full_name'));
-    $age       = absint($request->get_param('age'));
-    $phone     = sanitize_text_field($request->get_param('phone'));
-    if (!$full_name || !$age || !$phone) {
+    $first_name = sanitize_text_field($request->get_param('first_name'));
+    $last_name  = sanitize_text_field($request->get_param('last_name'));
+    $full_name  = sanitize_text_field($request->get_param('full_name'));
+    $age        = absint($request->get_param('age'));
+    $phone      = sanitize_text_field($request->get_param('phone'));
+
+    if (empty($first_name) || empty($last_name)) {
+        if (!empty($full_name)) {
+            $parts = preg_split('/\s+/', trim($full_name));
+            if (empty($first_name) && !empty($parts[0])) {
+                $first_name = $parts[0];
+            }
+            if (empty($last_name) && count($parts) > 1) {
+                $last_name = implode(' ', array_slice($parts, 1));
+            }
+        }
+    }
+
+    if (empty($first_name)) {
+        return new WP_Error(
+            'missing_first_name',
+            'First name is required.',
+            ['status' => 400]
+        );
+    }
+
+    if (empty($last_name)) {
+        return new WP_Error(
+            'missing_last_name',
+            'Last name is required.',
+            ['status' => 400]
+        );
+    }
+
+    $clean_full_name = trim("{$first_name} {$last_name}");
+
+    if (!$age || !$phone) {
         return new WP_Error(
             'missing_fields',
             'Full name, age and phone are required.',
@@ -996,16 +1478,55 @@ function mumbai_save_profile(WP_REST_Request $request)
             ['status' => 400]
         );
     }
+
+    $old_billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
+    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+
+    $clean_phone = mumbai_normalize_phone($phone);
+    $clean_old_billing = mumbai_normalize_phone($old_billing_phone);
+    $clean_verified = mumbai_normalize_phone($verified_phone);
+
+    // Business rule: Verified phone numbers cannot be changed via standard profile update; phone change requires OTP verification
+    if (!empty($verified_phone)) {
+        $clean_phone = $clean_verified;
+    } else {
+        if ($clean_phone !== $clean_old_billing) {
+            update_user_meta($user_id, 'billing_phone', $clean_phone);
+            update_user_meta($user_id, '_mumbai_is_phone_verified', 0);
+            delete_user_meta($user_id, '_mumbai_verified_phone');
+        }
+    }
+
+    wp_update_user([
+        'ID'           => $user_id,
+        'first_name'   => $first_name,
+        'last_name'    => $last_name,
+        'display_name' => $clean_full_name,
+    ]);
+    update_user_meta($user_id, 'billing_first_name', $first_name);
+    update_user_meta($user_id, 'billing_last_name', $last_name);
+    update_user_meta($user_id, 'shipping_first_name', $first_name);
+    update_user_meta($user_id, 'shipping_last_name', $last_name);
+
     $profile = [
-        'full_name' => $full_name,
-        'age'       => $age,
-        'phone'     => $phone,
+        'first_name' => $first_name,
+        'last_name'  => $last_name,
+        'full_name'  => $clean_full_name,
+        'age'        => $age,
+        'phone'      => $clean_phone,
     ];
     update_user_meta($user_id, '_mumbai_user_profile', $profile);
+
+    $is_phone_verified = mumbai_is_user_phone_verified($user_id);
+    $current_verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+
     return [
-        'success' => true,
-        'message' => 'Profile saved successfully.',
-        'profile' => $profile,
+        'success'           => true,
+        'message'           => 'Profile saved successfully.',
+        'profile'           => $profile,
+        'is_phone_verified' => $is_phone_verified,
+        'verified_phone'    => $current_verified_phone,
+        'billing_phone'     => (string) get_user_meta($user_id, 'billing_phone', true),
     ];
 }
 /*
@@ -1031,10 +1552,14 @@ function mumbai_check_profile_complete(WP_REST_Request $request)
     if (!is_array($addresses)) {
         $addresses = [];
     }
+    $is_phone_verified = mumbai_is_user_phone_verified($user_id);
+    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+
     $profile_complete =
         !empty($profile['full_name']) &&
         !empty($profile['age']) &&
-        !empty($profile['phone']);
+        !empty($profile['phone']) &&
+        $is_phone_verified;
     $has_address = false;
     foreach ($addresses as $address) {
         if (
@@ -1047,12 +1572,14 @@ function mumbai_check_profile_complete(WP_REST_Request $request)
     }
     $complete = $profile_complete && $has_address;
     return [
-        'success'          => true,
-        'complete'         => $complete,
-        'profile_complete' => $profile_complete,
-        'address_complete' => $has_address,
-        'profile'          => $profile,
-        'addresses'        => $addresses,
+        'success'           => true,
+        'complete'          => $complete,
+        'profile_complete'  => $profile_complete,
+        'address_complete'  => $has_address,
+        'is_phone_verified' => $is_phone_verified,
+        'verified_phone'    => $verified_phone,
+        'profile'           => $profile,
+        'addresses'         => $addresses,
     ];
 }
 /*
@@ -1321,6 +1848,25 @@ add_action('woocommerce_store_api_checkout_update_order_from_request', function 
             400
         );
     }
+
+    // Enforce verified mobile phone and active suspension check on customer account before allowing order creation
+    $customer_id = $order->get_customer_id();
+    if ($customer_id > 0) {
+        if (function_exists('mumbai_is_customer_suspended') && mumbai_is_customer_suspended($customer_id)) {
+            throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
+                'CUSTOMER_SUSPENDED',
+                'Your account is currently suspended and you cannot place new orders.',
+                403
+            );
+        }
+        if (!mumbai_is_user_phone_verified($customer_id)) {
+            throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
+                'woocommerce_rest_phone_unverified',
+                'Please verify your mobile number with OTP before placing an order.',
+                403
+            );
+        }
+    }
 }, 10, 2);
 
 add_action('woocommerce_check_cart_items', function () {
@@ -1336,4 +1882,1487 @@ add_action('woocommerce_check_cart_items', function () {
         }
     }
 });
-
+
+/*
+ * ─────────────────────────────────────────────
+ * OTP ENDPOINTS & PHONE VERIFICATION HOOKS
+ * ─────────────────────────────────────────────
+ */
+
+// Reset phone verification when billing_phone changes
+add_action('updated_user_meta', 'mumbai_reset_phone_verification', 10, 4);
+add_action('added_user_meta', 'mumbai_reset_phone_verification', 10, 4);
+function mumbai_reset_phone_verification($meta_id, $user_id, $meta_key, $meta_value) {
+    if ($meta_key === 'billing_phone') {
+        $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+        $clean_new = mumbai_normalize_phone((string) $meta_value);
+        $clean_verified = mumbai_normalize_phone($verified_phone);
+
+        if (empty($clean_verified) || $clean_new !== $clean_verified) {
+            $current = get_user_meta($user_id, '_mumbai_is_phone_verified', true);
+            if ($current !== '0' && $current !== 0) {
+                update_user_meta($user_id, '_mumbai_is_phone_verified', 0);
+            }
+            delete_user_meta($user_id, '_mumbai_verified_phone');
+        }
+    }
+}
+
+function mumbai_get_user_by_phone($phone) {
+    if (empty($phone)) return null;
+    $users = get_users([
+        'meta_key'   => 'billing_phone',
+        'meta_value' => sanitize_text_field($phone),
+        'number'     => 1,
+        'fields'     => 'all',
+    ]);
+    return !empty($users) ? $users[0] : null;
+}
+
+function mumbai_otp_store(WP_REST_Request $request) {
+    $purpose = sanitize_text_field($request->get_param('purpose'));
+    $phone = sanitize_text_field($request->get_param('phone'));
+    $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
+    $user_id = (int) $request->get_param('user_id');
+
+    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password'])) {
+        return new WP_Error('invalid_params', 'Missing required parameters.', ['status' => 400]);
+    }
+
+    $generic_success = [
+        'success' => true,
+        'message' => 'If the number is registered, an OTP has been sent.',
+    ];
+
+    $user = null;
+    if ($purpose === 'reset_password') {
+        $user = mumbai_get_user_by_phone($phone);
+        if (!$user) {
+            return array_merge($generic_success, ['user_found' => false]);
+        }
+    } else {
+        if (!$user_id) {
+            return new WP_Error('missing_user', 'User ID required for phone verification.', ['status' => 400]);
+        }
+        $user = get_user_by('id', $user_id);
+        if (!$user) {
+            return new WP_Error('invalid_user', 'Invalid User ID.', ['status' => 400]);
+        }
+
+        // Check if phone number is already registered to another user account
+        $existing_user = mumbai_get_user_by_phone($phone);
+        if ($existing_user && (int) $existing_user->ID !== (int) $user->ID) {
+            return new WP_Error('phone_in_use', 'This phone number is already registered to another account.', ['status' => 409]);
+        }
+    }
+
+    $last_request = (int) get_user_meta($user->ID, '_mumbai_last_otp_request', true);
+    if ($last_request && (time() - $last_request) < 60) {
+        if ($purpose === 'reset_password') return array_merge($generic_success, ['user_found' => true, 'rate_limited' => true]);
+        return new WP_Error('rate_limit', 'Please wait 60 seconds before requesting a new OTP.', ['status' => 429]);
+    }
+
+    update_user_meta($user->ID, '_mumbai_last_otp_request', time());
+    update_user_meta($user->ID, '_mumbai_otp_hash', $otp_hash);
+    update_user_meta($user->ID, '_mumbai_otp_expires', time() + 300);
+    update_user_meta($user->ID, '_mumbai_otp_attempts', 0);
+
+    return $purpose === 'reset_password' ? array_merge($generic_success, ['user_found' => true]) : [
+        'success' => true,
+        'message' => 'OTP stored successfully.',
+        'user_found' => true,
+    ];
+}
+
+function mumbai_otp_invalidate(WP_REST_Request $request) {
+    $purpose = sanitize_text_field($request->get_param('purpose'));
+    $phone = sanitize_text_field($request->get_param('phone'));
+    $user_id = (int) $request->get_param('user_id');
+
+    $user = null;
+    if ($purpose === 'reset_password') {
+        $user = mumbai_get_user_by_phone($phone);
+    } else if ($user_id) {
+        $user = get_user_by('id', $user_id);
+    }
+
+    if ($user) {
+        delete_user_meta($user->ID, '_mumbai_otp_hash');
+        delete_user_meta($user->ID, '_mumbai_otp_expires');
+        delete_user_meta($user->ID, '_mumbai_otp_attempts');
+    }
+
+    return ['success' => true];
+}
+
+function mumbai_otp_verify(WP_REST_Request $request) {
+    $purpose = sanitize_text_field($request->get_param('purpose'));
+    $phone = sanitize_text_field($request->get_param('phone'));
+    $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
+    $user_id = (int) $request->get_param('user_id');
+
+    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password'])) {
+        return new WP_Error('invalid_params', 'Missing required parameters.', ['status' => 400]);
+    }
+
+    $user = null;
+    if ($purpose === 'reset_password') {
+        $user = mumbai_get_user_by_phone($phone);
+        if (!$user) {
+            return new WP_Error('invalid_otp', 'Invalid or expired OTP.', ['status' => 400]);
+        }
+    } else {
+        if (!$user_id) return new WP_Error('missing_user', 'User ID required.', ['status' => 400]);
+        $user = get_user_by('id', $user_id);
+        if (!$user) return new WP_Error('invalid_user', 'Invalid User.', ['status' => 400]);
+
+        // Check if phone number is already registered to another user account
+        $existing_user = mumbai_get_user_by_phone($phone);
+        if ($existing_user && (int) $existing_user->ID !== (int) $user->ID) {
+            return new WP_Error('phone_in_use', 'This phone number is already registered to another account.', ['status' => 409]);
+        }
+    }
+
+    $stored_hash = get_user_meta($user->ID, '_mumbai_otp_hash', true);
+    $expires = (int) get_user_meta($user->ID, '_mumbai_otp_expires', true);
+    $attempts = (int) get_user_meta($user->ID, '_mumbai_otp_attempts', true);
+
+    if (!$stored_hash || time() > $expires) {
+        return new WP_Error('expired_otp', 'OTP has expired.', ['status' => 400]);
+    }
+
+    if ($attempts >= 5) {
+        delete_user_meta($user->ID, '_mumbai_otp_hash');
+        delete_user_meta($user->ID, '_mumbai_otp_expires');
+        return new WP_Error('max_attempts', 'Too many failed attempts. Please request a new OTP.', ['status' => 429]);
+    }
+
+    if (!hash_equals($stored_hash, $otp_hash)) {
+        update_user_meta($user->ID, '_mumbai_otp_attempts', $attempts + 1);
+        return new WP_Error('invalid_otp', 'Invalid OTP.', ['status' => 400]);
+    }
+
+    // Success! Clear OTP state.
+    delete_user_meta($user->ID, '_mumbai_otp_hash');
+    delete_user_meta($user->ID, '_mumbai_otp_expires');
+    delete_user_meta($user->ID, '_mumbai_otp_attempts');
+
+    if ($purpose === 'verify_phone') {
+        $clean_phone = mumbai_normalize_phone($phone);
+        update_user_meta($user->ID, '_mumbai_verified_phone', $clean_phone);
+        update_user_meta($user->ID, 'billing_phone', $clean_phone);
+        update_user_meta($user->ID, '_mumbai_is_phone_verified', 1);
+
+        $prof = get_user_meta($user->ID, '_mumbai_user_profile', true);
+        if (is_array($prof)) {
+            $prof['phone'] = $clean_phone;
+            update_user_meta($user->ID, '_mumbai_user_profile', $prof);
+        }
+        
+        return [
+            'success'           => true,
+            'message'           => 'Phone verified successfully.',
+            'phone'             => $clean_phone,
+            'verified_phone'    => $clean_phone,
+            'is_phone_verified' => true,
+        ];
+    } else {
+        $reset_token = wp_generate_password(64, false, false);
+        $reset_token_hash = hash('sha256', $reset_token);
+        update_user_meta($user->ID, '_mumbai_reset_auth_token', $reset_token_hash);
+        update_user_meta($user->ID, '_mumbai_reset_auth_expires', time() + 900);
+
+        return [
+            'success' => true,
+            'message' => 'OTP verified. Proceed to reset password.',
+            'reset_token' => $reset_token,
+        ];
+    }
+}
+
+function mumbai_otp_reset_password(WP_REST_Request $request) {
+    $phone = sanitize_text_field($request->get_param('phone'));
+    $reset_token = sanitize_text_field($request->get_param('reset_token'));
+    $new_password = $request->get_param('new_password');
+
+    if (!$phone || !$reset_token || !$new_password) {
+        return new WP_Error('missing_params', 'Required parameters missing.', ['status' => 400]);
+    }
+    if (strlen($new_password) < 8) {
+        return new WP_Error('weak_password', 'Password must be at least 8 characters.', ['status' => 400]);
+    }
+
+    $user = mumbai_get_user_by_phone($phone);
+    if (!$user) {
+        return new WP_Error('invalid_request', 'Invalid request.', ['status' => 400]);
+    }
+
+    $stored_hash = get_user_meta($user->ID, '_mumbai_reset_auth_token', true);
+    $expires = (int) get_user_meta($user->ID, '_mumbai_reset_auth_expires', true);
+    $token_hash = hash('sha256', $reset_token);
+
+    if (!$stored_hash || time() > $expires || !hash_equals($stored_hash, $token_hash)) {
+        return new WP_Error('invalid_token', 'Reset session expired or invalid. Please verify OTP again.', ['status' => 401]);
+    }
+
+    reset_password($user, $new_password);
+    
+    WP_Session_Tokens::get_instance($user->ID)->destroy_all();
+    delete_user_meta($user->ID, '_mumbai_failed_logins');
+    delete_user_meta($user->ID, '_mumbai_lockout_until');
+    delete_user_meta($user->ID, '_mumbai_reset_auth_token');
+    delete_user_meta($user->ID, '_mumbai_reset_auth_expires');
+
+    return [
+        'success' => true,
+        'message' => 'Password reset successfully.',
+    ];
+}
+
+/*
+ * ─────────────────────────────────────────────
+ * PRODUCT MEDIA LIFECYCLE & SAFE ORPHAN CLEANUP
+ * ─────────────────────────────────────────────
+ */
+
+/**
+ * Strict 6-point check to verify if a media ID is referenced anywhere in WordPress.
+ * 
+ * @param int $media_id
+ * @return array|false Returns reference details if referenced, or false if unreferenced.
+ */
+function mumbai_is_media_referenced($media_id) {
+    global $wpdb;
+    $media_id = absint($media_id);
+    if (!$media_id) {
+        return false;
+    }
+
+    // 1. Featured image reference (_thumbnail_id) across all post types (products, variations, posts, pages)
+    $thumbnail_ref = $wpdb->get_var($wpdb->prepare(
+        "SELECT pm.post_id FROM {$wpdb->postmeta} pm
+         INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+         WHERE pm.meta_key = '_thumbnail_id' 
+           AND pm.meta_value = %s
+           AND p.post_status != 'trash'
+         LIMIT 1",
+        (string) $media_id
+    ));
+    if (!empty($thumbnail_ref)) {
+        return [
+            'referenced' => true,
+            'type'       => '_thumbnail_id',
+            'post_id'    => (int) $thumbnail_ref,
+        ];
+    }
+
+    // 2. Product gallery reference (_product_image_gallery) - comma-separated list of media IDs
+    // Formats: '123' OR '123,...' OR '...,123,...' OR '...,123'
+    $str_id = (string) $media_id;
+    $gallery_ref = $wpdb->get_var($wpdb->prepare(
+        "SELECT pm.post_id FROM {$wpdb->postmeta} pm
+         INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+         WHERE pm.meta_key = '_product_image_gallery'
+           AND (pm.meta_value = %s 
+                OR pm.meta_value LIKE %s 
+                OR pm.meta_value LIKE %s 
+                OR pm.meta_value LIKE %s)
+           AND p.post_status != 'trash'
+         LIMIT 1",
+        $str_id,
+        $str_id . ',%',
+        '%,' . $str_id . ',%',
+        '%,' . $str_id
+    ));
+    if (!empty($gallery_ref)) {
+        return [
+            'referenced' => true,
+            'type'       => '_product_image_gallery',
+            'post_id'    => (int) $gallery_ref,
+        ];
+    }
+
+    // 3. Category / Term thumbnail reference (WooCommerce category images stored in termmeta)
+    $term_ref = $wpdb->get_var($wpdb->prepare(
+        "SELECT term_id FROM {$wpdb->termmeta}
+         WHERE meta_key = 'thumbnail_id'
+           AND meta_value = %s
+         LIMIT 1",
+        $str_id
+    ));
+    if (!empty($term_ref)) {
+        return [
+            'referenced' => true,
+            'type'       => 'termmeta_thumbnail_id',
+            'term_id'    => (int) $term_ref,
+        ];
+    }
+
+    // 4. Homepage banners option check
+    $banners = get_option('mumbai_homepage_banners', []);
+    if (is_array($banners)) {
+        foreach ($banners as $b) {
+            if (!is_array($b)) continue;
+            $desktop_id = !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : 0;
+            $mobile_id = !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : 0;
+            if ($desktop_id === $media_id || $mobile_id === $media_id) {
+                return [
+                    'referenced' => true,
+                    'type'       => 'homepage_banner',
+                    'banner_id'  => $b['id'] ?? 'unknown',
+                ];
+            }
+        }
+    }
+
+    // 5. Active parent post check (if attachment has post_parent > 0 and that parent post is not in trash)
+    $parent_id = $wpdb->get_var($wpdb->prepare(
+        "SELECT post_parent FROM {$wpdb->posts} WHERE ID = %d AND post_type = 'attachment'",
+        $media_id
+    ));
+    if (!empty($parent_id) && (int) $parent_id > 0) {
+        $parent_status = $wpdb->get_var($wpdb->prepare(
+            "SELECT post_status FROM {$wpdb->posts} WHERE ID = %d",
+            $parent_id
+        ));
+        if ($parent_status && $parent_status !== 'trash') {
+            return [
+                'referenced' => true,
+                'type'       => 'post_parent',
+                'parent_id'  => (int) $parent_id,
+            ];
+        }
+    }
+
+    // 6. Embedded in published post/page/product content
+    $attachment_url = wp_get_attachment_url($media_id);
+    if (!empty($attachment_url)) {
+        $filename = basename($attachment_url);
+        if (!empty($filename)) {
+            $content_ref = $wpdb->get_var($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts}
+                 WHERE post_status = 'publish'
+                   AND post_type IN ('product', 'post', 'page')
+                   AND post_content LIKE %s
+                 LIMIT 1",
+                '%' . $wpdb->esc_like($filename) . '%'
+            ));
+            if (!empty($content_ref)) {
+                return [
+                    'referenced' => true,
+                    'type'       => 'post_content',
+                    'post_id'    => (int) $content_ref,
+                ];
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Track a newly uploaded media attachment as pending.
+ */
+function mumbai_track_pending_media(WP_REST_Request $request) {
+    $media_id = absint($request->get_param('media_id'));
+    $uploader_id = absint($request->get_param('uploader_id'));
+
+    if (!$media_id) {
+        return new WP_Error('invalid_media_id', 'Valid media_id required.', ['status' => 400]);
+    }
+
+    $post = get_post($media_id);
+    if (!$post || $post->post_type !== 'attachment') {
+        return new WP_Error('media_not_found', 'Media attachment not found.', ['status' => 404]);
+    }
+
+    update_post_meta($media_id, '_mumbai_upload_status', 'pending');
+    update_post_meta($media_id, '_mumbai_upload_time', time());
+    if ($uploader_id > 0) {
+        update_post_meta($media_id, '_mumbai_uploader_id', $uploader_id);
+    }
+
+    return [
+        'success'   => true,
+        'media_id'  => $media_id,
+        'status'    => 'pending',
+        'timestamp' => time(),
+    ];
+}
+
+/**
+ * Mark uploaded media as attached to a product.
+ */
+function mumbai_mark_media_attached(WP_REST_Request $request) {
+    $media_ids = $request->get_param('media_ids');
+    $product_id = absint($request->get_param('product_id'));
+
+    if (!is_array($media_ids) || empty($media_ids)) {
+        return new WP_Error('invalid_media_ids', 'media_ids array required.', ['status' => 400]);
+    }
+
+    $updated = [];
+    foreach ($media_ids as $id) {
+        $m_id = absint($id);
+        if (!$m_id) continue;
+
+        $post = get_post($m_id);
+        if (!$post || $post->post_type !== 'attachment') continue;
+
+        update_post_meta($m_id, '_mumbai_upload_status', 'attached');
+        if ($product_id > 0) {
+            update_post_meta($m_id, '_mumbai_attached_product_id', $product_id);
+            if ((int) $post->post_parent === 0) {
+                wp_update_post([
+                    'ID'          => $m_id,
+                    'post_parent' => $product_id,
+                ]);
+            }
+        }
+        $updated[] = $m_id;
+    }
+
+    return [
+        'success'     => true,
+        'updated_ids' => $updated,
+        'count'       => count($updated),
+    ];
+}
+
+/**
+ * Delete media if completely unreferenced and meets context security rules.
+ */
+function mumbai_delete_media_if_unreferenced(WP_REST_Request $request) {
+    $media_ids = $request->get_param('media_ids');
+    $context = sanitize_text_field($request->get_param('context') ?: 'unknown');
+    $uploader_id = absint($request->get_param('uploader_id'));
+
+    if (empty($media_ids)) {
+        $single_id = absint($request->get_param('media_id'));
+        if ($single_id > 0) {
+            $media_ids = [$single_id];
+        }
+    }
+
+    if (!is_array($media_ids) || empty($media_ids)) {
+        return new WP_Error('invalid_media_ids', 'media_ids array or media_id required.', ['status' => 400]);
+    }
+
+    $results = [];
+
+    foreach ($media_ids as $id) {
+        $m_id = absint($id);
+        if (!$m_id) continue;
+
+        $post = get_post($m_id);
+        if (!$post || $post->post_type !== 'attachment') {
+            $results[] = [
+                'media_id' => $m_id,
+                'deleted'  => false,
+                'reason'   => 'not_found',
+            ];
+            continue;
+        }
+
+        $status = get_post_meta($m_id, '_mumbai_upload_status', true);
+        $assigned_uploader = (int) get_post_meta($m_id, '_mumbai_uploader_id', true);
+
+        // Guard for pending_removal (employee removes uploaded image before submitting):
+        if ($context === 'pending_removal') {
+            if ($status !== 'pending') {
+                $results[] = [
+                    'media_id' => $m_id,
+                    'deleted'  => false,
+                    'reason'   => 'not_pending',
+                    'message'  => 'Cannot remove media that is already attached or not in pending state.',
+                ];
+                continue;
+            }
+
+            if ($uploader_id > 0 && $assigned_uploader > 0 && $assigned_uploader !== $uploader_id) {
+                $user = get_user_by('id', $uploader_id);
+                $is_admin = $user && in_array('administrator', (array) $user->roles);
+                if (!$is_admin) {
+                    $results[] = [
+                        'media_id' => $m_id,
+                        'deleted'  => false,
+                        'reason'   => 'ownership_mismatch',
+                    ];
+                    continue;
+                }
+            }
+        }
+
+        // Strict reference check across all 6 dimensions
+        $ref_check = mumbai_is_media_referenced($m_id);
+        if (!empty($ref_check) && !empty($ref_check['referenced'])) {
+            $results[] = [
+                'media_id'  => $m_id,
+                'deleted'   => false,
+                'reason'    => 'referenced',
+                'reference' => $ref_check,
+            ];
+            continue;
+        }
+
+        // Force delete attachment file and database row
+        $deleted = wp_delete_attachment($m_id, true);
+        if ($deleted) {
+            $results[] = [
+                'media_id' => $m_id,
+                'deleted'  => true,
+                'context'  => $context,
+            ];
+        } else {
+            $results[] = [
+                'media_id' => $m_id,
+                'deleted'  => false,
+                'reason'   => 'delete_failed',
+            ];
+        }
+    }
+
+    return [
+        'success' => true,
+        'results' => $results,
+    ];
+}
+
+/**
+ * Scan and clean up pending uploads older than 24 hours (86400 seconds).
+ */
+function mumbai_cleanup_pending_orphans($request = null) {
+    global $wpdb;
+
+    $cutoff = time() - 86400;
+
+    $orphans = $wpdb->get_results($wpdb->prepare(
+        "SELECT p.ID, pm_time.meta_value as upload_time
+         FROM {$wpdb->posts} p
+         INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_mumbai_upload_status'
+         INNER JOIN {$wpdb->postmeta} pm_time ON p.ID = pm_time.post_id AND pm_time.meta_key = '_mumbai_upload_time'
+         WHERE p.post_type = 'attachment'
+           AND pm_status.meta_value = 'pending'
+           AND CAST(pm_time.meta_value AS UNSIGNED) < %d
+         LIMIT 50",
+        $cutoff
+    ));
+
+    $deleted_ids = [];
+    $reclassified_ids = [];
+
+    if (!empty($orphans)) {
+        foreach ($orphans as $orphan) {
+            $media_id = (int) $orphan->ID;
+            $ref_check = mumbai_is_media_referenced($media_id);
+            if (!empty($ref_check) && !empty($ref_check['referenced'])) {
+                update_post_meta($media_id, '_mumbai_upload_status', 'attached');
+                $reclassified_ids[] = $media_id;
+            } else {
+                $del = wp_delete_attachment($media_id, true);
+                if ($del) {
+                    $deleted_ids[] = $media_id;
+                }
+            }
+        }
+    }
+
+    return [
+        'success'          => true,
+        'inspected_count'  => count($orphans),
+        'deleted_count'    => count($deleted_ids),
+        'deleted_ids'      => $deleted_ids,
+        'reclassified_ids' => $reclassified_ids,
+        'cutoff_timestamp' => $cutoff,
+    ];
+}
+
+// Register daily WP-Cron for orphaned media cleanup
+add_action('mumbai_daily_media_cleanup', 'mumbai_cleanup_pending_orphans');
+if (!wp_next_scheduled('mumbai_daily_media_cleanup')) {
+    wp_schedule_event(time() + 3600, 'daily', 'mumbai_daily_media_cleanup');
+}
+
+/*
+ * ─────────────────────────────────────────────
+ * INVENTORY SCALING: WOOCOMMERCE PRODUCT REST QUERY
+ * ─────────────────────────────────────────────
+ * Adds server-side support for:
+ * 1. stock_status=lowstock (_manage_stock = yes AND _stock > 0 AND _stock <= 5)
+ * 2. SKU search via _sku postmeta in WooCommerce REST API
+ * 3. Live stock counts calculation
+ */
+add_filter('woocommerce_product_stock_status_options', 'mumbai_add_lowstock_stock_status_option', 20, 1);
+function mumbai_add_lowstock_stock_status_option($statuses) {
+    if (is_array($statuses) && !isset($statuses['lowstock'])) {
+        $statuses['lowstock'] = __('Low stock', 'woocommerce');
+    }
+    return $statuses;
+}
+
+add_filter('woocommerce_rest_product_collection_params', 'mumbai_wc_rest_product_collection_params', 20, 1);
+function mumbai_wc_rest_product_collection_params($params) {
+    if (isset($params['stock_status']['enum']) && is_array($params['stock_status']['enum'])) {
+        if (!in_array('lowstock', $params['stock_status']['enum'], true)) {
+            $params['stock_status']['enum'][] = 'lowstock';
+        }
+    }
+    return $params;
+}
+
+add_filter('woocommerce_rest_product_object_query', 'mumbai_wc_rest_product_object_query', 20, 2);
+function mumbai_wc_rest_product_object_query($args, $request) {
+    // 1. Server-side lowstock filter
+    $stock_status = $request->get_param('stock_status');
+    if ($stock_status === 'lowstock') {
+        unset($args['stock_status']);
+
+        if (!isset($args['meta_query']) || !is_array($args['meta_query'])) {
+            $args['meta_query'] = [];
+        }
+
+        $args['meta_query'][] = [
+            'key'     => '_manage_stock',
+            'value'   => 'yes',
+            'compare' => '=',
+        ];
+        $args['meta_query'][] = [
+            'key'     => '_stock',
+            'value'   => 0,
+            'type'    => 'NUMERIC',
+            'compare' => '>',
+        ];
+        $args['meta_query'][] = [
+            'key'     => '_stock',
+            'value'   => 5,
+            'type'    => 'NUMERIC',
+            'compare' => '<=',
+        ];
+    }
+
+    // 2. Pass search term to WP_Query for SKU matching
+    $search = $request->get_param('search');
+    if (!empty($search)) {
+        $args['mumbai_sku_search'] = trim($search);
+    }
+
+    return $args;
+}
+
+add_filter('posts_search', 'mumbai_extend_product_search_to_sku', 20, 2);
+function mumbai_extend_product_search_to_sku($search_sql, $wp_query) {
+    if (empty($search_sql)) {
+        return $search_sql;
+    }
+
+    $sku_search = $wp_query->get('mumbai_sku_search');
+    if (empty($sku_search)) {
+        return $search_sql;
+    }
+
+    global $wpdb;
+    $like = '%' . $wpdb->esc_like($sku_search) . '%';
+    $sku_condition = $wpdb->prepare(
+        "EXISTS (SELECT 1 FROM {$wpdb->postmeta} WHERE post_id = {$wpdb->posts}.ID AND meta_key = '_sku' AND meta_value LIKE %s)",
+        $like
+    );
+
+    if (preg_match('/^(.*)\)\s*$/s', trim($search_sql), $matches)) {
+        return $matches[1] . " OR ({$sku_condition})) ";
+    }
+
+    return $search_sql;
+}
+
+/**
+ * Endpoint for live inventory stock counts (All, In Stock, Low Stock, Out of Stock)
+ */
+function mumbai_get_product_stock_counts($request) {
+    global $wpdb;
+
+    $all = (int) $wpdb->get_var(
+        "SELECT COUNT(ID) FROM {$wpdb->posts} WHERE post_type = 'product' AND post_status = 'publish'"
+    );
+
+    $outofstock = (int) $wpdb->get_var(
+        "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+         LEFT JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_stock_status'
+         LEFT JOIN {$wpdb->postmeta} pm_manage ON p.ID = pm_manage.post_id AND pm_manage.meta_key = '_manage_stock'
+         LEFT JOIN {$wpdb->postmeta} pm_stock ON p.ID = pm_stock.post_id AND pm_stock.meta_key = '_stock'
+         WHERE p.post_type = 'product' AND p.post_status = 'publish'
+           AND (
+             pm_status.meta_value = 'outofstock'
+             OR (pm_manage.meta_value = 'yes' AND CAST(pm_stock.meta_value AS SIGNED) <= 0)
+           )"
+    );
+
+    $lowstock = (int) $wpdb->get_var(
+        "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+         INNER JOIN {$wpdb->postmeta} pm_manage ON p.ID = pm_manage.post_id AND pm_manage.meta_key = '_manage_stock' AND pm_manage.meta_value = 'yes'
+         INNER JOIN {$wpdb->postmeta} pm_stock ON p.ID = pm_stock.post_id AND pm_stock.meta_key = '_stock'
+         WHERE p.post_type = 'product' AND p.post_status = 'publish'
+           AND CAST(pm_stock.meta_value AS SIGNED) > 0
+           AND CAST(pm_stock.meta_value AS SIGNED) <= 5"
+    );
+
+    $instock = max(0, $all - $outofstock - $lowstock);
+
+    return rest_ensure_response([
+        'success' => true,
+        'counts'  => [
+            'all'        => $all,
+            'instock'    => $instock,
+            'lowstock'   => $lowstock,
+            'outofstock' => $outofstock,
+        ],
+    ]);
+}
+
+/*
+ * ─────────────────────────────────────────────
+ * EMPLOYEE ACCESS MANAGEMENT (ADMIN INTERNAL)
+ * ─────────────────────────────────────────────
+ */
+
+/**
+ * Validates allowed roles for employee promotion (ONLY 'employee' is allowed)
+ */
+function mumbai_is_valid_employee_role($role) {
+    return $role === 'employee';
+}
+
+/**
+ * Get all employees, pending access requests, and allowlisted emails
+ */
+function mumbai_admin_get_employees(WP_REST_Request $request) {
+    $search = sanitize_text_field($request->get_param('search') ?? '');
+    $status_filter = sanitize_text_field($request->get_param('status') ?? '');
+
+    $result_list = [];
+    $processed_emails = [];
+
+    // 1. Fetch users with employee role or with _mumbai_employee_status meta
+    $users = get_users([
+        'number' => 200,
+        'fields' => 'all',
+    ]);
+
+    foreach ($users as $u) {
+        $roles = (array) $u->roles;
+        $status = (string) get_user_meta($u->ID, '_mumbai_employee_status', true);
+        $is_employee_role = in_array('employee', $roles, true);
+
+        // If not having status meta and not having employee role, skip
+        if (empty($status) && !$is_employee_role) {
+            continue;
+        }
+
+        if (empty($status) && $is_employee_role) {
+            $status = 'approved';
+        }
+
+        $email = strtolower(trim($u->user_email));
+        $processed_emails[] = $email;
+
+        $name = trim($u->display_name);
+        if (empty($name)) {
+            $name = $u->user_login;
+        }
+
+        $assigned_role = $is_employee_role ? 'employee' : 'customer';
+
+        $requested_at = get_user_meta($u->ID, '_mumbai_employee_requested_at', true);
+        $approved_at = get_user_meta($u->ID, '_mumbai_employee_approved_at', true);
+        $approved_by = get_user_meta($u->ID, '_mumbai_employee_approved_by', true);
+        $rejected_at = get_user_meta($u->ID, '_mumbai_employee_rejected_at', true);
+        $notes = (string) get_user_meta($u->ID, '_mumbai_employee_notes', true);
+
+        $phone = (string) get_user_meta($u->ID, 'billing_phone', true);
+        if (empty($phone)) {
+            $phone = (string) get_user_meta($u->ID, '_mumbai_verified_phone', true);
+        }
+
+        $entry = [
+            'id'             => $u->ID,
+            'email'          => $email,
+            'name'           => $name,
+            'phone'          => $phone,
+            'roles'          => $roles,
+            'role'           => $assigned_role,
+            'requested_role' => 'employee',
+            'status'         => $status,
+            'requested_at'   => $requested_at ? (is_numeric($requested_at) ? date('c', (int)$requested_at) : $requested_at) : ($u->user_registered ? date('c', strtotime($u->user_registered)) : null),
+            'approved_at'    => $approved_at ? (is_numeric($approved_at) ? date('c', (int)$approved_at) : $approved_at) : null,
+            'approved_by'    => $approved_by ? (int)$approved_by : null,
+            'rejected_at'    => $rejected_at ? (is_numeric($rejected_at) ? date('c', (int)$rejected_at) : $rejected_at) : null,
+            'notes'          => $notes,
+            'is_registered'  => true,
+            'user_registered'=> $u->user_registered ? date('c', strtotime($u->user_registered)) : null,
+        ];
+
+        $result_list[] = $entry;
+    }
+
+    // 2. Fetch pending allowlisted emails that haven't registered yet
+    $allowlist = (array) get_option('_mumbai_employee_allowlist', []);
+    foreach ($allowlist as $norm_email => $entry) {
+        if (in_array($norm_email, $processed_emails, true)) {
+            continue;
+        }
+
+        $result_list[] = [
+            'id'             => 'allowlist-' . md5($norm_email),
+            'email'          => $norm_email,
+            'name'           => 'Candidate (Not Registered)',
+            'phone'          => '',
+            'roles'          => ['customer'],
+            'role'           => 'customer',
+            'requested_role' => 'employee',
+            'status'         => 'allowlisted',
+            'requested_at'   => isset($entry['requested_at']) ? date('c', (int)$entry['requested_at']) : date('c'),
+            'approved_at'    => null,
+            'approved_by'    => null,
+            'rejected_at'    => null,
+            'notes'          => $entry['notes'] ?? '',
+            'is_registered'  => false,
+            'user_registered'=> null,
+        ];
+    }
+
+    // Filter by search query if supplied
+    if (!empty($search)) {
+        $q = strtolower(trim($search));
+        $result_list = array_values(array_filter($result_list, function ($item) use ($q) {
+            return str_contains(strtolower($item['email']), $q) ||
+                   str_contains(strtolower($item['name']), $q) ||
+                   str_contains(strtolower($item['phone']), $q);
+        }));
+    }
+
+    // Filter by status if supplied
+    if (!empty($status_filter) && $status_filter !== 'all') {
+        $result_list = array_values(array_filter($result_list, function ($item) use ($status_filter) {
+            return $item['status'] === $status_filter;
+        }));
+    }
+
+    // Sort: pending & allowlisted first, then active/approved, then deactivated/rejected
+    usort($result_list, function ($a, $b) {
+        $priority = [
+            'pending'     => 1,
+            'allowlisted' => 2,
+            'approved'    => 3,
+            'deactivated' => 4,
+            'rejected'    => 5,
+        ];
+        $pA = $priority[$a['status']] ?? 9;
+        $pB = $priority[$b['status']] ?? 9;
+        if ($pA !== $pB) {
+            return $pA <=> $pB;
+        }
+        return strcmp($b['requested_at'] ?? '', $a['requested_at'] ?? '');
+    });
+
+    return rest_ensure_response([
+        'success'   => true,
+        'employees' => $result_list,
+        'count'     => count($result_list),
+    ]);
+}
+
+/**
+ * Request employee access / Allowlist an email
+ */
+function mumbai_admin_request_employee_access(WP_REST_Request $request) {
+    $email = sanitize_email($request->get_param('email') ?? '');
+    $role = sanitize_text_field($request->get_param('role') ?? 'employee');
+    $notes = sanitize_textarea_field($request->get_param('notes') ?? '');
+    $admin_id = absint($request->get_param('admin_id') ?? 0);
+
+    if (empty($email) || !is_email($email)) {
+        return new WP_Error('invalid_email', 'Please provide a valid email address.', ['status' => 400]);
+    }
+
+    if (!mumbai_is_valid_employee_role($role)) {
+        return new WP_Error('invalid_role', "Invalid role. Only 'employee' can be requested.", ['status' => 400]);
+    }
+
+    $norm_email = strtolower(trim($email));
+    $user = get_user_by('email', $norm_email);
+
+    if ($user) {
+        if (in_array('administrator', (array)$user->roles, true)) {
+            return new WP_Error('invalid_target', 'Cannot manage administrator accounts via employee access.', ['status' => 400]);
+        }
+
+        update_user_meta($user->ID, '_mumbai_employee_status', 'pending');
+        update_user_meta($user->ID, '_mumbai_employee_requested_at', time());
+        update_user_meta($user->ID, '_mumbai_employee_requested_role', 'employee');
+        update_user_meta($user->ID, '_mumbai_employee_notes', $notes);
+        if ($admin_id) {
+            update_user_meta($user->ID, '_mumbai_employee_added_by', $admin_id);
+        }
+
+        mumbai_log("Employee access requested for registered user {$user->ID} ({$norm_email})");
+
+        return rest_ensure_response([
+            'success'       => true,
+            'message'       => 'User added to pending approval queue.',
+            'is_registered' => true,
+            'user_id'       => $user->ID,
+        ]);
+    }
+
+    // User not registered yet: save to allowlist option
+    $allowlist = (array) get_option('_mumbai_employee_allowlist', []);
+    $allowlist[$norm_email] = [
+        'email'          => $norm_email,
+        'requested_role' => 'employee',
+        'notes'          => $notes,
+        'requested_at'   => time(),
+        'added_by'       => $admin_id,
+    ];
+    update_option('_mumbai_employee_allowlist', $allowlist);
+
+    mumbai_log("Employee email allowlisted: {$norm_email}");
+
+    return rest_ensure_response([
+        'success'       => true,
+        'message'       => 'Email allowlisted. Once the user registers with this email, they will appear in the pending approvals list.',
+        'is_registered' => false,
+    ]);
+}
+
+/**
+ * Approve employee access
+ */
+function mumbai_admin_approve_employee(WP_REST_Request $request) {
+    $user_id = absint($request->get_param('user_id') ?? 0);
+    $role = sanitize_text_field($request->get_param('role') ?? 'employee');
+    $approved_by = absint($request->get_param('approved_by') ?? 0);
+
+    if (!$user_id) {
+        return new WP_Error('invalid_user', 'Valid User ID is required.', ['status' => 400]);
+    }
+
+    if (!mumbai_is_valid_employee_role($role)) {
+        return new WP_Error('invalid_role', "Invalid role. Only 'employee' can be assigned.", ['status' => 400]);
+    }
+
+    $user = get_user_by('id', $user_id);
+    if (!$user) {
+        return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+    }
+
+    if (in_array('administrator', (array)$user->roles, true)) {
+        return new WP_Error('invalid_target', 'Cannot modify administrator roles.', ['status' => 400]);
+    }
+
+    $wp_user = new WP_User($user_id);
+    $wp_user->set_role('employee');
+
+    update_user_meta($user_id, '_mumbai_employee_status', 'approved');
+    update_user_meta($user_id, '_mumbai_employee_role', 'employee');
+    update_user_meta($user_id, '_mumbai_employee_approved_at', time());
+    update_user_meta($user_id, '_mumbai_employee_approved_by', $approved_by);
+    delete_user_meta($user_id, '_mumbai_employee_rejected_at');
+
+    // Invalidate sessions so new capabilities are active on fresh signin
+    WP_Session_Tokens::get_instance($user_id)->destroy_all();
+
+    mumbai_log("Employee access approved for user {$user_id} as employee by admin {$approved_by}");
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => "User approved with role 'employee'.",
+        'role'    => 'employee',
+        'status'  => 'approved',
+    ]);
+}
+
+/**
+ * Reject employee access request
+ */
+function mumbai_admin_reject_employee(WP_REST_Request $request) {
+    $user_id = absint($request->get_param('user_id') ?? 0);
+    $reason = sanitize_textarea_field($request->get_param('reason') ?? '');
+    $rejected_by = absint($request->get_param('rejected_by') ?? 0);
+
+    if (!$user_id) {
+        return new WP_Error('invalid_user', 'Valid User ID is required.', ['status' => 400]);
+    }
+
+    $user = get_user_by('id', $user_id);
+    if (!$user) {
+        return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+    }
+
+    if (in_array('administrator', (array)$user->roles, true)) {
+        return new WP_Error('invalid_target', 'Cannot modify administrator accounts.', ['status' => 400]);
+    }
+
+    $wp_user = new WP_User($user_id);
+    $wp_user->set_role('customer');
+
+    update_user_meta($user_id, '_mumbai_employee_status', 'rejected');
+    update_user_meta($user_id, '_mumbai_employee_rejected_at', time());
+    update_user_meta($user_id, '_mumbai_employee_rejected_by', $rejected_by);
+    if (!empty($reason)) {
+        update_user_meta($user_id, '_mumbai_employee_rejection_reason', $reason);
+    }
+
+    WP_Session_Tokens::get_instance($user_id)->destroy_all();
+
+    mumbai_log("Employee access rejected for user {$user_id} by admin {$rejected_by}");
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'Employee access request rejected.',
+        'status'  => 'rejected',
+    ]);
+}
+
+/**
+ * Update employee status (active / deactivated)
+ */
+function mumbai_admin_update_employee_status(WP_REST_Request $request) {
+    $user_id = absint($request->get_param('user_id') ?? 0);
+    $status = sanitize_text_field($request->get_param('status') ?? '');
+    $updated_by = absint($request->get_param('updated_by') ?? 0);
+
+    if (!$user_id) {
+        return new WP_Error('invalid_user', 'Valid User ID is required.', ['status' => 400]);
+    }
+
+    if (!in_array($status, ['active', 'deactivated'], true)) {
+        return new WP_Error('invalid_status', "Status must be 'active' or 'deactivated'.", ['status' => 400]);
+    }
+
+    $user = get_user_by('id', $user_id);
+    if (!$user) {
+        return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+    }
+
+    if (in_array('administrator', (array)$user->roles, true)) {
+        return new WP_Error('invalid_target', 'Cannot modify administrator accounts.', ['status' => 400]);
+    }
+
+    $wp_user = new WP_User($user_id);
+
+    if ($status === 'deactivated') {
+        $wp_user->set_role('customer');
+        update_user_meta($user_id, '_mumbai_employee_status', 'deactivated');
+        update_user_meta($user_id, '_mumbai_employee_deactivated_at', time());
+        update_user_meta($user_id, '_mumbai_employee_deactivated_by', $updated_by);
+        WP_Session_Tokens::get_instance($user_id)->destroy_all();
+
+        mumbai_log("Employee access deactivated for user {$user_id} by admin {$updated_by}");
+
+        return rest_ensure_response([
+            'success' => true,
+            'message' => 'Employee access deactivated and sessions revoked.',
+            'status'  => 'deactivated',
+        ]);
+    } else {
+        $wp_user->set_role('employee');
+        update_user_meta($user_id, '_mumbai_employee_status', 'approved');
+        update_user_meta($user_id, '_mumbai_employee_role', 'employee');
+        update_user_meta($user_id, '_mumbai_employee_reactivated_at', time());
+        update_user_meta($user_id, '_mumbai_employee_reactivated_by', $updated_by);
+
+        mumbai_log("Employee access reactivated for user {$user_id} as employee by admin {$updated_by}");
+
+        return rest_ensure_response([
+            'success' => true,
+            'message' => "Employee access reactivated with role 'employee'.",
+            'status'  => 'approved',
+            'role'    => 'employee',
+        ]);
+    }
+}
+
+/**
+ * Revoke all active sessions for a user
+ */
+function mumbai_admin_revoke_employee_sessions(WP_REST_Request $request) {
+    $user_id = absint($request->get_param('user_id') ?? 0);
+
+    if (!$user_id) {
+        return new WP_Error('invalid_user', 'Valid User ID is required.', ['status' => 400]);
+    }
+
+    $user = get_user_by('id', $user_id);
+    if (!$user) {
+        return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
+    }
+
+    WP_Session_Tokens::get_instance($user_id)->destroy_all();
+
+    mumbai_log("All sessions revoked for user {$user_id}");
+
+    return rest_ensure_response([
+        'success' => true,
+        'message' => 'All active sessions have been revoked for this user.',
+    ]);
+}
+
+/**
+ * ─────────────────────────────────────────────
+ * STORE OPERATING HOURS HANDLERS
+ * ─────────────────────────────────────────────
+ */
+
+/**
+ * Get store operating hours configuration from wp_options
+ */
+function mumbai_get_store_hours() {
+    $hours = get_option('mumbai_store_hours', null);
+    return rest_ensure_response([
+        'success'     => true,
+        'store_hours' => $hours,
+    ]);
+}
+
+/**
+ * Save store operating hours configuration to wp_options
+ */
+function mumbai_save_store_hours(WP_REST_Request $request) {
+    $config = $request->get_param('store_hours');
+    if (!is_array($config)) {
+        return new WP_Error('invalid_config', 'store_hours must be an array/object.', ['status' => 400]);
+    }
+    update_option('mumbai_store_hours', $config, false);
+    return rest_ensure_response([
+        'success'     => true,
+        'message'     => 'Store hours updated successfully.',
+        'store_hours' => $config,
+    ]);
+}
+
+/**
+ * ─────────────────────────────────────────────
+ * REGISTERED CUSTOMERS DIRECTORY (ADMIN)
+ * ─────────────────────────────────────────────
+ */
+
+/**
+ * REST Callback: Get registered customers list (Admin internal endpoint)
+ * Returns all registered users with role customer/subscriber, excluding admins and employees.
+ */
+function mumbai_admin_get_customers(WP_REST_Request $request) {
+    $search = sanitize_text_field($request->get_param('search') ?? '');
+
+    $args = [
+        'role__in'     => ['customer', 'subscriber'],
+        'role__not_in' => ['administrator', 'employee'],
+        'number'       => 1000,
+        'fields'       => 'all',
+        'orderby'      => 'registered',
+        'order'        => 'DESC',
+    ];
+
+    if (!empty($search)) {
+        $args['search'] = '*' . $search . '*';
+        $args['search_columns'] = ['user_login', 'user_email', 'user_nicename', 'display_name'];
+    }
+
+    $users = get_users($args);
+    $customers = [];
+
+    foreach ($users as $u) {
+        $user_id = $u->ID;
+        $roles = (array) $u->roles;
+
+        // Strict exclusion of administrator and employee roles
+        if (in_array('administrator', $roles, true) || in_array('employee', $roles, true)) {
+            continue;
+        }
+
+        $email = strtolower(trim($u->user_email));
+        $first_name = (string) get_user_meta($user_id, 'first_name', true);
+        $last_name = (string) get_user_meta($user_id, 'last_name', true);
+        $display_name = trim($u->display_name);
+        if (empty($display_name)) {
+            $display_name = trim("{$first_name} {$last_name}") ?: $u->user_login;
+        }
+
+        $phone = (string) get_user_meta($user_id, 'billing_phone', true);
+        if (empty($phone)) {
+            $phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+        }
+
+        $addr1 = (string) get_user_meta($user_id, 'billing_address_1', true);
+        $addr2 = (string) get_user_meta($user_id, 'billing_address_2', true);
+        $city  = (string) get_user_meta($user_id, 'billing_city', true) ?: 'Vasai';
+        $state = (string) get_user_meta($user_id, 'billing_state', true) ?: 'Maharashtra';
+        $postcode = (string) get_user_meta($user_id, 'billing_postcode', true);
+
+        $address_parts = array_filter([$addr1, $addr2, $city, $state . ($postcode ? " - {$postcode}" : '')]);
+        $full_address = implode(', ', $address_parts) ?: 'Vasai, Maharashtra';
+
+        $customers[] = [
+            'id'            => (int) $user_id,
+            'email'         => $email,
+            'name'          => $display_name,
+            'first_name'    => $first_name,
+            'last_name'     => $last_name,
+            'phone'         => $phone,
+            'location'      => "{$city}, {$state}",
+            'full_address'  => $full_address,
+            'registered_at' => $u->user_registered ? date('c', strtotime($u->user_registered)) : null,
+            'roles'         => $roles,
+        ];
+    }
+
+    return rest_ensure_response([
+        'success'   => true,
+        'customers' => $customers,
+        'count'     => count($customers),
+    ]);
+}
+
+/**
+ * ─────────────────────────────────────────────
+ * CUSTOMER SUSPENSION HELPERS & ADMIN ENDPOINTS
+ * ─────────────────────────────────────────────
+ */
+
+/**
+ * Check whether a user is currently suspended from placing orders.
+ * Expired suspensions evaluate to false automatically.
+ */
+function mumbai_is_customer_suspended($user_id) {
+    $user_id = absint($user_id);
+    if (!$user_id) {
+        return false;
+    }
+
+    $is_suspended = get_user_meta($user_id, '_mumbai_customer_suspended', true);
+    if ($is_suspended !== 'yes' && $is_suspended !== '1' && $is_suspended !== true) {
+        return false;
+    }
+
+    $expires_at = (int) get_user_meta($user_id, '_mumbai_customer_suspension_expires_at', true);
+    // If expires_at > 0 and time() >= expires_at, temporary suspension has expired
+    if ($expires_at > 0 && time() >= $expires_at) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Get detailed suspension status and metadata for a user.
+ */
+function mumbai_get_customer_suspension_details($user_id) {
+    $user_id = absint($user_id);
+    if (!$user_id) {
+        return [
+            'is_suspended'         => false,
+            'duration'             => null,
+            'expires_at'           => null,
+            'expires_at_timestamp' => 0,
+            'reason'               => '',
+            'is_permanent'         => false,
+        ];
+    }
+
+    $is_suspended_meta = get_user_meta($user_id, '_mumbai_customer_suspended', true);
+    $raw_suspended = ($is_suspended_meta === 'yes' || $is_suspended_meta === '1' || $is_suspended_meta === true);
+    $expires_at = (int) get_user_meta($user_id, '_mumbai_customer_suspension_expires_at', true);
+    $reason = (string) get_user_meta($user_id, '_mumbai_customer_suspension_reason', true);
+    $duration = (string) get_user_meta($user_id, '_mumbai_customer_suspension_duration', true);
+
+    $is_active = $raw_suspended;
+    if ($raw_suspended && $expires_at > 0 && time() >= $expires_at) {
+        $is_active = false;
+    }
+
+    return [
+        'is_suspended'         => $is_active,
+        'duration'             => $duration ?: ($expires_at === 0 && $raw_suspended ? 'permanent' : null),
+        'expires_at'           => $expires_at > 0 ? date('c', $expires_at) : null,
+        'expires_at_timestamp' => $expires_at > 0 ? $expires_at : 0,
+        'reason'               => $reason,
+        'is_permanent'         => $raw_suspended && ($expires_at === 0),
+    ];
+}
+
+/**
+ * REST Callback: Look up customer suspension status by email
+ */
+function mumbai_admin_customer_suspension_lookup(WP_REST_Request $request) {
+    $email = sanitize_email($request->get_param('email') ?? '');
+    if (empty($email)) {
+        return new WP_Error('missing_email', 'Customer email address is required.', ['status' => 400]);
+    }
+
+    $user = get_user_by('email', $email);
+    if (!$user) {
+        return new WP_Error('customer_not_found', "No registered customer found with email: {$email}", ['status' => 404]);
+    }
+
+    $roles = (array) $user->roles;
+    if (in_array('administrator', $roles, true)) {
+        return new WP_Error('invalid_target', 'Administrator accounts cannot be suspended.', ['status' => 400]);
+    }
+    if (in_array('employee', $roles, true)) {
+        return new WP_Error('invalid_target', 'Employee accounts cannot be suspended.', ['status' => 400]);
+    }
+
+    $is_customer = in_array('customer', $roles, true) || in_array('subscriber', $roles, true);
+    if (!$is_customer) {
+        return new WP_Error('invalid_target', 'Only registered customer accounts can be suspended.', ['status' => 400]);
+    }
+
+    $suspension = mumbai_get_customer_suspension_details($user->ID);
+
+    $first_name = (string) get_user_meta($user->ID, 'first_name', true);
+    $last_name = (string) get_user_meta($user->ID, 'last_name', true);
+    $display_name = trim($user->display_name);
+    if (empty($display_name)) {
+        $display_name = trim("{$first_name} {$last_name}") ?: $user->user_login;
+    }
+
+    $phone = (string) get_user_meta($user->ID, 'billing_phone', true);
+    if (empty($phone)) {
+        $phone = (string) get_user_meta($user->ID, '_mumbai_verified_phone', true);
+    }
+
+    return rest_ensure_response([
+        'success'  => true,
+        'customer' => [
+            'id'                   => (int) $user->ID,
+            'email'                => strtolower(trim($user->user_email)),
+            'name'                 => $display_name,
+            'first_name'           => $first_name,
+            'last_name'            => $last_name,
+            'phone'                => $phone,
+            'roles'                => $roles,
+            'registered_at'        => $user->user_registered ? date('c', strtotime($user->user_registered)) : null,
+            'is_suspended'         => $suspension['is_suspended'],
+            'duration'             => $suspension['duration'],
+            'expires_at'           => $suspension['expires_at'],
+            'expires_at_timestamp' => $suspension['expires_at_timestamp'],
+            'reason'               => $suspension['reason'],
+            'is_permanent'         => $suspension['is_permanent'],
+        ],
+    ]);
+}
+
+/**
+ * REST Callback: Suspend a customer account
+ */
+function mumbai_admin_customer_suspension_suspend(WP_REST_Request $request) {
+    $email = sanitize_email($request->get_param('email') ?? '');
+    $raw_duration = sanitize_text_field($request->get_param('duration') ?? '');
+    $reason = sanitize_text_field($request->get_param('reason') ?? '');
+    $admin_id = absint($request->get_param('admin_id') ?? 0);
+
+    if (empty($email)) {
+        return new WP_Error('missing_email', 'Customer email address is required.', ['status' => 400]);
+    }
+
+    $user = get_user_by('email', $email);
+    if (!$user) {
+        return new WP_Error('customer_not_found', "No registered customer found with email: {$email}", ['status' => 404]);
+    }
+
+    $roles = (array) $user->roles;
+    if (in_array('administrator', $roles, true)) {
+        return new WP_Error('invalid_target', 'Administrator accounts cannot be suspended.', ['status' => 400]);
+    }
+    if (in_array('employee', $roles, true)) {
+        return new WP_Error('invalid_target', 'Employee accounts cannot be suspended.', ['status' => 400]);
+    }
+
+    $is_customer = in_array('customer', $roles, true) || in_array('subscriber', $roles, true);
+    if (!$is_customer) {
+        return new WP_Error('invalid_target', 'Only registered customer accounts can be suspended.', ['status' => 400]);
+    }
+
+    // Normalize duration
+    $norm_duration = strtolower(str_replace(' ', '_', trim($raw_duration)));
+    $expires_at = 0;
+
+    if ($norm_duration === '3_months' || $norm_duration === '3months') {
+        $norm_duration = '3_months';
+        $expires_at = strtotime('+3 months', time());
+    } elseif ($norm_duration === '6_months' || $norm_duration === '6months') {
+        $norm_duration = '6_months';
+        $expires_at = strtotime('+6 months', time());
+    } elseif ($norm_duration === 'permanent') {
+        $norm_duration = 'permanent';
+        $expires_at = 0;
+    } else {
+        return new WP_Error(
+            'invalid_duration',
+            'Invalid duration. Duration must be 3 months, 6 months, or Permanent.',
+            ['status' => 400]
+        );
+    }
+
+    // Store suspension metadata (sessions are NOT destroyed)
+    update_user_meta($user->ID, '_mumbai_customer_suspended', 'yes');
+    update_user_meta($user->ID, '_mumbai_customer_suspension_expires_at', $expires_at);
+    update_user_meta($user->ID, '_mumbai_customer_suspension_reason', $reason);
+    update_user_meta($user->ID, '_mumbai_customer_suspension_duration', $norm_duration);
+    update_user_meta($user->ID, '_mumbai_customer_suspended_at', time());
+    update_user_meta($user->ID, '_mumbai_customer_suspended_by', $admin_id);
+
+    mumbai_log("Customer {$user->ID} ({$email}) suspended for {$norm_duration} by admin {$admin_id}.");
+
+    $suspension = mumbai_get_customer_suspension_details($user->ID);
+
+    return rest_ensure_response([
+        'success'  => true,
+        'message'  => 'Customer account suspended successfully.',
+        'customer' => [
+            'id'                   => (int) $user->ID,
+            'email'                => strtolower(trim($user->user_email)),
+            'is_suspended'         => true,
+            'duration'             => $norm_duration,
+            'expires_at'           => $suspension['expires_at'],
+            'expires_at_timestamp' => $suspension['expires_at_timestamp'],
+            'reason'               => $reason,
+            'is_permanent'         => $suspension['is_permanent'],
+        ],
+    ]);
+}
+
+/**
+ * REST Callback: Unsuspend a customer account
+ */
+function mumbai_admin_customer_suspension_unsuspend(WP_REST_Request $request) {
+    $email = sanitize_email($request->get_param('email') ?? '');
+    $admin_id = absint($request->get_param('admin_id') ?? 0);
+
+    if (empty($email)) {
+        return new WP_Error('missing_email', 'Customer email address is required.', ['status' => 400]);
+    }
+
+    $user = get_user_by('email', $email);
+    if (!$user) {
+        return new WP_Error('customer_not_found', "No registered customer found with email: {$email}", ['status' => 404]);
+    }
+
+    // Clear suspension metadata
+    delete_user_meta($user->ID, '_mumbai_customer_suspended');
+    delete_user_meta($user->ID, '_mumbai_customer_suspension_expires_at');
+    delete_user_meta($user->ID, '_mumbai_customer_suspension_reason');
+    delete_user_meta($user->ID, '_mumbai_customer_suspension_duration');
+    update_user_meta($user->ID, '_mumbai_customer_unsuspended_at', time());
+    update_user_meta($user->ID, '_mumbai_customer_unsuspended_by', $admin_id);
+
+    mumbai_log("Customer {$user->ID} ({$email}) unsuspended by admin {$admin_id}.");
+
+    return rest_ensure_response([
+        'success'  => true,
+        'message'  => 'Customer suspension removed successfully.',
+        'customer' => [
+            'id'           => (int) $user->ID,
+            'email'        => strtolower(trim($user->user_email)),
+            'is_suspended' => false,
+        ],
+    ]);
+}

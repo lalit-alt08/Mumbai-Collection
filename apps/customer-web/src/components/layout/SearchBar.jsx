@@ -9,6 +9,8 @@ function SearchBar() {
   const [isLoading, setIsLoading] = useState(false);
 
   const searchRef = useRef(null);
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -24,7 +26,13 @@ function SearchBar() {
   }, []);
 
   useEffect(() => {
-    if (!query.trim()) {
+    const normalizedQuery = query.trim();
+    const requestId = ++requestIdRef.current;
+
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+
+    if (normalizedQuery.length < 2) {
       setProducts([]);
       setIsLoading(false);
       return;
@@ -32,18 +40,27 @@ function SearchBar() {
 
     setIsLoading(true);
     const timer = setTimeout(async () => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       try {
-        const data = await searchProducts(query);
+        const data = await searchProducts(normalizedQuery, { signal: controller.signal });
+        if (requestId !== requestIdRef.current || controller.signal.aborted) return;
         setProducts(Array.isArray(data) ? data : []);
       } catch (error) {
-        console.error("Product search error:", error);
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
         setProducts([]);
       } finally {
-        setIsLoading(false);
+        if (requestId === requestIdRef.current) {
+          setIsLoading(false);
+          abortControllerRef.current = null;
+        }
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      abortControllerRef.current?.abort();
+    };
   }, [query]);
 
   return (
@@ -60,7 +77,7 @@ function SearchBar() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search for products, categories..."
+          placeholder="Search for products..."
           className="
             h-[42px]
             sm:h-[46px]
@@ -104,7 +121,7 @@ function SearchBar() {
         <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[60vh] overflow-y-auto overflow-x-hidden rounded-[22px] border border-[#EDE9FE] bg-white shadow-[0_16px_50px_rgba(0,0,0,0.12)] animate-[fadeIn_0.15s_ease-out]">
           {/* Dropdown Header */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white/95 px-4 py-2.5 text-xs font-bold text-gray-500 backdrop-blur-sm">
-            <span>Suggestions</span>
+          <span>Product suggestions</span>
             <span className="text-[#8B5CF6]">{products.length} found</span>
           </div>
 

@@ -30,19 +30,21 @@ export const getRelatedProducts = async (
   return response.data;
 };
 
-export const searchProducts = async (query) => {
+export const searchProducts = async (query, options = {}) => {
   const response = await axios.get(`${API}/products/search`, {
     params: {
       q: query,
     },
+    signal: options.signal,
   });
 
   return response.data;
 };
 
-export const getProductsByCategory = async (categoryId) => {
+export const getProductsByCategory = async (categoryId, params = {}) => {
   const response = await axios.get(
-    `${API}/products/category/${categoryId}`
+    `${API}/products/category/${categoryId}`,
+    { params }
   );
 
   return response.data;

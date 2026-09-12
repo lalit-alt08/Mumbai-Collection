@@ -1,5 +1,6 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Default fallback banners if WordPress options are empty or during first setup
@@ -106,9 +107,9 @@ export const getBanners = async (forceFresh = false) => {
       return sanitized;
     }
   } catch (error) {
-    console.warn(
-      "WordPress banners fetch fallback (using default static banners):",
-      error.response?.data?.message || error.message
+    logger.warn(
+      { err: error.response?.data?.message || error.message },
+      "WordPress banners fetch fallback (using default static banners)"
     );
   }
 

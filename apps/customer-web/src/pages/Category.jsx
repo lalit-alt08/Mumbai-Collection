@@ -3,7 +3,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { getProductsByCategory } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
 import categories from "../data/category.js";
-import { ArrowLeft, ShoppingBag } from "lucide-react";
+import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
+
+const PER_PAGE = 20;
 
 function Category() {
   const { categoryId } = useParams();
@@ -11,6 +13,10 @@ function Category() {
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [categoryTitle, setCategoryTitle] = useState("");
 
   const staticCategory = categories.find(
@@ -20,13 +26,23 @@ function Category() {
 
   useEffect(() => {
     let isMounted = true;
-    const loadProducts = async () => {
+    const loadInitialProducts = async () => {
       try {
         setLoading(true);
-        const data = await getProductsByCategory(categoryId);
+        setPage(1);
+        const data = await getProductsByCategory(categoryId, { page: 1, per_page: PER_PAGE });
         if (isMounted) {
-          const prods = Array.isArray(data) ? data : [];
+          const prods = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.products)
+            ? data.products
+            : [];
+          const count = typeof data?.total === "number" ? data.total : prods.length;
+          const pages = typeof data?.totalPages === "number" ? data.totalPages : (prods.length > 0 ? 1 : 0);
+
           setProducts(prods);
+          setTotalCount(count);
+          setTotalPages(pages);
 
           if (prods.length > 0) {
             for (const p of prods) {
@@ -42,18 +58,58 @@ function Category() {
             }
           }
         }
-      } catch (err) {
-        console.error("Failed to load category products:", err);
+      } catch {
+        // Handled by loading state
       } finally {
         if (isMounted) setLoading(false);
       }
     };
 
-    loadProducts();
+    loadInitialProducts();
     return () => {
       isMounted = false;
     };
   }, [categoryId]);
+
+  const handleLoadMore = async () => {
+    if (loadingMore || page >= totalPages) return;
+
+    try {
+      setLoadingMore(true);
+      const nextPage = page + 1;
+      const data = await getProductsByCategory(categoryId, { page: nextPage, per_page: PER_PAGE });
+      const nextProds = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.products)
+        ? data.products
+        : [];
+      const count = typeof data?.total === "number" ? data.total : totalCount;
+      const pages = typeof data?.totalPages === "number" ? data.totalPages : totalPages;
+
+      setProducts((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const filteredNew = nextProds.filter((p) => !existingIds.has(p.id));
+        return [...prev, ...filteredNew];
+      });
+      setPage(nextPage);
+      setTotalCount(count);
+      setTotalPages(pages);
+    } catch {
+      // Handled by loadingMore state
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const handleBack = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/");
+    }
+  };
+
+  const displayCount = loading ? "Loading..." : `${totalCount} ${totalCount === 1 ? "item" : "items"}`;
 
   return (
     <div className="min-h-screen bg-[#F8F9FD] text-[#1E1E1E] px-4 pt-4 pb-28 sm:px-6 md:pt-8 md:pb-16">
@@ -64,8 +120,8 @@ function Category() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate("/categories")}
-              aria-label="Back to Categories"
+              onClick={handleBack}
+              aria-label="Back"
               className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-gray-700 shadow-xs border border-gray-200/70 transition-all hover:border-[#7C3AED]/30 hover:bg-[#F5F3FF] hover:text-[#7C3AED] active:scale-95 cursor-pointer"
             >
               <ArrowLeft size={17} strokeWidth={2.2} />
@@ -78,7 +134,7 @@ function Category() {
           </div>
 
           <span className="text-xs font-bold text-[#7C3AED] bg-[#F5F3FF] px-3 py-1 rounded-full border border-[#7C3AED]/15">
-            {loading ? "Loading..." : `${products.length} items`}
+            {displayCount}
           </span>
         </div>
 
@@ -117,11 +173,36 @@ function Category() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3.5 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
-            {products.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-3.5 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
+              {products.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+
+            {/* Load More Button */}
+            {page < totalPages && (
+              <div className="pt-6 pb-2 flex flex-col items-center justify-center gap-2">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="flex items-center justify-center gap-2 rounded-full bg-[#7C3AED] px-6 py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm hover:bg-[#6C35E8] transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Loading more...</span>
+                    </>
+                  ) : (
+                    <span>Load More Products</span>
+                  )}
+                </button>
+                <p className="text-[11px] font-medium text-gray-500">
+                  Showing {products.length} of {totalCount} products
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

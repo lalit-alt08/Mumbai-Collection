@@ -37,3 +37,10 @@ export {
   getAdminOrders,
   updateAdminOrderStatus,
 } from "./adminOrderController.js";
+
+// Customer Suspension Management
+export {
+  lookupCustomerSuspension,
+  suspendCustomer,
+  unsuspendCustomer,
+} from "./adminCustomerSuspensionController.js";

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Package,
   Search,
@@ -20,44 +21,172 @@ import {
   Check,
   Loader2,
   Calendar,
+  Lock,
+  Filter,
+  SlidersHorizontal,
+  ArrowRight,
+  MoreVertical,
 } from "lucide-react";
 import { getOrders, updateOrderStatus } from "../services/employeeApi.js";
+import {
+  resolveTabFromStatusParam,
+  getOrderDateIST,
+  getOrderTimestampDate,
+  getCleanCustomerName,
+} from "../utils/orderDate.js";
+import {
+  LOCATION_OPTIONS,
+  getOrderLocationInfo,
+  getLocationBadgeClass,
+} from "../utils/orderLocation.js";
+
+export { resolveTabFromStatusParam, getOrderDateIST, getOrderTimestampDate, getCleanCustomerName };
 
 const STATUS_OPTIONS = [
-  { value: "processing", label: "Processing / To Pack", dot: "bg-amber-400" },
-  { value: "packed", label: "Packed (Ready for Dispatch)", dot: "bg-purple-500" },
-  { value: "out-for-delivery", label: "Out for Delivery (Rider)", dot: "bg-blue-500" },
-  { value: "completed", label: "Delivered (Completed)", dot: "bg-emerald-500" },
-  { value: "on-hold", label: "On Hold", dot: "bg-orange-400" },
-  { value: "cancelled", label: "Cancelled", dot: "bg-rose-500" },
-  { value: "refunded", label: "Refunded", dot: "bg-gray-400" },
+  { value: "processing", label: "Processing / To Pack", shortLabel: "To Pack", dot: "bg-amber-400" },
+  { value: "packed", label: "Packed (Ready for Dispatch)", shortLabel: "Packed", dot: "bg-purple-500" },
+  { value: "out-for-delivery", label: "Out for Delivery (Rider)", shortLabel: "Out for Delivery", dot: "bg-blue-500" },
+  { value: "completed", label: "Delivered (Completed)", shortLabel: "Delivered", dot: "bg-emerald-500" },
+  { value: "on-hold", label: "On Hold", shortLabel: "On Hold", dot: "bg-orange-400" },
+  { value: "cancelled", label: "Cancelled", shortLabel: "Cancelled", dot: "bg-rose-500" },
+  { value: "refunded", label: "Refunded", shortLabel: "Refunded", dot: "bg-gray-400" },
 ];
 
 const DATE_FILTERS = [
   { id: "today", label: "Today" },
   { id: "yesterday", label: "Yesterday" },
   { id: "7days", label: "Last 7 Days" },
-  { id: "all", label: "All Time" },
   { id: "custom", label: "Custom 📅" },
 ];
 
+/**
+ * Determines whether a delivered order's fulfillment status change is locked.
+ * Rule:
+ * - Once an order reaches "completed" (Delivered), status changes are allowed for <24h only.
+ * - At >= 24h from actual delivery/completion timestamp, the control is locked.
+ * - Non-completed orders are never locked.
+ * Priority:
+ * 1. _delivery_completed_at / delivery_completed_at
+ * 2. date_completed_gmt
+ * 3. date_completed
+ * 4. date_created_gmt
+ * 5. date_created
+ * Fail-closed:
+ * - If status is completed/delivered and is_status_locked is true, lock immediately.
+ * - If status is completed/delivered and no valid timestamp exists, fail closed (lock).
+ * (date_modified is NOT used as unrelated edits affect it).
+ */
+export const isOrderDeliveredLocked = (order, now = Date.now()) => {
+  if (!order) return false;
+  const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
+  const effectiveStatus = deliveryMeta?.value || order.status;
+  const isDelivered = effectiveStatus === "completed";
+  if (!isDelivered) return false;
+
+  // If server explicitly marked it as locked, lock immediately
+  if (order.is_status_locked === true) {
+    return true;
+  }
+
+  let timestamp = null;
+
+  // 1. _delivery_completed_at / delivery_completed_at
+  const deliveryCompletedAt =
+    order.delivery_completed_at ||
+    order.meta_data?.find((m) => m.key === "_delivery_completed_at")?.value ||
+    order.meta_data?.find((m) => m.key === "_delivered_at")?.value;
+
+  if (deliveryCompletedAt) {
+    const t = new Date(deliveryCompletedAt).getTime();
+    if (!isNaN(t) && t > 0) timestamp = t;
+  }
+
+  // 2. date_completed_gmt
+  if (!timestamp && order.date_completed_gmt) {
+    const s = order.date_completed_gmt.endsWith("Z")
+      ? order.date_completed_gmt
+      : `${order.date_completed_gmt}Z`;
+    const t = new Date(s).getTime();
+    if (!isNaN(t) && t > 0) timestamp = t;
+  }
+
+  // 3. date_completed
+  if (!timestamp && order.date_completed) {
+    const s = order.date_completed.endsWith("Z")
+      ? order.date_completed
+      : `${order.date_completed}Z`;
+    const t = new Date(s).getTime();
+    if (!isNaN(t) && t > 0) timestamp = t;
+  }
+
+  // 4. date_created_gmt
+  if (!timestamp && order.date_created_gmt) {
+    const s = order.date_created_gmt.endsWith("Z")
+      ? order.date_created_gmt
+      : `${order.date_created_gmt}Z`;
+    const t = new Date(s).getTime();
+    if (!isNaN(t) && t > 0) timestamp = t;
+  }
+
+  // 5. date_created
+  if (!timestamp && order.date_created) {
+    const s = order.date_created.endsWith("Z")
+      ? order.date_created
+      : `${order.date_created}Z`;
+    const t = new Date(s).getTime();
+    if (!isNaN(t) && t > 0) timestamp = t;
+  }
+
+  if (timestamp) {
+    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+    return (now - timestamp) >= TWENTY_FOUR_HOURS_MS;
+  }
+
+  // Fail closed: completed order with no usable timestamps is locked
+  return true;
+};
+
 function Orders() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState("all");
-  const [dateFilter, setDateFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState(() =>
+    resolveTabFromStatusParam(searchParams.get("status"))
+  );
+  const [dateFilter, setDateFilter] = useState("today");
+  const [locationFilter, setLocationFilter] = useState("all");
   const [customDateRange, setCustomDateRange] = useState({ start: "", end: "" });
   const [tempDateRange, setTempDateRange] = useState({ start: "", end: "" });
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
-  const [isContentTransitioning, setIsContentTransitioning] = useState(false);
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
+  const dateDropdownRef = useRef(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const requestIdRef = useRef(0);
+  const pollTimerRef = useRef(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
+
+  // Toast notification state
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3500);
+  };
+
+  // Sync activeTab when URL searchParams change
+  useEffect(() => {
+    const tabFromUrl = resolveTabFromStatusParam(searchParams.get("status"));
+    setActiveTab(tabFromUrl);
+  }, [searchParams]);
 
   // Close status dropdown when clicking outside
   useEffect(() => {
@@ -65,8 +194,11 @@ function Orders() {
       if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target)) {
         setIsStatusDropdownOpen(false);
       }
+      if (dateDropdownRef.current && !dateDropdownRef.current.contains(event.target)) {
+        setIsDateDropdownOpen(false);
+      }
     };
-    if (isStatusDropdownOpen) {
+    if (isStatusDropdownOpen || isDateDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("touchstart", handleClickOutside);
     }
@@ -74,7 +206,7 @@ function Orders() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
     };
-  }, [isStatusDropdownOpen]);
+  }, [isStatusDropdownOpen, isDateDropdownOpen]);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -82,72 +214,110 @@ function Orders() {
   const [totalOrders, setTotalOrders] = useState(0);
   const perPage = 20;
 
-  // iOS Sliding Pill Refs & Position State
-  const segmentedControlRef = useRef(null);
-  const buttonRefs = useRef({});
-  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0, ready: false });
-
-  // Update physical sliding indicator on selection or window resize
-  const updateIndicatorPosition = () => {
-    const activeBtn = buttonRefs.current[dateFilter];
-    if (activeBtn) {
-      setIndicatorStyle({
-        left: activeBtn.offsetLeft,
-        width: activeBtn.offsetWidth,
-        ready: true,
-      });
-    }
-  };
-
-  useEffect(() => {
-    updateIndicatorPosition();
-    window.addEventListener("resize", updateIndicatorPosition);
-    return () => window.removeEventListener("resize", updateIndicatorPosition);
-  }, [dateFilter, customDateRange]);
-
   // Debounce search input by 400ms
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery.trim());
+      const normalized = searchQuery.trim();
+      setDebouncedSearch(normalized.length >= 2 ? normalized : "");
       setPage(1);
     }, 400);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const fetchOrderList = async () => {
+  const fetchOrderList = async (isBackground = false) => {
+    const requestId = ++requestIdRef.current;
     try {
-      setLoading(true);
-      setError("");
+      if (!isBackground) {
+        setLoading(true);
+        setError("");
+      }
       const res = await getOrders({
         status: activeTab !== "all" ? activeTab : undefined,
         search: debouncedSearch || undefined,
+        location: locationFilter !== "all" ? locationFilter : undefined,
+        date_filter: dateFilter !== "all" ? dateFilter : undefined,
+        date_from: dateFilter === "custom" ? customDateRange.start || undefined : undefined,
+        date_to: dateFilter === "custom" ? customDateRange.end || undefined : undefined,
         page,
         per_page: perPage,
       });
       if (res.success) {
+        if (requestId !== requestIdRef.current) return;
         setOrders(res.orders || []);
         setTotalOrders(res.total || res.orders?.length || 0);
         setTotalPages(res.totalPages || Math.ceil((res.total || 1) / perPage) || 1);
+        if (!isBackground) setError("");
       }
     } catch (err) {
-      console.error("Fetch orders error:", err);
-      setError(err.response?.data?.message || err.message || "Failed to load orders from server.");
+      if (requestId !== requestIdRef.current) return;
+      if (!isBackground) {
+        setError(err.response?.data?.message || err.message || "Failed to load orders from server.");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current && !isBackground) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchOrderList();
-  }, [activeTab, debouncedSearch, page]);
+    fetchOrderList(false);
+
+    const startPolling = () => {
+      if (!pollTimerRef.current && !document.hidden) {
+        pollTimerRef.current = setInterval(() => {
+          if (!document.hidden) {
+            fetchOrderList(true);
+          }
+        }, 25000);
+      }
+    };
+
+    const stopPolling = () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        fetchOrderList(true);
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
 
   const handleTabChange = (newTab) => {
     setActiveTab(newTab);
     setPage(1);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (newTab === "active") {
+          next.delete("status");
+        } else {
+          next.set("status", newTab);
+        }
+        return next;
+      },
+      { replace: true }
+    );
   };
 
   const handleDateFilterSelect = (filterId) => {
+    setIsDateDropdownOpen(false);
     if (filterId === "custom") {
       setTempDateRange(customDateRange.start ? customDateRange : {
         start: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() - 7 * 86400000)),
@@ -158,21 +328,17 @@ function Orders() {
     }
 
     if (filterId !== dateFilter) {
-      setIsContentTransitioning(true);
       setDateFilter(filterId);
       setPage(1);
-      setTimeout(() => setIsContentTransitioning(false), 200);
     }
   };
 
   const handleApplyCustomRange = () => {
     if (tempDateRange.start && tempDateRange.end) {
-      setIsContentTransitioning(true);
       setCustomDateRange(tempDateRange);
       setDateFilter("custom");
       setIsCustomModalOpen(false);
       setPage(1);
-      setTimeout(() => setIsContentTransitioning(false), 200);
     }
   };
 
@@ -192,13 +358,26 @@ function Orders() {
   const handleStatusUpdate = async (orderId, newStatus) => {
     try {
       setUpdatingId(orderId);
-      await updateOrderStatus(orderId, newStatus);
+      const res = await updateOrderStatus(orderId, newStatus);
       await fetchOrderList();
+      showToast(`Order #${orderId} status updated to ${newStatus}.`);
       if (selectedOrder && selectedOrder.id === orderId) {
-        setSelectedOrder((prev) => ({ ...prev, status: newStatus }));
+        setSelectedOrder((prev) => ({
+          ...prev,
+          status: newStatus,
+          delivery_completed_at:
+            res?.order?.meta_data?.find((m) => m.key === "_delivery_completed_at")?.value ||
+            (newStatus === "completed" ? new Date().toISOString() : prev.delivery_completed_at),
+          date_completed: res?.order?.date_completed || prev.date_completed,
+          date_completed_gmt: res?.order?.date_completed_gmt || prev.date_completed_gmt,
+          is_status_locked: false,
+        }));
       }
     } catch (err) {
-      alert("Failed to update status: " + (err.response?.data?.message || err.message));
+      showToast(
+        "Failed to update status: " + (err.response?.data?.message || err.message),
+        "error"
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -208,38 +387,44 @@ function Orders() {
     switch (status) {
       case "completed":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
-            <CheckCircle2 size={13} /> Delivered
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 border border-emerald-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+            Delivered
           </span>
         );
       case "processing":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 border border-amber-200">
-            <Clock size={13} /> Processing / To Pack
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 border border-amber-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+            To Pack
           </span>
         );
       case "packed":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700 border border-purple-200">
-            <Package size={13} /> Packed (Ready)
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-bold text-purple-700 border border-purple-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-purple-500 shrink-0" />
+            Packed
           </span>
         );
       case "out-for-delivery":
       case "dispatched":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200">
-            <Truck size={13} /> Out For Delivery
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+            Out for Delivery
           </span>
         );
       case "cancelled":
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 border border-rose-200">
-            <AlertCircle size={13} /> Cancelled
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 border border-rose-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" />
+            Cancelled
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700 capitalize">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-bold text-gray-700 capitalize">
+            <span className="h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />
             {status}
           </span>
         );
@@ -252,26 +437,14 @@ function Orders() {
   const sevenDaysAgoDateString = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() - 7 * 86400000));
 
   const filteredOrders = orders.filter((order) => {
-    if (dateFilter === "all") return true;
-    if (!order.date_created) return true;
-
-    const orderDate = order.date_created.split("T")[0];
-
-    if (dateFilter === "today") {
-      return orderDate === todayDateString;
+    if (activeTab === "active" && (order.status === "completed" || order.status === "cancelled")) {
+      return false;
     }
-    if (dateFilter === "yesterday") {
-      return orderDate === yesterdayDateString;
-    }
-    if (dateFilter === "7days") {
-      return orderDate >= sevenDaysAgoDateString && orderDate <= todayDateString;
-    }
-    if (dateFilter === "custom") {
-      if (!customDateRange.start) return true;
-      if (customDateRange.start && customDateRange.end) {
-        return orderDate >= customDateRange.start && orderDate <= customDateRange.end;
+    if (locationFilter !== "all") {
+      const loc = getOrderLocationInfo(order);
+      if (loc.location_key !== locationFilter) {
+        return false;
       }
-      return orderDate >= customDateRange.start;
     }
     return true;
   });
@@ -285,136 +458,326 @@ function Orders() {
     return isoDate;
   };
 
+  const getActiveDateLabel = () => {
+    if (dateFilter === "today") return `Today (${formatDateLabel(todayDateString)})`;
+    if (dateFilter === "yesterday") return `Yesterday (${formatDateLabel(yesterdayDateString)})`;
+    if (dateFilter === "7days") return "Last 7 Days";
+    if (dateFilter === "custom" && customDateRange.start && customDateRange.end) {
+      return `${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`;
+    }
+    return `Today (${formatDateLabel(todayDateString)})`;
+  };
+
   const tabs = [
-    { id: "all", label: "All Orders" },
-    { id: "processing", label: "To Pack" },
+    { id: "active", label: "To Pack & Deliver" },
     { id: "packed", label: "Packed" },
     { id: "out-for-delivery", label: "Out for Delivery" },
     { id: "completed", label: "Delivered" },
     { id: "cancelled", label: "Cancelled" },
+    { id: "all", label: "All Orders" },
   ];
 
+  const hasActiveFilters = activeTab !== "active" || dateFilter !== "today" || locationFilter !== "all";
+
+  const renderDetailsButton = (order, isMobile = false) => {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedOrder(order);
+        }}
+        className={`inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white font-bold text-gray-700 hover:bg-gray-50 active:scale-95 transition cursor-pointer shadow-2xs ${
+          isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
+        }`}
+      >
+        <Eye size={13} className="shrink-0 text-gray-500" />
+        <span>Details</span>
+      </button>
+    );
+  };
+
+  const renderPrimaryAction = (order, isMobile = false) => {
+    const isUpdating = updatingId === order.id;
+
+    if (order.status === "processing") {
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleStatusUpdate(order.id, "packed");
+          }}
+          disabled={isUpdating}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl bg-purple-600 font-bold text-white shadow-xs hover:bg-purple-500 active:scale-95 transition cursor-pointer disabled:opacity-50 ${
+            isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
+          }`}
+        >
+          <Package size={13} className="shrink-0" />
+          <span>{isUpdating ? "Packing..." : "Pack"}</span>
+        </button>
+      );
+    }
+
+    if (order.status === "packed") {
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleStatusUpdate(order.id, "out-for-delivery");
+          }}
+          disabled={isUpdating}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 font-bold text-white shadow-xs hover:bg-blue-500 active:scale-95 transition cursor-pointer disabled:opacity-50 ${
+            isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
+          }`}
+        >
+          <Truck size={13} className="shrink-0" />
+          <span>{isUpdating ? "Dispatching..." : "Dispatch"}</span>
+        </button>
+      );
+    }
+
+    if (order.status === "out-for-delivery" || order.status === "dispatched") {
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleStatusUpdate(order.id, "completed");
+          }}
+          disabled={isUpdating}
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 font-bold text-white shadow-xs hover:bg-emerald-500 active:scale-95 transition cursor-pointer disabled:opacity-50 ${
+            isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
+          }`}
+        >
+          <CheckCircle2 size={13} className="shrink-0" />
+          <span>{isUpdating ? "Delivering..." : "Mark Delivered"}</span>
+        </button>
+      );
+    }
+
+    // Default for completed, cancelled, on-hold
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedOrder(order);
+        }}
+        className={`inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white font-bold text-gray-700 hover:bg-gray-50 active:scale-95 transition cursor-pointer shadow-2xs ${
+          isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
+        }`}
+      >
+        <Eye size={13} className="shrink-0 text-gray-500" />
+        <span>Details</span>
+      </button>
+    );
+  };
+
   return (
-    <div className="space-y-4 sm:space-y-5">
-      {/* PREMIUM iOS-INSPIRED SEGMENTED DATE FILTER & REFRESH BAR */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-200 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-700 shrink-0">
-            <Calendar size={16} />
-          </div>
-          <div>
-            <span className="text-xs font-black uppercase tracking-wider text-slate-800">
-              Filter by Date
-            </span>
-            <p className="text-[11px] text-slate-400">
-              {dateFilter === "today"
-                ? `Showing orders from Today (${formatDateLabel(todayDateString)})`
-                : dateFilter === "yesterday"
-                ? `Showing orders from Yesterday (${formatDateLabel(yesterdayDateString)})`
-                : dateFilter === "7days"
-                ? "Showing orders from the Last 7 Days"
-                : dateFilter === "custom" && customDateRange.start && customDateRange.end
-                ? `Custom Range: ${customDateRange.start} to ${customDateRange.end}`
-                : "Showing all historical orders"}
-            </p>
-          </div>
+    <div className="space-y-3.5 sm:space-y-4">
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-extrabold text-white shadow-xl animate-in slide-in-from-top duration-200 ${
+            toast.type === "error"
+              ? "bg-rose-600 shadow-rose-600/30"
+              : "bg-emerald-600 shadow-emerald-600/30"
+          }`}
+        >
+          {toast.type === "error" ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{toast.message}</span>
         </div>
+      )}
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Sliding Segmented Pill Control */}
-          <div className="overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
-            <div
-              ref={segmentedControlRef}
-              role="tablist"
-              aria-label="Filter orders by date window"
-              className="relative inline-flex items-center rounded-2xl bg-slate-100/90 p-1 border border-slate-200/80 shadow-inner backdrop-blur-xs select-none min-w-max"
-            >
-              {/* Smooth Moving Physical Indicator Pill */}
-              <div
-                className="absolute top-1 bottom-1 rounded-xl bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] border border-slate-200/60 pointer-events-none transition-all duration-250 ease-[cubic-bezier(0.2,0.9,0.3,1.05)] will-change-transform motion-reduce:transition-none"
-                style={{
-                  transform: `translateX(${indicatorStyle.left}px)`,
-                  width: `${indicatorStyle.width}px`,
-                  opacity: indicatorStyle.ready ? 1 : 0,
-                }}
-              />
-
-              {DATE_FILTERS.map((f) => {
-                const isSelected = dateFilter === f.id;
-                return (
-                  <button
-                    key={f.id}
-                    ref={(el) => (buttonRefs.current[f.id] = el)}
-                    role="tab"
-                    aria-selected={isSelected}
-                    onClick={() => handleDateFilterSelect(f.id)}
-                    className={`relative z-10 px-3.5 py-1.5 text-xs font-bold transition-all duration-150 active:scale-[0.97] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 cursor-pointer ${
-                      isSelected
-                        ? "text-slate-900 font-extrabold"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    {f.id === "custom" && customDateRange.start && customDateRange.end
-                      ? `${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`
-                      : f.label}
-                  </button>
-                );
-              })}
-            </div>
+      {/* COMPACT TOP CONTROLS */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-3 sm:p-4 shadow-xs space-y-3">
+        {/* Row 1: Search Bar + Refresh (Mobile & Desktop) */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search Order #, Name, Phone..."
+              className="w-full rounded-xl border border-gray-200 bg-gray-50/60 py-2 pl-9 pr-8 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
 
-          {/* Refresh Pipeline Button */}
           <button
             onClick={fetchOrderList}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:bg-gray-50 transition cursor-pointer disabled:opacity-50 shrink-0"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900 shadow-2xs transition cursor-pointer disabled:opacity-50 shrink-0"
             title="Refresh Order Pipeline"
           >
-            <RotateCcw size={13} className={loading ? "animate-spin" : ""} />
-            Refresh
+            <RotateCcw size={14} className={loading ? "animate-spin text-emerald-600" : ""} />
           </button>
         </div>
-      </div>
 
-      {/* FILTER BAR: Status Tabs + Search */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-gray-200 bg-white p-3.5 sm:p-4 shadow-xs">
-        {/* Status Tabs */}
-        <div className="flex flex-wrap gap-1.5">
-          {tabs.map((tab) => (
+        {/* Row 2: Mobile Filter Controls (<640px) */}
+        <div className="flex sm:hidden items-center gap-2">
+          {/* 1. Date Dropdown Trigger */}
+          <div className="relative flex-1" ref={dateDropdownRef}>
             <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id)}
-              className={`rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer active:scale-95 ${
-                activeTab === tab.id
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-xs"
-                  : "text-gray-600 hover:bg-gray-100"
-              }`}
+              type="button"
+              onClick={() => setIsDateDropdownOpen((prev) => !prev)}
+              className="w-full flex items-center justify-between gap-1.5 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-xs font-bold text-gray-800 outline-none hover:bg-gray-100 transition shadow-2xs cursor-pointer"
             >
-              {tab.label}
+              <div className="flex items-center gap-1.5 truncate">
+                <Calendar size={13} className="text-emerald-600 shrink-0" />
+                <span className="truncate">{getActiveDateLabel()}</span>
+              </div>
+              <ChevronDown
+                size={14}
+                className={`text-gray-400 transition-transform duration-150 shrink-0 ${
+                  isDateDropdownOpen ? "rotate-180 text-emerald-600" : ""
+                }`}
+              />
             </button>
-          ))}
+
+            {/* Mobile Date Dropdown Menu */}
+            {isDateDropdownOpen && (
+              <div className="absolute top-full left-0 right-0 z-40 mt-1 rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-56 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 divide-y divide-gray-50">
+                {DATE_FILTERS.map((f) => {
+                  const isSelected = dateFilter === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => handleDateFilterSelect(f.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 text-xs transition cursor-pointer text-left ${
+                        isSelected
+                          ? "bg-emerald-50 text-emerald-900 font-extrabold"
+                          : "text-gray-700 font-medium hover:bg-gray-50"
+                      }`}
+                    >
+                      <span>
+                        {f.id === "today"
+                          ? `Today (${formatDateLabel(todayDateString)})`
+                          : f.id === "yesterday"
+                          ? `Yesterday (${formatDateLabel(yesterdayDateString)})`
+                          : f.label}
+                      </span>
+                      {isSelected && <Check size={13} className="text-emerald-600 shrink-0 ml-1" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 2. Mobile Filters Button (Triggers Bottom-Sheet) */}
+          <button
+            type="button"
+            onClick={() => setIsMobileFiltersOpen(true)}
+            className={`flex items-center justify-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold shadow-2xs transition cursor-pointer shrink-0 ${
+              hasActiveFilters
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                : "border-gray-200 bg-gray-50/80 text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            <SlidersHorizontal size={13} className={hasActiveFilters ? "text-emerald-600" : "text-gray-500"} />
+            <span>Filters</span>
+            {hasActiveFilters && (
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-black text-white">
+                {(activeTab !== "all" ? 1 : 0) + (dateFilter !== "today" ? 1 : 0) + (locationFilter !== "all" ? 1 : 0)}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Server Search Input */}
-        <div className="relative w-full sm:w-72">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search Order #, Name, Phone..."
-            className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2 pl-9 pr-4 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
-          />
+        {/* Row 2: Desktop Filter Bar (>=640px) */}
+        <div className="hidden sm:flex sm:items-center sm:justify-between gap-3 pt-1 border-t border-gray-100">
+          {/* Status Selectors */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {tabs.map((tab) => {
+              const isSelected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer active:scale-95 ${
+                    isSelected
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Filters (Desktop): Location + Date */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Location Selector Dropdown (Desktop) */}
+            <div className="relative">
+              <select
+                value={locationFilter}
+                onChange={(e) => {
+                  setLocationFilter(e.target.value);
+                  setPage(1);
+                }}
+                className={`appearance-none rounded-xl border py-1.5 pl-7 pr-7 text-xs font-bold outline-none transition cursor-pointer ${
+                  locationFilter !== "all"
+                    ? "border-purple-300 bg-purple-50 text-purple-700 font-extrabold shadow-2xs"
+                    : "border-gray-200 bg-gray-50/80 text-gray-800 hover:bg-gray-100 focus:border-purple-500"
+                }`}
+              >
+                {LOCATION_OPTIONS.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.label}
+                  </option>
+                ))}
+              </select>
+              <MapPin
+                size={12}
+                className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${
+                  locationFilter !== "all" ? "text-purple-600" : "text-gray-400"
+                }`}
+              />
+              <ChevronDown
+                size={13}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              />
+            </div>
+
+            {/* Date Selector Dropdown (Desktop) */}
+            <div className="relative">
+              <select
+                value={dateFilter}
+                onChange={(e) => handleDateFilterSelect(e.target.value)}
+                className="appearance-none rounded-xl border border-gray-200 bg-gray-50/80 py-1.5 pl-8 pr-7 text-xs font-bold text-gray-800 outline-none hover:bg-gray-100 focus:border-emerald-500 transition cursor-pointer"
+              >
+                <option value="today">Today ({formatDateLabel(todayDateString)})</option>
+                <option value="yesterday">Yesterday ({formatDateLabel(yesterdayDateString)})</option>
+                <option value="7days">Last 7 Days</option>
+                <option value="custom">
+                  {customDateRange.start && customDateRange.end
+                    ? `Custom: ${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`
+                    : "Custom Range..."}
+                </option>
+              </select>
+              <Calendar size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-600 pointer-events-none" />
+              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Orders Table with Content Transition */}
-      <div className={`overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-opacity duration-200 ${isContentTransitioning ? "opacity-60" : "opacity-100"}`}>
+      {/* ORDERS PRESENTATION (MOBILE STACKED CARDS / DESKTOP CLEAN TABLE) */}
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-xs overflow-hidden">
         {loading ? (
-          <div className="flex h-72 items-center justify-center">
+          <div className="flex h-64 items-center justify-center">
             <div className="flex flex-col items-center gap-2">
               <Loader2 size={24} className="animate-spin text-emerald-600" />
-              <p className="text-xs font-bold text-gray-400">Loading orders...</p>
+              <p className="text-xs font-bold text-gray-400">Loading order pipeline...</p>
             </div>
           </div>
         ) : error ? (
@@ -429,156 +792,228 @@ function Orders() {
           </div>
         ) : filteredOrders.length === 0 ? (
           <div className="py-16 text-center text-xs font-medium text-gray-400">
-            No orders found for the selected {dateFilter !== "all" ? `date (${dateFilter})` : ""} filter criteria.
+            No orders found for the selected {dateFilter !== "all" ? `date (${dateFilter})` : ""} criteria.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-gray-100 bg-gray-50/75 text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                <tr>
-                  <th className="px-6 py-3.5">Order # & Date</th>
-                  <th className="px-6 py-3.5">Customer Details</th>
-                  <th className="px-6 py-3.5">Items</th>
-                  <th className="px-6 py-3.5">Amount & Payment</th>
-                  <th className="px-6 py-3.5">Status</th>
-                  <th className="px-6 py-3.5 text-right">Dispatch Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
-                {filteredOrders.map((order) => {
-                  const isUpdating = updatingId === order.id;
-                  const isProcessing = order.status === "processing";
-                  const isPacked = order.status === "packed";
-                  const isOutForDelivery =
-                    order.status === "out-for-delivery" || order.status === "dispatched";
+          <>
+            {/* 1. MOBILE VIEW (<640px): Stacked Order Cards (Zero Horizontal Scroll) */}
+            <div className="block sm:hidden divide-y divide-gray-100 p-2 space-y-2">
+              {filteredOrders.map((order) => {
+                const orderDateObj = getOrderTimestampDate(order);
+                const formattedTime = orderDateObj
+                  ? orderDateObj.toLocaleTimeString("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "";
+                const formattedDate = orderDateObj
+                  ? orderDateObj.toLocaleDateString("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                      day: "numeric",
+                      month: "short",
+                    })
+                  : "";
 
-                  return (
-                    <tr key={order.id} className="hover:bg-gray-50/80 transition">
-                      {/* Order # and Date */}
-                      <td className="px-6 py-4">
-                        <span className="font-bold text-gray-900">#{order.id}</span>
-                        <p className="text-[11px] text-gray-400 mt-0.5">
-                          {order.date_created
-                            ? new Date(order.date_created).toLocaleDateString("en-IN", {
-                                day: "numeric",
-                                month: "short",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "N/A"}
+                const customerName = getCleanCustomerName(
+                  order.customer_name,
+                  order.billing?.first_name,
+                  order.billing?.last_name,
+                  "Customer"
+                );
+                const customerPhone = order.phone || order.billing?.phone;
+                const locationInfo = getOrderLocationInfo(order);
+
+                return (
+                  <div
+                    key={order.id}
+                    onClick={() => setSelectedOrder(order)}
+                    className="rounded-xl border border-gray-100 bg-white p-3.5 space-y-3 shadow-2xs hover:border-gray-200 transition active:bg-gray-50/50 cursor-pointer"
+                  >
+                    {/* Card Header: Order # + Date + Location + Status */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                        <span className="font-extrabold text-gray-900 text-sm">#{order.id}</span>
+                        <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${getLocationBadgeClass(locationInfo.location_key)}`}>
+                          <MapPin size={10} className="shrink-0" />
+                          <span>{locationInfo.location}</span>
+                        </span>
+                        <span className="text-[11px] text-gray-400">
+                          {formattedDate} {formattedTime && `• ${formattedTime}`}
+                        </span>
+                      </div>
+                      <div>{getStatusBadge(order.status)}</div>
+                    </div>
+
+                    {/* Card Body: Customer Details & Financials */}
+                    <div className="flex items-start justify-between gap-3 text-xs">
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="font-bold text-gray-800 truncate">{customerName}</p>
+                        {customerPhone && (
+                          <p className="text-[11px] text-gray-500 flex items-center gap-1 truncate">
+                            <Phone size={10} className="text-gray-400 shrink-0" />
+                            <span>{customerPhone}</span>
+                          </p>
+                        )}
+                        <p className="text-[11px] text-gray-400 truncate">
+                          {order.items_count || order.items?.length || 1} item(s) • {order.payment_method_title || order.payment_method || "COD"}
                         </p>
-                      </td>
+                      </div>
 
-                      {/* Customer Name & Phone */}
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-gray-900">
-                          {order.customer_name || `${order.billing?.first_name || ""} ${order.billing?.last_name || ""}`.trim() || "Guest Customer"}
-                        </p>
-                        <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
-                          <Phone size={10} className="text-gray-400" />
-                          {order.phone || order.billing?.phone || "No phone provided"}
-                        </p>
-                      </td>
-
-                      {/* Items Preview */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="flex -space-x-2 overflow-hidden">
-                            {order.items?.slice(0, 3).map((item, idx) => (
-                              <img
-                                key={idx}
-                                src={item.image || "https://placehold.co/40x40?text=Item"}
-                                alt={item.name}
-                                className="inline-block h-8 w-8 rounded-lg object-cover ring-2 ring-white bg-gray-100"
-                              />
-                            ))}
-                          </div>
-                          <span className="text-xs font-semibold text-gray-600">
-                            {order.items_count || order.items?.length || 1} item(s)
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Total & Payment */}
-                      <td className="px-6 py-4">
-                        <p className="font-bold text-gray-900">₹{order.total || 0}</p>
-                        <span className="inline-block rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600 uppercase mt-0.5">
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-black text-gray-900">₹{order.total || 0}</p>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 uppercase">
                           {order.payment_method_title || order.payment_method || "COD"}
                         </span>
-                      </td>
+                      </div>
+                    </div>
 
-                      {/* Status Badge */}
-                      <td className="px-6 py-4">{getStatusBadge(order.status)}</td>
+                    {/* Card Action Row: 1 Primary Next Action Button */}
+                    <div className="pt-1 flex items-center gap-2">
+                      <div className="flex-1">
+                        {renderPrimaryAction(order, true)}
+                      </div>
+                      {["processing", "packed", "out-for-delivery", "dispatched"].includes(order.status) ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedOrder(order);
+                          }}
+                          className="rounded-xl border border-gray-200 bg-white p-2.5 text-gray-600 hover:bg-gray-50 shadow-2xs transition shrink-0"
+                          title="View Details"
+                        >
+                          <Eye size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
-                      {/* Dispatch Actions */}
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => setSelectedOrder(order)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
-                            title="View Full Order Details"
-                          >
-                            <Eye size={13} />
-                            Details
-                          </button>
+            {/* 2. DESKTOP VIEW (>=640px): Clean Table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-gray-100 bg-gray-50/75 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  <tr>
+                    <th className="px-5 py-3.5">Order # & Time</th>
+                    <th className="px-5 py-3.5">Customer Details</th>
+                    <th className="px-5 py-3.5">Items</th>
+                    <th className="px-5 py-3.5">Amount</th>
+                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5 text-right">Next Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
+                  {filteredOrders.map((order) => {
+                    const locationInfo = getOrderLocationInfo(order);
 
-                          {/* Quick 1-Click Status Controls */}
-                          {isProcessing && (
-                            <>
+                    return (
+                      <tr
+                        key={order.id}
+                        onClick={() => setSelectedOrder(order)}
+                        className="hover:bg-gray-50/80 transition cursor-pointer"
+                      >
+                        {/* Order # and Date */}
+                        <td className="px-5 py-3.5">
+                          <span className="font-extrabold text-gray-900">#{order.id}</span>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            {(() => {
+                              const d = getOrderTimestampDate(order);
+                              return d
+                                ? d.toLocaleDateString("en-IN", {
+                                    timeZone: "Asia/Kolkata",
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : "N/A";
+                            })()}
+                          </p>
+                        </td>
+
+                        {/* Customer Name, Location & Phone */}
+                        <td className="px-5 py-3.5">
+                          <p className="font-bold text-gray-900 truncate max-w-[160px]">
+                            {getCleanCustomerName(order.customer_name, order.billing?.first_name, order.billing?.last_name, "Guest Customer")}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold ${getLocationBadgeClass(locationInfo.location_key)}`}>
+                              <MapPin size={9} className="shrink-0" />
+                              <span>{locationInfo.location}</span>
+                            </span>
+                            <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                              <Phone size={10} className="text-gray-400" />
+                              {order.phone || order.billing?.phone || "No phone"}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Items Preview */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex -space-x-2 overflow-hidden">
+                              {order.items?.slice(0, 3).map((item, idx) => (
+                                <img
+                                  key={idx}
+                                  src={item.image || "https://placehold.co/40x40?text=Item"}
+                                  alt={item.name}
+                                  className="inline-block h-7 w-7 rounded-lg object-cover ring-2 ring-white bg-gray-100"
+                                />
+                              ))}
+                            </div>
+                            <span className="text-xs font-semibold text-gray-600">
+                              {order.items_count || order.items?.length || 1} item(s)
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Total & Payment */}
+                        <td className="px-5 py-3.5">
+                          <p className="font-bold text-gray-900">₹{order.total || 0}</p>
+                          <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-600 uppercase mt-0.5">
+                            {order.payment_method_title || order.payment_method || "COD"}
+                          </span>
+                        </td>
+
+                        {/* Status Badge */}
+                        <td className="px-5 py-3.5">{getStatusBadge(order.status)}</td>
+
+                        {/* Next Action Column */}
+                        <td className="px-5 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {renderPrimaryAction(order, false)}
+                            {order.status === "processing" && (
                               <button
-                                onClick={() => handleStatusUpdate(order.id, "packed")}
-                                disabled={isUpdating}
-                                className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-purple-500 transition cursor-pointer disabled:opacity-50"
-                              >
-                                <Package size={12} />
-                                {isUpdating ? "..." : "Pack"}
-                              </button>
-                              <button
-                                onClick={() => handleStatusUpdate(order.id, "out-for-delivery")}
-                                disabled={isUpdating}
-                                className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStatusUpdate(order.id, "out-for-delivery");
+                                }}
+                                disabled={updatingId === order.id}
+                                className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer disabled:opacity-50"
+                                title="Quick Dispatch"
                               >
                                 <Truck size={12} />
-                                {isUpdating ? "..." : "Dispatch →"}
+                                <span>Dispatch</span>
                               </button>
-                            </>
-                          )}
-
-                          {isPacked && (
-                            <button
-                              onClick={() => handleStatusUpdate(order.id, "out-for-delivery")}
-                              disabled={isUpdating}
-                              className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50"
-                            >
-                              <Truck size={13} />
-                              {isUpdating ? "Updating..." : "Dispatch Rider →"}
-                            </button>
-                          )}
-
-                          {isOutForDelivery && (
-                            <button
-                              onClick={() => handleStatusUpdate(order.id, "completed")}
-                              disabled={isUpdating}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50"
-                            >
-                              <CheckCircle2 size={13} />
-                              {isUpdating ? "Updating..." : "Mark Delivered ✓"}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {/* Server Pagination Controls */}
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50/50 px-6 py-4">
-            <p className="text-xs text-gray-500 font-medium">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/50 px-4 py-3 sm:px-6 sm:py-3.5">
+            <p className="text-xs text-gray-500 font-medium text-center sm:text-left">
               Showing <span className="font-bold text-gray-900">{(page - 1) * perPage + 1}</span> to{" "}
               <span className="font-bold text-gray-900">
                 {Math.min(page * perPage, totalOrders)}
@@ -590,7 +1025,7 @@ function Orders() {
               <button
                 onClick={() => setPage((p) => Math.max(p - 1, 1))}
                 disabled={page <= 1}
-                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer"
+                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
               >
                 <ChevronLeft size={14} /> Prev
               </button>
@@ -600,7 +1035,7 @@ function Orders() {
               <button
                 onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
                 disabled={page >= totalPages}
-                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer"
+                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
               >
                 Next <ChevronRight size={14} />
               </button>
@@ -609,10 +1044,157 @@ function Orders() {
         )}
       </div>
 
-      {/* CUSTOM DATE RANGE iOS-STYLE MODAL */}
-      {isCustomModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+      {/* MOBILE FILTERS BOTTOM SHEET / DRAWER */}
+      {isMobileFiltersOpen && (
+        <div
+          onClick={() => setIsMobileFiltersOpen(false)}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs sm:hidden animate-in fade-in duration-200"
+        >
           <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-h-[85vh] bg-white rounded-t-[28px] p-5 shadow-2xl space-y-4 overflow-y-auto animate-in slide-in-from-bottom duration-200"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal size={16} className="text-emerald-600" />
+                <h3 className="text-base font-black text-gray-900">Order Filters</h3>
+              </div>
+              <button
+                onClick={() => setIsMobileFiltersOpen(false)}
+                className="rounded-xl border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-700"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Status Filters */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                Fulfillment Status
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {tabs.map((tab) => {
+                  const isSelected = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        handleTabChange(tab.id);
+                      }}
+                      className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition text-left cursor-pointer border ${
+                        isSelected
+                          ? "bg-emerald-50 text-emerald-900 border-emerald-300 shadow-2xs"
+                          : "bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100"
+                      }`}
+                    >
+                      <span className="truncate">{tab.label}</span>
+                      {isSelected && <Check size={13} className="text-emerald-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Date Filters in Bottom Sheet */}
+            <div className="space-y-2 pt-2 border-t border-gray-100">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                Date Window
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {DATE_FILTERS.map((f) => {
+                  const isSelected = dateFilter === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        handleDateFilterSelect(f.id);
+                      }}
+                      className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition text-left cursor-pointer border ${
+                        isSelected
+                          ? "bg-emerald-50 text-emerald-900 border-emerald-300 shadow-2xs"
+                          : "bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100"
+                      }`}
+                    >
+                      <span className="truncate">{f.label}</span>
+                      {isSelected && <Check size={13} className="text-emerald-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Location Filters in Bottom Sheet */}
+            <div className="space-y-2 pt-2 border-t border-gray-100">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                Delivery Location
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {LOCATION_OPTIONS.map((loc) => {
+                  const isSelected = locationFilter === loc.id;
+                  return (
+                    <button
+                      key={loc.id}
+                      type="button"
+                      onClick={() => {
+                        setLocationFilter(loc.id);
+                        setPage(1);
+                      }}
+                      className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition text-left cursor-pointer border ${
+                        isSelected
+                          ? "bg-purple-50 text-purple-900 border-purple-300 shadow-2xs"
+                          : "bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className={`h-2 w-2 rounded-full shrink-0 ${loc.dot}`} />
+                        <span className="truncate">{loc.label}</span>
+                      </div>
+                      {isSelected && <Check size={13} className="text-purple-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("all");
+                  setDateFilter("today");
+                  setLocationFilter("all");
+                  setPage(1);
+                  setIsMobileFiltersOpen(false);
+                }}
+                className="text-xs font-bold text-gray-500 hover:text-gray-900 underline px-2 py-2"
+              >
+                Reset All
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsMobileFiltersOpen(false)}
+                className="flex-1 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-500 active:scale-95 transition cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DATE RANGE MODAL */}
+      {isCustomModalOpen && (
+        <div
+          onClick={() => setIsCustomModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-5 animate-in zoom-in-95 duration-200"
             role="dialog"
             aria-modal="true"
@@ -723,9 +1305,12 @@ function Orders() {
                 </h3>
                 <p className="text-[11px] sm:text-xs text-gray-500 truncate mt-0.5">
                   Placed on{" "}
-                  {selectedOrder.date_created
-                    ? new Date(selectedOrder.date_created).toLocaleString("en-IN")
-                    : "N/A"}
+                  {(() => {
+                    const d = getOrderTimestampDate(selectedOrder);
+                    return d
+                      ? d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+                      : "N/A";
+                  })()}
                 </p>
               </div>
 
@@ -748,77 +1333,101 @@ function Orders() {
                   {getStatusBadge(selectedOrder.status)}
                 </div>
 
-                <div className="relative w-full" ref={statusDropdownRef}>
-                  <button
-                    type="button"
-                    disabled={updatingId === selectedOrder.id}
-                    onClick={() => setIsStatusDropdownOpen((prev) => !prev)}
-                    className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none hover:border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-60"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                          STATUS_OPTIONS.find((o) => o.value === selectedOrder.status)?.dot || "bg-gray-400"
+                {isOrderDeliveredLocked(selectedOrder) ? (
+                  <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-xs space-y-1.5 shadow-2xs">
+                    <div className="flex items-center gap-2 font-bold text-gray-800">
+                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span>Delivered (Completed)</span>
+                    </div>
+                    <p className="text-[11px] font-medium text-gray-400 flex items-center gap-1.5">
+                      <Lock size={12} className="text-gray-400 shrink-0" />
+                      <span>Status changes are locked after 24 hours.</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="relative w-full" ref={statusDropdownRef}>
+                    <button
+                      type="button"
+                      disabled={updatingId === selectedOrder.id}
+                      onClick={() => setIsStatusDropdownOpen((prev) => !prev)}
+                      className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none hover:border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-60"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                            STATUS_OPTIONS.find((o) => o.value === selectedOrder.status)?.dot || "bg-gray-400"
+                          }`}
+                        />
+                        <span className="truncate">
+                          {STATUS_OPTIONS.find((o) => o.value === selectedOrder.status)?.label || selectedOrder.status}
+                        </span>
+                      </div>
+                      <ChevronDown
+                        size={15}
+                        className={`text-gray-500 transition-transform duration-200 shrink-0 ml-2 ${
+                          isStatusDropdownOpen ? "rotate-180 text-emerald-600" : ""
                         }`}
                       />
-                      <span className="truncate">
-                        {STATUS_OPTIONS.find((o) => o.value === selectedOrder.status)?.label || selectedOrder.status}
-                      </span>
-                    </div>
-                    <ChevronDown
-                      size={15}
-                      className={`text-gray-500 transition-transform duration-200 shrink-0 ml-2 ${
-                        isStatusDropdownOpen ? "rotate-180 text-emerald-600" : ""
-                      }`}
-                    />
-                  </button>
+                    </button>
 
-                  {/* Custom In-DOM Dropdown Menu (Strictly bounded to 100% width of card) */}
-                  {isStatusDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 z-40 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-60 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
-                      {STATUS_OPTIONS.map((option) => {
-                        const isSelected = selectedOrder.status === option.value;
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => {
-                              setIsStatusDropdownOpen(false);
-                              if (!isSelected) {
-                                handleStatusUpdate(selectedOrder.id, option.value);
-                              }
-                            }}
-                            className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
-                              isSelected
-                                ? "bg-emerald-50/80 text-emerald-900 font-extrabold"
-                                : "text-gray-700 font-semibold hover:bg-gray-50"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${option.dot}`} />
-                              <span className="truncate">{option.label}</span>
-                            </div>
-                            {isSelected && (
-                              <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                    {/* Custom In-DOM Dropdown Menu */}
+                    {isStatusDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 z-40 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-60 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
+                        {STATUS_OPTIONS.map((option) => {
+                          const isSelected = selectedOrder.status === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => {
+                                setIsStatusDropdownOpen(false);
+                                if (!isSelected) {
+                                  handleStatusUpdate(selectedOrder.id, option.value);
+                                }
+                              }}
+                              className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                                isSelected
+                                  ? "bg-emerald-50/80 text-emerald-900 font-extrabold"
+                                  : "text-gray-700 font-semibold hover:bg-gray-50"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${option.dot}`} />
+                                <span className="truncate">{option.label}</span>
+                              </div>
+                              {isSelected && (
+                                <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Delivery Address & Customer Info */}
               <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
-                  <MapPin size={14} className="text-emerald-600 shrink-0" />
-                  <span>Delivery & Contact Information</span>
-                </h4>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                    <MapPin size={14} className="text-emerald-600 shrink-0" />
+                    <span>Delivery & Contact Information</span>
+                  </h4>
+                  {(() => {
+                    const selLoc = getOrderLocationInfo(selectedOrder);
+                    return (
+                      <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold ${getLocationBadgeClass(selLoc.location_key)}`}>
+                        <MapPin size={11} className="shrink-0" />
+                        <span>{selLoc.location}</span>
+                      </span>
+                    );
+                  })()}
+                </div>
 
                 <div className="space-y-1.5 text-xs text-gray-700 font-medium">
                   <p className="font-bold text-gray-900 text-sm">
-                    {selectedOrder.customer_name || `${selectedOrder.billing?.first_name || ""} ${selectedOrder.billing?.last_name || ""}`.trim() || "Customer"}
+                    {getCleanCustomerName(selectedOrder.customer_name, selectedOrder.billing?.first_name, selectedOrder.billing?.last_name, "Customer")}
                   </p>
                   <p className="text-gray-600 break-words">
                     {selectedOrder.shipping?.address_1 || selectedOrder.billing?.address_1 || "No street address provided"}

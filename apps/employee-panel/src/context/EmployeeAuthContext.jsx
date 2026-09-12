@@ -16,10 +16,18 @@ export const EmployeeAuthProvider = ({ children }) => {
       const data = await getCurrentUser();
 
       if (data?.logged_in && data?.current_user_id) {
-        setUser({
-          id: data.current_user_id,
-          roles: Array.isArray(data.roles) ? data.roles : (data.role ? [data.role] : []),
-        });
+        const roles = Array.isArray(data.roles) ? data.roles : (data.role ? [data.role] : []);
+        const isAllowed = roles.some((role) =>
+          ["employee", "administrator"].includes(role)
+        );
+        if (isAllowed) {
+          setUser({
+            id: data.current_user_id,
+            roles,
+          });
+        } else {
+          setUser(null);
+        }
       } else {
         setUser(null);
       }
@@ -41,7 +49,22 @@ export const EmployeeAuthProvider = ({ children }) => {
       throw new Error(data?.message || "Login failed.");
     }
 
-    await checkAuth();
+    const meData = await getCurrentUser();
+    const roles = Array.isArray(meData?.roles) ? meData.roles : (meData?.role ? [meData.role] : []);
+    const isAllowed = roles.some((role) =>
+      ["employee", "administrator"].includes(role)
+    );
+
+    if (!meData?.logged_in || !isAllowed) {
+      await logoutEmployee().catch(() => {});
+      setUser(null);
+      throw new Error("This account does not have employee access permissions.");
+    }
+
+    setUser({
+      id: meData.current_user_id,
+      roles,
+    });
 
     return data;
   };
@@ -55,7 +78,7 @@ export const EmployeeAuthProvider = ({ children }) => {
   };
 
   const isEmployee = user?.roles?.some((role) =>
-    ["employee", "shop_manager", "administrator"].includes(role)
+    ["employee", "administrator"].includes(role)
   );
 
   return (

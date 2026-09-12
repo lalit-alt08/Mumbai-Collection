@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
 import { useAuth } from "../context/AuthContext";
+import { sendOtp, verifyOtp } from "../services/authService";
 
 import {
   User,
@@ -16,18 +17,42 @@ import {
   ArrowLeft,
   AlertTriangle,
   Trash2,
+  Shield,
+  ShieldCheck,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  ArrowRight,
 } from "lucide-react";
 import axios from "axios";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
 
 function Profile() {
   const navigate = useNavigate();
-  const { user, deleteAccount } = useAuth();
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { user, deleteAccount, updateUser, refreshUser, handleSessionExpired } = useAuth();
+  const [profile, setProfile] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem("user_profile") || "null");
+      return cached;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(!profile);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Change phone modal state
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState("");
+  const [otpSuccess, setOtpSuccess] = useState("");
+  const [cooldown, setCooldown] = useState(0);
 
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -37,10 +62,38 @@ function Profile() {
   const [success, setSuccess] = useState("");
 
   const [form, setForm] = useState({
-    full_name: "",
+    first_name: "",
+    last_name: "",
     age: "",
     phone: "",
   });
+
+  const getCleanDisplayName = (fullName, firstName, lastName, fallback = "Your Name") => {
+    const f = (firstName || "").trim();
+    const l = (lastName || "").trim();
+    if (f || l) {
+      if (f && l && f.toLowerCase() === l.toLowerCase()) return f;
+      if (f && l) return `${f} ${l}`;
+      return f || l || fallback;
+    }
+    if (fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+        return parts[0];
+      }
+      return fullName.trim();
+    }
+    return fallback;
+  };
+
+  // Cooldown timer for OTP resend
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   // ==============================
   // LOAD PROFILE
@@ -59,20 +112,51 @@ function Profile() {
       );
 
       const profileData = response.data.profile || {};
+      const isVerified = response.data.is_phone_verified === true;
+      const verifiedPhone = response.data.verified_phone || user?.verified_phone || "";
+      const currentPhone = profileData.phone || response.data.billing_phone || user?.phone || "";
 
       setProfile(profileData);
+      setIsPhoneVerified(isVerified && !!verifiedPhone && currentPhone === verifiedPhone);
+
+      try {
+        localStorage.setItem("user_profile", JSON.stringify(profileData));
+      } catch {}
+
+      const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
+      const nameParts = rawFullName.trim().split(/\s+/);
+      const loadedFirst = profileData.first_name || user?.first_name || nameParts[0] || "";
+      const loadedLast = profileData.last_name || user?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+
+      if (updateUser && (rawFullName || loadedFirst)) {
+        updateUser({
+          first_name: loadedFirst,
+          last_name: loadedLast,
+          name: rawFullName || `${loadedFirst} ${loadedLast}`.trim(),
+          full_name: rawFullName || `${loadedFirst} ${loadedLast}`.trim(),
+          phone: currentPhone,
+          verified_phone: verifiedPhone,
+          is_phone_verified: isVerified && !!verifiedPhone && currentPhone === verifiedPhone,
+        });
+      }
 
       setForm({
-        full_name: profileData.full_name || "",
+        first_name: loadedFirst,
+        last_name: loadedLast,
         age: profileData.age || "",
-        phone: profileData.phone || "",
+        phone: currentPhone,
       });
     } catch (error) {
-      console.error(
-        " PROFILE LOAD ERROR:",
-        error.response?.data || error.message
-      );
-
+      if (error.response?.status === 401) {
+        if (handleSessionExpired) {
+          handleSessionExpired();
+        }
+        navigate("/login", {
+          replace: true,
+          state: { from: "/profile" },
+        });
+        return;
+      }
       setError(
         error.response?.data?.message ||
           "Unable to load profile."
@@ -87,15 +171,12 @@ function Profile() {
   }, []);
 
   // ==============================
-  // INPUT CHANGE
+  // INPUT CHANGE (NAME & AGE ONLY)
   // ==============================
 
   const handleChange = (e) => {
-    let { name, value } = e.target;
-
-    if (name === "phone") {
-      value = value.replace(/\D/g, "").slice(0, 10);
-    }
+    const { name, value } = e.target;
+    if (name === "phone") return; // Phone is protected and not directly editable
 
     setForm((prev) => ({
       ...prev,
@@ -111,8 +192,14 @@ function Profile() {
   // ==============================
 
   const handleEdit = () => {
+    const rawFullName = profile?.full_name || "";
+    const nameParts = rawFullName.trim().split(/\s+/);
+    const loadedFirst = profile?.first_name || nameParts[0] || "";
+    const loadedLast = profile?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+
     setForm({
-      full_name: profile?.full_name || "",
+      first_name: loadedFirst,
+      last_name: loadedLast,
       age: profile?.age || "",
       phone: profile?.phone || "",
     });
@@ -127,8 +214,14 @@ function Profile() {
   // ==============================
 
   const handleCancel = () => {
+    const rawFullName = profile?.full_name || "";
+    const nameParts = rawFullName.trim().split(/\s+/);
+    const loadedFirst = profile?.first_name || nameParts[0] || "";
+    const loadedLast = profile?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+
     setForm({
-      full_name: profile?.full_name || "",
+      first_name: loadedFirst,
+      last_name: loadedLast,
       age: profile?.age || "",
       phone: profile?.phone || "",
     });
@@ -139,7 +232,7 @@ function Profile() {
   };
 
   // ==============================
-  // SAVE
+  // SAVE (NAME & AGE ONLY)
   // ==============================
 
   const handleSave = async (e) => {
@@ -148,8 +241,13 @@ function Profile() {
     setError("");
     setSuccess("");
 
-    if (!form.full_name.trim()) {
-      setError("Full name is required.");
+    if (!form.first_name.trim()) {
+      setError("First name is required.");
+      return;
+    }
+
+    if (!form.last_name.trim()) {
+      setError("Last name is required.");
       return;
     }
 
@@ -162,29 +260,25 @@ function Profile() {
       Number(form.age) < 13 ||
       Number(form.age) > 120
     ) {
-      setError("Please enter a valid age.");
-      return;
-    }
-
-    if (!form.phone.trim()) {
-      setError("Phone number is required.");
-      return;
-    }
-
-    if (!isValidIndianPhone(form.phone)) {
-      setError("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
+      setError("Please enter a valid age (13 - 120).");
       return;
     }
 
     try {
       setSaving(true);
 
+      const cleanFirst = form.first_name.trim();
+      const cleanLast = form.last_name.trim();
+      const cleanFullName = `${cleanFirst} ${cleanLast}`;
+
       const response = await axios.put(
         `${API_URL}/profile`,
         {
-          full_name: form.full_name.trim(),
+          first_name: cleanFirst,
+          last_name: cleanLast,
+          full_name: cleanFullName,
           age: Number(form.age),
-          phone: form.phone.trim(),
+          phone: profile?.phone || form.phone || "",
         },
         {
           withCredentials: true,
@@ -194,15 +288,29 @@ function Profile() {
       const updatedProfile =
         response.data.profile || {
           ...profile,
-          full_name: form.full_name.trim(),
+          first_name: cleanFirst,
+          last_name: cleanLast,
+          full_name: cleanFullName,
           age: Number(form.age),
-          phone: form.phone.trim(),
+          phone: profile?.phone || form.phone || "",
         };
 
       setProfile(updatedProfile);
+      try {
+        localStorage.setItem("user_profile", JSON.stringify(updatedProfile));
+      } catch {}
+      if (updateUser) {
+        updateUser({
+          first_name: cleanFirst,
+          last_name: cleanLast,
+          name: cleanFullName,
+          full_name: cleanFullName,
+        });
+      }
 
       setForm({
-        full_name: updatedProfile.full_name || "",
+        first_name: cleanFirst,
+        last_name: cleanLast,
         age: updatedProfile.age || "",
         phone: updatedProfile.phone || "",
       });
@@ -210,10 +318,16 @@ function Profile() {
       setEditing(false);
       setSuccess("Profile updated successfully.");
     } catch (error) {
-      console.error(
-        "PROFILE UPDATE ERROR:",
-        error.response?.data || error.message
-      );
+      if (error.response?.status === 401) {
+        if (handleSessionExpired) {
+          handleSessionExpired();
+        }
+        navigate("/login", {
+          replace: true,
+          state: { from: "/profile" },
+        });
+        return;
+      }
 
       setError(
         error.response?.data?.message ||
@@ -221,6 +335,124 @@ function Profile() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ==============================
+  // CHANGE PHONE NUMBER OTP FLOW
+  // ==============================
+
+  const openPhoneModal = () => {
+    setNewPhone("");
+    setOtp("");
+    setOtpSent(false);
+    setOtpLoading(false);
+    setOtpError("");
+    setOtpSuccess("");
+    setShowPhoneModal(true);
+  };
+
+  const closePhoneModal = () => {
+    if (otpLoading) return;
+    setShowPhoneModal(false);
+    setNewPhone("");
+    setOtp("");
+    setOtpSent(false);
+    setOtpError("");
+    setOtpSuccess("");
+  };
+
+  const handleSendPhoneOtp = async () => {
+    setOtpError("");
+    setOtpSuccess("");
+
+    if (!isValidIndianPhone(newPhone)) {
+      setOtpError("Please enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+
+    const cleanNew = String(newPhone).replace(/\D/g, "");
+    const cleanCurrent = String(profile?.phone || user?.phone || "").replace(/\D/g, "");
+    if (cleanCurrent && cleanNew === cleanCurrent) {
+      setOtpError("New mobile number must be different from your current number.");
+      return;
+    }
+
+    try {
+      setOtpLoading(true);
+      const res = await sendOtp(cleanNew, "verify_phone");
+      setOtpSent(true);
+      setOtpSuccess(res.message || `Verification code sent to +91 ${cleanNew}`);
+      setCooldown(60);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        if (handleSessionExpired) handleSessionExpired();
+        navigate("/login", { replace: true, state: { from: "/profile" } });
+        return;
+      }
+      setOtpError(err.response?.data?.message || "Unable to send verification code. Please try again.");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyPhoneOtp = async () => {
+    setOtpError("");
+    setOtpSuccess("");
+
+    const cleanOtp = String(otp || "").trim();
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setOtpError("Please enter the 6-digit verification code.");
+      return;
+    }
+
+    try {
+      setOtpLoading(true);
+      const cleanNew = String(newPhone).replace(/\D/g, "");
+      const res = await verifyOtp(cleanNew, cleanOtp, "verify_phone");
+
+      if (res.success) {
+        const verifiedNum = res.verified_phone || res.phone || cleanNew;
+        const updated = {
+          ...(profile || {}),
+          phone: verifiedNum,
+          verified_phone: verifiedNum,
+        };
+
+        setProfile(updated);
+        setIsPhoneVerified(true);
+        setForm((prev) => ({ ...prev, phone: verifiedNum }));
+
+        try {
+          localStorage.setItem("user_profile", JSON.stringify(updated));
+        } catch {}
+
+        if (updateUser) {
+          updateUser({
+            phone: verifiedNum,
+            verified_phone: verifiedNum,
+            is_phone_verified: true,
+          });
+        }
+
+        if (refreshUser) {
+          await refreshUser();
+        }
+
+        closePhoneModal();
+        setSuccess("Mobile number updated and verified successfully!");
+      } else {
+        setOtpError(res.message || "Verification failed. Please try again.");
+      }
+    } catch (err) {
+      if (err.response?.status === 401) {
+        if (handleSessionExpired) handleSessionExpired();
+        navigate("/login", { replace: true, state: { from: "/profile" } });
+        return;
+      }
+      setOtpError(err.response?.data?.message || "Invalid or expired verification code.");
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -246,8 +478,6 @@ function Profile() {
         },
       });
     } catch (err) {
-      console.error("❌ DELETE ACCOUNT ERROR:", err.response?.data || err.message);
-
       setError(
         err.response?.data?.message ||
           "Failed to delete account. Please try again or contact support."
@@ -346,7 +576,7 @@ function Profile() {
 
               <div>
                 <h2 className="text-xl font-extrabold text-[#1E1E1E]">
-                  {profile?.full_name || "Your Name"}
+                  {getCleanDisplayName(profile?.full_name, profile?.first_name, profile?.last_name, "Your Name")}
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
@@ -380,27 +610,54 @@ function Profile() {
               className="space-y-5"
             >
 
-              {/* FULL NAME */}
-              <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Full Name
-                </label>
+              {/* FIRST NAME & LAST NAME */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    First Name <span className="text-[#7C3AED]">*</span>
+                  </label>
 
-                <div className="relative">
-                  <User
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-                  />
+                  <div className="relative">
+                    <User
+                      size={19}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
 
-                  <input
-                    type="text"
-                    name="full_name"
-                    value={form.full_name}
-                    onChange={handleChange}
-                    autoComplete="name"
-                    placeholder="Enter your full name"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
-                  />
+                    <input
+                      type="text"
+                      name="first_name"
+                      value={form.first_name}
+                      onChange={handleChange}
+                      autoComplete="given-name"
+                      placeholder="e.g. Rahul"
+                      required
+                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-gray-700">
+                    Last Name <span className="text-[#7C3AED]">*</span>
+                  </label>
+
+                  <div className="relative">
+                    <User
+                      size={19}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+
+                    <input
+                      type="text"
+                      name="last_name"
+                      value={form.last_name}
+                      onChange={handleChange}
+                      autoComplete="family-name"
+                      placeholder="e.g. Sharma"
+                      required
+                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -429,11 +686,22 @@ function Profile() {
                 </div>
               </div>
 
-              {/* PHONE */}
+              {/* PHONE (READ-ONLY WITH DEDICATED CHANGE ACTION) */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Mobile Number
-                </label>
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="block text-sm font-bold text-gray-700">
+                    Mobile Number
+                  </label>
+                  {isPhoneVerified ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 size={11} /> Verified
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">
+                      Unverified
+                    </span>
+                  )}
+                </div>
 
                 <div className="relative flex items-center">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
@@ -442,16 +710,24 @@ function Profile() {
 
                   <input
                     type="tel"
-                    inputMode="numeric"
-                    maxLength={10}
-                    name="phone"
-                    value={form.phone}
-                    onChange={handleChange}
-                    autoComplete="tel"
-                    placeholder="9876543210"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    value={profile?.phone || form.phone || ""}
+                    readOnly
+                    disabled
+                    className="h-14 w-full cursor-not-allowed rounded-2xl border border-gray-200 bg-gray-100/80 pl-14 pr-32 text-gray-600 outline-none select-none font-semibold text-sm sm:text-base"
                   />
+
+                  <button
+                    type="button"
+                    onClick={openPhoneModal}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-[#7C3AED] px-3.5 py-2 text-xs font-bold text-white transition hover:bg-[#6D28D9] active:scale-95 cursor-pointer shadow-xs"
+                  >
+                    Change Phone
+                  </button>
                 </div>
+
+                <p className="mt-1.5 text-xs text-gray-500 font-medium">
+                  Verified phone numbers are protected and require OTP verification to change.
+                </p>
               </div>
 
               {/* EMAIL */}
@@ -535,8 +811,7 @@ function Profile() {
                 </div>
 
                 <p className="font-semibold text-[#1E1E1E]">
-                  {profile?.full_name ||
-                    "Not provided"}
+                  {getCleanDisplayName(profile?.full_name, profile?.first_name, profile?.last_name, "Not provided")}
                 </p>
               </div>
 
@@ -558,18 +833,40 @@ function Profile() {
 
               {/* PHONE */}
               <div className="rounded-2xl bg-gray-50 p-5">
-                <div className="mb-3 flex items-center gap-2 text-gray-400">
-                  <Phone size={18} />
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <Phone size={18} />
 
-                  <span className="text-xs font-bold uppercase tracking-wide">
-                    Phone Number
-                  </span>
+                    <span className="text-xs font-bold uppercase tracking-wide">
+                      Phone Number
+                    </span>
+                  </div>
+
+                  {isPhoneVerified ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 size={11} /> Verified
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">
+                      Unverified
+                    </span>
+                  )}
                 </div>
 
-                <p className="font-semibold text-[#1E1E1E]">
-                  {profile?.phone ||
-                    "Not provided"}
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-[#1E1E1E]">
+                    {profile?.phone ? `+91 ${profile.phone}` : "Not provided"}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={openPhoneModal}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#7C3AED]/30 bg-[#F5F3FF] px-3 py-1.5 text-xs font-bold text-[#7C3AED] transition hover:bg-[#EDE9FE] active:scale-95 cursor-pointer"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Change</span>
+                  </button>
+                </div>
               </div>
 
               {/* EMAIL */}
@@ -592,33 +889,233 @@ function Profile() {
 
         </div>
 
-        {/* DANGER ZONE: DELETE ACCOUNT */}
-        <div className="mt-8 rounded-3xl border border-red-200/80 bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-red-600">
-                <AlertTriangle size={15} />
-                <span>Danger Zone</span>
-              </div>
-              <h3 className="mt-1 text-lg font-black text-gray-900 sm:text-xl">
-                Delete Account Permanently
-              </h3>
-              <p className="mt-1 text-xs text-gray-500 sm:text-sm leading-relaxed max-w-lg">
-                Permanently delete your Mumbai Collection customer account, saved addresses, and favorites. This action cannot be undone.
-              </p>
-            </div>
+        {/* ACCOUNT PRIVACY: DELETE ACCOUNT */}
+        <div className="mt-6 space-y-2">
+          <div className="flex items-center gap-1.5 px-1">
+            <Shield size={14} className="text-gray-500" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+              Account Privacy
+            </h3>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => setShowDeleteModal(true)}
-              className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-2xl border-2 border-red-200 bg-red-50 px-5 text-sm font-extrabold text-red-600 shadow-sm transition hover:bg-red-600 hover:border-red-600 hover:text-white active:scale-[0.98] cursor-pointer"
-            >
-              <Trash2 size={17} />
-              <span>Delete Account</span>
-            </button>
+          <div className="rounded-2xl border border-red-100 bg-red-50/40 p-3.5 sm:p-4 transition hover:bg-red-50/60">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-red-600">
+                  <AlertTriangle size={13} />
+                  <span>Delete Account</span>
+                </div>
+                <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+                  Permanently delete your account, addresses, and saved data.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="shrink-0 flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 shadow-2xs transition hover:bg-red-600 hover:border-red-600 hover:text-white active:scale-95 cursor-pointer"
+              >
+                <Trash2 size={13} />
+                <span>Delete</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* CHANGE PHONE NUMBER OTP MODAL */}
+      {showPhoneModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl space-y-4">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9]">
+                  <Phone size={19} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-[#111827]">
+                    Change Mobile Number
+                  </h3>
+                  <p className="text-xs text-gray-500 font-medium">
+                    Requires SMS OTP verification
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closePhoneModal}
+                disabled={otpLoading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 cursor-pointer disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Current Phone Reassurance */}
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex items-center justify-between text-xs">
+              <span className="text-gray-500 font-medium">Current Number:</span>
+              <span className="font-bold text-gray-900">
+                +91 {profile?.phone || "None"}
+              </span>
+            </div>
+
+            {/* Error & Success Feedback */}
+            {otpError && (
+              <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700 border border-red-200">
+                <AlertCircle size={15} className="shrink-0 text-red-600" />
+                <span>{otpError}</span>
+              </div>
+            )}
+
+            {otpSuccess && (
+              <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700 border border-emerald-200">
+                <CheckCircle2 size={15} className="shrink-0 text-emerald-600" />
+                <span>{otpSuccess}</span>
+              </div>
+            )}
+
+            {/* STEP 1: Enter New Phone */}
+            {!otpSent ? (
+              <div className="space-y-3.5">
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-gray-700">
+                    New Mobile Number <span className="text-[#7C3AED]">*</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3.5 text-sm font-bold text-gray-400">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      value={newPhone}
+                      onChange={(e) => {
+                        setNewPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
+                        setOtpError("");
+                      }}
+                      placeholder="9876543210"
+                      autoFocus
+                      className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50/70 pl-12 pr-4 text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={closePhoneModal}
+                    disabled={otpLoading}
+                    className="h-11 rounded-xl border border-gray-200 px-4 text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendPhoneOtp}
+                    disabled={otpLoading || newPhone.length !== 10}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-5 text-xs font-bold text-white shadow-xs hover:bg-[#6D28D9] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                  >
+                    {otpLoading ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" />
+                        <span>Sending OTP...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Send OTP</span>
+                        <ArrowRight size={14} />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* STEP 2: Enter OTP Code */
+              <div className="space-y-3.5">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-gray-700">
+                      6-Digit Verification Code <span className="text-[#7C3AED]">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpSent(false);
+                        setOtp("");
+                        setOtpError("");
+                      }}
+                      className="text-[11px] font-bold text-[#7C3AED] hover:underline"
+                    >
+                      Change Number
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(e) => {
+                      setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
+                      setOtpError("");
+                    }}
+                    placeholder="••••••"
+                    autoFocus
+                    className="h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-center text-lg font-extrabold tracking-[0.35em] text-gray-900 outline-none transition focus:border-[#7C3AED] focus:ring-3 focus:ring-[#7C3AED]/20"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-0.5">
+                  <span className="text-gray-500">Didn't receive SMS?</span>
+                  {cooldown > 0 ? (
+                    <span className="font-semibold text-gray-400">Resend in {cooldown}s</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendPhoneOtp}
+                      disabled={otpLoading}
+                      className="font-bold text-[#7C3AED] hover:underline cursor-pointer"
+                    >
+                      Resend Code
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={closePhoneModal}
+                    disabled={otpLoading}
+                    className="h-11 rounded-xl border border-gray-200 px-4 text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleVerifyPhoneOtp}
+                    disabled={otpLoading || otp.length !== 6}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-5 text-xs font-extrabold text-white shadow-xs hover:bg-[#6D28D9] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                  >
+                    {otpLoading ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" />
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={15} />
+                        <span>Verify & Save</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* DELETE ACCOUNT CONFIRMATION MODAL */}
       <ConfirmModal

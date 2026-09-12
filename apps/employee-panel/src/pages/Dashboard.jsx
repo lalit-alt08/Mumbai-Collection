@@ -4,6 +4,7 @@ import {
   Package,
   Truck,
   AlertTriangle,
+  AlertCircle,
   RotateCcw,
   CheckCircle2,
   Boxes,
@@ -25,6 +26,14 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3500);
+  };
 
   const isFetchingRef = useRef(false);
   const pollTimerRef = useRef(null);
@@ -103,9 +112,13 @@ function Dashboard() {
     try {
       setUpdatingId(orderId);
       await updateOrderStatus(orderId, newStatus);
+      showToast(`Order #${orderId} marked as ${newStatus}.`);
       await fetchOverview(true);
     } catch (err) {
-      alert(err.response?.data?.message || "Failed to update order status.");
+      showToast(
+        err.response?.data?.message || err.message || "Failed to update order status.",
+        "error"
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -153,6 +166,20 @@ function Dashboard() {
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-2xl px-4 py-3 text-xs font-extrabold text-white shadow-xl animate-in slide-in-from-top duration-200 ${
+            toast.type === "error"
+              ? "bg-rose-600 shadow-rose-600/30"
+              : "bg-emerald-600 shadow-emerald-600/30"
+          }`}
+        >
+          {toast.type === "error" ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
       {/* 4 TOP OPERATIONAL CURRENT-STATE CARDS */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* CARD 1: ORDERS TO PACK (Primary Emphasis) */}

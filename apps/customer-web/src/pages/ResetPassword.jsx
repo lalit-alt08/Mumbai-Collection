@@ -82,8 +82,6 @@ function ResetPassword() {
         navigate("/login");
       }, 1800);
     } catch (err) {
-      console.error(err);
-
       const message =
         typeof err.response?.data?.message === "string"
           ? err.response.data.message

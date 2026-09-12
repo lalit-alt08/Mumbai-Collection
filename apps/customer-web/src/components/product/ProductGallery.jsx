@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { ArrowLeft, Heart, Share2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFavorites } from "../../context/FavoritesContext";
+import { getCatalogImageUrl, getFullImageUrl } from "../../utils/imageUtils";
 
 function ProductGallery({ product }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -28,8 +29,8 @@ function ProductGallery({ product }) {
           title: product.name,
           url: window.location.href,
         });
-      } catch (err) {
-        console.error("Error sharing", err);
+      } catch {
+        // User cancelled or share not supported
       }
     }
   };
@@ -111,10 +112,12 @@ function ProductGallery({ product }) {
       {/* Main Image Container */}
       <div className="relative mx-auto mt-14 flex aspect-square w-full max-w-[420px] items-center justify-center p-4">
         <img
-          src={currentImage.src}
-          alt={currentImage.name || product.name}
+          src={getFullImageUrl(currentImage)}
+          alt={currentImage.alt || currentImage.name || product.name || "Product image"}
+          width="420"
+          height="420"
           className="h-full w-full object-contain transition-transform duration-500 hover:scale-105"
-          loading="lazy"
+          decoding="async"
         />
 
         {/* Gallery Navigation Arrows (when multiple images exist) */}
@@ -143,6 +146,7 @@ function ProductGallery({ product }) {
         <div className="mt-4 flex items-center justify-center gap-2.5 px-4">
           {images.map((img, index) => {
             const isSelected = safeIndex === index;
+            const thumbUrl = getCatalogImageUrl(img);
             return (
               <button
                 key={img.id || index}
@@ -155,10 +159,13 @@ function ProductGallery({ product }) {
                 }`}
               >
                 <img
-                  src={img.src}
-                  alt={`Thumbnail ${index + 1}`}
+                  src={thumbUrl}
+                  alt={img.alt || img.name || `Thumbnail ${index + 1}`}
+                  width="72"
+                  height="72"
                   className="h-full w-full object-contain"
                   loading="lazy"
+                  decoding="async"
                 />
               </button>
             );

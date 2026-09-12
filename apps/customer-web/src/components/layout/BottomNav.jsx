@@ -14,6 +14,10 @@ function BottomNav() {
     "/order-failed",
     "/track-order",
     "/product",
+    "/terms",
+    "/return-policy",
+    "/privacy-policy",
+    "/shipping-policy",
   ];
 
   // Also hide on order tracking sub-routes like /orders/:id/track

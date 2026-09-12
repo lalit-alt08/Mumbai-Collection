@@ -26,11 +26,11 @@ function EmployeeLayout() {
 
   const navigation = [
     { name: "Dashboard", href: "/", exact: true, icon: LayoutDashboard },
+    { name: "Orders & Dispatch", href: "/orders", icon: Truck },
     { name: "Products & Stock", href: "/products", exact: true, icon: Boxes },
     { name: "Add Product", href: "/products/add", exact: true, icon: PackagePlus },
     { name: "Add Category", href: "/categories/add", exact: true, icon: FolderPlus },
     { name: "Homepage Banners", href: "/banners", exact: true, icon: Sliders },
-    { name: "Orders & Dispatch", href: "/orders", icon: Truck },
   ];
 
   const handleLogout = async () => {

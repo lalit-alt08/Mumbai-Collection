@@ -2,6 +2,7 @@ import api from "../config/woocommerce.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { logger } from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,7 +72,7 @@ export const getFavoriteProductIds = async (userId, forceFresh = false) => {
 
     return productIds;
   } catch (error) {
-    console.warn(`[FavoritesService] Error fetching favorites for customer ${uId}:`, error.message);
+    logger.warn({ uId, err: error.message }, "[FavoritesService] Error fetching favorites for customer");
     if (cached) {
       return Array.from(cached.ids);
     }
@@ -120,7 +121,7 @@ export const addFavorite = async (userId, productId) => {
 
     return { success: true, productIds: updatedList, isFavorited: true };
   } catch (error) {
-    console.error(`[FavoritesService] Error adding favorite product ${pId} for customer ${uId}:`, error.message);
+    logger.error({ uId, pId, err: error.message }, "[FavoritesService] Error adding favorite product for customer");
     throw error;
   }
 };
@@ -166,7 +167,7 @@ export const removeFavorite = async (userId, productId) => {
 
     return { success: true, productIds: updatedList, isFavorited: false };
   } catch (error) {
-    console.error(`[FavoritesService] Error removing favorite product ${pId} for customer ${uId}:`, error.message);
+    logger.error({ uId, pId, err: error.message }, "[FavoritesService] Error removing favorite product for customer");
     throw error;
   }
 };
@@ -199,7 +200,7 @@ export const migrateLegacyFavorites = async () => {
     const list = JSON.parse(raw);
 
     if (Array.isArray(list) && list.length > 0) {
-      console.log(`[Favorites Migration] Found ${list.length} legacy entries in favorites.json. Migrating to WooCommerce...`);
+      logger.info(`[Favorites Migration] Found ${list.length} legacy entries in favorites.json. Migrating to WooCommerce...`);
 
       // Group legacy favorites by userId
       const userFavoritesMap = new Map();
@@ -229,24 +230,24 @@ export const migrateLegacyFavorites = async () => {
             ],
           });
 
-          console.log(`[Favorites Migration] Migrated customer #${uId} favorites (${mergedArray.length} items).`);
+          logger.info(`[Favorites Migration] Migrated customer #${uId} favorites (${mergedArray.length} items).`);
         } catch (custErr) {
-          console.warn(`[Favorites Migration] Failed to migrate customer #${uId}:`, custErr.message);
+          logger.warn({ uId, err: custErr.message }, "[Favorites Migration] Failed to migrate customer");
         }
       }
     }
 
     // Rename file to indicate completion and prevent re-migration
     fs.renameSync(LEGACY_FAVORITES_FILE, MIGRATED_FAVORITES_FILE);
-    console.log("[Favorites Migration] Legacy favorites.json successfully migrated and archived.");
+    logger.info("[Favorites Migration] Legacy favorites.json successfully migrated and archived.");
   } catch (err) {
-    console.error("[Favorites Migration] Migration failed:", err.message);
+    logger.error({ err: err.message }, "[Favorites Migration] Migration failed");
   }
 };
 
 // Run migration on module load
 migrateLegacyFavorites().catch((err) => {
-  console.error("[Favorites Migration] Uncaught migration error:", err.message);
+  logger.error({ err: err.message }, "[Favorites Migration] Uncaught migration error");
 });
 
 export default {

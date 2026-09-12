@@ -29,10 +29,15 @@ const PrivacyPolicy = lazy(() => import("../pages/PrivacyPolicy"));
 const Categories = lazy(() => import("../pages/Categories"));
 const Favorites = lazy(() => import("../pages/Favorites"));
 
+import GlobalGoogleLogin from "../components/auth/GlobalGoogleLogin";
+import { CartRouteManager } from "../context/CartContext";
+
 function AppRouter() {
   return (
     <BrowserRouter>
       <ScrollToTop />
+      <GlobalGoogleLogin />
+      <CartRouteManager />
       <Suspense fallback={null}>
         <Routes>
           <Route element={<MainLayout />}>

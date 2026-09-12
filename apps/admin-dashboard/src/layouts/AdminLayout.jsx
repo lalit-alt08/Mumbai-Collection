@@ -4,12 +4,13 @@ import {
   LayoutDashboard,
   Boxes,
   Users,
+  UserX,
   TrendingUp,
+  ShieldCheck,
   Store,
+  Clock,
   Menu,
   X,
-  Bell,
-  Search,
   ExternalLink,
   CircleDot,
   LogOut,
@@ -28,7 +29,10 @@ function AdminLayout() {
     { name: "Overview", href: "/", icon: LayoutDashboard },
     { name: "Inventory & Stock", href: "/products", icon: Boxes },
     { name: "Customers", href: "/customers", icon: Users },
+    { name: "Customer Suspension", href: "/customer-suspension", icon: UserX },
+    { name: "Employee Access", href: "/employees", icon: ShieldCheck },
     { name: "Sales Analytics", href: "/analytics", icon: TrendingUp },
+    { name: "Store Hours", href: "/store-hours", icon: Clock },
   ];
 
   const handleLogout = async () => {
@@ -148,52 +152,18 @@ function AdminLayout() {
 
       {/* Main Content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top Navbar */}
-        <header className="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-gray-200/80 bg-white px-6 shadow-sm">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-2 text-gray-600 hover:text-gray-900 lg:hidden rounded-lg hover:bg-gray-100"
-            >
-              <Menu size={22} />
-            </button>
-
-            {/* Quick Search */}
-            <div className="relative hidden sm:block w-72">
-              <Search
-                size={16}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-
-              <input
-                type="text"
-                placeholder="Search orders, products, customers..."
-                className="h-10 w-full rounded-full border border-gray-200 bg-gray-50 pl-10 pr-4 text-xs font-medium text-gray-800 placeholder-gray-400 focus:border-[#FF8A00] focus:bg-white focus:outline-none transition"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              aria-label="Notifications"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
-            >
-              <Bell size={18} />
-
-              <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-[#FF8A00]" />
-            </button>
-
-            <div className="hidden md:flex flex-col text-right">
-              <span className="text-xs font-bold text-gray-900">
-                Vasai Store Terminal
-              </span>
-
-              <span className="text-[10px] text-gray-500 font-medium">
-                Node Backend Connected
-              </span>
-            </div>
-          </div>
-        </header>
+        {/* Mobile Header (only visible on mobile to open drawer) */}
+        <div className="flex h-14 items-center justify-between border-b border-gray-200/80 bg-white px-4 lg:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 text-gray-600 hover:text-gray-900 rounded-xl hover:bg-gray-100"
+            aria-label="Open Navigation"
+          >
+            <Menu size={22} />
+          </button>
+          <span className="text-sm font-bold text-gray-900">Mumbai Collection</span>
+          <div className="w-8" />
+        </div>
 
         {/* Page */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">

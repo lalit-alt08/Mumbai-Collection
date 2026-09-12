@@ -15,7 +15,23 @@ import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { getIndianStateCode } from "../../data/indianStates";
 
-function BillingForm() {
+import {
+  CHECKOUT_IDEMP_STORAGE_KEY,
+  computeCartFingerprint,
+  generateUUID,
+  getOrCreateCheckoutIdempotencyKey,
+  clearCheckoutIdempotencyKey,
+} from "../../utils/checkoutIdempotency.js";
+
+export {
+  CHECKOUT_IDEMP_STORAGE_KEY,
+  computeCartFingerprint,
+  generateUUID,
+  getOrCreateCheckoutIdempotencyKey,
+  clearCheckoutIdempotencyKey,
+};
+
+function BillingForm({ storeHours, onStoreClosed }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { cart, refreshCart } = useCart();
@@ -27,6 +43,11 @@ function BillingForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isSubmittingRef = useRef(false);
+  const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
+
+  useEffect(() => {
+    idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
+  }, [cart]);
 
   // Load saved addresses
   useEffect(() => {
@@ -48,11 +69,6 @@ function BillingForm() {
           setSelectedAddressId(savedAddresses[0].id);
         }
       } catch (error) {
-        console.error(
-          "ADDRESS LOAD ERROR:",
-          error.response?.data || error.message,
-        );
-
         setError(
           error.response?.data?.message ||
             "Unable to load your saved addresses.",
@@ -88,6 +104,14 @@ function BillingForm() {
           0,
         ) / 100;
 
+    const isStoreClosed = storeHours && storeHours.is_open === false;
+    if (isStoreClosed) {
+      const msg = storeHours?.closed_message || "We are currently closed for new orders.";
+      const resumeTime = storeHours?.next_opening?.label ? ` Ordering resumes ${storeHours.next_opening.label}.` : "";
+      setError(`${msg}${resumeTime}`);
+      return;
+    }
+
     if (itemsSubtotal < 500) {
       const shortfall = Math.max(0, 500 - itemsSubtotal);
       setError(`Add ₹${shortfall} more to reach the minimum order value of ₹500.`);
@@ -102,10 +126,21 @@ function BillingForm() {
       /*
        * Convert saved address into WooCommerce checkout format with strict validation safeguards.
        */
-      const nameParts = (selectedAddress.full_name || "").trim().split(/\s+/);
+      let firstName = (selectedAddress.first_name || "").trim();
+      let lastName = (selectedAddress.last_name || "").trim();
 
-      const firstName = nameParts.shift() || "Customer";
-      const lastName = nameParts.join(" ") || firstName; // Fallback to firstName if single name
+      if (!firstName || !lastName) {
+        const nameParts = (selectedAddress.full_name || "").trim().split(/\s+/);
+        if (!firstName) firstName = nameParts[0] || "";
+        if (!lastName) lastName = nameParts.slice(1).join(" ");
+      }
+
+      if (!firstName) {
+        firstName = (user?.first_name || (user?.name || "").trim().split(/\s+/)[0] || "Customer").trim();
+      }
+      if (!lastName) {
+        lastName = (user?.last_name || (user?.name || "").trim().split(/\s+/).slice(1).join(" ") || "").trim();
+      }
 
       const stateCode = getIndianStateCode(selectedAddress.state);
       const cachedEmail = (() => {
@@ -152,26 +187,60 @@ function BillingForm() {
         country: "IN",
       };
 
-      const response = await updateCheckout({
-        billing_address: billingAddress,
-        shipping_address: shippingAddress,
-        payment_method: "cod",
-        create_account: false,
-      });
+      const response = await updateCheckout(
+        {
+          billing_address: billingAddress,
+          shipping_address: shippingAddress,
+          payment_method: "cod",
+          create_account: false,
+        },
+        {
+          headers: {
+            "X-Idempotency-Key": idempotencyKeyRef.current,
+          },
+          timeout: 30000,
+        }
+      );
+      // Clear persisted idempotency key on successful order completion
+      clearCheckoutIdempotencyKey();
+
       // Refresh cart state to clear items and badges
       await refreshCart().catch(() => {});
 
       navigate(`/order-success/${response.order_id}`);
     } catch (error) {
-      console.error(
-        " PLACE ORDER ERROR:",
-        error.response?.data || error.message,
-      );
+      const errData = error.response?.data;
 
-      setError(
-        error.response?.data?.message ||
-          "Failed to place order. Please try again.",
-      );
+      if (errData?.code === "CUSTOMER_SUSPENDED") {
+        setError(
+          errData?.message ||
+            "Your account is currently suspended and you cannot place new orders.",
+        );
+        return;
+      }
+
+      if (errData?.code === "STORE_CLOSED") {
+        const msg = errData?.message || "We are currently closed for new orders.";
+        const resumeTime = errData?.next_opening?.label ? ` Ordering resumes ${errData.next_opening.label}.` : "";
+        setError(`${msg}${resumeTime}`);
+        if (typeof onStoreClosed === "function") {
+          onStoreClosed();
+        }
+        return;
+      }
+
+      if (errData?.code === "woocommerce_rest_min_order_value") {
+        setError(
+          errData?.message ||
+            "Minimum product order value of ₹500 is required.",
+        );
+      } else {
+        setError(
+          errData?.message ||
+            error.message ||
+            "Failed to place order. Please try again.",
+        );
+      }
     } finally {
       isSubmittingRef.current = false;
       setLoading(false);
@@ -268,69 +337,38 @@ function BillingForm() {
                     {/* Icon */}
                     <div
                       className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
-                        isSelected ? "bg-[#E0D4FC]" : "bg-gray-50"
+                        isSelected
+                          ? "bg-[#7C3AED] text-white"
+                          : "bg-[#F5F5F5] text-[#666666]"
                       }`}
                     >
-                      {isHome ? (
-                        <Home
-                          size={20}
-                          className={
-                            isSelected ? "text-[#7C3AED]" : "text-gray-500"
-                          }
-                        />
-                      ) : (
-                        <Building2
-                          size={20}
-                          className={
-                            isSelected ? "text-[#7C3AED]" : "text-gray-500"
-                          }
-                        />
-                      )}
+                      {isHome ? <Home size={18} /> : <Building2 size={18} />}
                     </div>
 
-                    {/* Address */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-[15px] font-bold text-[#1E1E1E]">
-                          {isHome ? "Home" : "Office"}
-                        </h4>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[14px] font-bold text-[#1E1E1E]">
+                          {address.first_name || ""} {address.last_name || ""}
+                        </span>
 
-                        {isSelected && (
-                          <span className="rounded-full bg-[#E0D4FC] px-2 py-0.5 text-[9px] font-bold text-[#7C3AED]">
-                            SELECTED
-                          </span>
-                        )}
+                        <span className="rounded-full bg-[#E9D5FF] px-2.5 py-0.5 text-[11px] font-bold text-[#7C3AED]">
+                          {address.type ? address.type.toUpperCase() : "HOME"}
+                        </span>
                       </div>
 
-                      <p className="mt-1.5 text-[14px] font-semibold text-[#1E1E1E]">
-                        {address.full_name}
-                      </p>
+                      <div className="mt-1 text-[13px] text-[#666666]">
+                        {address.address_line1 || ""},{" "}
+                        {address.address_line2
+                          ? `${address.address_line2}, `
+                          : ""}
+                        {address.city || ""}, {address.state || ""}
+                        {address.pincode ? ` - ${address.pincode}` : ""}
+                      </div>
 
-                      <p className="mt-0.5 text-[13px] text-[#666666]">
-                        {address.phone}
-                      </p>
-
-                      <p className="mt-2 text-[13px] leading-5 text-[#666666]">
-                        {address.address_line1}
-                        {address.address_line2 && (
-                          <>
-                            <br />
-                            {address.address_line2}
-                          </>
-                        )}
-                        <br />
-                        {address.city}, Maharashtra
-                      </p>
-                    </div>
-
-                    {/* Radio */}
-                    <div
-                      className={`mt-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                        isSelected ? "border-[#7C3AED]" : "border-gray-300"
-                      }`}
-                    >
-                      {isSelected && (
-                        <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
+                      {address.phone && (
+                        <div className="mt-1 text-[12px] font-medium text-[#7C3AED]">
+                          📞 {address.phone}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -343,8 +381,8 @@ function BillingForm() {
 
       <hr className="my-5 border-[#ECECEC]" />
 
-      {/* Payment */}
-      <div className="mb-5">
+      {/* Payment Method */}
+      <div className="mb-6">
         <h3 className="mb-3 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
           <CreditCard size={18} className="text-[#7C3AED]" />
           Payment Method
@@ -368,21 +406,34 @@ function BillingForm() {
       </div>
 
       {/* Place Order */}
-      <button
-        type="button"
-        onClick={handlePlaceOrder}
-        disabled={loading || addresses.length === 0 || !selectedAddress}
-        className="flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] bg-[#7C3AED] text-[15px] font-bold text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="animate-spin" size={19} />
-            Processing...
-          </>
-        ) : (
-          "Place Order securely →"
-        )}
-      </button>
+      {(() => {
+        const isStoreClosed = storeHours && storeHours.is_open === false;
+        const isDisabled = loading || addresses.length === 0 || !selectedAddress || isStoreClosed;
+
+        return (
+          <button
+            type="button"
+            onClick={handlePlaceOrder}
+            disabled={isDisabled}
+            className={`flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] text-[15px] font-bold transition-all ${
+              isStoreClosed
+                ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
+                : "bg-[#7C3AED] text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            }`}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" size={19} />
+                Processing...
+              </>
+            ) : isStoreClosed ? (
+              "Store is Currently Closed for Orders"
+            ) : (
+              "Place Order securely →"
+            )}
+          </button>
+        );
+      })()}
     </div>
   );
 }

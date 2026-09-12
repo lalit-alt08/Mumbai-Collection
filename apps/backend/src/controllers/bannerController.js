@@ -3,6 +3,7 @@ import {
   saveBanners,
 } from "../services/bannerService.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { logError } from "../utils/logger.js";
 
 /**
  * Public Endpoint: Get Active Homepage Banners for Customer Web
@@ -19,7 +20,7 @@ export const getPublicBanners = async (req, res) => {
       banners: transformMediaUrls(activeBanners, req),
     });
   } catch (error) {
-    console.error("Get public banners error:", error.message);
+    logError(req, error, "Get public banners error");
     res.status(500).json({
       success: false,
       message: "Failed to load homepage banners.",
@@ -42,7 +43,7 @@ export const getEmployeeBanners = async (req, res) => {
       banners: transformMediaUrls(banners, req),
     });
   } catch (error) {
-    console.error("Get employee banners error:", error.message);
+    logError(req, error, "Get employee banners error");
     res.status(500).json({
       success: false,
       message: "Failed to load banner configuration.",
@@ -82,7 +83,7 @@ export const updateEmployeeBanners = async (req, res) => {
       banners: transformMediaUrls(savedBanners, req),
     });
   } catch (error) {
-    console.error("Update employee banners error:", error.response?.data || error.message);
+    logError(req, error, "Update employee banners error");
     const statusCode = error.response?.status || 400;
     res.status(statusCode).json({
       success: false,

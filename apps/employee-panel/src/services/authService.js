@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API_BASE =
-  import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+  import.meta.env?.VITE_API_URL || "http://localhost:5000/api";
 
 const authApi = axios.create({
   baseURL: API_BASE,
@@ -9,6 +9,7 @@ const authApi = axios.create({
   headers: {
     "X-Mumbai-Panel": "employee",
   },
+  timeout: 12000,
 });
 
 export const loginEmployee = async (email, password) => {

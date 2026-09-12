@@ -21,11 +21,12 @@ function Analytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchAnalyticsData = async () => {
+  const fetchAnalyticsData = async (isManualRefresh = false) => {
     try {
       setLoading(true);
       setError("");
-      const res = await getAnalytics();
+      const params = isManualRefresh ? { refresh: true } : undefined;
+      const res = await getAnalytics(params);
 
       if (res?.success) {
         setData(res.data);
@@ -33,7 +34,6 @@ function Analytics() {
         throw new Error(res?.message || "Failed to load store analytics.");
       }
     } catch (err) {
-      console.error("Fetch analytics error:", err);
       setError("Failed to load store analytics.");
     } finally {
       setLoading(false);
@@ -68,7 +68,7 @@ function Analytics() {
           <p className="text-xs text-gray-500 mt-1">{error || "Analytics reporting data is temporarily unavailable."}</p>
         </div>
         <button
-          onClick={fetchAnalyticsData}
+          onClick={() => fetchAnalyticsData(false)}
           className="inline-flex items-center gap-2 rounded-xl bg-[#FF8A00] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#FF7300] shadow-sm transition"
         >
           <RotateCcw size={14} /> Retry Analytics
@@ -93,7 +93,7 @@ function Analytics() {
         </div>
 
         <button
-          onClick={fetchAnalyticsData}
+          onClick={() => fetchAnalyticsData(true)}
           className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm transition hover:bg-gray-50"
         >
           <RotateCcw size={14} /> Refresh

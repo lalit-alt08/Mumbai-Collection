@@ -7,6 +7,7 @@ import {
 import { useCart } from "../../context/CartContext";
 import { Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
+import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 
 function ProductInfo({ product }) {
   const navigate = useNavigate();
@@ -38,8 +39,8 @@ function ProductInfo({ product }) {
       setLoading(true);
       await addToWooCart(product.id);
       await refreshCart();
-    } catch (error) {
-      console.error("Add to cart error:", error);
+    } catch {
+      // Handled by cart refresh / UI state
     } finally {
       setLoading(false);
     }
@@ -60,8 +61,8 @@ function ProductInfo({ product }) {
       } else {
         await updateCartItem(cartItem.key, newQuantity);
       }
-    } catch (error) {
-      console.log("Cart updated with server state:", error.response?.data || error.message);
+    } catch {
+      // Handled by cart refresh
     } finally {
       await refreshCart().catch(() => {});
       setLoading(false);
@@ -173,6 +174,9 @@ function ProductInfo({ product }) {
           <span className="text-[13px] font-bold text-[#1F2937]">Fast Local Delivery</span>
         </div>
       </div>
+
+      {/* Ask on WhatsApp Support Section */}
+      <ProductWhatsAppSupport product={product} />
 
       {/* Sticky Bottom Purchase Bar (Mobile & Split-Screen < lg) */}
       <div

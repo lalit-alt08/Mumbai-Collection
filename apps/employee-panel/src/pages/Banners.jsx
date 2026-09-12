@@ -25,6 +25,7 @@ import {
   updateBanners,
   uploadProductImage,
 } from "../services/employeeApi.js";
+import { compressImage, BANNER_MAX_DIMENSION } from "../utils/imageCompressor.js";
 
 function Banners() {
   const [banners, setBanners] = useState([]);
@@ -58,7 +59,6 @@ function Banners() {
         setBanners(res);
       }
     } catch (err) {
-      console.error("Fetch banners error:", err);
       setError(err.response?.data?.message || err.message || "Failed to load homepage banners.");
     } finally {
       setLoading(false);
@@ -127,9 +127,10 @@ function Banners() {
     setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: true } }));
 
     // Aspect ratio check for user guidance
+    const objectUrl = URL.createObjectURL(file);
     const imgObj = new Image();
-    imgObj.src = URL.createObjectURL(file);
     imgObj.onload = () => {
+      URL.revokeObjectURL(objectUrl);
       const ratio = imgObj.width / imgObj.height;
       if (slot === "desktop" && (ratio < 2.0 || ratio > 3.5)) {
         showToast(
@@ -143,9 +144,21 @@ function Banners() {
         );
       }
     };
+    imgObj.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+    imgObj.src = objectUrl;
+
+    // Compress banner image client-side before upload (max 1920px preserving aspect ratio, WebP 0.85 with JPEG fallback)
+    let fileToUpload = file;
+    try {
+      fileToUpload = await compressImage(file, { maxDimension: BANNER_MAX_DIMENSION });
+    } catch {
+      // Fall back to original file if compression fails
+    }
 
     try {
-      const uploadRes = await uploadProductImage(file);
+      const uploadRes = await uploadProductImage(fileToUpload);
       if (uploadRes.success && (uploadRes.url || uploadRes.id)) {
         setBanners((prev) =>
           prev.map((b, idx) => {
@@ -163,7 +176,6 @@ function Banners() {
         showToast("Upload failed. Please try again.", "error");
       }
     } catch (err) {
-      console.error("Banner upload error:", err);
       showToast(err.response?.data?.message || err.message || "Failed to upload image.", "error");
     } finally {
       setUploadingSlots((prev) => {
@@ -232,7 +244,6 @@ function Banners() {
         fetchBannerList();
       }
     } catch (err) {
-      console.error("Save banners error:", err);
       setError(err.response?.data?.message || err.message || "Failed to persist banners in WordPress.");
       showToast("Failed to save banners.", "error");
     } finally {
@@ -267,7 +278,7 @@ function Banners() {
       {/* Top Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-4 sm:pb-5">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2">
             <Link
               to="/products"
               className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
@@ -275,7 +286,7 @@ function Banners() {
               <ArrowLeft size={14} /> Back to Products
             </Link>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 mt-2 flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 sm:mt-2 flex items-center gap-2">
             <Sliders size={24} className="text-emerald-600" />
             Homepage Banners
           </h1>

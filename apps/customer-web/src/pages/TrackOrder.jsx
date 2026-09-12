@@ -390,34 +390,36 @@ function TrackOrder() {
                   {/* DESKTOP HORIZONTAL TIMELINE (>= 768px)                     */}
                   {/* ────────────────────────────────────────────────────────── */}
                   <div className="hidden md:block pt-6 pb-2">
-                    <div className="relative flex items-center justify-between">
-                      {/* Background Bar */}
-                      <div className="absolute left-6 right-6 top-5 -z-0 h-1 bg-gray-200" />
-                      {/* Active Progress Bar */}
-                      <div
-                        className="absolute left-6 top-5 -z-0 h-1 bg-[#7C3AED] transition-all duration-500"
-                        style={{
-                          width: `${
-                            order.tracking_stage >= 4
-                              ? 100
-                              : order.tracking_stage === 3
-                              ? 66
-                              : order.tracking_stage === 2
-                              ? 33
-                              : 0
-                          }%`,
-                          maxWidth: "calc(100% - 48px)",
-                        }}
-                      />
-
+                    <div className="flex items-start">
                       {trackingSteps.map((step, idx) => {
                         const status = getStepStatus(step.stage, order.tracking_stage || 1, order.status);
                         const Icon = step.icon;
+                        const isSegmentCompleted =
+                          order?.status === "completed" ||
+                          (Number(order?.tracking_stage) || 1) > step.stage;
 
                         return (
-                          <div key={idx} className="relative z-10 flex flex-col items-center text-center">
+                          <div key={idx} className="relative flex-1 flex flex-col items-center text-center">
+                            {/* Segmented Connecting Track to next step */}
+                            {idx < trackingSteps.length - 1 && (
+                              <div
+                                className="absolute top-5 -translate-y-1/2 h-1 bg-gray-200 rounded-full overflow-hidden"
+                                style={{
+                                  left: "calc(50% + 28px)",
+                                  width: "calc(100% - 56px)",
+                                }}
+                              >
+                                <div
+                                  className={`h-full bg-[#7C3AED] transition-all duration-500 ${
+                                    isSegmentCompleted ? "w-full" : "w-0"
+                                  }`}
+                                />
+                              </div>
+                            )}
+
+                            {/* Checkpoint Circle */}
                             <div
-                              className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ${
+                              className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 ${
                                 status === "completed"
                                   ? "bg-emerald-600 text-white shadow-sm"
                                   : status === "active"
@@ -431,6 +433,8 @@ function TrackOrder() {
                                 <Icon size={18} />
                               )}
                             </div>
+
+                            {/* Title & Subtitle */}
                             <span
                               className={`mt-2 text-xs font-bold ${
                                 status === "active"
@@ -593,8 +597,15 @@ function TrackOrder() {
                   </div>
                   <div className="text-xs text-gray-700 leading-relaxed font-medium space-y-1">
                     <p className="font-bold text-gray-900">
-                      {order.shipping?.first_name || order.billing?.first_name}{" "}
-                      {order.shipping?.last_name || order.billing?.last_name}
+                      {(() => {
+                        const f = (order.shipping?.first_name || order.billing?.first_name || "").trim();
+                        const l = (order.shipping?.last_name || order.billing?.last_name || "").trim();
+                        if (!f && !l) return "Customer";
+                        if (!l) return f;
+                        if (!f) return l;
+                        if (f.toLowerCase() === l.toLowerCase()) return f;
+                        return `${f} ${l}`;
+                      })()}
                     </p>
                     <p className="text-gray-600">
                       {order.shipping?.address_1 || order.billing?.address_1}

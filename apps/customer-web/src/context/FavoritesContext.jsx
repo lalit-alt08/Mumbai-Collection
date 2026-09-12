@@ -29,8 +29,8 @@ export const FavoritesProvider = ({ children }) => {
         setFavoriteIds(ids);
         setFavorites(res.favorites || []);
       }
-    } catch (err) {
-      console.warn("Failed to load customer favorites:", err.message);
+    } catch {
+      // Failed to load customer favorites
     } finally {
       setLoading(false);
     }
@@ -80,8 +80,7 @@ export const FavoritesProvider = ({ children }) => {
         await addFavApi(productId);
       }
       return { success: true, isFavorited: !currentlyFavorited };
-    } catch (err) {
-      console.error("Toggle favorite failed, reverting:", err.message);
+    } catch {
       // Rollback on error
       setFavoriteIds((prev) => {
         const next = new Set(prev);

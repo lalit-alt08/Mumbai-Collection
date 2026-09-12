@@ -5,6 +5,7 @@ import {
   removeFavorite as removeFavService,
   isFavorited as isFavService,
 } from "../services/favoritesService.js";
+import { logError, logger } from "../utils/logger.js";
 
 /**
  * Get all favorited products for authenticated customer
@@ -46,7 +47,7 @@ export const getFavorites = async (req, res) => {
         favorites: products,
       });
     } catch (wcErr) {
-      console.warn("WooCommerce products fetch for favorites warning:", wcErr.message);
+      logger.warn({ err: wcErr.message }, "WooCommerce products fetch for favorites warning");
       // Fallback: return product IDs even if catalog is delayed
       res.json({
         success: true,
@@ -56,7 +57,7 @@ export const getFavorites = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("Get favorites error:", error.response?.data || error.message);
+    logError(req, error, "Get favorites error");
     res.status(500).json({
       success: false,
       message: "Failed to load favorites.",
@@ -95,7 +96,7 @@ export const addFavorite = async (req, res) => {
       productIds: result.productIds,
     });
   } catch (error) {
-    console.error("Add favorite error:", error.response?.data || error.message);
+    logError(req, error, "Add favorite error");
     res.status(500).json({
       success: false,
       message: "Failed to add product to favorites.",
@@ -134,7 +135,7 @@ export const removeFavorite = async (req, res) => {
       productIds: result.productIds,
     });
   } catch (error) {
-    console.error("Remove favorite error:", error.response?.data || error.message);
+    logError(req, error, "Remove favorite error");
     res.status(500).json({
       success: false,
       message: "Failed to remove product from favorites.",

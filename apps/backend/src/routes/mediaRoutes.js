@@ -1,7 +1,8 @@
 import express from "express";
 import axios from "axios";
 import path from "path";
-import { httpsAgent } from "../config/httpAgent.js";
+import { mediaHttpsAgent, mediaHttpAgent } from "../config/httpAgent.js";
+import { logError } from "../utils/logger.js";
 
 const router = express.Router();
 
@@ -53,7 +54,8 @@ router.use(async (req, res) => {
       response = await axios({
         method: "GET",
         url: targetUrl,
-        httpsAgent,
+        httpsAgent: mediaHttpsAgent,
+        httpAgent: mediaHttpAgent,
         responseType: "stream",
         timeout: 10000,
         validateStatus: (status) => status === 200,
@@ -65,7 +67,8 @@ router.use(async (req, res) => {
         response = await axios({
           method: "GET",
           url: altUrl,
-          httpsAgent,
+          httpsAgent: mediaHttpsAgent,
+          httpAgent: mediaHttpAgent,
           responseType: "stream",
           timeout: 10000,
           validateStatus: (status) => status === 200,
@@ -100,7 +103,7 @@ router.use(async (req, res) => {
     if (error.response?.status === 404 || error.code === "ERR_BAD_REQUEST") {
       return res.status(404).json({ success: false, message: "Media file not found." });
     }
-    console.error(`Media proxy error: ${error.message}`);
+    logError(req, error, "Media proxy error");
     return res.status(502).json({ success: false, message: "Failed to load media file." });
   }
 });

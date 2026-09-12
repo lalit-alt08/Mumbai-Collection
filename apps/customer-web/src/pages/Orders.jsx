@@ -23,54 +23,78 @@ function Orders() {
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState("all");
   const [expandedOrderId, setExpandedOrderId] = useState(null);
 
+  const [page, setPage] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const hasMore = page < totalPages;
   const userEmail = user?.email || "";
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (targetPage = 1, isLoadMore = false) => {
     try {
-      setLoading(true);
-      setError("");
-      const data = await getMyOrders(userEmail);
-      if (data.success && Array.isArray(data.orders)) {
-        setOrders(data.orders);
+      if (isLoadMore) {
+        setLoadingMore(true);
       } else {
-        setOrders([]);
+        setLoading(true);
+        setError("");
+      }
+
+      const data = await getMyOrders({ page: targetPage, per_page: 10, email: userEmail });
+
+      if (data.success && Array.isArray(data.orders)) {
+        if (isLoadMore) {
+          setOrders((prev) => {
+            const existingIds = new Set(prev.map((o) => o.id));
+            const newUnique = data.orders.filter((o) => !existingIds.has(o.id));
+            const merged = [...prev, ...newUnique];
+            // Preserve newest orders first
+            merged.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
+            return merged;
+          });
+        } else {
+          setOrders(data.orders);
+        }
+
+        setPage(data.page || targetPage);
+        setTotalOrders(data.total !== undefined ? data.total : (isLoadMore ? orders.length + data.orders.length : data.orders.length));
+        setTotalPages(data.totalPages || 1);
+      } else {
+        if (!isLoadMore) {
+          setOrders([]);
+          setTotalOrders(0);
+          setTotalPages(1);
+        }
       }
     } catch (err) {
-      console.error("Fetch orders error:", err);
-      setError("Unable to load your orders right now. Please try again.");
+      if (!isLoadMore) {
+        setError("Unable to load your orders right now. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      if (isLoadMore) {
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchOrders();
+    fetchOrders(1, false);
   }, [userEmail]);
+
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      fetchOrders(page + 1, true);
+    }
+  };
 
   const toggleExpandOrder = (id) => {
     setExpandedOrderId((prev) => (prev === id ? null : id));
   };
-
-  // Filter orders based on active tab
-  const filteredOrders = orders.filter((order) => {
-    if (activeTab === "all") return true;
-    if (activeTab === "active") {
-      return ["pending", "processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(
-        order.status
-      );
-    }
-    if (activeTab === "delivered") {
-      return order.status === "completed";
-    }
-    if (activeTab === "cancelled") {
-      return ["cancelled", "refunded", "failed"].includes(order.status);
-    }
-    return true;
-  });
 
   const getStatusBadge = (status, displayStatus) => {
     switch (status) {
@@ -165,51 +189,6 @@ function Orders() {
           </div>
         </div>
 
-        {/* Status Filter Tabs */}
-        <div className="mb-6 flex overflow-x-auto pb-1 scrollbar-none gap-2">
-          {[
-            { id: "all", label: "All Orders", count: orders.length },
-            {
-              id: "active",
-              label: "Live / In-Progress",
-              count: orders.filter((o) =>
-                ["pending", "processing", "on-hold", "out-for-delivery", "dispatched"].includes(o.status)
-              ).length,
-            },
-            {
-              id: "delivered",
-              label: "Delivered",
-              count: orders.filter((o) => o.status === "completed").length,
-            },
-            {
-              id: "cancelled",
-              label: "Cancelled",
-              count: orders.filter((o) => ["cancelled", "refunded", "failed"].includes(o.status)).length,
-            },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-bold transition-all ${
-                activeTab === tab.id
-                  ? "bg-[#1E1E1E] text-white shadow-sm"
-                  : "bg-white text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              <span>{tab.label}</span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
-                  activeTab === tab.id
-                    ? "bg-white/20 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </div>
-
         {/* Loading Skeletons */}
         {loading && (
           <div className="space-y-4">
@@ -248,21 +227,17 @@ function Orders() {
         )}
 
         {/* Empty State */}
-        {!loading && !error && filteredOrders.length === 0 && (
+        {!loading && !error && orders.length === 0 && (
           <div className="rounded-[28px] bg-white p-10 text-center shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:p-16">
             <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[#F1ECFF] text-[#7C3AED]">
               <ShoppingBag size={38} />
             </div>
 
             <h2 className="text-xl font-bold text-[#1E1E1E]">
-              {activeTab === "all"
-                ? "No Orders Found"
-                : `No ${activeTab} orders`}
+              No Orders Found
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-gray-500 leading-relaxed">
-              {activeTab === "all"
-                ? "Looks like you haven't placed any orders yet. Discover our premium stationery, art supplies, and toys!"
-                : `You do not have any orders currently under the ${activeTab} tab.`}
+              Looks like you haven't placed any orders yet. Discover our premium stationery, art supplies, and toys!
             </p>
 
             <div className="mt-8 flex justify-center gap-3">
@@ -277,9 +252,9 @@ function Orders() {
         )}
 
         {/* Orders List (Blinkit / Zepto style cards) */}
-        {!loading && !error && filteredOrders.length > 0 && (
+        {!loading && !error && orders.length > 0 && (
           <div className="space-y-5">
-            {filteredOrders.map((order) => {
+            {orders.map((order) => {
               const isExpanded = expandedOrderId === order.id;
               const isLive = ["pending", "processing", "on-hold", "out-for-delivery", "dispatched"].includes(
                 order.status
@@ -370,6 +345,7 @@ function Orders() {
                                 <img
                                   src={item.image}
                                   alt={item.name}
+                                  loading="lazy"
                                   className="h-full w-full object-contain"
                                 />
                               ) : (
@@ -441,8 +417,15 @@ function Orders() {
                           </h4>
                           <p className="text-xs text-gray-700 font-medium leading-relaxed">
                             <span className="font-bold text-gray-900">
-                              {order.shipping?.first_name || order.billing?.first_name}{" "}
-                              {order.shipping?.last_name || order.billing?.last_name}
+                              {(() => {
+                                const f = (order.shipping?.first_name || order.billing?.first_name || "").trim();
+                                const l = (order.shipping?.last_name || order.billing?.last_name || "").trim();
+                                if (!f && !l) return "Customer";
+                                if (!l) return f;
+                                if (!f) return l;
+                                if (f.toLowerCase() === l.toLowerCase()) return f;
+                                return `${f} ${l}`;
+                              })()}
                             </span>
                             <br />
                             {order.shipping?.address_1 || order.billing?.address_1}
@@ -501,6 +484,32 @@ function Orders() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Compact Load More Orders Button */}
+        {!loading && !error && hasMore && (
+          <div className="pt-6 pb-2 text-center">
+            <button
+              type="button"
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-6 py-2.5 text-xs font-bold text-gray-700 shadow-xs transition-all hover:bg-gray-50 hover:border-gray-300 active:scale-95 disabled:opacity-60 cursor-pointer"
+            >
+              {loadingMore ? (
+                <>
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#7C3AED] border-t-transparent" />
+                  <span>Loading older orders...</span>
+                </>
+              ) : (
+                <>
+                  <span>Load More Orders</span>
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-extrabold text-gray-500">
+                    {orders.length} of {totalOrders}
+                  </span>
+                </>
+              )}
+            </button>
           </div>
         )}
       </div>

@@ -5,6 +5,8 @@ import {
   COOKIE_NAMES,
   invalidateSessionCache,
 } from "../middlewares/authMiddleware.js";
+import { parseFirstAndLastName } from "../utils/nameFormatter.js";
+import { logError } from "../utils/logger.js";
 
 export const getProfile = async (req, res) => {
   try {
@@ -22,10 +24,7 @@ export const getProfile = async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error(
-      "Get profile error:",
-      error.response?.data || error.message
-    );
+    logError(req, error, "Get profile error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -38,12 +37,31 @@ export const getProfile = async (req, res) => {
 
 export const saveProfile = async (req, res) => {
   try {
-    const { full_name, age, phone } = req.body;
+    const { age, phone } = req.body;
+    const { firstName, lastName } = parseFirstAndLastName(req.body);
+
+    if (!firstName) {
+      return res.status(400).json({
+        success: false,
+        message: "First name is required.",
+      });
+    }
+
+    if (!lastName) {
+      return res.status(400).json({
+        success: false,
+        message: "Last name is required.",
+      });
+    }
+
+    const cleanFullName = `${firstName} ${lastName}`;
 
     const response = await axios.put(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
       {
-        full_name,
+        first_name: firstName,
+        last_name: lastName,
+        full_name: cleanFullName,
         age,
         phone,
       },
@@ -57,12 +75,15 @@ export const saveProfile = async (req, res) => {
       }
     );
 
+    const cookieConfig = COOKIE_NAMES.customer;
+    const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
+    if (wpAuth) {
+      invalidateSessionCache(wpAuth);
+    }
+
     res.json(response.data);
   } catch (error) {
-    console.error(
-      "Save profile error:",
-      error.response?.data || error.message
-    );
+    logError(req, error, "Save profile error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -89,10 +110,7 @@ export const checkProfileComplete = async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error(
-      "Check profile complete error:",
-      error.response?.data || error.message,
-    );
+    logError(req, error, "Check profile complete error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -170,10 +188,7 @@ export const deleteAccount = async (req, res) => {
       message: "Your account has been permanently deleted.",
     });
   } catch (error) {
-    console.error(
-      "Delete account error:",
-      error.response?.data || error.message
-    );
+    logError(req, error, "Delete account error");
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {

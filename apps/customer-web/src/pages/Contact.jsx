@@ -56,7 +56,7 @@ function Contact() {
           <div className="space-y-2.5">
             {/* WhatsApp Support (Click to chat) */}
             <a
-              href="https://wa.me/919876543210?text=Hi%20Mumbai%20Collection,%20I%20need%20help%20with%20my%20order"
+              href="https://wa.me/917339951567?text=Hi%20Mumbai%20Collection,%20I%20need%20help%20with%20my%20order"
               target="_blank"
               rel="noopener noreferrer"
               className="group flex items-center justify-between rounded-xl border border-emerald-200/90 bg-emerald-50/60 p-3.5 transition-all hover:bg-emerald-50 hover:border-emerald-300 hover:shadow-xs active:scale-[0.99]"
@@ -75,7 +75,7 @@ function Contact() {
                     </span>
                   </div>
                   <p className="text-xs font-bold text-emerald-800 mt-0.5">
-                    +91 98765 43210
+                    +91 73399 51567
                   </p>
                   <p className="text-[11px] font-medium text-emerald-700 mt-0.5">
                     Instant reply for order tracking & item inquiries
@@ -90,7 +90,7 @@ function Contact() {
 
             {/* Direct Phone Call */}
             <a
-              href="tel:+919876543210"
+              href="tel:+917339951567"
               className="group flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 transition-all hover:bg-[#F5F3FF] hover:border-[#7C3AED]/40 active:scale-[0.99]"
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -102,7 +102,7 @@ function Contact() {
                     Phone Call Support
                   </h3>
                   <p className="text-xs font-bold text-gray-800 mt-0.5">
-                    +91 98765 43210
+                    +91 73399 51567
                   </p>
                   <p className="text-[11px] font-medium text-gray-500">
                     Direct Vasai retail store line

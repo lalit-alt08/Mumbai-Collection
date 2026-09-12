@@ -1,11 +1,11 @@
 import api from "../config/woocommerce.js";
+import { logger } from "../utils/logger.js";
 
 export const fetchProducts = async () => {
   const response = await api.get("products");
 
   if (!Array.isArray(response.data)) {
-    console.error("Unexpected WooCommerce products response:");
-    console.error(response.data);
+    logger.error("Unexpected WooCommerce products response structure");
 
     throw new Error("Invalid WooCommerce products response");
   }
@@ -52,7 +52,10 @@ export const searchProducts = async (search) => {
   return response.data;
 };
 
-export const fetchProductsByCategory = async (categoryId) => {
+export const fetchProductsByCategory = async (
+  categoryId,
+  { page = 1, per_page = 20 } = {}
+) => {
   let targetCategory = categoryId;
 
   // If a slug was passed (e.g. "art", "toys", "playstation"), resolve its numeric category ID
@@ -65,20 +68,32 @@ export const fetchProductsByCategory = async (categoryId) => {
         targetCategory = catRes.data[0].id;
       }
     } catch (err) {
-      console.warn(`Category slug resolution failed for ${categoryId}:`, err.message);
+      logger.warn({ categoryId, err: err.message }, "Category slug resolution failed");
     }
   }
 
   const response = await api.get("products", {
     category: targetCategory,
-    per_page: 50,
+    page: Number(page) || 1,
+    per_page: Number(per_page) || 20,
   });
 
   if (!Array.isArray(response.data)) {
     throw new Error("Invalid WooCommerce category products response");
   }
 
-  return response.data;
+  const total = parseInt(response.headers?.["x-wp-total"], 10) || response.data.length;
+  const totalPages =
+    parseInt(response.headers?.["x-wp-totalpages"], 10) ||
+    (response.data.length > 0 ? 1 : 0);
+
+  return {
+    products: response.data,
+    total,
+    totalPages,
+    page: Number(page) || 1,
+    per_page: Number(per_page) || 20,
+  };
 };
 
 export const fetchCategories = async () => {

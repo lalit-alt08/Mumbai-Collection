@@ -1,7 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { verifyCsrf } from "../src/middlewares/csrfMiddleware.js";
-import { validateImageBuffer, detectImageFormat, sanitizeFilename } from "../src/utils/imageValidator.js";
+import {
+  EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
+  checkImageDimensions,
+  validateImageBuffer,
+  detectImageFormat,
+  sanitizeFilename,
+} from "../src/utils/imageValidator.js";
+import { requireRole } from "../src/middlewares/roleMiddleware.js";
+import { formatEmployeeMediaUploadResponse } from "../src/controllers/employeeController.js";
 import { serverCache } from "../src/utils/memoryCache.js";
 import { maskEmail, maskPhone, redactSensitive } from "../src/utils/auditLogger.js";
 
@@ -120,6 +128,127 @@ test("ImageValidator: Sanitizes filename and enforces server-derived extension",
   const sanitized = sanitizeFilename("../../../evil_name.php.exe", "png");
   assert.ok(!sanitized.includes("../"));
   assert.ok(sanitized.endsWith(".png"));
+});
+
+const onePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64"
+);
+const onePixelGif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64");
+const onePixelJpeg = Buffer.from(
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/AP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAT8Af//Z",
+  "base64"
+);
+const onePixelWebp = Buffer.from(
+  "UklGRiIAAABXRUJQVlA4IBAAAADwAQCdASoBAAEAAUAmJaQAA3AA/v89WAAAAAA==",
+  "base64"
+);
+
+const imageFile = (buffer, originalname = "product.jpg", mimetype = "image/jpeg") => ({
+  buffer,
+  originalname,
+  mimetype,
+});
+
+test("ImageValidator: Accepts valid employee JPEG, PNG, WebP and GIF images", () => {
+  for (const [buffer, originalname, mimetype] of [
+    [onePixelJpeg, "product.jpg", "image/jpeg"],
+    [onePixelPng, "product.png", "image/png"],
+    [onePixelWebp, "product.webp", "image/webp"],
+    [onePixelGif, "product.gif", "image/gif"],
+  ]) {
+    const result = validateImageBuffer(imageFile(buffer, originalname, mimetype), {
+      maxFileSizeBytes: EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
+    });
+    assert.equal(result.valid, true, `${originalname} should be accepted: ${result.message || ""}`);
+    assert.equal(result.width, 1);
+    assert.equal(result.height, 1);
+  }
+
+  const validWithSpoofedMetadata = validateImageBuffer(
+    imageFile(onePixelJpeg, "not-an-image.bin", "text/plain"),
+    { maxFileSizeBytes: EMPLOYEE_MAX_IMAGE_SIZE_BYTES }
+  );
+  assert.equal(validWithSpoofedMetadata.valid, true, "server content detection must override client metadata");
+  assert.equal(validWithSpoofedMetadata.ext, "jpg");
+});
+
+test("ImageValidator: Rejects employee files larger than 5MB", () => {
+  const oversized = Buffer.alloc(EMPLOYEE_MAX_IMAGE_SIZE_BYTES + 1);
+  const result = validateImageBuffer(imageFile(oversized), {
+    maxFileSizeBytes: EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.message, /5MB/i);
+});
+
+test("ImageValidator: Rejects JPEG and WebP dimensions over 6000px", () => {
+  const wideJpeg = Buffer.from(onePixelJpeg);
+  const jpegSof = wideJpeg.indexOf(Buffer.from([0xff, 0xc0]));
+  wideJpeg.writeUInt16BE(6001, jpegSof + 5); // height
+  assert.equal(checkImageDimensions(wideJpeg, "jpeg").valid, false);
+
+  const wideJpegWidth = Buffer.from(onePixelJpeg);
+  const jpegWidthSof = wideJpegWidth.indexOf(Buffer.from([0xff, 0xc0]));
+  wideJpegWidth.writeUInt16BE(6001, jpegWidthSof + 7); // width
+  assert.equal(checkImageDimensions(wideJpegWidth, "jpeg").valid, false);
+
+  const wideWebp = Buffer.from(onePixelWebp);
+  // The fixture is a VP8X WebP: canvas width starts at byte 24.
+  wideWebp[24] = 0x70;
+  wideWebp[25] = 0x17;
+  wideWebp[26] = 0x00;
+  assert.equal(checkImageDimensions(wideWebp, "webp").valid, false);
+
+  const tallWebp = Buffer.from(onePixelWebp);
+  tallWebp[27] = 0x70;
+  tallWebp[28] = 0x17;
+  tallWebp[29] = 0x00;
+  assert.equal(checkImageDimensions(tallWebp, "webp").valid, false);
+});
+
+test("ImageValidator: Rejects malformed, truncated, and spoofed image data", () => {
+  const truncatedPng = onePixelPng.subarray(0, onePixelPng.length - 8);
+  assert.equal(validateImageBuffer(imageFile(truncatedPng, "photo.png", "image/png")).valid, false);
+
+  const truncatedJpeg = onePixelJpeg.subarray(0, onePixelJpeg.length - 2);
+  assert.equal(validateImageBuffer(imageFile(truncatedJpeg, "photo.jpg", "image/jpeg")).valid, false);
+
+  const truncatedWebp = onePixelWebp.subarray(0, 35); // before the declared RIFF payload ends
+  assert.equal(validateImageBuffer(imageFile(truncatedWebp, "photo.webp", "image/webp")).valid, false);
+
+  const spoofed = Buffer.from("not an image");
+  assert.equal(validateImageBuffer(imageFile(spoofed, "photo.jpg", "image/jpeg")).valid, false);
+});
+
+test("Employee authorization: role middleware still rejects unauthenticated and unauthorized users", () => {
+  const middleware = requireRole(["employee", "administrator"]);
+  let status = null;
+  const res = {
+    status(code) {
+      status = code;
+      return { json() {} };
+    },
+  };
+
+  middleware({ user: { roles: ["customer"] } }, res, () => assert.fail("customer must be rejected"));
+  assert.equal(status, 403);
+
+  status = null;
+  middleware({}, res, () => assert.fail("anonymous user must be rejected"));
+  assert.equal(status, 401);
+});
+
+test("Employee upload response: preserves success, URL, and media ID shape", () => {
+  const response = formatEmployeeMediaUploadResponse(
+    { id: 42, url: "https://wordpress.example/wp-content/uploads/product.webp" },
+    null
+  );
+  assert.deepEqual(response, {
+    success: true,
+    url: "/api/media/uploads/product.webp",
+    id: 42,
+  });
 });
 
 // ==========================================

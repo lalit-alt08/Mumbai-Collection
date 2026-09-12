@@ -5,9 +5,10 @@ import DOMPurify from "dompurify";
 function ProductDescription({ product }) {
   const [isOpen, setIsOpen] = useState(false);
 
-  if (!product.description) return null;
+  const rawDescription = product?.description || product?.short_description;
+  if (!rawDescription) return null;
 
-  const sanitizedHtml = DOMPurify.sanitize(product.description, {
+  const sanitizedHtml = DOMPurify.sanitize(rawDescription, {
     USE_PROFILES: { html: true },
   });
 

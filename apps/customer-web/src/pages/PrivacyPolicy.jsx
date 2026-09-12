@@ -110,7 +110,7 @@ function PrivacyPolicy() {
               <p><strong>Store:</strong> Mumbai Collection</p>
               <p><strong>Location:</strong> Vasai, Maharashtra – 401202, India</p>
               <p><strong>Support Email:</strong> support@mumbaicollection.in</p>
-              <p><strong>Customer Care:</strong> +91 98765 43210 (Mon–Sat, 10:00 AM – 9:00 PM)</p>
+              <p><strong>Customer Care:</strong> +91 73399 51567 (Mon–Sat, 10:00 AM – 9:00 PM)</p>
             </div>
           </section>
         </div>

@@ -10,6 +10,8 @@ import {
 } from "../data/indianStates.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
 
+import { useAuth } from "../context/AuthContext";
+
 const API = `${API_URL}/addresses`;
 import {
   MapPin,
@@ -27,7 +29,8 @@ import {
 
 const emptyForm = {
   type: "home",
-  full_name: "",
+  first_name: "",
+  last_name: "",
   phone: "",
   address_line1: "",
   address_line2: "",
@@ -37,6 +40,7 @@ const emptyForm = {
 
 function Addresses() {
   const navigate = useNavigate();
+  const { handleSessionExpired } = useAuth();
   const [addresses, setAddresses] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -55,6 +59,24 @@ function Addresses() {
 
   const [form, setForm] = useState(emptyForm);
 
+  const getCleanDisplayName = (fullName, firstName, lastName, fallback = "Saved Address") => {
+    const f = (firstName || "").trim();
+    const l = (lastName || "").trim();
+    if (f || l) {
+      if (f && l && f.toLowerCase() === l.toLowerCase()) return f;
+      if (f && l) return `${f} ${l}`;
+      return f || l || fallback;
+    }
+    if (fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+        return parts[0];
+      }
+      return fullName.trim();
+    }
+    return fallback;
+  };
+
   // --------------------------------------------------
   // LOAD ADDRESSES
   // --------------------------------------------------
@@ -70,11 +92,16 @@ function Addresses() {
 
       setAddresses(response.data.addresses || []);
     } catch (error) {
-      console.error(
-        "ADDRESS LOAD ERROR:",
-        error.response?.data || error.message
-      );
-
+      if (error.response?.status === 401) {
+        if (handleSessionExpired) {
+          handleSessionExpired();
+        }
+        navigate("/login", {
+          replace: true,
+          state: { from: "/addresses" },
+        });
+        return;
+      }
       setFeedback({
         type: "error",
         message:
@@ -144,10 +171,14 @@ function Addresses() {
 
   const openEditForm = (address) => {
     setEditingId(address.id);
+    const parts = (address.full_name || "").trim().split(/\s+/);
+    const parsedFirst = address.first_name || parts[0] || "";
+    const parsedLast = address.last_name || (parts.length > 1 ? parts.slice(1).join(" ") : "");
 
     setForm({
       type: address.type || "home",
-      full_name: address.full_name || "",
+      first_name: parsedFirst,
+      last_name: parsedLast,
       phone: address.phone || "",
       address_line1: address.address_line1 || "",
       address_line2: address.address_line2 || "",
@@ -212,8 +243,13 @@ function Addresses() {
       return;
     }
 
-    if (!form.full_name.trim()) {
-      setFormError("Please enter your full name.");
+    if (!form.first_name.trim()) {
+      setFormError("First name is required.");
+      return;
+    }
+
+    if (!form.last_name.trim()) {
+      setFormError("Last name is required.");
       return;
     }
 
@@ -235,11 +271,20 @@ function Addresses() {
     try {
       setSaving(true);
 
+      const cleanFirst = form.first_name.trim();
+      const cleanLast = form.last_name.trim();
+      const payload = {
+        ...form,
+        first_name: cleanFirst,
+        last_name: cleanLast,
+        full_name: `${cleanFirst} ${cleanLast}`,
+      };
+
       if (editingId) {
         // UPDATE
         await axios.put(
           `${API}/${editingId}`,
-          form,
+          payload,
           {
             withCredentials: true,
           }
@@ -252,7 +297,7 @@ function Addresses() {
         // CREATE
         await axios.post(
           API,
-          form,
+          payload,
           {
             withCredentials: true,
           }
@@ -272,11 +317,6 @@ function Addresses() {
       await loadAddresses();
       closeForm();
     } catch (error) {
-      console.error(
-        "❌ ADDRESS SAVE/UPDATE ERROR:",
-        error.response?.data || error.message
-      );
-
       setFormError(
         error.response?.data?.message ||
           "Unable to save address."
@@ -325,11 +365,6 @@ function Addresses() {
         setFeedback((prev) => (prev.type === "success" ? { type: "", message: "" } : prev));
       }, 4000);
     } catch (error) {
-      console.error(
-        "❌ ADDRESS DELETE ERROR:",
-        error.response?.data || error.message
-      );
-
       setFeedback({
         type: "error",
         message:
@@ -522,18 +557,19 @@ function Addresses() {
                 </div>
               </div>
 
-              {/* NAME + PHONE */}
+              {/* FIRST NAME + LAST NAME */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Full Name *
+                    First Name <span className="text-[#7C3AED]">*</span>
                   </label>
 
                   <input
-                    name="full_name"
-                    value={form.full_name}
+                    name="first_name"
+                    autoComplete="given-name"
+                    value={form.first_name}
                     onChange={handleChange}
-                    placeholder="e.g. Rahul Sharma"
+                    placeholder="e.g. Rahul"
                     required
                     className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
                   />
@@ -541,25 +577,42 @@ function Addresses() {
 
                 <div>
                   <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Mobile Number *
+                    Last Name <span className="text-[#7C3AED]">*</span>
                   </label>
 
-                  <div className="relative flex items-center">
-                    <span className="absolute left-3.5 text-sm font-bold text-gray-500">
-                      +91
-                    </span>
-                    <input
-                      name="phone"
-                      type="tel"
-                      inputMode="numeric"
-                      maxLength={10}
-                      value={form.phone}
-                      onChange={handleChange}
-                      placeholder="9876543210"
-                      required
-                      className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
-                    />
-                  </div>
+                  <input
+                    name="last_name"
+                    autoComplete="family-name"
+                    value={form.last_name}
+                    onChange={handleChange}
+                    placeholder="e.g. Sharma"
+                    required
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                  />
+                </div>
+              </div>
+
+              {/* PHONE */}
+              <div>
+                <label className="mb-2 block text-sm font-bold text-gray-700">
+                  Mobile Number <span className="text-[#7C3AED]">*</span>
+                </label>
+
+                <div className="relative flex items-center">
+                  <span className="absolute left-3.5 text-sm font-bold text-gray-500">
+                    +91
+                  </span>
+                  <input
+                    name="phone"
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={form.phone}
+                    onChange={handleChange}
+                    placeholder=""
+                    required
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                  />
                 </div>
               </div>
 
@@ -785,7 +838,7 @@ function Addresses() {
                   <div className="border-t border-gray-100 pt-5">
 
                     <p className="font-bold text-[#1E1E1E]">
-                      {address.full_name}
+                      {getCleanDisplayName(address.full_name, address.first_name, address.last_name)}
                     </p>
 
                     <p className="mt-1 text-sm text-gray-500 font-medium">

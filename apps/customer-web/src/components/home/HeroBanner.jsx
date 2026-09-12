@@ -42,8 +42,7 @@ function HeroBanner() {
         } else {
           setBanners(FALLBACK_BANNERS);
         }
-      } catch (err) {
-        console.warn("HeroBanner live fetch failed, using fallback banners:", err?.message || err);
+      } catch {
         if (isMounted) {
           setBanners(FALLBACK_BANNERS);
         }

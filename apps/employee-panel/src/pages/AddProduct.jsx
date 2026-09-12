@@ -68,8 +68,8 @@ function AddProduct() {
         if (res.success) {
           setCategories(res.categories || []);
         }
-      } catch (err) {
-        console.warn("Failed to load categories:", err);
+      } catch {
+        // Fall back to empty categories list
       } finally {
         setLoadingCategories(false);
       }
@@ -274,7 +274,6 @@ function AddProduct() {
         setError(res.message || "Failed to create product in WooCommerce.");
       }
     } catch (err) {
-      console.error("Create product error:", err);
       setError(
         err.response?.data?.message || err.message || "Failed to create product. Please try again."
       );

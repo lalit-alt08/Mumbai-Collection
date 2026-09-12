@@ -1,3 +1,5 @@
+import { imageSize } from "image-size";
+
 /**
  * Image Validation Utility
  * Enforces magic-byte verification, server-derived extension, filename sanitization,
@@ -6,7 +8,15 @@
 
 const MAX_IMAGE_WIDTH = 6000;
 const MAX_IMAGE_HEIGHT = 6000;
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // Existing admin limit
+export const EMPLOYEE_MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+
+const FORMAT_TYPES = {
+  jpeg: "jpg",
+  png: "png",
+  webp: "webp",
+  gif: "gif",
+};
 
 /**
  * Identify real image format by inspecting magic bytes
@@ -62,32 +72,91 @@ export const detectImageFormat = (buffer) => {
   return null;
 };
 
-/**
- * Inspect image header dimensions (PNG and GIF) to protect against decompression bombs
- */
-export const checkImageDimensions = (buffer, format) => {
-  if (!buffer || buffer.length < 24) return true;
+const hasJpegEndMarker = (buffer) =>
+  buffer.length >= 4 && buffer.lastIndexOf(Buffer.from([0xff, 0xd9])) >= 2;
 
-  try {
-    if (format === "png") {
-      const width = buffer.readUInt32BE(16);
-      const height = buffer.readUInt32BE(20);
-      if (width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT) {
-        return false;
-      }
-    } else if (format === "gif") {
-      const width = buffer.readUInt16LE(6);
-      const height = buffer.readUInt16LE(8);
-      if (width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT) {
-        return false;
-      }
+const hasPngStructure = (buffer) => {
+  if (buffer.length < 33) return false;
+
+  let offset = 8;
+  let sawHeader = false;
+  let sawEnd = false;
+
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const chunkType = buffer.toString("ascii", offset + 4, offset + 8);
+    const chunkEnd = offset + 12 + length;
+
+    if (chunkEnd > buffer.length) return false;
+    if (chunkType === "IHDR") {
+      if (sawHeader || length !== 13) return false;
+      sawHeader = true;
     }
-  } catch {
-    // If dimension parsing fails on non-standard chunks, allow processing
-    return true;
+    if (chunkType === "IEND") {
+      if (length !== 0) return false;
+      sawEnd = true;
+      break;
+    }
+
+    offset = chunkEnd;
   }
 
-  return true;
+  return sawHeader && sawEnd;
+};
+
+const hasGifStructure = (buffer) =>
+  buffer.length >= 14 && buffer.lastIndexOf(0x3b) >= 13;
+
+const hasWebpStructure = (buffer) => {
+  if (buffer.length < 20) return false;
+  const declaredRiffSize = buffer.readUInt32LE(4);
+  // RIFF size excludes the first 8 bytes. Extra trailing bytes are allowed.
+  return declaredRiffSize >= 12 && declaredRiffSize + 8 <= buffer.length;
+};
+
+const hasSafeStructure = (buffer, format) => {
+  switch (format) {
+    case "jpeg":
+      return hasJpegEndMarker(buffer);
+    case "png":
+      return hasPngStructure(buffer);
+    case "webp":
+      return hasWebpStructure(buffer);
+    case "gif":
+      return hasGifStructure(buffer);
+    default:
+      return false;
+  }
+};
+
+/**
+ * Parse dimensions for every supported image format. image-size reads only
+ * bounded headers; the structure checks above reject truncated streams before
+ * any media is sent to WordPress.
+ */
+export const checkImageDimensions = (buffer, format) => {
+  if (!buffer || !FORMAT_TYPES[format] || !hasSafeStructure(buffer, format)) {
+    return { valid: false, width: null, height: null };
+  }
+
+  try {
+    const dimensions = imageSize(buffer);
+    const expectedType = FORMAT_TYPES[format];
+    const width = Number(dimensions?.width);
+    const height = Number(dimensions?.height);
+
+    if (dimensions?.type !== expectedType || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      return { valid: false, width: null, height: null };
+    }
+
+    return {
+      valid: width <= MAX_IMAGE_WIDTH && height <= MAX_IMAGE_HEIGHT,
+      width,
+      height,
+    };
+  } catch {
+    return { valid: false, width: null, height: null };
+  }
 };
 
 /**
@@ -106,13 +175,15 @@ export const sanitizeFilename = (filename = "upload", safeExt = "jpg") => {
 /**
  * Comprehensive Image Validation
  */
-export const validateImageBuffer = (file) => {
+export const validateImageBuffer = (file, options = {}) => {
   if (!file || !file.buffer) {
     return { valid: false, message: "No file data received." };
   }
 
-  if (file.buffer.length > MAX_FILE_SIZE_BYTES) {
-    return { valid: false, message: "File exceeds maximum size limit of 10MB." };
+  const maxFileSizeBytes = Number(options.maxFileSizeBytes) || MAX_IMAGE_SIZE_BYTES;
+  if (file.buffer.length > maxFileSizeBytes) {
+    const maxSizeMb = Math.floor(maxFileSizeBytes / (1024 * 1024));
+    return { valid: false, message: `File size exceeds the ${maxSizeMb}MB limit.` };
   }
 
   const detected = detectImageFormat(file.buffer);
@@ -123,10 +194,11 @@ export const validateImageBuffer = (file) => {
     };
   }
 
-  if (!checkImageDimensions(file.buffer, detected.format)) {
+  const dimensions = checkImageDimensions(file.buffer, detected.format);
+  if (!dimensions.valid) {
     return {
       valid: false,
-      message: `Image dimensions exceed maximum allowed limit of ${MAX_IMAGE_WIDTH}x${MAX_IMAGE_HEIGHT} pixels.`,
+      message: "Invalid or unsupported image data. The image may be malformed or exceed the 6000x6000 pixel limit.",
     };
   }
 
@@ -134,5 +206,11 @@ export const validateImageBuffer = (file) => {
   file.mimetype = detected.mime;
   file.originalname = sanitizeFilename(file.originalname, detected.ext);
 
-  return { valid: true, format: detected.format, ext: detected.ext };
+  return {
+    valid: true,
+    format: detected.format,
+    ext: detected.ext,
+    width: dimensions.width,
+    height: dimensions.height,
+  };
 };

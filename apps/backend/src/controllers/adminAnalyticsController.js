@@ -1,5 +1,36 @@
 import api from "../config/woocommerce.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { logError } from "../utils/logger.js";
+import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
+
+/**
+ * Statuses that represent invalid/voided orders.
+ * These must NOT contribute to revenue, AOV, product sales, customer LTV,
+ * repeat-customer counts, or payment operational metrics.
+ *
+ * Matches the clean-revenue policy used by getDashboardOverview.
+ */
+const INVALID_ORDER_STATUSES = new Set(["cancelled", "failed", "refunded"]);
+
+/**
+ * Returns true when an order's effective status marks it as invalid for
+ * revenue/metric purposes (cancelled, failed, or refunded).
+ *
+ * Respects the custom _delivery_status meta written by the Employee Panel.
+ */
+function isInvalidOrder(order) {
+  const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
+  const effectiveStatus = deliveryMeta?.value || order.status;
+  return INVALID_ORDER_STATUSES.has(effectiveStatus);
+}
+
+/**
+ * Returns the effective status for an order, respecting Employee Panel meta.
+ */
+function getEffectiveStatus(order) {
+  const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
+  return deliveryMeta?.value || order.status;
+}
 
 /**
  * Fetch all WooCommerce orders using server-side pagination (H5 fix).
@@ -32,13 +63,46 @@ async function fetchAllOrders() {
 }
 
 /**
+ * Helper to calculate current month start and next month start in IST,
+ * returned as UTC timestamps for order date comparison.
+ */
+export const getISTMonthBoundaries = (referenceDate = new Date()) => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  });
+  const currentISTYearMonth = formatter.format(referenceDate); // "YYYY-MM"
+  
+  const istMonthStartStr = `${currentISTYearMonth}-01T00:00:00.000+05:30`;
+  const istMonthStartUTC = new Date(istMonthStartStr).getTime();
+  
+  const [yearStr, monthStr] = currentISTYearMonth.split("-");
+  let nextYear = parseInt(yearStr, 10);
+  let nextMonth = parseInt(monthStr, 10) + 1;
+  if (nextMonth > 12) {
+    nextMonth = 1;
+    nextYear += 1;
+  }
+  const nextMonthStrFormatted = nextMonth.toString().padStart(2, "0");
+  const istNextMonthStartStr = `${nextYear}-${nextMonthStrFormatted}-01T00:00:00.000+05:30`;
+  const istNextMonthStartUTC = new Date(istNextMonthStartStr).getTime();
+
+  return { istMonthStartUTC, istNextMonthStartUTC };
+};
+
+/**
  * Executive Overview Analytics
+ * (Unchanged — uses its own clean-revenue logic)
  */
 export const getDashboardOverview = async (req, res) => {
   try {
-    const cachedOverview = serverCache.get("admin:analytics:overview");
-    if (cachedOverview) {
-      return res.json(cachedOverview);
+    const isRefresh = req.query.refresh === "true" || req.query.refresh === "1";
+    if (!isRefresh) {
+      const cachedOverview = serverCache.get("admin:analytics:overview");
+      if (cachedOverview) {
+        return res.json(cachedOverview);
+      }
     }
     // 1. Fetch ALL orders via paginated WooCommerce requests (H5 fix)
     const orders = await fetchAllOrders();
@@ -60,7 +124,7 @@ export const getDashboardOverview = async (req, res) => {
     let cancelledOrdersCount = 0;
 
     const todayDateString = new Date().toISOString().split("T")[0];
-    const currentYearMonth = new Date().toISOString().slice(0, 7);
+    const { istMonthStartUTC, istNextMonthStartUTC } = getISTMonthBoundaries();
 
     // Last 7 days map for sales chart
     const last7DaysMap = new Map();
@@ -73,9 +137,7 @@ export const getDashboardOverview = async (req, res) => {
     }
 
     orders.forEach((order) => {
-      const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
-      const effectiveStatus = deliveryMeta?.value || order.status;
-
+      const effectiveStatus = getEffectiveStatus(order);
       const orderTotal = Number(order.total) || 0;
       const orderDate = order.date_created ? order.date_created.split("T")[0] : "";
       const isCancelled = ["cancelled", "failed", "refunded"].includes(effectiveStatus);
@@ -87,7 +149,9 @@ export const getDashboardOverview = async (req, res) => {
           todaySales += orderTotal;
         }
 
-        if (orderDate && orderDate.startsWith(currentYearMonth)) {
+        // Compare order creation timestamp against IST month boundaries
+        const orderTimestamp = order.date_created ? new Date(order.date_created).getTime() : 0;
+        if (orderTimestamp >= istMonthStartUTC && orderTimestamp < istNextMonthStartUTC) {
           monthSales += orderTotal;
           monthOrdersCount += 1;
         }
@@ -126,18 +190,15 @@ export const getDashboardOverview = async (req, res) => {
         price: p.price,
       }));
 
-    // Formatted recent 8 orders
-    const recentOrders = orders.slice(0, 8).map((o) => {
-      const deliveryMeta = o.meta_data?.find((m) => m.key === "_delivery_status");
-      const effectiveStatus = deliveryMeta?.value || o.status;
+    // Formatted recent 10 orders
+    const recentOrders = orders.slice(0, 10).map((o) => {
+      const effectiveStatus = getEffectiveStatus(o);
 
       return {
         id: o.id,
         order_number: o.number || String(o.id),
         customer_name:
-          `${o.billing?.first_name || ""} ${o.billing?.last_name || ""}`.trim() ||
-          o.billing?.email ||
-          "Guest Customer",
+          formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, o.billing?.email || "Guest Customer"),
         customer_email: o.billing?.email || "",
         customer_phone: o.billing?.phone || "",
         total: o.total,
@@ -180,7 +241,7 @@ export const getDashboardOverview = async (req, res) => {
 
     res.json(responsePayload);
   } catch (error) {
-    console.error("Admin dashboard overview error:", error.response?.data || error.message);
+    logError(req, error, "Admin dashboard overview error");
     res.status(500).json({
       success: false,
       message: "Failed to load dashboard overview.",
@@ -190,22 +251,43 @@ export const getDashboardOverview = async (req, res) => {
 
 /**
  * Dedicated Store Analytics & Deep Reporting
+ *
+ * Accounting rule: Only orders whose effectiveStatus is NOT in
+ * {cancelled, failed, refunded} contribute to:
+ *   - totalRevenue
+ *   - avgOrderValue
+ *   - productSalesMap (units sold, product revenue)
+ *   - customerSalesMap (LTV, ordersCount, repeat-customer rate)
+ *   - payment breakdown (cod/online revenue & count)
+ *   - dailyRevenueMap (trend)
+ *
+ * Order counts (total, completed, processing, outForDelivery,
+ * cancelled, refunded) are tracked across ALL orders so operational
+ * reporting remains complete.
+ *
+ * fulfillmentRate = completedOrders / totalOrders (all-orders denominator)
  */
 export const getAdminAnalytics = async (req, res) => {
   try {
-    const cachedAnalytics = serverCache.get("admin:analytics:deep");
-    if (cachedAnalytics) {
-      return res.json(cachedAnalytics);
+    const isRefresh = req.query?.refresh === "true" || req.query?.refresh === "1";
+    if (!isRefresh) {
+      const cachedAnalytics = serverCache.get("admin:analytics:deep");
+      if (cachedAnalytics) {
+        return res.json(cachedAnalytics);
+      }
     }
 
     // Fetch ALL orders via paginated requests (H5 fix)
     const orders = await fetchAllOrders();
 
-    let totalRevenue = 0;
-    let completedRevenue = 0;
-    let shippingRevenue = 0;
-    let discountTotal = 0;
+    // ── Revenue & valid-order accumulators ───────────────────────────────────
+    let totalRevenue = 0;       // valid orders only
+    let completedRevenue = 0;   // completed status only
+    let shippingRevenue = 0;    // valid orders only
+    let discountTotal = 0;      // valid orders only
+    let validOrderCount = 0;    // count of non-cancelled/failed/refunded orders
 
+    // ── Order-status counters (all orders) ───────────────────────────────────
     let completedOrders = 0;
     let processingOrders = 0;
     let outForDeliveryOrders = 0;
@@ -213,16 +295,18 @@ export const getAdminAnalytics = async (req, res) => {
     let refundedOrders = 0;
     let otherOrders = 0;
 
+    // ── Payment breakdown (valid orders only) ────────────────────────────────
     let codCount = 0;
     let codRevenue = 0;
     let onlineCount = 0;
     let onlineRevenue = 0;
 
+    // ── Per-entity maps (valid orders only) ──────────────────────────────────
     const productSalesMap = new Map();
     const customerSalesMap = new Map();
-    const dailyRevenueMap = new Map();
 
-    // Prepare last 7 days daily buckets
+    // ── Daily trend (valid orders only, last 7 days) ─────────────────────────
+    const dailyRevenueMap = new Map();
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
@@ -232,19 +316,14 @@ export const getAdminAnalytics = async (req, res) => {
     }
 
     orders.forEach((o) => {
+      const effectiveStatus = getEffectiveStatus(o);
       const orderTotal = Number(o.total) || 0;
       const orderShipping = Number(o.shipping_total) || 0;
       const orderDiscount = Number(o.discount_total) || 0;
       const paymentMethod = (o.payment_method_title || o.payment_method || "").toLowerCase();
-      const status = o.status;
-      const deliveryMeta = o.meta_data?.find((m) => m.key === "_delivery_status");
-      const effectiveStatus = deliveryMeta?.value || status;
+      const invalid = INVALID_ORDER_STATUSES.has(effectiveStatus);
 
-      totalRevenue += orderTotal;
-      shippingRevenue += orderShipping;
-      discountTotal += orderDiscount;
-
-      // Status aggregation
+      // ── Status counters — ALL orders ──────────────────────────────────────
       if (effectiveStatus === "completed") {
         completedOrders++;
         completedRevenue += orderTotal;
@@ -260,7 +339,15 @@ export const getAdminAnalytics = async (req, res) => {
         otherOrders++;
       }
 
-      // Payment aggregation
+      // ── Skip invalid orders for all revenue/metric aggregations ───────────
+      if (invalid) return;
+
+      validOrderCount++;
+      totalRevenue += orderTotal;
+      shippingRevenue += orderShipping;
+      discountTotal += orderDiscount;
+
+      // ── Payment breakdown ─────────────────────────────────────────────────
       if (paymentMethod.includes("cod") || paymentMethod.includes("cash")) {
         codCount++;
         codRevenue += orderTotal;
@@ -269,7 +356,7 @@ export const getAdminAnalytics = async (req, res) => {
         onlineRevenue += orderTotal;
       }
 
-      // Daily trend
+      // ── Daily trend ───────────────────────────────────────────────────────
       if (o.date_created) {
         const orderDate = o.date_created.split("T")[0];
         if (dailyRevenueMap.has(orderDate)) {
@@ -279,7 +366,7 @@ export const getAdminAnalytics = async (req, res) => {
         }
       }
 
-      // Product sales aggregation
+      // ── Product sales ─────────────────────────────────────────────────────
       (o.line_items || []).forEach((item) => {
         const pId = item.product_id || item.id;
         const pName = item.name || "Product";
@@ -303,10 +390,10 @@ export const getAdminAnalytics = async (req, res) => {
         }
       });
 
-      // Customer sales aggregation
+      // ── Customer LTV & repeat-customer tracking ───────────────────────────
       const email = (o.billing?.email || "").trim().toLowerCase();
       if (email) {
-        const custName = `${o.billing?.first_name || ""} ${o.billing?.last_name || ""}`.trim() || email;
+        const custName = formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, email);
         const custPhone = o.billing?.phone || "";
 
         if (!customerSalesMap.has(email)) {
@@ -325,15 +412,15 @@ export const getAdminAnalytics = async (req, res) => {
       }
     });
 
-    const activeOrders = orders.length - cancelledOrders - refundedOrders;
-    const avgOrderValue = activeOrders > 0 ? Math.round(totalRevenue / activeOrders) : 0;
+    // ── AOV: validRevenue / validOrderCount (clean population) ───────────────
+    const avgOrderValue = validOrderCount > 0 ? Math.round(totalRevenue / validOrderCount) : 0;
 
-    // Top selling products sorted by quantity sold & revenue
+    // ── Top selling products sorted by quantity sold & revenue ───────────────
     const topProducts = Array.from(productSalesMap.values())
       .sort((a, b) => b.totalQuantitySold - a.totalQuantitySold || b.totalRevenue - a.totalRevenue)
       .slice(0, 5);
 
-    // Top customers sorted by lifetime spend
+    // ── Top customers sorted by lifetime spend ───────────────────────────────
     const topCustomers = Array.from(customerSalesMap.values())
       .sort((a, b) => b.lifetimeSpent - a.lifetimeSpent)
       .slice(0, 5)
@@ -342,6 +429,7 @@ export const getAdminAnalytics = async (req, res) => {
         lifetimeSpent: Math.round(c.lifetimeSpent),
       }));
 
+    // ── Repeat-customer rate (valid orders only) ──────────────────────────────
     const repeatCustomersCount = Array.from(customerSalesMap.values()).filter((c) => c.ordersCount > 1).length;
     const repeatRate = customerSalesMap.size > 0 ? Math.round((repeatCustomersCount / customerSalesMap.size) * 100) : 0;
 
@@ -369,12 +457,12 @@ export const getAdminAnalytics = async (req, res) => {
           cod: {
             count: codCount,
             revenue: Math.round(codRevenue),
-            percentage: orders.length > 0 ? Math.round((codCount / orders.length) * 100) : 0,
+            percentage: validOrderCount > 0 ? Math.round((codCount / validOrderCount) * 100) : 0,
           },
           online: {
             count: onlineCount,
             revenue: Math.round(onlineRevenue),
-            percentage: orders.length > 0 ? Math.round((onlineCount / orders.length) * 100) : 0,
+            percentage: validOrderCount > 0 ? Math.round((onlineCount / validOrderCount) * 100) : 0,
           },
         },
         topProducts,
@@ -390,7 +478,7 @@ export const getAdminAnalytics = async (req, res) => {
 
     res.json(responsePayload);
   } catch (error) {
-    console.error("Get admin analytics error:", error.response?.data || error.message);
+    logError(req, error, "Get admin analytics error");
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,

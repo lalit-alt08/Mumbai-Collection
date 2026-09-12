@@ -22,8 +22,8 @@ function Cart() {
       } else {
         await updateCartItem(item.key, item.quantity - 1);
       }
-    } catch (err) {
-      console.error("Cart decrease conflict handled:", err.response?.data || err.message);
+    } catch {
+      // Handled by refreshCart
     } finally {
       await refreshCart().catch(() => {});
       setUpdatingKey(null);
@@ -35,8 +35,8 @@ function Cart() {
     try {
       setUpdatingKey(item.key);
       await updateCartItem(item.key, item.quantity + 1);
-    } catch (err) {
-      console.error("Cart increase conflict handled:", err.response?.data || err.message);
+    } catch {
+      // Handled by refreshCart
     } finally {
       await refreshCart().catch(() => {});
       setUpdatingKey(null);
@@ -105,20 +105,20 @@ function Cart() {
   return (
     <div className="mx-auto w-full max-w-[700px] pb-[120px] md:pt-4">
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between rounded-[22px] bg-white px-4 py-4 shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:mb-6">
+      <div className="mb-4 flex items-center justify-between rounded-[22px] bg-white px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:mb-6">
         <button
           onClick={() => navigate(-1)}
           aria-label="Go back"
-          className="p-2 -ml-2 text-[#1E1E1E] transition-colors hover:bg-gray-50 rounded-full"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100/80 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
         >
-          <ArrowLeft size={22} />
+          <ArrowLeft size={20} strokeWidth={2.4} />
         </button>
         <h1 className="text-[18px] font-bold text-[#1E1E1E]">My Cart</h1>
         <button
           aria-label="Share cart"
-          className="p-2 -mr-2 text-[#1E1E1E] transition-colors hover:bg-gray-50 rounded-full"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100/80 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
         >
-          <Share size={20} />
+          <Share size={18} strokeWidth={2.2} />
         </button>
       </div>
 

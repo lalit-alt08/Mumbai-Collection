@@ -2,6 +2,8 @@ import api from "../config/woocommerce.js";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { logError, logger } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 /**
  * Fetch authenticated customer's orders from WooCommerce
@@ -136,17 +138,21 @@ export const getCustomerOrders = async (req, res) => {
     }
 
     const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
+    const limit = Math.min(100, Math.max(1, Number(req.query.per_page) || 10));
 
-    // 1. Resolve authenticated customer's verified email from WooCommerce customer record
+    // 1. Resolve authenticated customer's verified email from WooCommerce customer record (cached 10 min)
     let customerEmail = "";
     try {
-      const customerRes = await api.get(`customers/${userId}`);
-      if (customerRes.data?.email) {
-        customerEmail = customerRes.data.email.trim().toLowerCase();
-      }
+      customerEmail = await serverCache.getOrFetch(
+        `customer:email:${userId}`,
+        async () => {
+          const customerRes = await api.get(`customers/${userId}`);
+          return customerRes.data?.email ? customerRes.data.email.trim().toLowerCase() : "";
+        },
+        600000 // 10 minutes TTL
+      );
     } catch (custErr) {
-      console.warn("Could not fetch customer email for user", userId, custErr.message);
+      logger.warn({ userId, err: custErr.message }, "Could not fetch customer email for user");
     }
 
     // 2. Query WooCommerce using the customer's verified ID
@@ -166,7 +172,7 @@ export const getCustomerOrders = async (req, res) => {
       totalOrders = Number(customerOrderRes.headers?.["x-wp-total"]) || rawOrders.length;
       totalPages = Number(customerOrderRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
     } catch (idErr) {
-      console.warn("Could not query orders by customer ID:", idErr.message);
+      logger.warn({ userId, err: idErr.message }, "Could not query orders by customer ID");
     }
 
     // Fallback for legacy accounts whose past orders were placed under email before user account linkage
@@ -183,7 +189,7 @@ export const getCustomerOrders = async (req, res) => {
         totalOrders = Number(searchRes.headers?.["x-wp-total"]) || rawOrders.length;
         totalPages = Number(searchRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
       } catch (emailErr) {
-        console.warn("Could not query orders by email search fallback:", emailErr.message);
+        logger.warn({ userId, err: emailErr.message }, "Could not query orders by email search fallback");
       }
     }
 
@@ -217,7 +223,7 @@ export const getCustomerOrders = async (req, res) => {
       orders: transformMediaUrls(formattedOrders, req),
     });
   } catch (error) {
-    console.error("Get customer orders error:", error.response?.data || error.message);
+    logError(req, error, "Get customer orders error");
 
     res.status(error.response?.status || 500).json({
       success: false,
@@ -282,7 +288,7 @@ export const getOrderById = async (req, res) => {
       order: transformMediaUrls(formatCustomerOrder(order), req),
     });
   } catch (error) {
-    console.error("Get order by ID error:", error.response?.data || error.message);
+    logError(req, error, "Get order by ID error");
 
     res.status(error.response?.status || 500).json({
       success: false,

@@ -1,51 +1,92 @@
 import api from "../config/woocommerce.js";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
+import { checkSessionSuspended } from "../middlewares/authMiddleware.js";
+import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
+import { logError, logger } from "../utils/logger.js";
 
 /**
- * Helper to fetch customer email and display name from WordPress
+ * Helper to sanitize customer reviewer display name, avoiding email/phone/system fallbacks
+ */
+const sanitizeReviewerDisplayName = (rawName, fallback = "Customer") => {
+  if (!rawName || typeof rawName !== "string") return fallback;
+  const name = rawName.trim();
+  if (!name) return fallback;
+
+  // Never leak email addresses as reviewer name
+  if (name.includes("@")) return fallback;
+
+  // Never leak raw phone numbers as reviewer name
+  if (/^\+?\d[\d\s-]{7,}\d$/.test(name)) return fallback;
+
+  // Filter out system placeholders
+  const lower = name.toLowerCase();
+  if (
+    lower === "customer" ||
+    lower === "verified customer" ||
+    lower === "shopper" ||
+    lower === "guest customer" ||
+    lower === "mumbaicollection" ||
+    lower === "mumbai collection"
+  ) {
+    return fallback;
+  }
+
+  return name;
+};
+
+/**
+ * Helper to fetch customer email and display name from session and WordPress
  */
 const getCustomerDetails = async (req) => {
   const userId = req.user?.id || req.wpUserId;
-  let reviewerName = "Customer";
-  let reviewerEmail = `customer_${userId}@mumbai-collection.local`;
+  let reviewerName = (req.user?.name || "").trim() || "Customer";
+  let reviewerEmail = (req.user?.email || req.wpUserEmail || "").trim();
 
-  try {
-    const wpAuth = req.wpAuthCookie;
-    if (wpAuth) {
-      const meRes = await axios.get(
-        `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
-        {
-          headers: { Cookie: wpAuth },
-          httpsAgent,
-          timeout: 5000,
+  if (!reviewerEmail) {
+    reviewerEmail = `customer_${userId}@mumbai-collection.local`;
+  }
+
+  // If reviewer name is default/empty, attempt WordPress lookup
+  if (reviewerName === "Customer" && (req.wpAuthCookie || userId)) {
+    try {
+      const wpAuth = req.wpAuthCookie;
+      if (wpAuth) {
+        const meRes = await axios.get(
+          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
+          {
+            headers: { Cookie: wpAuth },
+            httpsAgent,
+            timeout: 4000,
+          }
+        );
+        if (meRes.data?.email && !reviewerEmail.includes("@")) {
+          reviewerEmail = meRes.data.email;
         }
-      );
-      if (meRes.data?.user?.user_email) {
-        reviewerEmail = meRes.data.user.user_email;
+        if (meRes.data?.user?.display_name) {
+          reviewerName = meRes.data.user.display_name;
+        }
       }
-      if (meRes.data?.user?.display_name) {
-        reviewerName = meRes.data.user.display_name;
-      }
-    }
 
-    // Try profile endpoint for full name
-    const profRes = await axios.get(
-      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
-      {
-        headers: {
-          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-          "X-Mumbai-User-ID": String(userId),
-        },
-        httpsAgent,
-        timeout: 5000,
+      if (reviewerName === "Customer" && userId) {
+        const profRes = await axios.get(
+          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
+          {
+            headers: {
+              "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+              "X-Mumbai-User-ID": String(userId),
+            },
+            httpsAgent,
+            timeout: 4000,
+          }
+        );
+        if (profRes.data?.full_name && profRes.data.full_name.trim()) {
+          reviewerName = profRes.data.full_name.trim();
+        }
       }
-    );
-    if (profRes.data?.full_name && profRes.data.full_name.trim()) {
-      reviewerName = profRes.data.full_name.trim();
+    } catch (err) {
+      logger.warn({ err: err.message }, "Customer profile detail fetch warning for review");
     }
-  } catch (err) {
-    console.warn("Failed to fetch customer profile details for review:", err.message);
   }
 
   return { userId, reviewerName, reviewerEmail };
@@ -62,6 +103,19 @@ export const getProductReviews = async (req, res) => {
         success: false,
         message: "Invalid product ID.",
       });
+    }
+
+    // Resolve current authenticated customer's email if logged in
+    let currentCustomerEmail = "";
+    if (req.user?.email || req.wpUserEmail) {
+      currentCustomerEmail = (req.user?.email || req.wpUserEmail || "").toLowerCase().trim();
+    } else if (req.wpAuthCookie) {
+      try {
+        const details = await getCustomerDetails(req);
+        if (details.reviewerEmail) {
+          currentCustomerEmail = details.reviewerEmail.toLowerCase().trim();
+        }
+      } catch (_) {}
     }
 
     const response = await api.get("products/reviews", {
@@ -87,15 +141,21 @@ export const getProductReviews = async (req, res) => {
         .replace(/<[^>]*>?/gm, "")
         .trim();
 
+      const isOwner = Boolean(
+        currentCustomerEmail &&
+        r.reviewer_email &&
+        r.reviewer_email.toLowerCase().trim() === currentCustomerEmail
+      );
+
       return {
         id: r.id,
         productId: r.product_id,
         rating: ratingNum,
-        reviewer: r.reviewer || "Verified Customer",
-        reviewerEmail: r.reviewer_email || "",
+        reviewer: sanitizeReviewerDisplayName(r.reviewer, "Customer"),
         review: cleanReview,
         verified: Boolean(r.verified),
         dateCreated: r.date_created,
+        isOwner,
       };
     });
 
@@ -112,7 +172,7 @@ export const getProductReviews = async (req, res) => {
       reviews: formattedReviews,
     });
   } catch (error) {
-    console.error("Get product reviews error:", error.response?.data || error.message);
+    logError(req, error, "Get product reviews error");
     res.status(500).json({
       success: false,
       message: "Failed to load product reviews.",
@@ -133,6 +193,24 @@ export const createOrUpdateReview = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid product ID.",
+      });
+    }
+
+    // Customer Suspension Guard
+    const isSuspended =
+      typeof req.user?.is_suspended === "boolean"
+        ? req.user.is_suspended
+        : typeof req.isSuspended === "boolean"
+        ? req.isSuspended
+        : req.wpAuthCookie
+        ? await checkSessionSuspended(req.wpAuthCookie)
+        : false;
+
+    if (isSuspended) {
+      return res.status(403).json({
+        success: false,
+        code: "CUSTOMER_SUSPENDED",
+        message: "Your account is currently suspended and you cannot submit product reviews.",
       });
     }
 
@@ -160,33 +238,38 @@ export const createOrUpdateReview = async (req, res) => {
       });
     }
 
+    const { userId, reviewerName, reviewerEmail } = await getCustomerDetails(req);
+
     // Sanitize review text to plain text (Prevent XSS)
     const cleanReview = review.replace(/<[^>]*>?/gm, "").trim();
 
-    const { userId, reviewerName, reviewerEmail } = await getCustomerDetails(req);
-
-    // Purchase Verification Check
-    let isVerified = false;
-    try {
-      const ordersRes = await api.get("orders", {
+    // Parallelize purchase verification check & existing review lookup for performance
+    const [ordersResult, existingReviewsResult] = await Promise.allSettled([
+      api.get("orders", {
         customer: userId,
         per_page: 50,
-      });
-      const orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
-      isVerified = orders.some((order) =>
-        order.line_items?.some((item) => Number(item.product_id) === productId)
-      );
-    } catch (orderErr) {
-      console.warn("Order check for verified purchase warning:", orderErr.message);
+      }),
+      api.get("products/reviews", {
+        product: [productId],
+      }),
+    ]);
+
+    let isVerified = false;
+    if (ordersResult.status === "fulfilled") {
+      const orders = Array.isArray(ordersResult.value?.data) ? ordersResult.value.data : [];
+      isVerified = orders
+        .filter((order) => !["cancelled", "failed", "refunded"].includes(order.status))
+        .some((order) =>
+          order.line_items?.some((item) => Number(item.product_id) === productId)
+        );
+    } else {
+      logger.warn({ err: ordersResult.reason?.message }, "Order check for verified purchase warning");
     }
 
-    // Check for existing review from this customer on this product
-    const existingReviewsRes = await api.get("products/reviews", {
-      product: [productId],
-    });
-    const existingList = Array.isArray(existingReviewsRes.data)
-      ? existingReviewsRes.data
-      : [];
+    const existingList =
+      existingReviewsResult.status === "fulfilled" && Array.isArray(existingReviewsResult.value?.data)
+        ? existingReviewsResult.value.data
+        : [];
 
     const existingReview = existingList.find(
       (r) =>
@@ -227,14 +310,15 @@ export const createOrUpdateReview = async (req, res) => {
         id: resultReview.id,
         productId: resultReview.product_id,
         rating: resultReview.rating,
-        reviewer: resultReview.reviewer,
+        reviewer: sanitizeReviewerDisplayName(resultReview.reviewer || reviewerName, "Customer"),
         review: cleanReview,
         verified: isVerified,
         dateCreated: resultReview.date_created,
+        isOwner: true,
       },
     });
   } catch (error) {
-    console.error("Submit review error:", error.response?.data || error.message);
+    logError(req, error, "Submit review error");
     res.status(500).json({
       success: false,
       message:
@@ -284,7 +368,7 @@ export const deleteReview = async (req, res) => {
       message: "Review deleted successfully.",
     });
   } catch (error) {
-    console.error("Delete review error:", error.response?.data || error.message);
+    logError(req, error, "Delete review error");
     res.status(500).json({
       success: false,
       message: "Failed to delete review.",
