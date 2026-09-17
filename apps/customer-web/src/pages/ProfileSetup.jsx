@@ -24,7 +24,7 @@ import {
   isValidDeliveryRegion,
   isValidIndianPhone,
 } from "../data/indianStates.js";
-import { sendOtp, verifyOtp } from "../services/authService";
+import { sendOtp, verifyOtp, parseOtpRateLimitError } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 
 function ProfileSetup() {
@@ -47,6 +47,7 @@ function ProfileSetup() {
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState("");
   const [otpSuccess, setOtpSuccess] = useState("");
+  const [maskedEmail, setMaskedEmail] = useState("");
   const [cooldown, setCooldown] = useState(0);
 
   const [addresses, setAddresses] = useState([]);
@@ -194,10 +195,19 @@ function ProfileSetup() {
       setOtpLoading(true);
       const res = await sendOtp(form.phone, "verify_phone");
       setOtpSent(true);
-      setOtpSuccess(res.message || "Verification code sent to your mobile number.");
+      if (res.masked_email) {
+        setMaskedEmail(res.masked_email);
+      }
+      setOtpSuccess(res.message || (res.masked_email ? `Verification code sent to ${res.masked_email}.` : "Verification code sent to your registered email."));
       setCooldown(60);
     } catch (err) {
-      setOtpError(err.response?.data?.message || "Unable to send verification code. Please try again.");
+      const parsed = parseOtpRateLimitError(err);
+      if (parsed.isRateLimited) {
+        setOtpError(parsed.message);
+        setCooldown(parsed.retryAfter);
+      } else {
+        setOtpError(parsed.message);
+      }
     } finally {
       setOtpLoading(false);
     }
@@ -709,12 +719,17 @@ function ProfileSetup() {
                           type="button"
                           onClick={handleSendOtp}
                           disabled={otpLoading || form.phone.length !== 10 || cooldown > 0}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-[#7C3AED] px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[58px] text-center whitespace-nowrap rounded-lg bg-[#7C3AED] px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {otpLoading ? "..." : (otpSent ? (cooldown > 0 ? `${cooldown}s` : "Resend") : "Verify")}
+                          {otpLoading ? "..." : (cooldown > 0 ? `${cooldown}s` : (otpSent ? "Resend" : "Verify"))}
                         </button>
                       )}
                     </div>
+                    {!isPhoneVerified && (
+                      <p className="mt-1 text-[11px] text-gray-500 font-medium">
+                        A 6-digit verification code will be sent to your registered email address to verify this mobile number.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -727,7 +742,11 @@ function ProfileSetup() {
                         <span>Enter 6-Digit Code</span>
                       </div>
                       <span className="text-[11px] text-gray-500 font-semibold">
-                        Sent to +91 {form.phone}
+                        {maskedEmail
+                          ? `Sent to ${maskedEmail}`
+                          : user?.email
+                          ? `Sent to ${user.email.length > 4 ? `${user.email.slice(0, 2)}***@${user.email.split("@")[1] || ""}` : "your email"}`
+                          : "Sent to your registered email"}
                       </span>
                     </div>
 
@@ -749,7 +768,7 @@ function ProfileSetup() {
                         type="button"
                         onClick={handleVerifyOtp}
                         disabled={otpLoading || otp.length !== 6}
-                        className="h-10 rounded-lg bg-[#7C3AED] px-3.5 sm:px-4 text-xs font-bold text-white transition hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-10 min-w-[108px] shrink-0 whitespace-nowrap rounded-lg bg-[#7C3AED] px-3.5 sm:px-4 text-center text-xs font-bold text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {otpLoading ? "Verifying..." : "Verify Code"}
                       </button>
@@ -770,7 +789,7 @@ function ProfileSetup() {
                     )}
 
                     <div className="flex items-center justify-between pt-0.5 text-[11px]">
-                      <span className="text-gray-500">Didn't receive SMS?</span>
+                      <span className="text-gray-500">Didn't receive the email?</span>
                       {cooldown > 0 ? (
                         <span className="font-semibold text-gray-400">Resend in {cooldown}s</span>
                       ) : (

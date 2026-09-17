@@ -5,7 +5,8 @@ import wcApi from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
 import { COOKIE_NAMES, invalidateSessionCache } from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
-import { sendOtpSms, normalizePhoneNumber } from "../services/brevoService.js";
+import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
+import { maskEmail } from "../utils/auditLogger.js";
 import { formatCustomerDisplayName, parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
 
@@ -415,20 +416,26 @@ export const sendOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid phone or purpose." });
     }
 
-    const normalized = normalizePhoneNumber(phone);
-    if (!normalized) {
-      return res.status(400).json({
-        success: false,
-        message: "Please enter a valid 10-digit Indian mobile number.",
-      });
+    let cleanPhone = "";
+    if (purpose === "verify_phone") {
+      const normalized = normalizePhoneNumber(phone);
+      if (!normalized) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid 10-digit Indian mobile number.",
+        });
+      }
+      cleanPhone = normalized.local;
+    } else {
+      const normalized = normalizePhoneNumber(phone);
+      cleanPhone = normalized ? normalized.local : String(phone).trim();
     }
-    const cleanPhone = normalized.local;
 
     if (process.env.NODE_ENV !== "production") {
       const inputMasked = `...${String(phone).trim().slice(-4)}`;
-      const normalizedMasked = `...${cleanPhone.slice(-4)}`;
+      const cleanMasked = `...${cleanPhone.slice(-4)}`;
       console.log(
-        `[OTP Flow] input: ${inputMasked} | normalized: ${normalizedMasked} | purpose: ${purpose}`
+        `[OTP Flow] input: ${inputMasked} | normalized: ${cleanMasked} | purpose: ${purpose}`
       );
     }
 
@@ -436,8 +443,12 @@ export const sendOtp = async (req, res) => {
     // Customer identity must be derived solely from the authenticated session.
     // Never accept arbitrary user_id from req.body.
     let userId = 0;
+    let userEmail = "";
+    let userName = "";
+
     if (purpose === "verify_phone") {
       userId = req.wpUserId || req.user?.id || 0;
+      userEmail = req.wpUserEmail || req.user?.email || "";
       if (!userId && req.cookies) {
         const cookieConfig = COOKIE_NAMES.customer;
         const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
@@ -453,6 +464,8 @@ export const sendOtp = async (req, res) => {
             );
             if (meRes.data?.current_user_id) {
               userId = meRes.data.current_user_id;
+              userEmail = meRes.data.email || userEmail;
+              userName = meRes.data.name || "";
             }
           } catch (_) {}
         }
@@ -493,22 +506,39 @@ export const sendOtp = async (req, res) => {
       });
     }
 
-    // Account enumeration prevention: if reset_password and user was not found or is in cooldown, return generic success without sending SMS
-    if (purpose === "reset_password" && (storeResponse.data?.user_found === false || storeResponse.data?.rate_limited === true)) {
+    const targetEmail = storeResponse.data?.email || userEmail;
+    const targetName = storeResponse.data?.name || userName || "Valued Customer";
+
+    // Account enumeration prevention: if reset_password and user was not found, in cooldown, or email not found
+    if (
+      purpose === "reset_password" &&
+      (storeResponse.data?.user_found === false ||
+        storeResponse.data?.rate_limited === true ||
+        !targetEmail)
+    ) {
       return res.status(200).json({
         success: true,
-        message: storeResponse.data.message || "If the number is registered, an OTP has been sent.",
+        message: storeResponse.data?.message || "If the account is registered, an OTP has been sent.",
       });
     }
 
-    // Attempt SMS dispatch via Brevo
-    try {
-      await sendOtpSms({
-        phone: cleanPhone,
-        otp,
+    if (!targetEmail) {
+      return res.status(500).json({
+        success: false,
+        message: "No registered email address found for this account.",
       });
-    } catch (smsError) {
-      logError(req, smsError, "Brevo SMS send failure. Invalidating stored OTP");
+    }
+
+    // Attempt Email dispatch via Brevo
+    try {
+      await sendOtpEmail({
+        toEmail: targetEmail,
+        toName: targetName,
+        otp,
+        purpose,
+      });
+    } catch (emailError) {
+      logError(req, emailError, "Brevo Email send failure. Invalidating stored OTP");
 
       // Invalidate stored OTP in WordPress so no active OTP is left behind
       try {
@@ -526,7 +556,7 @@ export const sendOtp = async (req, res) => {
           }
         );
       } catch (invalidateErr) {
-        logError(req, invalidateErr, "Failed to invalidate OTP after SMS failure");
+        logError(req, invalidateErr, "Failed to invalidate OTP after email failure");
       }
 
       return res.status(500).json({
@@ -535,14 +565,28 @@ export const sendOtp = async (req, res) => {
       });
     }
 
+    const masked = maskEmail(targetEmail);
     return res.status(200).json({
       success: true,
+      masked_email: masked,
       message: storeResponse.data.message || (purpose === "reset_password"
-        ? "If the number is registered, an OTP has been sent."
-        : "Verification code sent successfully."),
+        ? (masked ? `If the account is registered, an OTP has been sent to ${masked}.` : "If the account is registered, an OTP has been sent to your email.")
+        : (masked ? `Verification code sent to ${masked}.` : "Verification code sent to your registered email.")),
     });
   } catch (error) {
-    return res.status(error.response?.status || 500).json(
+    const status = error.response?.status || 500;
+    if (status === 429) {
+      const headerRetry = error.response?.headers?.["retry-after"];
+      const bodyRetry = error.response?.data?.retryAfter || error.response?.data?.retry_after;
+      const retryAfter = Number(bodyRetry || headerRetry) || 60;
+      res.set("Retry-After", String(retryAfter));
+      return res.status(429).json({
+        success: false,
+        message: error.response?.data?.message || "Too many attempts. Please try again later.",
+        retryAfter,
+      });
+    }
+    return res.status(status).json(
       error.response?.data || { success: false, message: "Failed to send OTP" }
     );
   }

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { ArrowLeft, Heart, Share2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFavorites } from "../../context/FavoritesContext";
-import { getCatalogImageUrl, getFullImageUrl } from "../../utils/imageUtils";
+import { getCatalogImageUrl, getFullImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 
 function ProductGallery({ product }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -16,7 +16,7 @@ function ProductGallery({ product }) {
 
   const images = product?.images && product.images.length > 0
     ? product.images
-    : [{ src: "https://via.placeholder.com/400?text=Product+Image" }];
+    : [{ src: PRODUCT_PLACEHOLDER_URL }];
 
   const favorited = isFavorited(product?.id);
   const safeIndex = Math.min(selectedIndex, images.length - 1);
@@ -118,6 +118,12 @@ function ProductGallery({ product }) {
           height="420"
           className="h-full w-full object-contain transition-transform duration-500 hover:scale-105"
           decoding="async"
+          onError={(e) => {
+            if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+              e.currentTarget.setAttribute("data-fallback", "true");
+              e.currentTarget.src = PRODUCT_PLACEHOLDER_URL;
+            }
+          }}
         />
 
         {/* Gallery Navigation Arrows (when multiple images exist) */}
@@ -166,6 +172,12 @@ function ProductGallery({ product }) {
                   className="h-full w-full object-contain"
                   loading="lazy"
                   decoding="async"
+                  onError={(e) => {
+                    if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+                      e.currentTarget.setAttribute("data-fallback", "true");
+                      e.currentTarget.src = PRODUCT_PLACEHOLDER_URL;
+                    }
+                  }}
                 />
               </button>
             );

@@ -16,6 +16,7 @@ import bannerRoutes from "./routes/bannerRoutes.js";
 import storeRoutes from "./routes/storeRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
 import storeHoursRoutes from "./routes/storeHoursRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 import { verifyCsrf } from "./middlewares/csrfMiddleware.js";
 import { storeLimiter } from "./middlewares/rateLimiter.js";
 import pinoHttp from "pino-http";
@@ -139,13 +140,23 @@ app.use(
       "nonce",
       "Cart-Token",
       "cart-token",
+      "Retry-After",
+      "retry-after",
     ],
     credentials: true,
     maxAge: 86400,
   })
 );
 
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      if (req.originalUrl?.startsWith("/api/payments/webhook")) {
+        req.rawBody = buf;
+      }
+    },
+  })
+);
 
 // CSRF Protection for cookie-authenticated state-changing requests
 app.use(verifyCsrf(allowedOrigins));
@@ -162,6 +173,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/employee", employeeRoutes);
 app.use("/api/banners", bannerRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/store-hours", storeHoursRoutes);
 
 app.get("/", (req, res) => {

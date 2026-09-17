@@ -1937,6 +1937,9 @@ function mumbai_otp_store(WP_REST_Request $request) {
     $user = null;
     if ($purpose === 'reset_password') {
         $user = mumbai_get_user_by_phone($phone);
+        if (!$user && is_email($phone)) {
+            $user = get_user_by('email', $phone);
+        }
         if (!$user) {
             return array_merge($generic_success, ['user_found' => false]);
         }
@@ -1966,11 +1969,19 @@ function mumbai_otp_store(WP_REST_Request $request) {
     update_user_meta($user->ID, '_mumbai_otp_hash', $otp_hash);
     update_user_meta($user->ID, '_mumbai_otp_expires', time() + 300);
     update_user_meta($user->ID, '_mumbai_otp_attempts', 0);
+    update_user_meta($user->ID, '_mumbai_otp_purpose', $purpose);
+    update_user_meta($user->ID, '_mumbai_otp_pending_phone', $phone);
 
-    return $purpose === 'reset_password' ? array_merge($generic_success, ['user_found' => true]) : [
-        'success' => true,
-        'message' => 'OTP stored successfully.',
+    return $purpose === 'reset_password' ? array_merge($generic_success, [
         'user_found' => true,
+        'email'      => $user->user_email,
+        'name'       => $user->display_name,
+    ]) : [
+        'success'    => true,
+        'message'    => 'OTP stored successfully.',
+        'user_found' => true,
+        'email'      => $user->user_email,
+        'name'       => $user->display_name,
     ];
 }
 
@@ -1982,6 +1993,9 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
     $user = null;
     if ($purpose === 'reset_password') {
         $user = mumbai_get_user_by_phone($phone);
+        if (!$user && is_email($phone)) {
+            $user = get_user_by('email', $phone);
+        }
     } else if ($user_id) {
         $user = get_user_by('id', $user_id);
     }
@@ -1990,6 +2004,8 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
         delete_user_meta($user->ID, '_mumbai_otp_hash');
         delete_user_meta($user->ID, '_mumbai_otp_expires');
         delete_user_meta($user->ID, '_mumbai_otp_attempts');
+        delete_user_meta($user->ID, '_mumbai_otp_purpose');
+        delete_user_meta($user->ID, '_mumbai_otp_pending_phone');
     }
 
     return ['success' => true];
@@ -2008,6 +2024,9 @@ function mumbai_otp_verify(WP_REST_Request $request) {
     $user = null;
     if ($purpose === 'reset_password') {
         $user = mumbai_get_user_by_phone($phone);
+        if (!$user && is_email($phone)) {
+            $user = get_user_by('email', $phone);
+        }
         if (!$user) {
             return new WP_Error('invalid_otp', 'Invalid or expired OTP.', ['status' => 400]);
         }
@@ -2046,6 +2065,8 @@ function mumbai_otp_verify(WP_REST_Request $request) {
     delete_user_meta($user->ID, '_mumbai_otp_hash');
     delete_user_meta($user->ID, '_mumbai_otp_expires');
     delete_user_meta($user->ID, '_mumbai_otp_attempts');
+    delete_user_meta($user->ID, '_mumbai_otp_purpose');
+    delete_user_meta($user->ID, '_mumbai_otp_pending_phone');
 
     if ($purpose === 'verify_phone') {
         $clean_phone = mumbai_normalize_phone($phone);
@@ -2093,6 +2114,9 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
     }
 
     $user = mumbai_get_user_by_phone($phone);
+    if (!$user && is_email($phone)) {
+        $user = get_user_by('email', $phone);
+    }
     if (!$user) {
         return new WP_Error('invalid_request', 'Invalid request.', ['status' => 400]);
     }

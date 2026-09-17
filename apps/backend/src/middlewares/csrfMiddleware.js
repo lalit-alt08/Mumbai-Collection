@@ -24,6 +24,14 @@ export const verifyCsrf = (allowedOrigins = []) => {
   const allowedSet = new Set(allowedOrigins.filter(Boolean));
 
   return (req, res, next) => {
+    // 0. Exempt machine-to-machine payment webhooks from browser CSRF validation
+    if (
+      req.path === "/api/payments/webhook" ||
+      req.originalUrl?.startsWith("/api/payments/webhook")
+    ) {
+      return next();
+    }
+
     // 1. Safe HTTP methods (GET, HEAD, OPTIONS) do not alter server state
     if (SAFE_METHODS.has(req.method)) {
       return next();

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
 import { useAuth } from "../context/AuthContext";
-import { sendOtp, verifyOtp } from "../services/authService";
+import { sendOtp, verifyOtp, parseOtpRateLimitError } from "../services/authService";
 
 import {
   User,
@@ -53,6 +53,15 @@ function Profile() {
   const [otpError, setOtpError] = useState("");
   const [otpSuccess, setOtpSuccess] = useState("");
   const [cooldown, setCooldown] = useState(0);
+
+  // Cooldown countdown timer for OTP resend
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -382,7 +391,7 @@ function Profile() {
       setOtpLoading(true);
       const res = await sendOtp(cleanNew, "verify_phone");
       setOtpSent(true);
-      setOtpSuccess(res.message || `Verification code sent to +91 ${cleanNew}`);
+      setOtpSuccess(res.message || (res.masked_email ? `Verification code sent to ${res.masked_email}` : "Verification code sent to your registered email."));
       setCooldown(60);
     } catch (err) {
       if (err.response?.status === 401) {
@@ -390,7 +399,13 @@ function Profile() {
         navigate("/login", { replace: true, state: { from: "/profile" } });
         return;
       }
-      setOtpError(err.response?.data?.message || "Unable to send verification code. Please try again.");
+      const parsed = parseOtpRateLimitError(err);
+      if (parsed.isRateLimited) {
+        setOtpError(parsed.message);
+        setCooldown(parsed.retryAfter);
+      } else {
+        setOtpError(parsed.message);
+      }
     } finally {
       setOtpLoading(false);
     }
@@ -938,7 +953,7 @@ function Profile() {
                     Change Mobile Number
                   </h3>
                   <p className="text-xs text-gray-500 font-medium">
-                    Requires SMS OTP verification
+                    Requires email verification code
                   </p>
                 </div>
               </div>
@@ -1001,6 +1016,9 @@ function Profile() {
                       className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50/70 pl-12 pr-4 text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
                     />
                   </div>
+                  <p className="mt-1.5 text-xs text-gray-500 font-medium">
+                    A 6-digit verification code will be sent to your registered account email to confirm this change.
+                  </p>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-1">
@@ -1015,7 +1033,7 @@ function Profile() {
                   <button
                     type="button"
                     onClick={handleSendPhoneOtp}
-                    disabled={otpLoading || newPhone.length !== 10}
+                    disabled={otpLoading || newPhone.length !== 10 || cooldown > 0}
                     className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-5 text-xs font-bold text-white shadow-xs hover:bg-[#6D28D9] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                   >
                     {otpLoading ? (
@@ -1023,6 +1041,8 @@ function Profile() {
                         <Loader2 size={15} className="animate-spin" />
                         <span>Sending OTP...</span>
                       </>
+                    ) : cooldown > 0 ? (
+                      <span>Wait ({cooldown}s)</span>
                     ) : (
                       <>
                         <span>Send OTP</span>
@@ -1065,10 +1085,13 @@ function Profile() {
                     autoFocus
                     className="h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-center text-lg font-extrabold tracking-[0.35em] text-gray-900 outline-none transition focus:border-[#7C3AED] focus:ring-3 focus:ring-[#7C3AED]/20"
                   />
+                  <p className="mt-1.5 text-xs text-gray-500 font-medium">
+                    Check your registered account email for the 6-digit verification code.
+                  </p>
                 </div>
 
                 <div className="flex items-center justify-between text-xs pt-0.5">
-                  <span className="text-gray-500">Didn't receive SMS?</span>
+                  <span className="text-gray-500">Didn't receive the email?</span>
                   {cooldown > 0 ? (
                     <span className="font-semibold text-gray-400">Resend in {cooldown}s</span>
                   ) : (

@@ -1,0 +1,16 @@
+{
+  "name": "Mumbai Collection",
+  "short_name": "Mumbai Collection",
+  "description": "Shop toys, stationery, school supplies, and everyday essentials at Mumbai Collection in Vasai.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#7C3AED",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

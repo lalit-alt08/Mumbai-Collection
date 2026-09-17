@@ -53,6 +53,7 @@ export const createRateLimiter = ({
       return res.status(429).json({
         success: false,
         message: `${message} (${remainingSeconds}s remaining)`,
+        retryAfter: remainingSeconds,
       });
     }
 

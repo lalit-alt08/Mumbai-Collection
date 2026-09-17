@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
+import { createPaymentOrder, verifyPayment } from "../../services/paymentService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
 import {
@@ -31,6 +32,33 @@ export {
   clearCheckoutIdempotencyKey,
 };
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if (typeof window !== "undefined" && window.Razorpay) {
+      return resolve(true);
+    }
+    if (typeof document === "undefined") {
+      return resolve(false);
+    }
+    const existingScript = document.getElementById("razorpay-checkout-script");
+    if (existingScript) {
+      if (window.Razorpay) {
+        return resolve(true);
+      }
+      existingScript.addEventListener("load", () => resolve(true), { once: true });
+      existingScript.addEventListener("error", () => resolve(false), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "razorpay-checkout-script";
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 function BillingForm({ storeHours, onStoreClosed }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -38,15 +66,19 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("cod"); // "cod" | "online"
+  const [paymentStep, setPaymentStep] = useState(""); // "" | "preparing" | "opening_gateway" | "verifying"
 
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isSubmittingRef = useRef(false);
+  const pendingOrderIdRef = useRef(null);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
 
   useEffect(() => {
     idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
+    pendingOrderIdRef.current = null;
   }, [cart]);
 
   // Load saved addresses
@@ -187,63 +219,209 @@ function BillingForm({ storeHours, onStoreClosed }) {
         country: "IN",
       };
 
-      const response = await updateCheckout(
-        {
-          billing_address: billingAddress,
-          shipping_address: shippingAddress,
-          payment_method: "cod",
-          create_account: false,
-        },
-        {
-          headers: {
-            "X-Idempotency-Key": idempotencyKeyRef.current,
+      if (paymentMethod === "cod") {
+        setPaymentStep("processing");
+        const response = await updateCheckout(
+          {
+            billing_address: billingAddress,
+            shipping_address: shippingAddress,
+            payment_method: "cod",
+            create_account: false,
           },
-          timeout: 30000,
-        }
-      );
-      // Clear persisted idempotency key on successful order completion
-      clearCheckoutIdempotencyKey();
+          {
+            headers: {
+              "X-Idempotency-Key": idempotencyKeyRef.current,
+            },
+            timeout: 30000,
+          }
+        );
+        // Clear persisted idempotency key on successful order completion
+        clearCheckoutIdempotencyKey();
 
-      // Refresh cart state to clear items and badges
-      await refreshCart().catch(() => {});
+        // Refresh cart state to clear items and badges
+        await refreshCart().catch(() => {});
 
-      navigate(`/order-success/${response.order_id}`);
+        navigate(`/order-success/${response.order_id}`, {
+          state: { paymentMethod: "Cash on Delivery", status: "Processing" },
+        });
+        isSubmittingRef.current = false;
+        setLoading(false);
+        setPaymentStep("");
+        return;
+      }
+
+      // ── Pay Online (Razorpay) Flow ──────────────────────────────
+      setPaymentStep("preparing");
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        setError("Unable to load secure payment gateway. Please check your connection and try again.");
+        isSubmittingRef.current = false;
+        setLoading(false);
+        setPaymentStep("");
+        return;
+      }
+
+      setPaymentStep("opening_gateway");
+      const paymentOrderPayload = {
+        billing_address: billingAddress,
+        shipping_address: shippingAddress,
+        ...(pendingOrderIdRef.current ? { order_id: pendingOrderIdRef.current } : {}),
+      };
+
+      const orderRes = await createPaymentOrder(paymentOrderPayload, {
+        headers: {
+          "X-Idempotency-Key": idempotencyKeyRef.current,
+        },
+      });
+
+      if (!orderRes || !orderRes.razorpay_order_id) {
+        throw new Error("Invalid payment order response from server.");
+      }
+
+      // Store pending order ID so user can retry payment without creating duplicate WC orders
+      pendingOrderIdRef.current = orderRes.order_id;
+
+      const options = {
+        key: orderRes.key_id,
+        amount: orderRes.amount,
+        currency: orderRes.currency || "INR",
+        name: "Mumbai Collection",
+        description: `Order #${orderRes.order_id}`,
+        order_id: orderRes.razorpay_order_id,
+        prefill: {
+          name: `${firstName} ${lastName}`.trim(),
+          email: userEmail,
+          contact: userPhone,
+        },
+        notes: {
+          wc_order_id: String(orderRes.order_id),
+        },
+        theme: {
+          color: "#7C3AED",
+        },
+        modal: {
+          ondismiss: () => {
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+            setError("Payment was cancelled. You can retry paying anytime.");
+          },
+        },
+        handler: async (paymentResponse) => {
+          try {
+            setPaymentStep("verifying");
+            setLoading(true);
+            setError("");
+
+            const verifyRes = await verifyPayment({
+              order_id: orderRes.order_id,
+              razorpay_order_id: paymentResponse.razorpay_order_id,
+              razorpay_payment_id: paymentResponse.razorpay_payment_id,
+              razorpay_signature: paymentResponse.razorpay_signature,
+            });
+
+            if (verifyRes.success) {
+              clearCheckoutIdempotencyKey();
+              pendingOrderIdRef.current = null;
+              await refreshCart().catch(() => {});
+              navigate(`/order-success/${orderRes.order_id}`, {
+                state: { paymentMethod: "Online Payment", status: "Processing" },
+              });
+            } else {
+              setError(verifyRes.message || "Payment verification failed. Please contact support.");
+            }
+          } catch (verifyErr) {
+            setError(
+              verifyErr.response?.data?.message ||
+              "Payment verification could not be completed. Please check your order history or contact support."
+            );
+          } finally {
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+          }
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", (failedRes) => {
+        isSubmittingRef.current = false;
+        setLoading(false);
+        setPaymentStep("");
+        const desc = failedRes?.error?.description || "Payment attempt failed. You can retry paying.";
+        setError(desc);
+      });
+
+      rzp.open();
     } catch (error) {
+      const errStatus = error.response?.status;
       const errData = error.response?.data;
+      const isProcessingConflict =
+        errStatus === 409 &&
+        (errData?.message?.includes("currently being processed") ||
+          errData?.code === "ORDER_PROCESSING");
 
       if (errData?.code === "CUSTOMER_SUSPENDED") {
         setError(
           errData?.message ||
             "Your account is currently suspended and you cannot place new orders.",
         );
-        return;
-      }
-
-      if (errData?.code === "STORE_CLOSED") {
+      } else if (errData?.code === "STORE_CLOSED") {
         const msg = errData?.message || "We are currently closed for new orders.";
         const resumeTime = errData?.next_opening?.label ? ` Ordering resumes ${errData.next_opening.label}.` : "";
         setError(`${msg}${resumeTime}`);
         if (typeof onStoreClosed === "function") {
           onStoreClosed();
         }
-        return;
-      }
-
-      if (errData?.code === "woocommerce_rest_min_order_value") {
+      } else if (
+        errData?.code === "INSUFFICIENT_STOCK" ||
+        errData?.code === "woocommerce_rest_cart_item_out_of_stock"
+      ) {
+        clearCheckoutIdempotencyKey();
+        idempotencyKeyRef.current = generateUUID();
+        await refreshCart().catch(() => {});
+        setError(
+          errData?.message ||
+            "Some items in your cart are no longer available in the requested quantity.",
+        );
+      } else if (errData?.code === "woocommerce_rest_checkout_total_mismatch") {
+        clearCheckoutIdempotencyKey();
+        idempotencyKeyRef.current = generateUUID();
+        await refreshCart().catch(() => {});
+        setError(
+          errData?.message ||
+            "Cart totals have updated. Please review your order summary and try placing your order again.",
+        );
+      } else if (isProcessingConflict) {
+        // Retain current idempotency key to prevent duplicate orders while request is in flight
+        setError(
+          "Your order is currently being processed. Please wait a moment and check your order history before trying again.",
+        );
+      } else if (errStatus === 409) {
+        clearCheckoutIdempotencyKey();
+        idempotencyKeyRef.current = generateUUID();
+        await refreshCart().catch(() => {});
+        setError(
+          errData?.message ||
+            "A checkout conflict occurred. Your cart has been updated, please try placing your order again.",
+        );
+      } else if (errData?.code === "woocommerce_rest_min_order_value" || errData?.code === "MIN_ORDER_VALUE") {
         setError(
           errData?.message ||
             "Minimum product order value of ₹500 is required.",
         );
       } else {
+        clearCheckoutIdempotencyKey();
+        idempotencyKeyRef.current = generateUUID();
         setError(
           errData?.message ||
             error.message ||
             "Failed to place order. Please try again.",
         );
       }
-    } finally {
       isSubmittingRef.current = false;
       setLoading(false);
+      setPaymentStep("");
     }
   };
 
@@ -388,24 +566,73 @@ function BillingForm({ storeHours, onStoreClosed }) {
           Payment Method
         </h3>
 
-        <div className="flex items-center gap-3 rounded-[15px] border-2 border-[#7C3AED] bg-[#F1ECFF] p-4">
-          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 border-[#7C3AED]">
-            <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
-          </div>
-
-          <div>
-            <div className="text-[14px] font-bold text-[#1E1E1E]">
-              Cash on Delivery (COD)
+        <div className="grid gap-3 sm:grid-cols-2">
+          {/* Cash on Delivery */}
+          <button
+            type="button"
+            onClick={() => setPaymentMethod("cod")}
+            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all cursor-pointer ${
+              paymentMethod === "cod"
+                ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
+                : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
+            }`}
+          >
+            <div
+              className={`flex h-5 w-5 mt-0.5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
+                paymentMethod === "cod" ? "border-[#7C3AED]" : "border-gray-300"
+              }`}
+            >
+              {paymentMethod === "cod" && (
+                <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
+              )}
             </div>
 
-            <div className="mt-0.5 text-[12px] text-[#666666]">
-              Pay with cash upon delivery.
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] font-bold text-[#1E1E1E]">
+                Cash on Delivery (COD)
+              </div>
+              <div className="mt-0.5 text-[12px] text-[#666666]">
+                Pay with cash upon delivery.
+              </div>
             </div>
-          </div>
+          </button>
+
+          {/* Pay Online */}
+          <button
+            type="button"
+            onClick={() => setPaymentMethod("online")}
+            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all cursor-pointer ${
+              paymentMethod === "online"
+                ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
+                : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
+            }`}
+          >
+            <div
+              className={`flex h-5 w-5 mt-0.5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
+                paymentMethod === "online" ? "border-[#7C3AED]" : "border-gray-300"
+              }`}
+            >
+              {paymentMethod === "online" && (
+                <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 text-[14px] font-bold text-[#1E1E1E]">
+                <span>Pay Online</span>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-extrabold text-emerald-700">
+                  FAST
+                </span>
+              </div>
+              <div className="mt-0.5 text-[12px] text-[#666666]">
+                UPI, Cards, NetBanking, Wallets
+              </div>
+            </div>
+          </button>
         </div>
       </div>
 
-      {/* Place Order */}
+      {/* Place Order / Pay */}
       {(() => {
         const isStoreClosed = storeHours && storeHours.is_open === false;
         const isDisabled = loading || addresses.length === 0 || !selectedAddress || isStoreClosed;
@@ -415,7 +642,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
             type="button"
             onClick={handlePlaceOrder}
             disabled={isDisabled}
-            className={`flex h-[54px] w-full items-center justify-center gap-2 rounded-[17px] text-[15px] font-bold transition-all ${
+            className={`flex h-[54px] w-full shrink-0 items-center justify-center gap-2 rounded-[17px] text-[15px] font-bold whitespace-nowrap transition-colors ${
               isStoreClosed
                 ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
                 : "bg-[#7C3AED] text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
@@ -423,11 +650,25 @@ function BillingForm({ storeHours, onStoreClosed }) {
           >
             {loading ? (
               <>
-                <Loader2 className="animate-spin" size={19} />
-                Processing...
+                <Loader2 className="animate-spin shrink-0" size={19} />
+                <span>
+                  {paymentStep === "preparing"
+                    ? "Preparing payment..."
+                    : paymentStep === "opening_gateway"
+                    ? "Opening payment gateway..."
+                    : paymentStep === "verifying"
+                    ? "Verifying payment..."
+                    : "Processing..."}
+                </span>
               </>
             ) : isStoreClosed ? (
               "Store is Currently Closed for Orders"
+            ) : paymentMethod === "online" ? (
+              pendingOrderIdRef.current ? (
+                "Retry Online Payment →"
+              ) : (
+                "Pay Online securely →"
+              )
             ) : (
               "Place Order securely →"
             )}

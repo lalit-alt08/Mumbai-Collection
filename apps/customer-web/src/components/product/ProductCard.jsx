@@ -8,7 +8,7 @@ import {
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
 import { useFavorites } from "../../context/FavoritesContext";
-import { getCatalogImageUrl } from "../../utils/imageUtils";
+import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
@@ -76,6 +76,12 @@ function ProductCard({ product }) {
             className="h-full w-full object-contain transition-transform duration-300 hover:scale-105"
             loading="lazy"
             decoding="async"
+            onError={(e) => {
+              if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+                e.currentTarget.setAttribute("data-fallback", "true");
+                e.currentTarget.src = PRODUCT_PLACEHOLDER_URL;
+              }
+            }}
           />
 
           {/* Discount Badge */}

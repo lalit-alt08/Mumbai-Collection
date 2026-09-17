@@ -2,12 +2,13 @@ import {
   Mail,
   ArrowLeft,
   ArrowRight,
-  Smartphone,
+  ShieldCheck,
   Lock,
   Eye,
   EyeOff,
   CheckCircle2,
   RotateCw,
+  User,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -16,6 +17,7 @@ import {
   sendOtp,
   verifyOtp,
   resetPasswordOtp,
+  parseOtpRateLimitError,
 } from "../services/authService";
 
 const isValidIndianPhone = (val) => {
@@ -26,20 +28,21 @@ const isValidIndianPhone = (val) => {
 function ForgotPassword() {
   const navigate = useNavigate();
 
-  // Mode: "email" | "mobile"
-  const [resetMode, setResetMode] = useState("email");
+  // Mode: "link" | "otp"
+  const [resetMode, setResetMode] = useState("link");
 
-  // Email Flow State
+  // Email Reset Link Flow State
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailGeneralError, setEmailGeneralError] = useState("");
   const [emailSuccess, setEmailSuccess] = useState("");
 
-  // Mobile SMS OTP Flow State
-  // Steps: 1 = Enter Phone, 2 = Enter OTP, 3 = New Password, 4 = Success
-  const [mobileStep, setMobileStep] = useState(1);
-  const [phone, setPhone] = useState("");
+  // Email OTP Flow State
+  // Steps: 1 = Enter Identifier, 2 = Enter OTP, 3 = New Password, 4 = Success
+  const [otpStep, setOtpStep] = useState(1);
+  const [identifier, setIdentifier] = useState("");
+  const [maskedEmail, setMaskedEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -48,9 +51,9 @@ function ForgotPassword() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [cooldown, setCooldown] = useState(0);
-  const [mobileLoading, setMobileLoading] = useState(false);
-  const [mobileError, setMobileError] = useState("");
-  const [mobileSuccess, setMobileSuccess] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState("");
+  const [otpSuccess, setOtpSuccess] = useState("");
 
   // Cooldown countdown timer for OTP resend
   useEffect(() => {
@@ -67,12 +70,12 @@ function ForgotPassword() {
     setEmailError("");
     setEmailGeneralError("");
     setEmailSuccess("");
-    setMobileError("");
-    setMobileSuccess("");
+    setOtpError("");
+    setOtpSuccess("");
   };
 
   // ─────────────────────────────────────────────
-  // EMAIL FLOW HANDLER
+  // 1. EMAIL RESET LINK FLOW HANDLER
   // ─────────────────────────────────────────────
   const handleEmailSubmit = async (e) => {
     e.preventDefault();
@@ -110,115 +113,140 @@ function ForgotPassword() {
   };
 
   // ─────────────────────────────────────────────
-  // MOBILE FLOW HANDLERS
+  // 2. EMAIL OTP FLOW HANDLERS
   // ─────────────────────────────────────────────
 
   // Step 1: Request OTP
-  const handleSendMobileOtp = async (e) => {
+  const handleSendEmailOtp = async (e) => {
     if (e) e.preventDefault();
-    setMobileError("");
-    setMobileSuccess("");
+    setOtpError("");
+    setOtpSuccess("");
 
-    const cleanPhone = phone.replace(/\D/g, "");
-    if (!isValidIndianPhone(cleanPhone)) {
-      setMobileError("Please enter a valid 10-digit Indian mobile number.");
+    const raw = identifier.trim();
+    if (!raw) {
+      setOtpError("Please enter your registered email address or mobile number.");
+      return;
+    }
+
+    // Determine if it's a mobile number or email
+    const cleanDigits = raw.replace(/\D/g, "");
+    let cleanTarget = raw;
+    if (cleanDigits.length === 10 && isValidIndianPhone(cleanDigits)) {
+      cleanTarget = cleanDigits;
+    } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+      cleanTarget = raw.toLowerCase();
+    } else if (cleanDigits.length > 0) {
+      setOtpError("Please enter a valid 10-digit mobile number or email address.");
+      return;
+    } else {
+      setOtpError("Please enter a valid email address.");
       return;
     }
 
     try {
-      setMobileLoading(true);
-      const res = await sendOtp(cleanPhone, "reset_password");
-      setMobileStep(2);
+      setOtpLoading(true);
+      const res = await sendOtp(cleanTarget, "reset_password");
+      setOtpStep(2);
       setCooldown(60);
-      setMobileSuccess(
-        res.message || "For security, if this number is registered, an OTP has been sent."
+      if (res.masked_email) {
+        setMaskedEmail(res.masked_email);
+      }
+      setOtpSuccess(
+        res.message || (res.masked_email ? `If an account exists, a verification code has been sent to ${res.masked_email}.` : "If an account exists, a verification code has been sent to your registered email.")
       );
     } catch (err) {
-      setMobileError(
-        err.response?.data?.message ||
-          "Unable to send verification code. Please try again."
-      );
+      const parsed = parseOtpRateLimitError(err);
+      if (parsed.isRateLimited) {
+        setOtpError(parsed.message);
+        setCooldown(parsed.retryAfter);
+      } else {
+        setOtpError(parsed.message);
+      }
     } finally {
-      setMobileLoading(false);
+      setOtpLoading(false);
     }
   };
 
   // Step 2: Verify OTP
-  const handleVerifyMobileOtp = async (e) => {
+  const handleVerifyEmailOtp = async (e) => {
     e.preventDefault();
-    setMobileError("");
-    setMobileSuccess("");
+    setOtpError("");
+    setOtpSuccess("");
 
-    const cleanPhone = phone.replace(/\D/g, "");
+    const raw = identifier.trim();
+    const cleanDigits = raw.replace(/\D/g, "");
+    const cleanTarget = cleanDigits.length === 10 ? cleanDigits : raw.toLowerCase();
     const cleanOtp = String(otp || "").trim();
 
     if (!cleanOtp || cleanOtp.length !== 6) {
-      setMobileError("Please enter the 6-digit verification code.");
+      setOtpError("Please enter the 6-digit verification code.");
       return;
     }
 
     try {
-      setMobileLoading(true);
-      const res = await verifyOtp(cleanPhone, cleanOtp, "reset_password");
+      setOtpLoading(true);
+      const res = await verifyOtp(cleanTarget, cleanOtp, "reset_password");
       if (res.success && res.reset_token) {
         setResetToken(res.reset_token);
-        setMobileStep(3);
+        setOtpStep(3);
         setOtp("");
-        setMobileSuccess("");
+        setOtpSuccess("");
       } else {
-        setMobileError(res.message || "Invalid or expired OTP. Please try again.");
+        setOtpError(res.message || "Invalid or expired verification code. Please try again.");
       }
     } catch (err) {
-      setMobileError(
+      setOtpError(
         err.response?.data?.message || "Invalid or expired verification code."
       );
     } finally {
-      setMobileLoading(false);
+      setOtpLoading(false);
     }
   };
 
   // Step 3: Reset Password with Reset Token
   const handleResetPasswordSubmit = async (e) => {
     e.preventDefault();
-    setMobileError("");
-    setMobileSuccess("");
+    setOtpError("");
+    setOtpSuccess("");
 
     if (!newPassword) {
-      setMobileError("New password is required.");
+      setOtpError("New password is required.");
       return;
     }
 
     if (newPassword.length < 8) {
-      setMobileError("Password must be at least 8 characters.");
+      setOtpError("Password must be at least 8 characters.");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setMobileError("Passwords do not match.");
+      setOtpError("Passwords do not match.");
       return;
     }
 
-    const cleanPhone = phone.replace(/\D/g, "");
+    const raw = identifier.trim();
+    const cleanDigits = raw.replace(/\D/g, "");
+    const cleanTarget = cleanDigits.length === 10 ? cleanDigits : raw.toLowerCase();
 
     try {
-      setMobileLoading(true);
-      const res = await resetPasswordOtp(cleanPhone, resetToken, newPassword);
+      setOtpLoading(true);
+      const res = await resetPasswordOtp(cleanTarget, resetToken, newPassword);
       if (res.success) {
         // Clear sensitive credentials immediately
         setResetToken("");
         setNewPassword("");
         setConfirmPassword("");
-        setMobileStep(4);
+        setOtpStep(4);
       } else {
-        setMobileError(res.message || "Unable to reset password. Please try again.");
+        setOtpError(res.message || "Unable to reset password. Please try again.");
       }
     } catch (err) {
-      setMobileError(
+      setOtpError(
         err.response?.data?.message ||
           "We couldn't complete the password reset. Please try again."
       );
     } finally {
-      setMobileLoading(false);
+      setOtpLoading(false);
     }
   };
 
@@ -230,10 +258,10 @@ function ForgotPassword() {
         <button
           type="button"
           onClick={() => {
-            if (resetMode === "mobile" && mobileStep > 1 && mobileStep < 4) {
-              setMobileStep((prev) => prev - 1);
-              setMobileError("");
-              setMobileSuccess("");
+            if (resetMode === "otp" && otpStep > 1 && otpStep < 4) {
+              setOtpStep((prev) => prev - 1);
+              setOtpError("");
+              setOtpSuccess("");
             } else {
               navigate("/login");
             }
@@ -241,64 +269,64 @@ function ForgotPassword() {
           className="mb-6 flex w-fit items-center gap-2 text-sm font-semibold text-gray-600 transition hover:text-[#7C3AED]"
         >
           <ArrowLeft size={18} />
-          {resetMode === "mobile" && mobileStep > 1 && mobileStep < 4
+          {resetMode === "otp" && otpStep > 1 && otpStep < 4
             ? "Previous Step"
             : "Back to Sign In"}
         </button>
 
         {/* Header */}
-        {mobileStep !== 4 && (
+        {otpStep !== 4 && (
           <div className="mb-6">
             <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E1E1E] md:text-[32px]">
               Forgot Password?
             </h1>
             <p className="mt-2 text-[15px] leading-relaxed text-gray-500 md:text-[16px]">
-              {resetMode === "email"
+              {resetMode === "link"
                 ? "Enter your email address and we'll send you a link to reset your password."
-                : mobileStep === 1
-                ? "Enter your registered mobile number to receive a verification code."
-                : mobileStep === 2
-                ? "Enter the 6-digit code sent to your mobile phone."
+                : otpStep === 1
+                ? "Enter your registered email address or mobile number to receive a verification code."
+                : otpStep === 2
+                ? "Enter the 6-digit verification code sent to your registered email."
                 : "Create a new strong password for your account."}
             </p>
           </div>
         )}
 
-        {/* Toggle between Email and Mobile (Only shown before completion) */}
-        {mobileStep !== 4 && (
+        {/* Toggle between Reset Link and Email Code */}
+        {otpStep !== 4 && (
           <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1.5">
             <button
               type="button"
-              onClick={() => handleModeChange("email")}
+              onClick={() => handleModeChange("link")}
               className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-[14px] font-bold transition-all ${
-                resetMode === "email"
+                resetMode === "link"
                   ? "bg-white text-[#7C3AED] shadow-sm"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
               <Mail size={16} />
-              Via Email
+              Reset Link
             </button>
 
             <button
               type="button"
-              onClick={() => handleModeChange("mobile")}
+              onClick={() => handleModeChange("otp")}
               className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-[14px] font-bold transition-all ${
-                resetMode === "mobile"
+                resetMode === "otp"
                   ? "bg-white text-[#7C3AED] shadow-sm"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              <Smartphone size={16} />
-              Via Mobile SMS
+              <ShieldCheck size={16} />
+              Email Code (OTP)
             </button>
           </div>
         )}
 
         {/* ─────────────────────────────────────────────────────────────
-            1. RESET VIA EMAIL FORM
+            1. RESET VIA EMAIL LINK FORM
         ───────────────────────────────────────────────────────────── */}
-        {resetMode === "email" && (
+        {resetMode === "link" && (
           <form onSubmit={handleEmailSubmit} className="flex flex-col gap-5">
             <div>
               <label className="mb-2 block text-[13px] font-bold text-gray-700">
@@ -358,79 +386,73 @@ function ForgotPassword() {
         )}
 
         {/* ─────────────────────────────────────────────────────────────
-            2. RESET VIA MOBILE SMS OTP FLOW
+            2. RESET VIA EMAIL OTP FLOW
         ───────────────────────────────────────────────────────────── */}
-        {resetMode === "mobile" && (
+        {resetMode === "otp" && (
           <div>
-            {/* STEP 1: Enter Mobile Number */}
-            {mobileStep === 1 && (
-              <form onSubmit={handleSendMobileOtp} className="flex flex-col gap-5">
+            {/* STEP 1: Enter Email or Mobile */}
+            {otpStep === 1 && (
+              <form onSubmit={handleSendEmailOtp} className="flex flex-col gap-5">
                 <div>
                   <label className="mb-2 block text-[13px] font-bold text-gray-700">
-                    Mobile Number
+                    Email Address or Mobile Number
                   </label>
 
                   <div className="relative flex items-center">
-                    <span className="absolute left-4 text-[15px] font-semibold text-gray-500">
-                      +91
-                    </span>
+                    <div className="absolute left-4 text-gray-400">
+                      <User size={20} strokeWidth={2} />
+                    </div>
 
                     <input
-                      type="tel"
-                      inputMode="numeric"
-                      placeholder="Enter 10-digit number"
-                      value={phone}
+                      type="text"
+                      placeholder="e.g. name@example.com or 9876543210"
+                      value={identifier}
                       onChange={(e) => {
-                        let digits = e.target.value.replace(/\D/g, "");
-                        if (digits.length === 13 && (digits.startsWith("919") || digits.startsWith("910"))) {
-                          digits = digits.slice(3);
-                        } else if (digits.length === 12 && digits.startsWith("91")) {
-                          digits = digits.slice(2);
-                        } else if (digits.length === 11 && digits.startsWith("0")) {
-                          digits = digits.slice(1);
-                        }
-                        const val = digits.slice(0, 10);
-                        setPhone(val);
-                        setMobileError("");
-                        setMobileSuccess("");
+                        setIdentifier(e.target.value);
+                        setOtpError("");
+                        setOtpSuccess("");
                       }}
-                      className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-14 pr-4 text-[15px] font-medium text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
-                        mobileError
+                      className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-4 text-[15px] font-medium text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                        otpError
                           ? "border-red-300 focus:border-red-400"
                           : "border-gray-200 focus:border-[#7C3AED]"
                       }`}
                       required
-                      autoComplete="tel"
+                      autoComplete="username"
                     />
                   </div>
+
+                  <p className="mt-2 text-xs text-gray-500 font-medium">
+                    A 6-digit verification code will be sent to your registered account email.
+                  </p>
                 </div>
 
-                {mobileError && (
+                {otpError && (
                   <div className="rounded-xl bg-red-50 p-4 text-[13px] font-medium text-red-600">
-                    {mobileError}
+                    {otpError}
                   </div>
                 )}
 
-                {mobileSuccess && (
+                {otpSuccess && (
                   <div className="rounded-xl bg-green-50 p-4 text-[13px] font-medium text-green-700">
-                    {mobileSuccess}
+                    {otpSuccess}
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  disabled={mobileLoading || phone.length !== 10}
+                  disabled={otpLoading || !identifier.trim() || cooldown > 0}
                   className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {mobileLoading ? "Sending Code..." : "Send Verification Code"}
-                  {!mobileLoading && <ArrowRight size={20} />}
+                  {otpLoading ? "Sending Code..." : (cooldown > 0 ? `Please wait (${cooldown}s)` : "Send Verification Code")}
+                  {!otpLoading && <ArrowRight size={20} />}
                 </button>
               </form>
             )}
 
             {/* STEP 2: Enter 6-digit OTP */}
-            {mobileStep === 2 && (
-              <form onSubmit={handleVerifyMobileOtp} className="flex flex-col gap-5">
+            {otpStep === 2 && (
+              <form onSubmit={handleVerifyEmailOtp} className="flex flex-col gap-5">
                 <div className="rounded-2xl border border-purple-100 bg-purple-50/50 p-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -438,16 +460,16 @@ function ForgotPassword() {
                         Code sent to
                       </p>
                       <p className="text-[15px] font-bold text-gray-900">
-                        +91 {phone.slice(0, 5)} {phone.slice(5)}
+                        {maskedEmail || "your registered email"}
                       </p>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => {
-                        setMobileStep(1);
+                        setOtpStep(1);
                         setOtp("");
-                        setMobileError("");
+                        setOtpError("");
                       }}
                       className="text-[13px] font-semibold text-[#7C3AED] hover:underline"
                     >
@@ -470,23 +492,26 @@ function ForgotPassword() {
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, "").slice(0, 6);
                       setOtp(val);
-                      setMobileError("");
+                      setOtpError("");
                     }}
                     className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-center font-mono text-[24px] font-bold tracking-[0.3em] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
                     autoFocus
                     required
                   />
+                  <p className="mt-2 text-xs text-gray-500 font-medium">
+                    Please check your registered email inbox and spam folder for the code.
+                  </p>
                 </div>
 
-                {mobileError && (
+                {otpError && (
                   <div className="rounded-xl bg-red-50 p-4 text-[13px] font-medium text-red-600">
-                    {mobileError}
+                    {otpError}
                   </div>
                 )}
 
-                {mobileSuccess && (
+                {otpSuccess && (
                   <div className="rounded-xl bg-green-50 p-4 text-[13px] font-medium text-green-700">
-                    {mobileSuccess}
+                    {otpSuccess}
                   </div>
                 )}
 
@@ -499,8 +524,8 @@ function ForgotPassword() {
                   ) : (
                     <button
                       type="button"
-                      onClick={handleSendMobileOtp}
-                      disabled={mobileLoading}
+                      onClick={handleSendEmailOtp}
+                      disabled={otpLoading}
                       className="flex items-center gap-1.5 font-bold text-[#7C3AED] hover:underline disabled:opacity-50"
                     >
                       <RotateCw size={14} />
@@ -511,17 +536,17 @@ function ForgotPassword() {
 
                 <button
                   type="submit"
-                  disabled={mobileLoading || otp.length !== 6}
+                  disabled={otpLoading || otp.length !== 6}
                   className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {mobileLoading ? "Verifying..." : "Verify Code"}
-                  {!mobileLoading && <ArrowRight size={20} />}
+                  {otpLoading ? "Verifying..." : "Verify Code"}
+                  {!otpLoading && <ArrowRight size={20} />}
                 </button>
               </form>
             )}
 
             {/* STEP 3: Enter New Password */}
-            {mobileStep === 3 && (
+            {otpStep === 3 && (
               <form onSubmit={handleResetPasswordSubmit} className="flex flex-col gap-5">
                 <div>
                   <label className="mb-2 block text-[13px] font-bold text-gray-700">
@@ -539,7 +564,7 @@ function ForgotPassword() {
                       value={newPassword}
                       onChange={(e) => {
                         setNewPassword(e.target.value);
-                        setMobileError("");
+                        setOtpError("");
                       }}
                       className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-11 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
                       autoFocus
@@ -573,7 +598,7 @@ function ForgotPassword() {
                       value={confirmPassword}
                       onChange={(e) => {
                         setConfirmPassword(e.target.value);
-                        setMobileError("");
+                        setOtpError("");
                       }}
                       className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-11 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
                       required
@@ -590,25 +615,25 @@ function ForgotPassword() {
                   </div>
                 </div>
 
-                {mobileError && (
+                {otpError && (
                   <div className="rounded-xl bg-red-50 p-4 text-[13px] font-medium text-red-600">
-                    {mobileError}
+                    {otpError}
                   </div>
                 )}
 
                 <button
                   type="submit"
-                  disabled={mobileLoading || !newPassword || !confirmPassword}
+                  disabled={otpLoading || !newPassword || !confirmPassword}
                   className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {mobileLoading ? "Updating Password..." : "Update Password"}
-                  {!mobileLoading && <ArrowRight size={20} />}
+                  {otpLoading ? "Updating Password..." : "Update Password"}
+                  {!otpLoading && <ArrowRight size={20} />}
                 </button>
               </form>
             )}
 
             {/* STEP 4: Success Screen */}
-            {mobileStep === 4 && (
+            {otpStep === 4 && (
               <div className="text-center">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
                   <CheckCircle2 size={36} />
@@ -636,7 +661,7 @@ function ForgotPassword() {
         )}
 
         {/* Footer Link */}
-        {mobileStep !== 4 && (
+        {otpStep !== 4 && (
           <p className="mt-8 text-center text-[14px] text-gray-500">
             Remember your password?
             <button

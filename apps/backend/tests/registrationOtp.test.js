@@ -27,25 +27,25 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
 
   process.env.WORDPRESS_URL = "http://mock-wordpress";
   process.env.MUMBAI_INTERNAL_API_KEY = "test-internal-key";
-  process.env.MOCK_SMS = "true";
+  process.env.MOCK_EMAIL = "true";
   process.env.NODE_ENV = "test";
 
   const mockAxiosPost = async (url, data, config) => {
-    if (url && (url.includes("transactionalSMS") || url.includes("brevo"))) {
+    if (url && url.includes("brevo")) {
       return { status: 201, data: { messageId: "mock_test_msg_id" } };
     }
     return originalAxiosPost(url, data, config);
   };
 
   suite.beforeEach(() => {
-    process.env.MOCK_SMS = "true";
+    process.env.MOCK_EMAIL = "true";
     process.env.NODE_ENV = "test";
     axios.post = mockAxiosPost;
   });
 
   suite.afterEach(() => {
     process.env = { ...originalEnv };
-    process.env.MOCK_SMS = "true";
+    process.env.MOCK_EMAIL = "true";
     process.env.NODE_ENV = "test";
     axios.get = originalAxiosGet;
     axios.put = originalAxiosPut;

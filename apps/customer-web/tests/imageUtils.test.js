@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getCatalogImageUrl, getFullImageUrl } from "../src/utils/imageUtils.js";
+import { getCatalogImageUrl, getFullImageUrl, PRODUCT_PLACEHOLDER_URL } from "../src/utils/imageUtils.js";
 
 test("getCatalogImageUrl: prefers thumbnail property when available", () => {
   const image = {
@@ -38,9 +38,10 @@ test("getCatalogImageUrl: handles string, null, or undefined inputs gracefully",
     getCatalogImageUrl("http://localhost:5000/api/media/uploads/manual.jpg"),
     "http://localhost:5000/api/media/uploads/manual.jpg"
   );
-  assert.equal(getCatalogImageUrl(null), "");
-  assert.equal(getCatalogImageUrl(undefined), "");
-  assert.equal(getCatalogImageUrl({}), "");
+  assert.equal(getCatalogImageUrl(null), PRODUCT_PLACEHOLDER_URL);
+  assert.equal(getCatalogImageUrl(undefined), PRODUCT_PLACEHOLDER_URL);
+  assert.equal(getCatalogImageUrl({}), PRODUCT_PLACEHOLDER_URL);
+  assert.equal(getCatalogImageUrl(null, ""), "");
 });
 
 test("getFullImageUrl: returns full-resolution src for hero/detail view", () => {
@@ -73,9 +74,10 @@ test("getFullImageUrl: handles string, null, or undefined inputs gracefully", ()
     getFullImageUrl("http://localhost:5000/api/media/uploads/test.webp"),
     "http://localhost:5000/api/media/uploads/test.webp"
   );
-  assert.equal(getFullImageUrl(null), "");
-  assert.equal(getFullImageUrl(undefined), "");
-  assert.equal(getFullImageUrl({}), "");
+  assert.equal(getFullImageUrl(null), PRODUCT_PLACEHOLDER_URL);
+  assert.equal(getFullImageUrl(undefined), PRODUCT_PLACEHOLDER_URL);
+  assert.equal(getFullImageUrl({}), PRODUCT_PLACEHOLDER_URL);
+  assert.equal(getFullImageUrl(null, ""), "");
 });
 
 test("WooCommerce product image payload end-to-end resolution", () => {

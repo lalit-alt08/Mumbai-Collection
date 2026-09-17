@@ -115,3 +115,38 @@ export const resetPasswordOtp = async (phone, reset_token, new_password) => {
   });
   return data;
 };
+
+/**
+ * Format user-friendly rate limit error message based on server Retry-After.
+ * Never hardcodes static minutes and preserves exact retry period.
+ */
+export const parseOtpRateLimitError = (err) => {
+  if (err?.response?.status === 429) {
+    const headerRetry = err.response.headers?.["retry-after"];
+    const bodyRetry = err.response.data?.retryAfter || err.response.data?.retry_after;
+    const seconds = Number(bodyRetry || headerRetry);
+
+    if (seconds && seconds > 0) {
+      const minutes = Math.ceil(seconds / 60);
+      return {
+        isRateLimited: true,
+        retryAfter: seconds,
+        message: `Too many attempts. Please try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+      };
+    }
+
+    return {
+      isRateLimited: true,
+      retryAfter: 60,
+      message: "Too many attempts. Please try again in 1 minute.",
+    };
+  }
+
+  return {
+    isRateLimited: false,
+    retryAfter: 0,
+    message:
+      (typeof err?.response?.data?.message === "string" && err.response.data.message) ||
+      "Unable to send verification code. Please try again.",
+  };
+};

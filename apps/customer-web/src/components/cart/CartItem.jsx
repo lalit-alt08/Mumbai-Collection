@@ -1,4 +1,4 @@
-import { getCatalogImageUrl } from "../../utils/imageUtils";
+import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 
 function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
   const price = Number(item.prices?.price) / 100;
@@ -18,6 +18,12 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           src={getCatalogImageUrl(item)}
           alt={item.name || "Cart item"}
           className="h-full w-full object-contain"
+          onError={(e) => {
+            if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+              e.currentTarget.setAttribute("data-fallback", "true");
+              e.currentTarget.src = PRODUCT_PLACEHOLDER_URL;
+            }
+          }}
         />
       </div>
 

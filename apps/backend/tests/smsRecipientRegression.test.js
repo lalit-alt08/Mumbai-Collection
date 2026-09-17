@@ -4,12 +4,10 @@ import axios from "axios";
 import wp from "../src/services/wordpress.js";
 import {
   normalizePhoneNumber,
-  sendOtpSms,
-  BREVO_TRANSACTIONAL_SMS_URL,
 } from "../src/services/brevoService.js";
 import { sendOtp } from "../src/controllers/authController.js";
 
-test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => {
+test("Destination & Recipient Integrity Regression Suite", async (suite) => {
   const originalEnv = { ...process.env };
   const originalAxiosPost = axios.post;
   const originalWpPost = wp.post;
@@ -84,32 +82,17 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
   });
 
   // 6. No default/test phone is ever used
-  await suite.test("6. No default or fallback phone overrides the customer's phone", async () => {
-    process.env.MOCK_SMS = "false";
-    process.env.BREVO_API_KEY = "test_key";
-    process.env.BREVO_SMS_SENDER = "mumbaicoll";
-
-    let capturedRecipient = null;
-    axios.post = async (url, body) => {
-      capturedRecipient = body?.recipient;
-      return { status: 201, data: { messageId: "msg_reg_1" } };
-    };
-
-    const res = await sendOtpSms({
-      phone: "7339951567",
-      otp: "882194",
-    });
-
-    assert.strictEqual(res.success, true);
-    assert.strictEqual(capturedRecipient, "+917339951567");
-    assert.notStrictEqual(capturedRecipient, "+919820123456");
+  await suite.test("6. No default or fallback phone overrides the customer's phone", () => {
+    const norm = normalizePhoneNumber("7339951567");
+    assert.strictEqual(norm?.e164, "+917339951567");
+    assert.notStrictEqual(norm?.e164, "+919820123456");
   });
 
-  // 7. Brevo receives exactly the normalized submitted number
-  await suite.test("7. Brevo API payload receives exactly the submitted destination number", async () => {
-    process.env.MOCK_SMS = "false";
+  // 7. Brevo receives the customer's registered email
+  await suite.test("7. Brevo API payload receives exactly the customer's registered account email", async () => {
+    process.env.MOCK_EMAIL = "false";
     process.env.BREVO_API_KEY = "test_key";
-    process.env.BREVO_SMS_SENDER = "mumbaicoll";
+    process.env.BREVO_EMAIL_SENDER_EMAIL = "noreply@mumbaicollection.in";
 
     let capturedPayload = null;
     axios.post = async (url, body) => {
@@ -121,8 +104,9 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
       return {
         data: {
           success: true,
-          message: "If the number is registered, an OTP has been sent.",
+          message: "If the account is registered, an OTP has been sent.",
           user_found: true,
+          email: "customer733@example.com",
         },
       };
     };
@@ -133,15 +117,14 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
     });
 
     assert.strictEqual(result.status, 200);
-    assert.strictEqual(capturedPayload.recipient, "+917339951567");
-    assert.strictEqual(capturedPayload.sender, "mumbaicoll");
+    assert.strictEqual(capturedPayload.to[0].email, "customer733@example.com");
   });
 
   // 8. Unknown phone remains anti-enumerated
-  await suite.test("8. Unknown phone number returns 200 without sending SMS", async () => {
-    let smsDispatched = false;
+  await suite.test("8. Unknown phone number returns 200 without dispatching Email", async () => {
+    let dispatched = false;
     axios.post = async () => {
-      smsDispatched = true;
+      dispatched = true;
       return { status: 201, data: {} };
     };
 
@@ -162,11 +145,11 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
 
     assert.strictEqual(result.status, 200);
     assert.strictEqual(result.data.success, true);
-    assert.strictEqual(smsDispatched, false, "SMS must not be dispatched for unregistered account");
+    assert.strictEqual(dispatched, false, "Message must not be dispatched for unregistered account");
   });
 
-  // 9. Existing registered phone lookup still works
-  await suite.test("9. Registered customer lookup dispatches OTP to that customer's exact number", async () => {
+  // 9. Existing registered phone lookup still works and dispatches to registered email
+  await suite.test("9. Registered customer lookup dispatches OTP to that customer's registered email", async () => {
     let capturedWpPayload = null;
     let capturedBrevoRecipient = null;
 
@@ -176,19 +159,20 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
         data: {
           success: true,
           user_found: true,
+          email: "customer733@example.com",
           message: "OTP sent.",
         },
       };
     };
 
     axios.post = async (url, body) => {
-      capturedBrevoRecipient = body?.recipient;
+      capturedBrevoRecipient = body?.to?.[0]?.email;
       return { status: 201, data: { messageId: "msg_reg_3" } };
     };
 
-    process.env.MOCK_SMS = "false";
+    process.env.MOCK_EMAIL = "false";
     process.env.BREVO_API_KEY = "test_key";
-    process.env.BREVO_SMS_SENDER = "mumbaicoll";
+    process.env.BREVO_EMAIL_SENDER_EMAIL = "noreply@mumbaicollection.in";
 
     const result = await simulateSendOtp({
       phone: "7339951567",
@@ -197,14 +181,14 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
 
     assert.strictEqual(result.status, 200);
     assert.strictEqual(capturedWpPayload.phone, "7339951567");
-    assert.strictEqual(capturedBrevoRecipient, "+917339951567");
+    assert.strictEqual(capturedBrevoRecipient, "customer733@example.com");
   });
 
-  // 10. verify_phone behavior remains unchanged
-  await suite.test("10. verify_phone requires authenticated session and sends to customer's submitted number", async () => {
+  // 10. verify_phone behavior dispatches to customer's registered email
+  await suite.test("10. verify_phone requires authenticated session and sends to customer's registered email", async () => {
     let capturedBrevoRecipient = null;
     axios.post = async (url, body) => {
-      capturedBrevoRecipient = body?.recipient;
+      capturedBrevoRecipient = body?.to?.[0]?.email;
       return { status: 201, data: { messageId: "msg_reg_4" } };
     };
 
@@ -212,9 +196,9 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
       return { data: { success: true } };
     };
 
-    process.env.MOCK_SMS = "false";
+    process.env.MOCK_EMAIL = "false";
     process.env.BREVO_API_KEY = "test_key";
-    process.env.BREVO_SMS_SENDER = "mumbaicoll";
+    process.env.BREVO_EMAIL_SENDER_EMAIL = "noreply@mumbaicollection.in";
 
     // Unauthenticated verify_phone must fail with 401
     const unauthRes = await simulateSendOtp({
@@ -223,12 +207,12 @@ test("SMS Recipient Regression & Destination Integrity Suite", async (suite) => 
     });
     assert.strictEqual(unauthRes.status, 401);
 
-    // Authenticated verify_phone succeeds and dispatches to 7339951567
+    // Authenticated verify_phone succeeds and dispatches to customer's registered email
     const authRes = await simulateSendOtp(
       { phone: "7339951567", purpose: "verify_phone" },
       { wpUserId: 45, user: { id: 45, email: "user45@example.com" } }
     );
     assert.strictEqual(authRes.status, 200);
-    assert.strictEqual(capturedBrevoRecipient, "+917339951567");
+    assert.strictEqual(capturedBrevoRecipient, "user45@example.com");
   });
 });

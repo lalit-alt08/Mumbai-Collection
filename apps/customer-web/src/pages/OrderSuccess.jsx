@@ -1,4 +1,5 @@
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, Link, useLocation } from "react-router-dom";
 import {
   CheckCircle2,
   Package,
@@ -8,9 +9,38 @@ import {
   MapPin,
   ArrowRight,
 } from "lucide-react";
+import { getOrderById } from "../services/orderService.js";
 
 function OrderSuccess() {
   const { id } = useParams();
+  const location = useLocation();
+  const [paymentMethodTitle, setPaymentMethodTitle] = useState(
+    location.state?.paymentMethod || "Cash on Delivery"
+  );
+  const [orderStatus, setOrderStatus] = useState(
+    location.state?.status || "Processing"
+  );
+
+  useEffect(() => {
+    if (!id) return;
+    let isMounted = true;
+    getOrderById(id)
+      .then((data) => {
+        if (!isMounted) return;
+        if (data?.order?.payment_method_title) {
+          setPaymentMethodTitle(data.order.payment_method_title);
+        }
+        if (data?.order?.display_status || data?.order?.status) {
+          setOrderStatus(data.order.display_status || data.order.status);
+        }
+      })
+      .catch(() => {
+        // Graceful fallback to initial location state or defaults
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
 
   return (
     <main className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-[#F7F7FB]">
@@ -82,7 +112,7 @@ function OrderSuccess() {
                     label="Status"
                     value={
                       <span className="rounded-full border border-[#C4B5FD]/50 bg-[#F1ECFF] px-2.5 py-1 text-[11px] font-extrabold text-[#7C3AED]">
-                        Processing
+                        {orderStatus}
                       </span>
                     }
                   />
@@ -90,7 +120,7 @@ function OrderSuccess() {
                   <SummaryRow
                     icon={<CreditCard size={17} />}
                     label="Payment"
-                    value="Cash on Delivery"
+                    value={paymentMethodTitle}
                   />
 
                   <SummaryRow

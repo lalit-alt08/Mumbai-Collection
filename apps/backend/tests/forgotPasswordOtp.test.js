@@ -13,7 +13,7 @@ import {
 } from "../src/controllers/authController.js";
 import { OAuth2Client } from "google-auth-library";
 
-test("Phase 4: Forgot Password via Mobile SMS OTP Test Suite", async (suite) => {
+test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   const originalEnv = { ...process.env };
   const originalAxiosGet = axios.get;
   const originalAxiosPost = axios.post;
@@ -22,26 +22,26 @@ test("Phase 4: Forgot Password via Mobile SMS OTP Test Suite", async (suite) => 
 
   process.env.WORDPRESS_URL = "http://mock-wordpress";
   process.env.MUMBAI_INTERNAL_API_KEY = "test-internal-key";
-  process.env.MOCK_SMS = "true";
+  process.env.MOCK_EMAIL = "true";
   process.env.NODE_ENV = "test";
   process.env.GOOGLE_CLIENT_ID = "test-client-id";
 
   const mockAxiosPost = async (url, data, config) => {
-    if (url && (url.includes("transactionalSMS") || url.includes("brevo"))) {
+    if (url && url.includes("brevo")) {
       return { status: 201, data: { messageId: "mock_test_msg_id" } };
     }
     return originalAxiosPost(url, data, config);
   };
 
   suite.beforeEach(() => {
-    process.env.MOCK_SMS = "true";
+    process.env.MOCK_EMAIL = "true";
     process.env.NODE_ENV = "test";
     axios.post = mockAxiosPost;
   });
 
   suite.afterEach(() => {
     process.env = { ...originalEnv };
-    process.env.MOCK_SMS = "true";
+    process.env.MOCK_EMAIL = "true";
     process.env.NODE_ENV = "test";
     axios.get = originalAxiosGet;
     axios.post = originalAxiosPost;
@@ -267,7 +267,7 @@ test("Phase 4: Forgot Password via Mobile SMS OTP Test Suite", async (suite) => 
   });
 
   // 6. Resend before 60 seconds (Anti-enumeration rate limiting)
-  await suite.test("6. Resend Cooldown: Returns generic success without dispatching new SMS during 60s cooldown", async () => {
+  await suite.test("6. Resend Cooldown: Returns generic success without dispatching new Email during 60s cooldown", async () => {
     wp.post = async (url) => {
       if (url.includes("/otp/store")) {
         return {

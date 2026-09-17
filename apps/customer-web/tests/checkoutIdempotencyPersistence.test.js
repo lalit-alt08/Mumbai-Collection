@@ -179,4 +179,42 @@ test("Checkout Idempotency Persistence & Cart Fingerprinting Suite", async (t) =
     });
     assert.ok(key, "Must return a fallback idempotency key even if storage fails");
   });
+
+  await t.test("7. Total mismatch (409) flow: clearing key allows subsequent attempt to acquire fresh key", () => {
+    const { store } = setupMockSessionStorage();
+
+    const cart = {
+      items: [{ id: 10, quantity: 1 }],
+      totals: { total_price: "60000" },
+    };
+
+    const keyBeforeMismatch = getOrCreateCheckoutIdempotencyKey(cart);
+    assert.ok(store.has(CHECKOUT_IDEMP_STORAGE_KEY));
+
+    // Simulated 409 woocommerce_rest_checkout_total_mismatch error handling
+    clearCheckoutIdempotencyKey();
+    assert.equal(store.has(CHECKOUT_IDEMP_STORAGE_KEY), false, "Storage must be cleared on 409 mismatch");
+
+    // Next attempt gets a fresh key even if cart hasn't changed yet
+    const keyAfterMismatch = getOrCreateCheckoutIdempotencyKey(cart);
+    assert.notEqual(keyAfterMismatch, keyBeforeMismatch, "Next checkout attempt must get fresh idempotency key");
+  });
+
+  await t.test("8. In-flight processing (409) flow: key is retained so duplicate submission is prevented", () => {
+    const { store } = setupMockSessionStorage();
+
+    const cart = {
+      items: [{ id: 10, quantity: 1 }],
+      totals: { total_price: "60000" },
+    };
+
+    const keyInFlight = getOrCreateCheckoutIdempotencyKey(cart);
+    assert.ok(store.has(CHECKOUT_IDEMP_STORAGE_KEY));
+
+    // On "Request is currently being processed", clearCheckoutIdempotencyKey is NOT called
+    // so key remains identical
+    const keyRetry = getOrCreateCheckoutIdempotencyKey(cart);
+    assert.equal(keyRetry, keyInFlight, "In-flight conflict must retain key to prevent duplicate orders");
+  });
 });
+
