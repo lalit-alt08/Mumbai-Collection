@@ -44,7 +44,7 @@ function AdminLayout() {
     import.meta.env.VITE_CUSTOMER_URL || "http://localhost:5173";
 
   return (
-    <div className="flex min-h-screen bg-[#F8F9FA] text-[#1E1E1E]">
+    <div className="flex min-h-screen w-full max-w-full overflow-x-hidden bg-[#F8F9FA] text-[#1E1E1E]">
       {/* Mobile Sidebar Backdrop */}
       {sidebarOpen && (
         <div
@@ -87,7 +87,7 @@ function AdminLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1.5 px-3 py-4">
+        <nav className="flex-1 space-y-1.5 px-3 py-4 select-none">
           {navigation.map((item) => {
             const Icon = item.icon;
 
@@ -101,7 +101,8 @@ function AdminLayout() {
                 key={item.name}
                 to={item.href}
                 onClick={() => setSidebarOpen(false)}
-                className={`group flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
+                style={{ touchAction: "manipulation" }}
+                className={`group flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all select-none ${
                   isActive
                     ? "bg-[#FF8A00] text-white shadow-[0_4px_16px_rgba(255,138,0,0.3)] font-bold"
                     : "text-gray-300 hover:bg-white/5 hover:text-white"
@@ -156,7 +157,8 @@ function AdminLayout() {
         <div className="flex h-14 items-center justify-between border-b border-gray-200/80 bg-white px-4 lg:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 text-gray-600 hover:text-gray-900 rounded-xl hover:bg-gray-100"
+            style={{ touchAction: "manipulation" }}
+            className="p-2 text-gray-600 hover:text-gray-900 rounded-xl hover:bg-gray-100 select-none active:scale-95 transition-transform"
             aria-label="Open Navigation"
           >
             <Menu size={22} />

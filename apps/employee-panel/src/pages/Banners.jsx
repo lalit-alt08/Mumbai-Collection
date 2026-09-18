@@ -25,7 +25,13 @@ import {
   updateBanners,
   uploadProductImage,
 } from "../services/employeeApi.js";
-import { compressImage, BANNER_MAX_DIMENSION } from "../utils/imageCompressor.js";
+import {
+  compressImage,
+  BANNER_MAX_DIMENSION,
+  isAcceptedImage,
+  RAW_IMAGE_MAX_INPUT_BYTES,
+  MAX_FILE_SIZE_BYTES,
+} from "../utils/imageCompressor.js";
 
 function Banners() {
   const [banners, setBanners] = useState([]);
@@ -109,16 +115,15 @@ function Banners() {
     if (files.length === 0) return;
 
     const file = files[0];
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-    if (!validTypes.includes(file.type)) {
-      showToast(`"${file.name}" is not a valid image (JPG, PNG, WebP only).`, "error");
+    if (!isAcceptedImage(file)) {
+      showToast(`"${file.name}" is not a supported image format.`, "error");
       e.target.value = "";
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showToast(`"${file.name}" exceeds the 10MB limit.`, "error");
+    if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
+      showToast(`"${file.name}" exceeds the 25MB maximum limit.`, "error");
       e.target.value = "";
       return;
     }
@@ -155,6 +160,13 @@ function Banners() {
       fileToUpload = await compressImage(file, { maxDimension: BANNER_MAX_DIMENSION });
     } catch {
       // Fall back to original file if compression fails
+    }
+
+    if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
+      showToast(`"${file.name}" exceeds the 5MB upload limit after compression.`, "error");
+      setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: false } }));
+      e.target.value = "";
+      return;
     }
 
     try {
@@ -519,7 +531,7 @@ function Banners() {
                       type="file"
                       id={`file-desktop-${index}`}
                       onChange={(e) => handleUploadImage(e, index, "desktop")}
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept="image/*,image/heic,image/heif"
                       className="hidden"
                     />
 
@@ -602,7 +614,7 @@ function Banners() {
                       type="file"
                       id={`file-mobile-${index}`}
                       onChange={(e) => handleUploadImage(e, index, "mobile")}
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept="image/*,image/heic,image/heif"
                       className="hidden"
                     />
 

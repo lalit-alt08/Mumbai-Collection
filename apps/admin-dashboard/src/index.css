@@ -5,12 +5,42 @@
   color-scheme: light;
 }
 
+html,
 body {
   margin: 0;
+  width: 100%;
+  overflow-x: hidden;
   background-color: #F8F9FA;
   color: #1A1D20;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Prevent double-tap to zoom on interactive elements and tabs */
+*,
+*::before,
+*::after {
+  touch-action: manipulation;
+}
+
+/* Contain horizontal gestures on data tables & horizontal filter tab lists */
+.overflow-x-auto,
+[class*="overflow-x-auto"] {
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+/* Prevent mobile browser auto-zoom on input focus by guaranteeing 16px minimum font size on mobile */
+@media screen and (max-width: 1024px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* Custom Scrollbar for sleek UI */

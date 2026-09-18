@@ -13,14 +13,17 @@ import {
   Boxes,
   Users,
   Calendar,
+  Loader2,
 } from "lucide-react";
-import { getOverview } from "../services/adminApi";
+import { getOverview, reconcilePayment } from "../services/adminApi";
 import { formatOrderDateTimeIST, getStatusBadgeClass } from "../utils/recentOrdersFormatter.js";
 
 function Overview() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reconcilingId, setReconcilingId] = useState(null);
+  const [reconcileFeedback, setReconcileFeedback] = useState(null);
 
   const fetchDashboardData = async (isRefresh = false) => {
     try {
@@ -34,6 +37,35 @@ function Overview() {
       setError("Failed to load dashboard metrics. Check backend connection.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReconcile = async (orderId) => {
+    try {
+      setReconcilingId(orderId);
+      setReconcileFeedback(null);
+      const res = await reconcilePayment(orderId);
+
+      const isUpdated = res?.action === "updated_to_processing";
+      const message = res?.message || (isUpdated ? "Payment matched! Order updated to processing." : "Reconciliation complete.");
+
+      setReconcileFeedback({
+        id: orderId,
+        type: isUpdated ? "success" : "info",
+        message: `Order #${orderId}: ${message}`,
+      });
+
+      if (isUpdated) {
+        await fetchDashboardData(true);
+      }
+    } catch (err) {
+      setReconcileFeedback({
+        id: orderId,
+        type: "error",
+        message: `Order #${orderId}: ${err?.response?.data?.message || err.message || "Failed to reconcile payment."}`,
+      });
+    } finally {
+      setReconcilingId(null);
     }
   };
 
@@ -255,6 +287,35 @@ function Overview() {
           </span>
         </div>
 
+        {/* Reconcile Feedback Banner */}
+        {reconcileFeedback && (
+          <div
+            className={`mb-4 flex items-center justify-between gap-2 rounded-xl p-3 text-xs font-medium border ${
+              reconcileFeedback.type === "success"
+                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                : reconcileFeedback.type === "error"
+                ? "bg-rose-50 text-rose-800 border-rose-200"
+                : "bg-blue-50 text-blue-800 border-blue-200"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {reconcileFeedback.type === "success" ? (
+                <CheckCircle2 size={15} className="shrink-0 text-emerald-600" />
+              ) : (
+                <AlertTriangle size={15} className="shrink-0 text-amber-600" />
+              )}
+              <span>{reconcileFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReconcileFeedback(null)}
+              className="text-gray-400 hover:text-gray-700 text-sm font-bold cursor-pointer"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
         {/* Mobile View: Clean Card-Based Layout (md:hidden) */}
         <div className="space-y-3 md:hidden">
           {!recentOrders || recentOrders.length === 0 ? (
@@ -316,13 +377,27 @@ function Overview() {
                   </div>
                 </div>
 
-                {/* Footer: Payment Method & Total Price */}
+                {/* Footer: Payment Method, Total Price & Reconcile */}
                 <div className="flex items-center justify-between pt-2.5 border-t border-gray-100/80 bg-gray-50/50 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
                   <span className="text-[11px] text-gray-500 font-medium flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     {o.payment_method || "Cash on delivery"}
                   </span>
-                  <div className="text-right">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleReconcile(o.id)}
+                      disabled={reconcilingId === o.id}
+                      title="Reconcile Payment with Gateway"
+                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600 shadow-2xs hover:bg-gray-50 hover:text-gray-900 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      {reconcilingId === o.id ? (
+                        <Loader2 size={10} className="animate-spin text-[#FF8A00]" />
+                      ) : (
+                        <RotateCcw size={10} className="text-gray-400" />
+                      )}
+                      <span>Reconcile</span>
+                    </button>
                     <span className="text-sm font-black text-gray-900 tracking-tight">
                       ₹{o.total}
                     </span>
@@ -342,13 +417,14 @@ function Overview() {
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Items</th>
                 <th className="py-3 px-4">Order Total</th>
-                <th className="py-3 px-4 text-right">Status</th>
+                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
               {!recentOrders || recentOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-xs font-medium text-gray-500">
+                  <td colSpan={6} className="py-12 text-center text-xs font-medium text-gray-500">
                     No orders received yet.
                   </td>
                 </tr>
@@ -372,7 +448,7 @@ function Overview() {
                       ₹{o.total}
                       <div className="text-[10px] text-gray-400 font-normal">{o.payment_method}</div>
                     </td>
-                    <td className="py-4 px-4 text-right">
+                    <td className="py-4 px-4 text-center">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-extrabold ${getStatusBadgeClass(
                           o.status
@@ -380,6 +456,22 @@ function Overview() {
                       >
                         {o.status}
                       </span>
+                    </td>
+                    <td className="py-4 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleReconcile(o.id)}
+                        disabled={reconcilingId === o.id}
+                        title="Reconcile payment with Razorpay gateway"
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 shadow-2xs hover:bg-gray-50 hover:text-gray-900 active:scale-95 disabled:opacity-50 cursor-pointer"
+                      >
+                        {reconcilingId === o.id ? (
+                          <Loader2 size={12} className="animate-spin text-[#FF8A00]" />
+                        ) : (
+                          <RotateCcw size={12} className="text-gray-400" />
+                        )}
+                        <span>Reconcile</span>
+                      </button>
                     </td>
                   </tr>
                 ))

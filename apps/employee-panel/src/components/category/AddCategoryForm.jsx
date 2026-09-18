@@ -156,7 +156,7 @@ function AddCategoryForm({
                 type="file"
                 ref={fileInputRef}
                 onChange={onImageSelect}
-                accept="image/jpeg,image/png,image/webp,image/gif"
+                accept="image/*,image/heic,image/heif"
                 className="hidden"
               />
 

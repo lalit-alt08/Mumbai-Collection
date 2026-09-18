@@ -28,35 +28,34 @@ body {
   width: 100%;
   overflow-x: hidden;
   touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
-/* Prevent accidental double-tap to zoom on interactive elements while preserving pinch-zoom accessibility */
-button,
-a,
-input,
-select,
-textarea,
-[role="button"],
-.swiper,
-.swiper-slide {
+/* Prevent accidental double-tap to zoom across all elements and tabs */
+*,
+*::before,
+*::after {
   touch-action: manipulation;
 }
 
-/* Prevent mobile browser auto-zoom on input focus by guaranteeing 16px minimum font size on mobile */
-@media screen and (max-width: 767px) {
+/* Contain horizontal gestures on product & category sliders to prevent window rubber-band zoom */
+.overflow-x-auto,
+[class*="overflow-x-auto"],
+.swiper,
+.swiper-slide {
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+/* Prevent mobile browser auto-zoom on input focus by guaranteeing 16px minimum font size on mobile & tablet */
+@media screen and (max-width: 1024px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),
   select,
   textarea {
     font-size: 16px !important;
   }
-}
-
-/* Contain horizontal gestures on product & category sliders to prevent window rubber-band zoom */
-.overflow-x-auto,
-[class*="overflow-x-auto"] {
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-x pan-y;
 }
 
 /* Prevent native image drag from disrupting slider touch swipes */

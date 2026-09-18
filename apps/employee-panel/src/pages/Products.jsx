@@ -30,7 +30,12 @@ import {
   deleteProduct,
   getCategories,
 } from "../services/employeeApi.js";
-import { compressImage, MAX_FILE_SIZE_BYTES } from "../utils/imageCompressor.js";
+import {
+  compressImage,
+  MAX_FILE_SIZE_BYTES,
+  isAcceptedImage,
+  RAW_IMAGE_MAX_INPUT_BYTES,
+} from "../utils/imageCompressor.js";
 import {
   validateAdjustInput,
   applyProductAdjustment,
@@ -353,15 +358,13 @@ function Products() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate type and size (5MB)
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    if (!validTypes.includes(file.type)) {
-      showToast("Only JPG, PNG, WebP, and GIF images are allowed.", "error");
+    if (!isAcceptedImage(file)) {
+      showToast("Only JPG, PNG, WebP, GIF, and mobile HEIC images are allowed.", "error");
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      showToast("Image file size must be less than 5MB.", "error");
+    if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
+      showToast("Image file size exceeds the 25MB maximum limit.", "error");
       return;
     }
 
@@ -381,6 +384,11 @@ function Products() {
       fileToUpload = await compressImage(file);
     } catch {
       // Fall back to original file if compression fails
+    }
+
+    if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
+      showToast("Image file size must be less than 5MB after compression.", "error");
+      return;
     }
 
     const previewUrl = URL.createObjectURL(fileToUpload);
@@ -1346,7 +1354,7 @@ function Products() {
                   type="file"
                   ref={galleryInputRef}
                   onChange={handleImageFileChange}
-                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  accept="image/*,image/heic,image/heif"
                   className="hidden"
                 />
 
@@ -1355,7 +1363,7 @@ function Products() {
                   ref={cameraInputRef}
                   onChange={handleImageFileChange}
                   capture="environment"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  accept="image/*,image/heic,image/heif"
                   className="hidden"
                 />
 

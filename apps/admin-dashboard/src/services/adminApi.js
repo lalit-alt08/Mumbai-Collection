@@ -148,3 +148,21 @@ export const unsuspendCustomer = async (data) => {
   const res = await api.post("/customer-suspension/unsuspend", data);
   return res.data;
 };
+
+// Payment Reconciliation (Razorpay - WooCommerce Sync)
+export const reconcilePayment = async (orderId) => {
+  const base = API_BASE.replace(/\/admin\/?$/, "");
+  const res = await axios.post(
+    `${base}/payments/reconcile/${orderId}`,
+    {},
+    {
+      withCredentials: true,
+      headers: {
+        "X-Mumbai-Panel": "admin",
+      },
+      timeout: 15000,
+    }
+  );
+  return res.data;
+};
+

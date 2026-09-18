@@ -220,7 +220,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
     assert.equal(statusCode, 400, "Must return HTTP 400 when locked");
     assert.deepEqual(responseData, {
       success: false,
-      message: "Status changes are locked after 24 hours of delivery.",
+      message: "Status changes are locked after 72 hours (3 days) of delivery.",
     });
     assert.equal(putCalled, false, "WooCommerce PUT must not be called when order is locked");
   });
@@ -585,7 +585,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
 
       assert.equal(statusCode, 400);
       assert.equal(jsonRes.success, false);
-      assert.equal(jsonRes.message, "Status changes are locked after 24 hours of delivery.");
+      assert.equal(jsonRes.message, "Status changes are locked after 72 hours (3 days) of delivery.");
       assert.equal(putCalled, false, "WooCommerce PUT must NOT be called when order is locked");
     });
 

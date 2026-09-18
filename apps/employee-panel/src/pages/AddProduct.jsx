@@ -20,6 +20,12 @@ import {
   uploadProductImage,
   getCategories,
 } from "../services/employeeApi.js";
+import {
+  compressImage,
+  isAcceptedImage,
+  RAW_IMAGE_MAX_INPUT_BYTES,
+  MAX_FILE_SIZE_BYTES,
+} from "../utils/imageCompressor.js";
 
 function AddProduct() {
   const navigate = useNavigate();
@@ -105,20 +111,33 @@ function AddProduct() {
     const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
     for (const file of filesToProcess) {
-      if (!validTypes.includes(file.type)) {
-        showToast(`"${file.name}" is not a valid image (JPG, PNG, WebP, GIF only).`, "error");
+      if (!isAcceptedImage(file)) {
+        showToast(`"${file.name}" is not a supported image format.`, "error");
         continue;
       }
 
-      if (file.size > 10 * 1024 * 1024) {
-        showToast(`"${file.name}" exceeds the 10MB limit.`, "error");
+      if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
+        showToast(`"${file.name}" exceeds the 25MB maximum limit.`, "error");
         continue;
       }
 
-      const preview = URL.createObjectURL(file);
+      // Automatically compress client-side before upload (handles iPhone HEIC/high-res camera captures cleanly)
+      let fileToUpload = file;
+      try {
+        fileToUpload = await compressImage(file, { maxDimension: 1600 });
+      } catch {
+        // Fall back to original file if compression encounters an error
+      }
+
+      if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
+        showToast(`"${file.name}" exceeds the 5MB upload limit after compression.`, "error");
+        continue;
+      }
+
+      const preview = URL.createObjectURL(fileToUpload);
       const newImg = {
         id: Math.random().toString(36).substring(7),
-        file,
+        file: fileToUpload,
         preview,
         url: "",
         uploaded: false,
@@ -127,9 +146,9 @@ function AddProduct() {
 
       setImages((prev) => [...prev, newImg]);
 
-      // Automatically upload file to WordPress Media Library
+      // Automatically upload compressed file to WordPress Media Library
       try {
-        const uploadRes = await uploadProductImage(file);
+        const uploadRes = await uploadProductImage(fileToUpload);
         if (uploadRes.success && (uploadRes.url || uploadRes.id)) {
           setImages((prev) =>
             prev.map((img) =>
@@ -177,7 +196,15 @@ function AddProduct() {
 
   // Remove Image from list
   const handleRemoveImage = (imgId) => {
-    setImages((prev) => prev.filter((img) => img.id !== imgId));
+    setImages((prev) => {
+      const target = prev.find((img) => img.id === imgId);
+      if (target?.preview) {
+        try {
+          URL.revokeObjectURL(target.preview);
+        } catch {}
+      }
+      return prev.filter((img) => img.id !== imgId);
+    });
   };
 
   // Handle Form Submission with Concurrency Lock
@@ -565,7 +592,7 @@ function AddProduct() {
                 ref={galleryInputRef}
                 onChange={handleImageSelect}
                 multiple
-                accept="image/jpeg,image/png,image/webp,image/gif"
+                accept="image/*,image/heic,image/heif"
                 className="hidden"
               />
 
@@ -574,7 +601,7 @@ function AddProduct() {
                 ref={cameraInputRef}
                 onChange={handleImageSelect}
                 capture="environment"
-                accept="image/jpeg,image/png,image/webp,image/gif"
+                accept="image/*,image/heic,image/heif"
                 className="hidden"
               />
 

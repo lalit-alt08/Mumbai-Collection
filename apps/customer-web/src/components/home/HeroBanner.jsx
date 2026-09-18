@@ -9,6 +9,7 @@ import "swiper/css/pagination";
 
 import staticBanners from "../../data/banner.js";
 import { getBanners } from "../../services/productService.js";
+import { resolveMediaUrl } from "../../utils/imageUtils.js";
 
 // Normalize static fallback banners
 const FALLBACK_BANNERS = staticBanners.map((item, idx) => ({
@@ -92,9 +93,26 @@ function HeroBanner() {
       className="overflow-hidden rounded-[18px] sm:rounded-[22px] shadow-xs md:shadow-sm"
     >
       {displayBanners.map((item, index) => {
-        const desktopSrc = item.desktop_image || item.mobile_image;
-        const mobileSrc = item.mobile_image || item.desktop_image;
+        const rawDesktop = item.desktop_image || item.mobile_image;
+        const rawMobile = item.mobile_image || item.desktop_image;
+        const desktopSrc = resolveMediaUrl(rawDesktop);
+        const mobileSrc = resolveMediaUrl(rawMobile);
         const hasDistinctImages = Boolean(desktopSrc && mobileSrc && desktopSrc !== mobileSrc);
+        const fallbackSrc =
+          FALLBACK_BANNERS[index % FALLBACK_BANNERS.length]?.desktop_image ||
+          "/banner/Art.webp";
+
+        const handleImageError = (e) => {
+          if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+            e.currentTarget.setAttribute("data-fallback", "true");
+            const picture = e.currentTarget.closest("picture");
+            if (picture) {
+              const sources = picture.querySelectorAll("source");
+              sources.forEach((s) => s.removeAttribute("srcset"));
+            }
+            e.currentTarget.src = fallbackSrc;
+          }
+        };
 
         const BannerImage = hasDistinctImages ? (
           <picture className="block w-full">
@@ -106,6 +124,7 @@ function HeroBanner() {
               src={desktopSrc}
               alt={item.title || "Mumbai Collection Promotional Banner"}
               loading={index === 0 ? "eager" : "lazy"}
+              onError={handleImageError}
               className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
             />
           </picture>
@@ -114,6 +133,7 @@ function HeroBanner() {
             src={desktopSrc || mobileSrc}
             alt={item.title || "Mumbai Collection Promotional Banner"}
             loading={index === 0 ? "eager" : "lazy"}
+            onError={handleImageError}
             className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
           />
         );

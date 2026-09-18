@@ -1341,7 +1341,7 @@ function Orders() {
                     </div>
                     <p className="text-[11px] font-medium text-gray-400 flex items-center gap-1.5">
                       <Lock size={12} className="text-gray-400 shrink-0" />
-                      <span>Status changes are locked after 24 hours.</span>
+                      <span>Status changes are locked after 72 hours (3 days).</span>
                     </p>
                   </div>
                 ) : (

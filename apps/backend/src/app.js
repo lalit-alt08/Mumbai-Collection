@@ -17,7 +17,7 @@ import storeRoutes from "./routes/storeRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
 import storeHoursRoutes from "./routes/storeHoursRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
-import { verifyCsrf } from "./middlewares/csrfMiddleware.js";
+import { verifyCsrf, isOriginAllowed } from "./middlewares/csrfMiddleware.js";
 import { storeLimiter } from "./middlewares/rateLimiter.js";
 import pinoHttp from "pino-http";
 import crypto from "crypto";
@@ -97,29 +97,16 @@ const rawAllowedOrigins = [
 
 const allowedOrigins = [...new Set(rawAllowedOrigins)];
 
-const isDevLocalhost = (origin) => {
-  if (process.env.NODE_ENV !== "development") return false;
-  try {
-    const parsed = new URL(origin);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1"
-    );
-  } catch {
-    return false;
-  }
-};
-
 app.use(cookieParser());
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) or explicitly allowed origins
-      if (!origin || allowedOrigins.includes(origin) || isDevLocalhost(origin)) {
+      // Allow requests with no origin (like mobile apps, curl, or server-to-server) or verified allowed origins
+      if (!origin || isOriginAllowed(origin, allowedOrigins)) {
         return callback(null, true);
       }
+      logger.warn({ origin }, "Blocked unauthorized CORS origin");
       return callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

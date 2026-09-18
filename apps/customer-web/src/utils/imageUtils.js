@@ -67,11 +67,44 @@ export const getFullImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) => {
 
   // Primary full-resolution image
   const url = target.src || target.thumbnail || "";
-  return (typeof url === "string" && url.trim()) ? url.trim() : fallback;
+  return (typeof url === "string" && url.trim()) ? resolveMediaUrl(url.trim()) : fallback;
+};
+
+/**
+ * Resolves an image or banner URL across local and hosted environments.
+ * If an image points to localhost:5000 in a hosted/production browser environment (e.g. Vercel),
+ * it converts it to a relative /api/media/... path so Vercel's rewrite rule proxies it cleanly over HTTPS.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export const resolveMediaUrl = (url) => {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+
+  if (typeof window !== "undefined" && window.location) {
+    const hostname = window.location.hostname;
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+
+    if (!isLocal) {
+      const localhostMatch = trimmed.match(/^https?:\/\/(localhost|127\.0\.0\.1):5000(\/api\/.*)$/i);
+      if (localhostMatch) {
+        return localhostMatch[2];
+      }
+
+      if (window.location.protocol === "https:" && trimmed.startsWith("http://")) {
+        return trimmed.replace(/^http:\/\//i, "https://");
+      }
+    }
+  }
+
+  return trimmed;
 };
 
 export default {
   PRODUCT_PLACEHOLDER_URL,
   getCatalogImageUrl,
   getFullImageUrl,
+  resolveMediaUrl,
 };

@@ -1,13 +1,22 @@
 export const transformMediaUrl = (url, req) => {
   if (!url || typeof url !== "string") return url;
 
-  const uploadMarker = "/wp-content/uploads/";
-  const uploadIndex = url.indexOf(uploadMarker);
-  if (uploadIndex === -1) {
-    return url;
+  let relativePath = null;
+  const wpMarker = "/wp-content/uploads/";
+  const apiMarker = "/api/media/uploads/";
+
+  const wpIndex = url.indexOf(wpMarker);
+  const apiIndex = url.indexOf(apiMarker);
+
+  if (wpIndex !== -1) {
+    relativePath = url.substring(wpIndex + wpMarker.length);
+  } else if (apiIndex !== -1) {
+    relativePath = url.substring(apiIndex + apiMarker.length);
   }
 
-  const relativePath = url.substring(uploadIndex + uploadMarker.length);
+  if (!relativePath) {
+    return url;
+  }
 
   let baseUrl = "";
   if (req) {

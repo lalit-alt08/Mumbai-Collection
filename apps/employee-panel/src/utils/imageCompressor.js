@@ -15,6 +15,28 @@ export const BANNER_MAX_DIMENSION = 1920;   // Banner images (max 1920px on long
 export const CATEGORY_MAX_DIMENSION = 1200; // Category images (max 1200px on longest side)
 export const DEFAULT_COMPRESS_QUALITY = 0.85;
 export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB limit aligned with backend
+export const RAW_IMAGE_MAX_INPUT_BYTES = 25 * 1024 * 1024; // 25MB raw camera capture boundary prior to compression
+
+/**
+ * Validates whether a file is an acceptable image on mobile/desktop.
+ * Supports standard web images, iOS HEIC/HEIF camera captures, and
+ * camera temporary files with empty or generic MIME types.
+ */
+export const isAcceptedImage = (file) => {
+  if (!file) return false;
+  const type = String(file.type || "").toLowerCase().trim();
+
+  if (
+    type.startsWith("image/") ||
+    type === "image/heic" ||
+    type === "image/heif"
+  ) {
+    return true;
+  }
+
+  const name = String(file.name || "").toLowerCase().trim();
+  return /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(name);
+};
 
 /**
  * Calculate target dimensions bounded by maxDimension while preserving aspect ratio.
@@ -253,6 +275,8 @@ export default {
   CATEGORY_MAX_DIMENSION,
   DEFAULT_COMPRESS_QUALITY,
   MAX_FILE_SIZE_BYTES,
+  RAW_IMAGE_MAX_INPUT_BYTES,
+  isAcceptedImage,
   calculateDimensions,
   compressImage,
 };

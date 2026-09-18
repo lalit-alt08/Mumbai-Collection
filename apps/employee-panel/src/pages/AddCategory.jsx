@@ -20,7 +20,13 @@ import {
   reorderCategories,
   uploadProductImage,
 } from "../services/employeeApi.js";
-import { compressImage, CATEGORY_MAX_DIMENSION } from "../utils/imageCompressor.js";
+import {
+  compressImage,
+  CATEGORY_MAX_DIMENSION,
+  isAcceptedImage,
+  RAW_IMAGE_MAX_INPUT_BYTES,
+  MAX_FILE_SIZE_BYTES,
+} from "../utils/imageCompressor.js";
 
 import AddCategoryForm from "../components/category/AddCategoryForm.jsx";
 import CategoryOrderItem from "../components/category/CategoryOrderItem.jsx";
@@ -210,16 +216,15 @@ function AddCategory() {
     if (files.length === 0) return;
 
     const file = files[0];
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-    if (!validTypes.includes(file.type)) {
-      showToast(`"${file.name}" is not a valid image (JPG, PNG, WebP, GIF only).`, "error");
+    if (!isAcceptedImage(file)) {
+      showToast(`"${file.name}" is not a supported image format.`, "error");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showToast(`"${file.name}" exceeds the 10MB limit.`, "error");
+    if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
+      showToast(`"${file.name}" exceeds the 25MB maximum limit.`, "error");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -230,6 +235,12 @@ function AddCategory() {
       fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
     } catch {
       // Fall back to original file if compression fails
+    }
+
+    if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
+      showToast(`"${file.name}" exceeds the 5MB upload limit after compression.`, "error");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
     }
 
     const preview = URL.createObjectURL(fileToUpload);
@@ -403,16 +414,15 @@ function AddCategory() {
     if (files.length === 0) return;
 
     const file = files[0];
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-    if (!validTypes.includes(file.type)) {
-      showToast(`"${file.name}" is not a valid image (JPG, PNG, WebP, GIF only).`, "error");
+    if (!isAcceptedImage(file)) {
+      showToast(`"${file.name}" is not a supported image format.`, "error");
       if (updateFileInputRef.current) updateFileInputRef.current.value = "";
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showToast(`"${file.name}" exceeds the 10MB limit.`, "error");
+    if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
+      showToast(`"${file.name}" exceeds the 25MB maximum limit.`, "error");
       if (updateFileInputRef.current) updateFileInputRef.current.value = "";
       return;
     }
@@ -427,6 +437,12 @@ function AddCategory() {
       fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
     } catch {
       // Fall back to original file if compression fails
+    }
+
+    if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
+      showToast(`"${file.name}" exceeds the 5MB upload limit after compression.`, "error");
+      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
+      return;
     }
 
     setUpdateImageFile(fileToUpload);

@@ -120,9 +120,10 @@ function BottomNav() {
       }`}
       style={{
         paddingBottom: "max(8px, env(safe-area-inset-bottom, 8px))",
+        touchAction: "manipulation",
       }}
     >
-      <div className="mx-auto flex h-14 max-w-lg items-center justify-around px-3">
+      <div className="mx-auto flex h-14 max-w-lg items-center justify-around px-3 select-none">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = item.isActive;
@@ -131,7 +132,8 @@ function BottomNav() {
             <Link
               key={item.id}
               to={item.to}
-              className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 ${
+              style={{ touchAction: "manipulation" }}
+              className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 select-none ${
                 active ? "text-[#7C3AED]" : "text-[#6B7280] hover:text-[#7C3AED]"
               }`}
             >

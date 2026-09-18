@@ -114,7 +114,7 @@ export const updateAdminOrderStatus = async (req, res) => {
       });
     }
 
-    // Fetch existing order from WooCommerce to enforce 24-hour status lock on delivered orders
+    // Fetch existing order from WooCommerce to enforce 72-hour (3-day) status lock on delivered orders
     const existingOrderRes = await api.get(`orders/${encodeURIComponent(id)}`);
     const currentOrder = existingOrderRes?.data;
 
@@ -125,11 +125,11 @@ export const updateAdminOrderStatus = async (req, res) => {
       });
     }
 
-    // Reject status change if order is completed and 24 hours have elapsed
+    // Reject status change if order is completed and 72 hours (3 days) have elapsed
     if (isOrderStatusLocked(currentOrder)) {
       return res.status(400).json({
         success: false,
-        message: "Status changes are locked after 24 hours of delivery.",
+        message: "Status changes are locked after 72 hours (3 days) of delivery.",
       });
     }
 

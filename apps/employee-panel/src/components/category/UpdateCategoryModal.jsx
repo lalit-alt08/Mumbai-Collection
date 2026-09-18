@@ -63,7 +63,7 @@ function UpdateCategoryModal({
             type="file"
             ref={updateFileInputRef}
             onChange={onUpdateImageSelect}
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/*,image/heic,image/heif"
             className="hidden"
           />
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getCatalogImageUrl, getFullImageUrl, PRODUCT_PLACEHOLDER_URL } from "../src/utils/imageUtils.js";
+import { getCatalogImageUrl, getFullImageUrl, resolveMediaUrl, PRODUCT_PLACEHOLDER_URL } from "../src/utils/imageUtils.js";
 
 test("getCatalogImageUrl: prefers thumbnail property when available", () => {
   const image = {
@@ -118,4 +118,43 @@ test("WooCommerce product image payload end-to-end resolution", () => {
     "http://localhost:5000/api/media/uploads/2026/09/stanley-300x300.jpg",
     "http://localhost:5000/api/media/uploads/2026/09/stanley2-300x300.jpg",
   ]);
+});
+
+test("resolveMediaUrl: converts localhost:5000 URLs to relative /api/ paths when hosted on Vercel/production", () => {
+  // Mock window.location for Vercel production deployment
+  globalThis.window = {
+    location: {
+      hostname: "mumbai-collection.vercel.app",
+      protocol: "https:",
+    },
+  };
+
+  const localhostUrl = "http://localhost:5000/api/media/uploads/2026/09/banner.webp";
+  const resolved = resolveMediaUrl(localhostUrl);
+  assert.equal(
+    resolved,
+    "/api/media/uploads/2026/09/banner.webp",
+    "Must convert localhost URL to relative path on hosted deployments"
+  );
+
+  // Normal tunnel URL passes through
+  const tunnelUrl = "https://cms-wealth-saint-infectious.trycloudflare.com/api/media/uploads/2026/09/banner.webp";
+  assert.equal(resolveMediaUrl(tunnelUrl), tunnelUrl);
+
+  // Cleans up mock
+  delete globalThis.window;
+});
+
+test("resolveMediaUrl: preserves localhost:5000 during local development", () => {
+  globalThis.window = {
+    location: {
+      hostname: "localhost",
+      protocol: "http:",
+    },
+  };
+
+  const localhostUrl = "http://localhost:5000/api/media/uploads/2026/09/banner.webp";
+  assert.equal(resolveMediaUrl(localhostUrl), localhostUrl);
+
+  delete globalThis.window;
 });

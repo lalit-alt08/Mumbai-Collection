@@ -8,6 +8,8 @@ import {
   CATEGORY_MAX_DIMENSION,
   DEFAULT_COMPRESS_QUALITY,
   MAX_FILE_SIZE_BYTES,
+  RAW_IMAGE_MAX_INPUT_BYTES,
+  isAcceptedImage,
 } from "../src/utils/imageCompressor.js";
 
 test("Constants: matches production requirements for products, banners, and categories", () => {
@@ -16,6 +18,28 @@ test("Constants: matches production requirements for products, banners, and cate
   assert.equal(CATEGORY_MAX_DIMENSION, 1200, "Category max dimension is 1200px");
   assert.equal(DEFAULT_COMPRESS_QUALITY, 0.85);
   assert.equal(MAX_FILE_SIZE_BYTES, 5 * 1024 * 1024, "Client max file size must be 5MB");
+  assert.equal(RAW_IMAGE_MAX_INPUT_BYTES, 25 * 1024 * 1024, "Raw camera input boundary is 25MB");
+});
+
+test("isAcceptedImage: validates standard, mobile HEIC, and camera captures", () => {
+  // Standard web formats
+  assert.equal(isAcceptedImage({ type: "image/jpeg", name: "test.jpg" }), true);
+  assert.equal(isAcceptedImage({ type: "image/png", name: "test.png" }), true);
+  assert.equal(isAcceptedImage({ type: "image/webp", name: "test.webp" }), true);
+  assert.equal(isAcceptedImage({ type: "image/gif", name: "test.gif" }), true);
+
+  // iPhone camera formats (HEIC / HEIF)
+  assert.equal(isAcceptedImage({ type: "image/heic", name: "IMG_0001.HEIC" }), true);
+  assert.equal(isAcceptedImage({ type: "image/heif", name: "IMG_0002.HEIF" }), true);
+
+  // iOS camera temp file with empty MIME type
+  assert.equal(isAcceptedImage({ type: "", name: "captured_image.jpg" }), true);
+  assert.equal(isAcceptedImage({ type: "", name: "captured_image.heic" }), true);
+
+  // Non-images rejected
+  assert.equal(isAcceptedImage({ type: "application/pdf", name: "doc.pdf" }), false);
+  assert.equal(isAcceptedImage({ type: "text/plain", name: "notes.txt" }), false);
+  assert.equal(isAcceptedImage(null), false);
 });
 
 test("Validation: 5MB client file size limit correctly enforces 5MB boundary", () => {

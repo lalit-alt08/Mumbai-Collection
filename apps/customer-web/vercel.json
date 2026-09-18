@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://cms-wealth-saint-infectious.trycloudflare.com/api/:path*"
+      "destination": "https://aims-engineer-ministers-spas.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

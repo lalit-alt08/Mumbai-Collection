@@ -695,7 +695,7 @@ function ProfileSetup() {
                         </span>
                       )}
                     </div>
-                    <div className="relative flex items-center">
+                    <div className="relative flex items-center w-full">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">
                         +91
                       </span>
@@ -708,7 +708,7 @@ function ProfileSetup() {
                         onChange={handleChange}
                         placeholder=""
                         required
-                        className={`h-10 w-full rounded-xl border bg-gray-50/50 pl-11 pr-20 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:bg-white focus:ring-3 ${
+                        className={`h-10 w-full rounded-xl border bg-gray-50/50 pl-11 pr-22 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:bg-white focus:ring-3 ${
                           isPhoneVerified
                             ? "border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/10"
                             : "border-gray-200 focus:border-[#7C3AED] focus:ring-[#7C3AED]/10"
@@ -736,12 +736,12 @@ function ProfileSetup() {
                 {/* 6-Digit OTP Verification Box */}
                 {otpSent && !isPhoneVerified && (
                   <div className="mt-2 rounded-xl border border-[#7C3AED]/25 bg-[#F5F3FF]/70 p-3 sm:p-3.5 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#6D28D9]">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#6D28D9] shrink-0">
                         <ShieldCheck size={15} />
                         <span>Enter 6-Digit Code</span>
                       </div>
-                      <span className="text-[11px] text-gray-500 font-semibold">
+                      <span className="text-[11px] text-gray-500 font-semibold truncate max-w-[180px] xs:max-w-none text-right">
                         {maskedEmail
                           ? `Sent to ${maskedEmail}`
                           : user?.email
@@ -762,13 +762,13 @@ function ProfileSetup() {
                         }}
                         placeholder="••••••"
                         autoFocus
-                        className="h-10 flex-1 rounded-lg border border-gray-300 bg-white px-3 text-center text-base font-extrabold tracking-[0.3em] text-gray-900 outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20"
+                        className="h-10 flex-1 min-w-0 rounded-lg border border-gray-300 bg-white px-2.5 sm:px-3 text-center text-base font-extrabold tracking-[0.25em] sm:tracking-[0.3em] text-gray-900 outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20"
                       />
                       <button
                         type="button"
                         onClick={handleVerifyOtp}
                         disabled={otpLoading || otp.length !== 6}
-                        className="h-10 min-w-[108px] shrink-0 whitespace-nowrap rounded-lg bg-[#7C3AED] px-3.5 sm:px-4 text-center text-xs font-bold text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="h-10 shrink-0 whitespace-nowrap rounded-lg bg-[#7C3AED] px-3 sm:px-4 text-center text-xs font-bold text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {otpLoading ? "Verifying..." : "Verify Code"}
                       </button>

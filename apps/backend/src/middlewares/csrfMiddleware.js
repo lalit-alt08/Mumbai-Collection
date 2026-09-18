@@ -6,22 +6,63 @@
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-const isDevLocalhost = (origin) => {
-  if (process.env.NODE_ENV !== "development") return false;
+export const isOriginAllowed = (origin, allowedOrigins = []) => {
+  if (!origin || typeof origin !== "string") return false;
+
   try {
     const parsed = new URL(origin);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1"
-    );
+    const host = parsed.hostname.toLowerCase();
+
+    // 1. Localhost / Local IP development (any port, HTTP & HTTPS)
+    if (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      (host === "localhost" || host === "127.0.0.1" || host === "::1")
+    ) {
+      return true;
+    }
+
+    // 2. Explicitly configured origins from .env (with or without trailing slash)
+    const normalizedOrigin = origin.trim().replace(/\/$/, "");
+    for (const allowed of allowedOrigins) {
+      if (allowed && typeof allowed === "string") {
+        if (allowed.trim().replace(/\/$/, "") === normalizedOrigin) {
+          return true;
+        }
+      }
+    }
+
+    // 3. Vercel deployments (production, branch previews, custom subdomains)
+    if (
+      parsed.protocol === "https:" &&
+      (host === "vercel.app" || host.endsWith(".vercel.app"))
+    ) {
+      return true;
+    }
+
+    // 4. Production custom domains (mumbaicollection.in and all subdomains)
+    if (
+      parsed.protocol === "https:" &&
+      (host === "mumbaicollection.in" || host.endsWith(".mumbaicollection.in"))
+    ) {
+      return true;
+    }
+
+    // 5. Cloudflare tunnels
+    if (
+      parsed.protocol === "https:" &&
+      (host === "trycloudflare.com" || host.endsWith(".trycloudflare.com"))
+    ) {
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
 };
 
 export const verifyCsrf = (allowedOrigins = []) => {
-  const allowedSet = new Set(allowedOrigins.filter(Boolean));
+  const allowedList = Array.isArray(allowedOrigins) ? allowedOrigins : [];
 
   return (req, res, next) => {
     // 0. Exempt machine-to-machine payment webhooks from browser CSRF validation
@@ -52,7 +93,7 @@ export const verifyCsrf = (allowedOrigins = []) => {
     // 3. Check Origin header
     const originHeader = req.headers.origin;
     if (originHeader) {
-      const isAllowed = allowedSet.has(originHeader) || isDevLocalhost(originHeader);
+      const isAllowed = isOriginAllowed(originHeader, allowedList);
       if (!isAllowed) {
         return res.status(403).json({
           success: false,
@@ -67,7 +108,7 @@ export const verifyCsrf = (allowedOrigins = []) => {
     if (refererHeader) {
       try {
         const refererOrigin = new URL(refererHeader).origin;
-        const isAllowed = allowedSet.has(refererOrigin) || isDevLocalhost(refererOrigin);
+        const isAllowed = isOriginAllowed(refererOrigin, allowedList);
         if (!isAllowed) {
           return res.status(403).json({
             success: false,

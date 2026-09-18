@@ -1,9 +1,20 @@
 import { Suspense, lazy } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } from "react-router-dom";
 import MainLayout from "../layouts/MainLayout";
 import Home from "../pages/Home";
 import ProtectedRoute from "../components/auth/ProtectedRoute";
 import ScrollToTop from "../components/layout/ScrollToTop";
+
+function TrackOrderRedirect() {
+  const { orderId } = useParams();
+  const [searchParams] = useSearchParams();
+  const id = orderId || searchParams.get("id");
+
+  if (id) {
+    return <Navigate to={`/orders/${encodeURIComponent(id)}/track`} replace />;
+  }
+  return <TrackOrder />;
+}
 
 const Cart = lazy(() => import("../pages/Cart"));
 const NotFound = lazy(() => import("../pages/NotFound"));
@@ -45,7 +56,7 @@ function AppRouter() {
             <Route path="/cart" element={<Cart />} />
             <Route path="/favorites" element={<Favorites />} />
             <Route path="/categories" element={<Categories />} />
-            <Route path="/category" element={<Categories />} />
+            <Route path="/category" element={<Navigate to="/categories" replace />} />
 
             {/* Protected Routes */}
             <Route element={<ProtectedRoute />}>
@@ -65,9 +76,9 @@ function AppRouter() {
 
             {/* Customer & Policy Pages */}
             <Route path="/orders/:orderId/track" element={<TrackOrder />} />
-            <Route path="/account/orders/:orderId/track" element={<TrackOrder />} />
-            <Route path="/track-order/:orderId" element={<TrackOrder />} />
-            <Route path="/track-order" element={<TrackOrder />} />
+            <Route path="/account/orders/:orderId/track" element={<TrackOrderRedirect />} />
+            <Route path="/track-order/:orderId" element={<TrackOrderRedirect />} />
+            <Route path="/track-order" element={<TrackOrderRedirect />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/support" element={<Contact />} />
             <Route path="/shipping-policy" element={<ShippingPolicy />} />
