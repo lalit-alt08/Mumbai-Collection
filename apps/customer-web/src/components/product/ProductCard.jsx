@@ -12,7 +12,7 @@ import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUt
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
-  const { cart, refreshCart } = useCart();
+  const { cart, refreshCart, updateCart } = useCart();
   const { isFavorited, toggleFavorite } = useFavorites();
   const [updatingCart, setUpdatingCart] = useState(false);
 
@@ -154,17 +154,19 @@ function ProductCard({ product }) {
                   if (updatingCart || isOutOfStock) return;
                   try {
                     setUpdatingCart(true);
-                    await addToWooCart(product.id);
-                    await refreshCart();
+                    const updatedCart = await addToWooCart(product.id);
+                    if (updatedCart) {
+                      updateCart(updatedCart);
+                    }
                   } catch {
-                    // Handled by cart refresh / UI state
+                    await refreshCart().catch(() => {});
                   } finally {
                     setUpdatingCart(false);
                   }
                 }}
                 className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#7C3AED] bg-white px-2.5 sm:px-3 text-xs font-bold text-[#7C3AED] transition-all duration-200 hover:bg-[#7C3AED] hover:text-white hover:shadow-[0_4px_14px_rgba(124,58,237,0.2)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isOutOfStock ? "Sold Out" : "ADD"}
+                {updatingCart ? "..." : isOutOfStock ? "Sold Out" : "ADD"}
               </button>
             ) : (
               <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#7C3AED] text-white shadow-[0_4px_14px_rgba(124,58,237,0.2)]">
@@ -173,14 +175,17 @@ function ProductCard({ product }) {
                     if (updatingCart) return;
                     try {
                       setUpdatingCart(true);
+                      let updatedCart;
                       if (cartItem.quantity <= 1) {
-                        await removeCartItem(cartItem.key);
+                        updatedCart = await removeCartItem(cartItem.key);
                       } else {
-                        await updateCartItem(cartItem.key, cartItem.quantity - 1);
+                        updatedCart = await updateCartItem(cartItem.key, cartItem.quantity - 1);
                       }
-                      await refreshCart();
+                      if (updatedCart) {
+                        updateCart(updatedCart);
+                      }
                     } catch {
-                      // Handled by cart refresh / UI state
+                      await refreshCart().catch(() => {});
                     } finally {
                       setUpdatingCart(false);
                     }
@@ -200,10 +205,12 @@ function ProductCard({ product }) {
                     if (updatingCart || isMaxReached) return;
                     try {
                       setUpdatingCart(true);
-                      await updateCartItem(cartItem.key, cartItem.quantity + 1);
-                      await refreshCart();
+                      const updatedCart = await updateCartItem(cartItem.key, cartItem.quantity + 1);
+                      if (updatedCart) {
+                        updateCart(updatedCart);
+                      }
                     } catch {
-                      // Handled by cart refresh / UI state
+                      await refreshCart().catch(() => {});
                     } finally {
                       setUpdatingCart(false);
                     }

@@ -20,6 +20,13 @@ export function CartProvider({ children }) {
     }
   }, []);
 
+  const updateCart = useCallback((newCart) => {
+    if (newCart) {
+      setCart(newCart);
+      setLoading(false);
+    }
+  }, []);
+
   // Removed the unconditional initial fetch.
   // The cart is now fetched automatically by CartRouteManager when the user visits a non-auth page.
 
@@ -27,6 +34,8 @@ export function CartProvider({ children }) {
     <CartContext.Provider
       value={{
         cart,
+        setCart,
+        updateCart,
         loading,
         refreshCart,
         setLoading, // expose setLoading so CartRouteManager can stop loading on auth pages

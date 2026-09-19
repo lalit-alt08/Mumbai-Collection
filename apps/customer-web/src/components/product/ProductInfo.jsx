@@ -11,7 +11,7 @@ import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 
 function ProductInfo({ product }) {
   const navigate = useNavigate();
-  const { cart, refreshCart } = useCart();
+  const { cart, refreshCart, updateCart } = useCart();
   const [loading, setLoading] = useState(false);
 
   const cartItem = cart?.items?.find(
@@ -37,10 +37,12 @@ function ProductInfo({ product }) {
     if (isOutOfStock || isMaxReached) return;
     try {
       setLoading(true);
-      await addToWooCart(product.id);
-      await refreshCart();
+      const updated = await addToWooCart(product.id);
+      if (updated) {
+        updateCart(updated);
+      }
     } catch {
-      // Handled by cart refresh / UI state
+      await refreshCart().catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -56,15 +58,18 @@ function ProductInfo({ product }) {
 
     try {
       setLoading(true);
+      let updated;
       if (newQuantity <= 0) {
-        await removeCartItem(cartItem.key);
+        updated = await removeCartItem(cartItem.key);
       } else {
-        await updateCartItem(cartItem.key, newQuantity);
+        updated = await updateCartItem(cartItem.key, newQuantity);
+      }
+      if (updated) {
+        updateCart(updated);
       }
     } catch {
-      // Handled by cart refresh
-    } finally {
       await refreshCart().catch(() => {});
+    } finally {
       setLoading(false);
     }
   };

@@ -4,17 +4,17 @@ import { logError } from "../utils/logger.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 
 /**
- * Statuses that represent invalid/voided orders.
+ * Statuses that represent invalid/voided/unpaid orders.
  * These must NOT contribute to revenue, AOV, product sales, customer LTV,
  * repeat-customer counts, or payment operational metrics.
  *
  * Matches the clean-revenue policy used by getDashboardOverview.
  */
-const INVALID_ORDER_STATUSES = new Set(["cancelled", "failed", "refunded"]);
+const INVALID_ORDER_STATUSES = new Set(["pending", "cancelled", "failed", "refunded", "trash"]);
 
 /**
- * Returns true when an order's effective status marks it as invalid for
- * revenue/metric purposes (cancelled, failed, or refunded).
+ * Returns true when an order's effective status marks it as invalid/unpaid for
+ * revenue/metric purposes (pending, cancelled, failed, refunded, or trash).
  *
  * Respects the custom _delivery_status meta written by the Employee Panel.
  */
@@ -122,6 +122,7 @@ export const getDashboardOverview = async (req, res) => {
     let activeOrdersCount = 0;
     let completedOrdersCount = 0;
     let cancelledOrdersCount = 0;
+    let validRevenueOrderCount = 0;
 
     const todayDateString = new Date().toISOString().split("T")[0];
     const { istMonthStartUTC, istNextMonthStartUTC } = getISTMonthBoundaries();
@@ -140,9 +141,11 @@ export const getDashboardOverview = async (req, res) => {
       const effectiveStatus = getEffectiveStatus(order);
       const orderTotal = Number(order.total) || 0;
       const orderDate = order.date_created ? order.date_created.split("T")[0] : "";
+      const isInvalid = isInvalidOrder(order);
       const isCancelled = ["cancelled", "failed", "refunded"].includes(effectiveStatus);
 
-      if (!isCancelled) {
+      if (!isInvalid) {
+        validRevenueOrderCount += 1;
         totalRevenue += orderTotal;
 
         if (orderDate === todayDateString) {
@@ -163,7 +166,7 @@ export const getDashboardOverview = async (req, res) => {
         }
       }
 
-      if (["pending", "processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(effectiveStatus)) {
+      if (["processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(effectiveStatus)) {
         activeOrdersCount += 1;
       } else if (effectiveStatus === "completed") {
         completedOrdersCount += 1;
@@ -220,7 +223,7 @@ export const getDashboardOverview = async (req, res) => {
       cancelledOrders: cancelledOrdersCount,
       totalProducts: products.length,
       lowStockCount: lowStockProducts.length,
-      avgOrderValue: orders.length > 0 ? Math.round(totalRevenue / Math.max(1, (orders.length - cancelledOrdersCount))) : 0,
+      avgOrderValue: validRevenueOrderCount > 0 ? Math.round(totalRevenue / validRevenueOrderCount) : 0,
     };
 
     const responsePayload = {

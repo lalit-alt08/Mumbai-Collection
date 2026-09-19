@@ -20,7 +20,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // ─── Constants mirrored from adminAnalyticsController.js ──────────────────────
-const INVALID_ORDER_STATUSES = new Set(["cancelled", "failed", "refunded"]);
+const INVALID_ORDER_STATUSES = new Set(["pending", "cancelled", "failed", "refunded", "trash"]);
 
 function getEffectiveStatus(order) {
   const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
@@ -248,13 +248,13 @@ test("Analytics Accuracy — Revenue Exclusion", async (t) => {
     assert.equal(result.processingOrders, 1);
   });
 
-  await t.test("pending and on-hold orders are included in totalRevenue", () => {
+  await t.test("pending orders are excluded from revenue while on-hold orders are included", () => {
     const orders = [
       makeOrder({ id: 1, status: "pending", total: 400, email: "a@test.com" }),
       makeOrder({ id: 2, status: "on-hold", total: 350, email: "b@test.com" }),
     ];
     const result = aggregateOrders(orders);
-    assert.equal(result.totalRevenue, 750, "pending + on-hold must be in totalRevenue");
+    assert.equal(result.totalRevenue, 350, "unpaid pending must be excluded from totalRevenue, on-hold included");
     assert.equal(result.otherOrders, 2, "pending/on-hold fall into otherOrders");
   });
 });

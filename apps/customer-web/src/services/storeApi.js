@@ -116,15 +116,22 @@ storeClient.interceptors.response.use(
     const isGetMethod =
       config.method && config.method.toLowerCase() === "get";
 
-    // Auto-retry once on network/socket reset for GET requests
+    const isGatewayError =
+      error.response && [502, 503, 504].includes(error.response.status);
+
+    // Auto-retry once on network/socket reset or cold gateway/tunnel hiccups for GET requests
     if (
       !config._retry &&
       isGetMethod &&
       (error.message?.includes("Network Error") ||
         error.code === "ERR_NETWORK" ||
-        error.code === "ECONNRESET")
+        error.code === "ECONNRESET" ||
+        isGatewayError)
     ) {
       config._retry = true;
+      if (isGatewayError) {
+        await new Promise((r) => setTimeout(r, 450));
+      }
       return storeClient(config);
     }
 

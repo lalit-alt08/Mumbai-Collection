@@ -9,7 +9,7 @@ import CartSummary from "../components/cart/CartSummary";
 
 function Cart() {
   const navigate = useNavigate();
-  const { cart, loading, refreshCart } = useCart();
+  const { cart, loading, refreshCart, updateCart } = useCart();
   const { isAuthenticated } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
 
@@ -17,15 +17,18 @@ function Cart() {
     if (updatingKey) return;
     try {
       setUpdatingKey(item.key);
+      let updated;
       if (item.quantity <= 1) {
-        await removeCartItem(item.key);
+        updated = await removeCartItem(item.key);
       } else {
-        await updateCartItem(item.key, item.quantity - 1);
+        updated = await updateCartItem(item.key, item.quantity - 1);
+      }
+      if (updated) {
+        updateCart(updated);
       }
     } catch {
-      // Handled by refreshCart
-    } finally {
       await refreshCart().catch(() => {});
+    } finally {
       setUpdatingKey(null);
     }
   };
@@ -34,11 +37,13 @@ function Cart() {
     if (updatingKey) return;
     try {
       setUpdatingKey(item.key);
-      await updateCartItem(item.key, item.quantity + 1);
+      const updated = await updateCartItem(item.key, item.quantity + 1);
+      if (updated) {
+        updateCart(updated);
+      }
     } catch {
-      // Handled by refreshCart
-    } finally {
       await refreshCart().catch(() => {});
+    } finally {
       setUpdatingKey(null);
     }
   };

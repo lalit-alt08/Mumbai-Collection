@@ -8,8 +8,13 @@ export default function GlobalGoogleLogin() {
   const containerRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: loginUser } = useAuth();
+  const { user, isAuthenticated, login: loginUser } = useAuth();
   const submittingRef = useRef(false);
+
+  // If user is already authenticated, suppress Google One Tap overlay and don't render widget
+  if (isAuthenticated || user) {
+    return null;
+  }
 
   useEffect(() => {
     const moveButton = () => {
