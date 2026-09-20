@@ -366,10 +366,12 @@ export const googleLogin = async (req, res) => {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const cookieOptions = getCookieOptions(req);
 
+    const authenticated_user_id = req.user?.id || req.wpUserId || null;
+
     // Call the internal SSO endpoint in our WordPress plugin
     const response = await axios.post(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/sso`,
-      { email, name, google_sub },
+      { email, name, google_sub, authenticated_user_id },
       {
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
@@ -400,6 +402,15 @@ export const googleLogin = async (req, res) => {
       context,
     });
   } catch (error) {
+    if (error.response?.status === 403) {
+      return res.status(403).json({
+        success: false,
+        message:
+          error.response?.data?.message ||
+          "Automatic Google login is disabled for staff and administrator accounts. Please log in with your email and password.",
+      });
+    }
+
     logError(req, error, "Google login error");
     res.status(500).json({
       success: false,

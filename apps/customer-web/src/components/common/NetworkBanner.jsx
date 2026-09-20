@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { WifiOff, Wifi, RefreshCw } from "lucide-react";
 
 function NetworkBanner() {
+  const bannerRef = useRef(null);
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== "undefined" && typeof navigator.onLine === "boolean"
       ? navigator.onLine
@@ -9,6 +10,31 @@ function NetworkBanner() {
   );
   const [showReconnected, setShowReconnected] = useState(false);
   const [checking, setChecking] = useState(false);
+
+  const isVisible = !isOnline || showReconnected;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    if (!isVisible) {
+      document.documentElement.style.setProperty("--network-banner-height", "0px");
+      return;
+    }
+
+    const updateHeight = () => {
+      if (bannerRef.current) {
+        const height = bannerRef.current.offsetHeight || 0;
+        document.documentElement.style.setProperty("--network-banner-height", `${height}px`);
+      }
+    };
+
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      document.documentElement.style.setProperty("--network-banner-height", "0px");
+    };
+  }, [isVisible]);
 
   useEffect(() => {
     let timer;
@@ -52,12 +78,13 @@ function NetworkBanner() {
   };
 
   // If online and not showing reconnected flash, render nothing
-  if (isOnline && !showReconnected) {
+  if (!isVisible) {
     return null;
   }
 
   return (
     <div
+      ref={bannerRef}
       role="status"
       aria-live="polite"
       className={`sticky top-0 z-[100] w-full transition-all duration-300 ${

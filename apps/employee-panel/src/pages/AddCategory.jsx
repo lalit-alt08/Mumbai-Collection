@@ -24,6 +24,7 @@ import {
   compressImage,
   CATEGORY_MAX_DIMENSION,
   isAcceptedImage,
+  isHeicFile,
   RAW_IMAGE_MAX_INPUT_BYTES,
   MAX_FILE_SIZE_BYTES,
 } from "../utils/imageCompressor.js";
@@ -229,12 +230,38 @@ function AddCategory() {
       return;
     }
 
+    if (isHeicFile(file)) {
+      showToast(
+        `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     // Compress category image client-side before upload (max 1200px preserving aspect ratio, WebP 0.85 with JPEG fallback)
     let fileToUpload = file;
     try {
       fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
-    } catch {
-      // Fall back to original file if compression fails
+    } catch (err) {
+      if (isHeicFile(file) || err?.code === "HEIC_UNSUPPORTED") {
+        showToast(
+          `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+          "error"
+        );
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+      // Fall back to original file if compression fails on standard images
+    }
+
+    if (isHeicFile(fileToUpload)) {
+      showToast(
+        `"${file.name}" is in HEIC format and cannot be uploaded. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
     }
 
     if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
@@ -427,6 +454,15 @@ function AddCategory() {
       return;
     }
 
+    if (isHeicFile(file)) {
+      showToast(
+        `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
+      return;
+    }
+
     if (updateImagePreview && typeof updateImagePreview === "string" && updateImagePreview.startsWith("blob:")) {
       URL.revokeObjectURL(updateImagePreview);
     }
@@ -435,8 +471,25 @@ function AddCategory() {
     let fileToUpload = file;
     try {
       fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
-    } catch {
-      // Fall back to original file if compression fails
+    } catch (err) {
+      if (isHeicFile(file) || err?.code === "HEIC_UNSUPPORTED") {
+        showToast(
+          `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+          "error"
+        );
+        if (updateFileInputRef.current) updateFileInputRef.current.value = "";
+        return;
+      }
+      // Fall back to original file if compression fails on standard images
+    }
+
+    if (isHeicFile(fileToUpload)) {
+      showToast(
+        `"${file.name}" is in HEIC format and cannot be uploaded. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
+      return;
     }
 
     if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {

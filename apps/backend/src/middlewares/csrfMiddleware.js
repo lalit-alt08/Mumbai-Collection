@@ -31,8 +31,14 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
       }
     }
 
-    // 3. Vercel deployments (production, branch previews, custom subdomains)
+    // 3. Vercel deployments (development/testing and preview builds)
+    // In production, wildcards are disabled by default to prevent arbitrary multi-tenant subdomains from accessing production APIs.
+    // Set ALLOW_PREVIEW_ORIGINS="true" in .env only if preview/testing wildcards are needed in production.
+    const isProduction = process.env.NODE_ENV === "production";
+    const allowPreviewOrigins = !isProduction || process.env.ALLOW_PREVIEW_ORIGINS === "true";
+
     if (
+      allowPreviewOrigins &&
       parsed.protocol === "https:" &&
       (host === "vercel.app" || host.endsWith(".vercel.app"))
     ) {
@@ -47,8 +53,9 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
       return true;
     }
 
-    // 5. Cloudflare tunnels
+    // 5. Cloudflare tunnels (development/testing)
     if (
+      allowPreviewOrigins &&
       parsed.protocol === "https:" &&
       (host === "trycloudflare.com" || host.endsWith(".trycloudflare.com"))
     ) {

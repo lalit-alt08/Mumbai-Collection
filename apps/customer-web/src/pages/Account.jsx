@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import API_URL from "../config/api.js";
+import safeStorage from "../utils/safeStorage.js";
 import {
   User,
   Heart,
@@ -21,12 +22,7 @@ function Account() {
 
   // Instant synchronous hydration from cache to prevent any flashing
   const [profile, setProfile] = useState(() => {
-    try {
-      const cached = JSON.parse(localStorage.getItem("user_profile") || "null");
-      return cached;
-    } catch {
-      return null;
-    }
+    return safeStorage.getJSON("user_profile", null);
   });
 
   useEffect(() => {
@@ -38,9 +34,7 @@ function Account() {
         });
         if (isMounted && res.data?.profile) {
           setProfile(res.data.profile);
-          try {
-            localStorage.setItem("user_profile", JSON.stringify(res.data.profile));
-          } catch {}
+          safeStorage.setJSON("user_profile", res.data.profile);
           if (updateUser && res.data.profile.full_name) {
             updateUser({
               name: res.data.profile.full_name,

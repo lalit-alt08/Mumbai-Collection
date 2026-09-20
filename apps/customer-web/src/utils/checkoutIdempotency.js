@@ -80,3 +80,20 @@ export function clearCheckoutIdempotencyKey() {
     // Ignore storage clearing error
   }
 }
+
+import safeStorage from "./safeStorage.js";
+
+export const PENDING_PAYMENT_STORAGE_KEY = "mumbai_pending_payment";
+
+export function getPendingPayment() {
+  return safeStorage.getJSON(PENDING_PAYMENT_STORAGE_KEY, null);
+}
+
+export function setPendingPayment(data) {
+  safeStorage.setJSON(PENDING_PAYMENT_STORAGE_KEY, data);
+}
+
+export function clearPendingPayment() {
+  safeStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
+}
+

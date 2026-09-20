@@ -1,9 +1,11 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment } from "../../services/paymentService.js";
+import { getOrderById } from "../../services/orderService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
+import safeStorage from "../../utils/safeStorage.js";
 import {
   MapPin,
   CreditCard,
@@ -22,6 +24,10 @@ import {
   generateUUID,
   getOrCreateCheckoutIdempotencyKey,
   clearCheckoutIdempotencyKey,
+  PENDING_PAYMENT_STORAGE_KEY,
+  getPendingPayment,
+  setPendingPayment,
+  clearPendingPayment,
 } from "../../utils/checkoutIdempotency.js";
 
 export {
@@ -30,6 +36,10 @@ export {
   generateUUID,
   getOrCreateCheckoutIdempotencyKey,
   clearCheckoutIdempotencyKey,
+  PENDING_PAYMENT_STORAGE_KEY,
+  getPendingPayment,
+  setPendingPayment,
+  clearPendingPayment,
 };
 
 const loadRazorpayScript = () => {
@@ -76,10 +86,83 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const pendingOrderIdRef = useRef(null);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
 
+  const verifyPendingOrder = useCallback(async () => {
+    const stored = getPendingPayment();
+    if (!stored || !stored.order_id) return;
+
+    const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+    if (Date.now() - (stored.timestamp || 0) > MAX_AGE_MS) {
+      clearPendingPayment();
+      return;
+    }
+
+    const currentFingerprint = computeCartFingerprint(cart);
+    if (stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint) {
+      clearPendingPayment();
+      pendingOrderIdRef.current = null;
+      return;
+    }
+
+    try {
+      const res = await getOrderById(stored.order_id);
+      const orderData = res?.order || res;
+      const status = (orderData?.status || "").toLowerCase();
+
+      // If order was already paid (processing, completed)
+      if (status === "processing" || status === "completed") {
+        clearPendingPayment();
+        clearCheckoutIdempotencyKey();
+        pendingOrderIdRef.current = null;
+        await refreshCart().catch(() => {});
+        navigate(`/order-success/${stored.order_id}`, {
+          state: { paymentMethod: "Online Payment", status: "Processing" },
+          replace: true,
+        });
+        return;
+      }
+
+      if (status === "pending" || status === "on-hold") {
+        // Order is still pending, reuse order_id so retry doesn't duplicate
+        pendingOrderIdRef.current = stored.order_id;
+      } else {
+        clearPendingPayment();
+        pendingOrderIdRef.current = null;
+      }
+    } catch (err) {
+      // If order query fails, keep pendingOrderIdRef if still fresh
+      if (stored.order_id) {
+        pendingOrderIdRef.current = stored.order_id;
+      }
+    }
+  }, [cart, navigate, refreshCart]);
+
   useEffect(() => {
     idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
-    pendingOrderIdRef.current = null;
+    const currentFingerprint = computeCartFingerprint(cart);
+    const stored = getPendingPayment();
+    if (stored && stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint) {
+      clearPendingPayment();
+      pendingOrderIdRef.current = null;
+    }
   }, [cart]);
+
+  // Check pending order status on mount and when returning from mobile UPI/banking app
+  useEffect(() => {
+    if (cart && cart.items && cart.items.length > 0) {
+      verifyPendingOrder();
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        verifyPendingOrder();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [cart, verifyPendingOrder]);
 
   // Load saved addresses
   useEffect(() => {
@@ -175,13 +258,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
       }
 
       const stateCode = getIndianStateCode(selectedAddress.state);
-      const cachedEmail = (() => {
-        try {
-          return JSON.parse(localStorage.getItem("user") || "{}")?.email || "";
-        } catch {
-          return "";
-        }
-      })();
+      const cachedEmail = safeStorage.getJSON("user", {})?.email || "";
 
       const userEmail = (user?.email || selectedAddress.email || cachedEmail || "").trim();
       if (!userEmail) {
@@ -235,8 +312,10 @@ function BillingForm({ storeHours, onStoreClosed }) {
             timeout: 30000,
           }
         );
-        // Clear persisted idempotency key on successful order completion
+        // Clear persisted idempotency key and pending payment on successful order completion
         clearCheckoutIdempotencyKey();
+        clearPendingPayment();
+        pendingOrderIdRef.current = null;
 
         // Refresh cart state to clear items and badges
         await refreshCart().catch(() => {});
@@ -280,6 +359,12 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
       // Store pending order ID so user can retry payment without creating duplicate WC orders
       pendingOrderIdRef.current = orderRes.order_id;
+      setPendingPayment({
+        order_id: orderRes.order_id,
+        razorpay_order_id: orderRes.razorpay_order_id,
+        cartFingerprint: computeCartFingerprint(cart),
+        timestamp: Date.now(),
+      });
 
       const options = {
         key: orderRes.key_id,
@@ -300,10 +385,30 @@ function BillingForm({ storeHours, onStoreClosed }) {
           color: "#7C3AED",
         },
         modal: {
-          ondismiss: () => {
+          ondismiss: async () => {
             isSubmittingRef.current = false;
             setLoading(false);
             setPaymentStep("");
+
+            // Check whether order was already completed in backend (e.g. via webhook while in UPI app)
+            try {
+              if (orderRes.order_id) {
+                const checkRes = await getOrderById(orderRes.order_id);
+                const orderData = checkRes?.order || checkRes;
+                const status = (orderData?.status || "").toLowerCase();
+                if (status === "processing" || status === "completed") {
+                  clearPendingPayment();
+                  clearCheckoutIdempotencyKey();
+                  pendingOrderIdRef.current = null;
+                  await refreshCart().catch(() => {});
+                  navigate(`/order-success/${orderRes.order_id}`, {
+                    state: { paymentMethod: "Online Payment", status: "Processing" },
+                  });
+                  return;
+                }
+              }
+            } catch (_) {}
+
             setError("Payment was cancelled. You can retry paying anytime.");
           },
         },
@@ -322,6 +427,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
             if (verifyRes.success) {
               clearCheckoutIdempotencyKey();
+              clearPendingPayment();
               pendingOrderIdRef.current = null;
               await refreshCart().catch(() => {});
               navigate(`/order-success/${orderRes.order_id}`, {

@@ -13,6 +13,7 @@
 
 import express from "express";
 import { requireAuth, requireVerifiedPhone } from "../middlewares/authMiddleware.js";
+import { requireRole } from "../middlewares/roleMiddleware.js";
 import { checkoutLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { schemas, validateRequest } from "../middlewares/requestValidation.js";
@@ -54,10 +55,12 @@ router.post(
 );
 
 // POST /api/payments/reconcile/:id
-// Admin reconciliation endpoint
+// Admin reconciliation endpoint (strictly restricted to administrators with validated numeric ID)
 router.post(
   "/reconcile/:id",
   requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam }),
   reconcileOrder
 );
 

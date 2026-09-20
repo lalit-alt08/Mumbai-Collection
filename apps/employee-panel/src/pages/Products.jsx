@@ -34,6 +34,7 @@ import {
   compressImage,
   MAX_FILE_SIZE_BYTES,
   isAcceptedImage,
+  isHeicFile,
   RAW_IMAGE_MAX_INPUT_BYTES,
 } from "../utils/imageCompressor.js";
 import {
@@ -368,6 +369,16 @@ function Products() {
       return;
     }
 
+    if (isHeicFile(file)) {
+      showToast(
+        `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      return;
+    }
+
     // If a previous pending image was uploaded without creating a product, safely clean it up
     if (pendingMediaIdRef.current) {
       const oldMediaId = pendingMediaIdRef.current;
@@ -382,8 +393,27 @@ function Products() {
     let fileToUpload = file;
     try {
       fileToUpload = await compressImage(file);
-    } catch {
-      // Fall back to original file if compression fails
+    } catch (err) {
+      if (isHeicFile(file) || err?.code === "HEIC_UNSUPPORTED") {
+        showToast(
+          `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+          "error"
+        );
+        if (galleryInputRef.current) galleryInputRef.current.value = "";
+        if (cameraInputRef.current) cameraInputRef.current.value = "";
+        return;
+      }
+      // Fall back to original file if compression fails on standard images
+    }
+
+    if (isHeicFile(fileToUpload)) {
+      showToast(
+        `"${file.name}" is in HEIC format and cannot be uploaded. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      return;
     }
 
     if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {

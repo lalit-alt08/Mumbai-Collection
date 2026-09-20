@@ -17,7 +17,7 @@ const router = express.Router();
 
 router.post("/login", authLimiter, validateRequest({ body: schemas.login }), login);
 router.post("/register", authLimiter, validateRequest({ body: schemas.register }), register);
-router.post("/google-login", authLimiter, validateRequest({ body: schemas.googleLogin }), googleLogin);
+router.post("/google-login", authLimiter, validateRequest({ body: schemas.googleLogin }), optionalAuth, googleLogin);
 router.post("/logout", logout);
 router.post("/forgot-password", authLimiter, validateRequest({ body: schemas.forgotPassword }), forgotPassword);
 router.post("/reset-password", authLimiter, validateRequest({ body: schemas.resetPassword }), resetPassword);

@@ -29,6 +29,8 @@ import {
   compressImage,
   BANNER_MAX_DIMENSION,
   isAcceptedImage,
+  isHeicFile,
+  parseImageDimensionsFromHeader,
   RAW_IMAGE_MAX_INPUT_BYTES,
   MAX_FILE_SIZE_BYTES,
 } from "../utils/imageCompressor.js";
@@ -128,38 +130,64 @@ function Banners() {
       return;
     }
 
+    if (isHeicFile(file)) {
+      showToast(
+        `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      e.target.value = "";
+      return;
+    }
+
     const slotKey = `${bannerIndex}-${slot}`;
     setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: true } }));
 
-    // Aspect ratio check for user guidance
-    const objectUrl = URL.createObjectURL(file);
-    const imgObj = new Image();
-    imgObj.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      const ratio = imgObj.width / imgObj.height;
-      if (slot === "desktop" && (ratio < 2.0 || ratio > 3.5)) {
-        showToast(
-          `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended desktop ratio is 8:3 (2.67:1). It will be fitted automatically.`,
-          "info"
-        );
-      } else if (slot === "mobile" && (ratio < 1.7 || ratio > 2.8)) {
-        showToast(
-          `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended mobile ratio is 16:7 (2.28:1). It will be fitted automatically.`,
-          "info"
-        );
+    // Aspect ratio check: use fast header parser to avoid multi-hundred MB bitmap decoding on mobile
+    try {
+      const dims = await parseImageDimensionsFromHeader(file);
+      if (dims && dims.width > 0 && dims.height > 0) {
+        const ratio = dims.width / dims.height;
+        if (slot === "desktop" && (ratio < 2.0 || ratio > 3.5)) {
+          showToast(
+            `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended desktop ratio is 8:3 (2.67:1). It will be fitted automatically.`,
+            "info"
+          );
+        } else if (slot === "mobile" && (ratio < 1.7 || ratio > 2.8)) {
+          showToast(
+            `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended mobile ratio is 16:7 (2.28:1). It will be fitted automatically.`,
+            "info"
+          );
+        }
       }
-    };
-    imgObj.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-    imgObj.src = objectUrl;
+    } catch (_) {
+      // Non-blocking ratio guidance fallback
+    }
 
     // Compress banner image client-side before upload (max 1920px preserving aspect ratio, WebP 0.85 with JPEG fallback)
     let fileToUpload = file;
     try {
       fileToUpload = await compressImage(file, { maxDimension: BANNER_MAX_DIMENSION });
-    } catch {
-      // Fall back to original file if compression fails
+    } catch (err) {
+      if (isHeicFile(file) || err?.code === "HEIC_UNSUPPORTED") {
+        showToast(
+          `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+          "error"
+        );
+        setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: false } }));
+        e.target.value = "";
+        return;
+      }
+      // Fall back to original file if compression fails on standard images
+    }
+
+    if (isHeicFile(fileToUpload)) {
+      showToast(
+        `"${file.name}" is in HEIC format and cannot be uploaded. Please select JPEG, PNG, or WebP.`,
+        "error"
+      );
+      setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: false } }));
+      e.target.value = "";
+      return;
     }
 
     if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {

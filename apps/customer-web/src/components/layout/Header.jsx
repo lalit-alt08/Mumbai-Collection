@@ -24,7 +24,7 @@ function Header() {
     ) || 0;
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-white rounded-b-[18px] sm:rounded-b-[22px] border-b border-[#EDE9FE] shadow-[0_2px_14px_rgba(124,58,237,0.03)]">
+    <header className="sticky top-[var(--network-banner-height,0px)] z-50 w-full bg-white rounded-b-[18px] sm:rounded-b-[22px] border-b border-[#EDE9FE] shadow-[0_2px_14px_rgba(124,58,237,0.03)] transition-[top] duration-200">
       <div className="mx-auto max-w-7xl px-3 py-1.5 sm:px-4 sm:py-2 md:px-8 md:py-2.5">
         {/* ================= MOBILE VIEW (< md) ================= */}
         <div className="flex flex-col gap-1.5 md:hidden">

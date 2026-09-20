@@ -174,8 +174,8 @@ test("Pre-Production Hardening Test Suite", async (t) => {
     const reqWithCookie = { cookies: { mumbai_customer_auth: "wordpress_logged_in_abcdef1234567890abcdef1234567890" }, headers: {} };
     assert.equal(checkoutLimiter.keyGenerator(reqWithCookie), "checkout:cookie:abcdef1234567890abcdef1234567890");
 
-    // 3. Forwarded IP behind reverse proxy
-    const reqBehindProxy = { headers: { "x-forwarded-for": "203.0.113.195, 10.0.0.1" }, ip: "127.0.0.1" };
+    // 3. Forwarded IP behind reverse proxy (Express sets req.ip via trust proxy)
+    const reqBehindProxy = { ip: "203.0.113.195" };
     assert.equal(checkoutLimiter.keyGenerator(reqBehindProxy), "checkout:ip:203.0.113.195");
 
     // 4. Fallback socket IP

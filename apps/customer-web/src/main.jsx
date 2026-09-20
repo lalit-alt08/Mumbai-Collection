@@ -9,13 +9,6 @@ import { AuthProvider } from "./context/AuthContext";
 import { FavoritesProvider } from "./context/FavoritesContext";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
-// Prevent mobile gesture/pinch auto-zoom
-if (typeof window !== "undefined") {
-  document.addEventListener("gesturestart", (e) => e.preventDefault());
-  document.addEventListener("gesturechange", (e) => e.preventDefault());
-  document.addEventListener("gestureend", (e) => e.preventDefault());
-}
-
 createRoot(document.getElementById("root")).render(
   <ErrorBoundary>
     <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || ""}>

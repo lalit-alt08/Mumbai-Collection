@@ -36,6 +36,14 @@ import {
 const WP_BASE_URL = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
 const MIN_ORDER_VALUE_INR = 500;
 
+// Safe last-known store-hours fallback cache with maximum 5-minute TTL
+let lastKnownStoreStatus = null;
+const STORE_HOURS_FALLBACK_MAX_AGE_MS = 5 * 60 * 1000;
+
+export const _resetPaymentStoreHoursFallbackForTesting = () => {
+  lastKnownStoreStatus = null;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,6 +101,16 @@ export const createOrder = async (req, res) => {
     // ── 2. Store Hours Guard ───────────────────────────────────────────────
     try {
       const storeStatus = await storeHoursService.getStoreStatus();
+      if (!storeStatus || typeof storeStatus.is_open !== "boolean") {
+        throw new Error("Invalid store status payload");
+      }
+
+      // Record last known valid store status
+      lastKnownStoreStatus = {
+        status: storeStatus,
+        timestamp: Date.now(),
+      };
+
       if (!storeStatus.is_open) {
         return res.status(403).json({
           success: false,
@@ -102,8 +120,31 @@ export const createOrder = async (req, res) => {
         });
       }
     } catch (statusErr) {
-      logger.warn({ err: statusErr.message }, "[Payment] Store hours evaluation warning");
-      // Fail open to last-known/default rather than crashing
+      logger.warn({ err: statusErr.message }, "[Payment] Store hours evaluation warning, checking fallback cache");
+
+      const hasValidFallback =
+        lastKnownStoreStatus &&
+        Date.now() - lastKnownStoreStatus.timestamp <= STORE_HOURS_FALLBACK_MAX_AGE_MS;
+
+      if (hasValidFallback) {
+        const fallback = lastKnownStoreStatus.status;
+        if (!fallback || !fallback.is_open) {
+          return res.status(403).json({
+            success: false,
+            code: "STORE_CLOSED",
+            message: fallback?.message || "Our store is currently closed for new orders.",
+            next_opening: fallback?.next_opening || null,
+          });
+        }
+        // Fallback state is valid within 5 minutes and store was open: allow checkout
+      } else {
+        // Fail closed: no valid cached state exists within 5 minutes
+        return res.status(503).json({
+          success: false,
+          code: "STORE_HOURS_UNAVAILABLE",
+          message: "Unable to verify store operating hours. Please try again in a few moments.",
+        });
+      }
     }
 
     // ── 3. Handle Retry for Existing Pending Order ─────────────────────────

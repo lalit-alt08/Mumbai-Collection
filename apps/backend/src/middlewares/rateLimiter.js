@@ -111,8 +111,7 @@ export const checkoutLimiter = createRateLimiter({
     if (customerAuth) {
       return `checkout:cookie:${customerAuth.slice(-32)}`;
     }
-    const forwarded = req.headers?.["x-forwarded-for"];
-    const clientIp = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : (req.ip || req.socket?.remoteAddress || "unknown");
+    const clientIp = req.ip || req.socket?.remoteAddress || "unknown";
     return `checkout:ip:${clientIp}`;
   },
 });

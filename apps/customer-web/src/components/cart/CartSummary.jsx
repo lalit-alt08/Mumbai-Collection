@@ -132,7 +132,7 @@ function CartSummary({
       </div>
 
       {/* Floating Checkout Bar */}
-      <div className="fixed bottom-[18px] left-1/2 z-50 flex h-[78px] w-[calc(100%-32px)] max-w-[700px] -translate-x-1/2 items-center justify-between rounded-[30px] bg-white px-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[#ECECEC]">
+      <div className="fixed bottom-[calc(18px+env(safe-area-inset-bottom,0px))] left-1/2 z-50 flex h-[78px] w-[calc(100%-32px)] max-w-[700px] -translate-x-1/2 items-center justify-between rounded-[30px] bg-white px-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[#ECECEC]">
         <div className="flex flex-col pl-1">
           <span className="text-[11px] font-bold text-[#666666] tracking-wider mb-0.5">
             TOTAL

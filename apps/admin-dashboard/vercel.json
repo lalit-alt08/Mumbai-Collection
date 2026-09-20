@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://quite-boc-downloaded-pts.trycloudflare.com/api/:path*"
+      "destination": "https://sheets-dozen-stuffed-sized.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

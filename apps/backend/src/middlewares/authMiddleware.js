@@ -290,7 +290,11 @@ export const checkSessionPhoneVerified = async (wpAuth) => {
 
 export const optionalAuth = async (req, res, next) => {
   try {
-    const wpAuth = req.cookies?.mumbai_customer_auth || req.cookies?.mumbai_wp_auth;
+    const wpAuth =
+      req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_admin_auth ||
+      req.cookies?.mumbai_employee_auth ||
+      req.cookies?.mumbai_wp_auth;
     if (!wpAuth) {
       return next();
     }

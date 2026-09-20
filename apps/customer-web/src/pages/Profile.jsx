@@ -25,18 +25,14 @@ import {
   ArrowRight,
 } from "lucide-react";
 import axios from "axios";
+import safeStorage from "../utils/safeStorage.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
 
 function Profile() {
   const navigate = useNavigate();
   const { user, deleteAccount, updateUser, refreshUser, handleSessionExpired } = useAuth();
   const [profile, setProfile] = useState(() => {
-    try {
-      const cached = JSON.parse(localStorage.getItem("user_profile") || "null");
-      return cached;
-    } catch {
-      return null;
-    }
+    return safeStorage.getJSON("user_profile", null);
   });
   const [loading, setLoading] = useState(!profile);
   const [isPhoneVerified, setIsPhoneVerified] = useState(false);
@@ -128,9 +124,7 @@ function Profile() {
       setProfile(profileData);
       setIsPhoneVerified(isVerified && !!verifiedPhone && currentPhone === verifiedPhone);
 
-      try {
-        localStorage.setItem("user_profile", JSON.stringify(profileData));
-      } catch {}
+      safeStorage.setJSON("user_profile", profileData);
 
       const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
       const nameParts = rawFullName.trim().split(/\s+/);
@@ -305,9 +299,7 @@ function Profile() {
         };
 
       setProfile(updatedProfile);
-      try {
-        localStorage.setItem("user_profile", JSON.stringify(updatedProfile));
-      } catch {}
+      safeStorage.setJSON("user_profile", updatedProfile);
       if (updateUser) {
         updateUser({
           first_name: cleanFirst,
@@ -438,9 +430,7 @@ function Profile() {
         setIsPhoneVerified(true);
         setForm((prev) => ({ ...prev, phone: verifiedNum }));
 
-        try {
-          localStorage.setItem("user_profile", JSON.stringify(updated));
-        } catch {}
+        safeStorage.setJSON("user_profile", updated);
 
         if (updateUser) {
           updateUser({

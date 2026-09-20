@@ -507,10 +507,25 @@ function mumbai_sso(WP_REST_Request $request)
 
     // 2. Try finding by email (for first-time linking)
     if (!$user) {
-        $user = get_user_by('email', $email);
+        $candidate_user = get_user_by('email', $email);
         
-        if ($user) {
+        if ($candidate_user) {
+            $user_roles = (array) $candidate_user->roles;
+            $is_staff_or_admin = in_array('administrator', $user_roles, true) || in_array('employee', $user_roles, true);
+
+            if ($is_staff_or_admin) {
+                $authenticated_user_id = (int) $request->get_param('authenticated_user_id');
+                if (!$authenticated_user_id || $authenticated_user_id !== (int) $candidate_user->ID) {
+                    return new WP_Error(
+                        'sso_linking_not_allowed',
+                        'Automatic Google login is disabled for staff and administrator accounts. Please log in with your email and password.',
+                        ['status' => 403]
+                    );
+                }
+            }
+
             // First time linking existing account to Google
+            $user = $candidate_user;
             update_user_meta($user->ID, '_google_sub', $google_sub);
             mumbai_log("Linked Google Sub to existing user {$user->ID}");
         }
@@ -570,14 +585,19 @@ function mumbai_sso(WP_REST_Request $request)
 
     mumbai_log("User {$user->ID} logged in via SSO.");
 
+    $is_phone_verified = function_exists('mumbai_is_user_phone_verified')
+        ? (bool) mumbai_is_user_phone_verified($user->ID)
+        : false;
+
     return [
         'success'     => true,
         'message'     => 'SSO successful.',
         'user'        => [
-            'id'       => $user->ID,
-            'name'     => $user->display_name,
-            'email'    => $user->user_email,
-            'username' => $user->user_login,
+            'id'                => $user->ID,
+            'name'              => $user->display_name,
+            'email'             => $user->user_email,
+            'username'          => $user->user_login,
+            'is_phone_verified' => $is_phone_verified,
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,

@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get("/", requireAuth("customer"), getAddresses);
 router.post("/", requireAuth("customer"), saveAddress);
-router.put("/:id", validateRequest({ params: schemas.idParam }), requireAuth("customer"), updateAddress);
-router.delete("/:id", validateRequest({ params: schemas.idParam }), requireAuth("customer"), deleteAddress);
+router.put("/:id", validateRequest({ params: schemas.addressIdParam }), requireAuth("customer"), updateAddress);
+router.delete("/:id", validateRequest({ params: schemas.addressIdParam }), requireAuth("customer"), deleteAddress);
 
 export default router;

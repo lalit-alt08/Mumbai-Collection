@@ -13,7 +13,11 @@ const {
 
 const { default: api } = await import("../src/config/woocommerce.js");
 const { default: storeHoursService } = await import("../src/services/storeHoursService.js");
-const { createOrder, verifyPayment } = await import("../src/controllers/paymentController.js");
+const {
+  createOrder,
+  verifyPayment,
+  _resetPaymentStoreHoursFallbackForTesting,
+} = await import("../src/controllers/paymentController.js");
 const { serverCache } = await import("../src/utils/memoryCache.js");
 
 test("Stage 1 — Backend Payment Foundation Test Suite", async (t) => {
@@ -24,6 +28,7 @@ test("Stage 1 — Backend Payment Foundation Test Suite", async (t) => {
 
   t.beforeEach(() => {
     serverCache.clear();
+    _resetPaymentStoreHoursFallbackForTesting?.();
     process.env.RAZORPAY_KEY_ID = "rzp_test_mock123";
     process.env.RAZORPAY_KEY_SECRET = "mock_secret_key_456";
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
@@ -134,6 +139,89 @@ test("Stage 1 — Backend Payment Foundation Test Suite", async (t) => {
 
     assert.equal(statusCode, 403);
     assert.equal(responseBody?.code, "STORE_CLOSED");
+  });
+
+  await t.test("2.3. createOrder fails closed with 503 when store hours service fails and no valid cache exists", async () => {
+    storeHoursService.getStoreStatus = async () => {
+      throw new Error("Store hours upstream service timeout");
+    };
+
+    const req = {
+      wpUserId: 10,
+      isSuspended: false,
+      body: { billing_address: {}, shipping_address: {} },
+    };
+    let statusCode = 0;
+    let responseBody = null;
+    const res = {
+      status(code) {
+        statusCode = code;
+        return this;
+      },
+      json(data) {
+        responseBody = data;
+        return this;
+      },
+    };
+
+    await createOrder(req, res);
+
+    assert.equal(statusCode, 503);
+    assert.equal(responseBody?.code, "STORE_HOURS_UNAVAILABLE");
+    assert.equal(responseBody?.message, "Unable to verify store operating hours. Please try again in a few moments.");
+  });
+
+  await t.test("2.4. createOrder uses safe last-known fallback cache within 5 minutes when service temporarily fails", async () => {
+    // 1. Initial successful call caches the status as open
+    storeHoursService.getStoreStatus = async () => ({ is_open: true });
+
+    api.get = async (path) => {
+      if (path === "orders/501") {
+        return {
+          data: {
+            id: 501,
+            customer_id: 10,
+            status: "pending",
+            total: "500.00",
+            meta_data: [{ key: "_razorpay_order_id", value: "order_existing_rzp_999" }],
+          },
+        };
+      }
+    };
+
+    const req = {
+      wpUserId: 10,
+      isSuspended: false,
+      body: { order_id: 501 },
+    };
+    let statusCode = 200;
+    let responseBody = null;
+    const res = {
+      status(code) {
+        statusCode = code;
+        return this;
+      },
+      json(data) {
+        responseBody = data;
+        return this;
+      },
+    };
+
+    // First request warms the fallback cache
+    await createOrder(req, res);
+    assert.equal(statusCode, 200);
+    assert.equal(responseBody?.order_id, 501);
+
+    // 2. Upstream service now throws an error, but fallback cache (< 5 min) allows checkout
+    storeHoursService.getStoreStatus = async () => {
+      throw new Error("Temporary network glitch");
+    };
+
+    statusCode = 200;
+    responseBody = null;
+    await createOrder(req, res);
+    assert.equal(statusCode, 200);
+    assert.equal(responseBody?.order_id, 501);
   });
 
   // ───────────────────────────────────────────────────────────────────────────

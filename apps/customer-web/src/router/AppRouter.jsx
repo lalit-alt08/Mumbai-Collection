@@ -43,13 +43,24 @@ const Favorites = lazy(() => import("../pages/Favorites"));
 import GlobalGoogleLogin from "../components/auth/GlobalGoogleLogin";
 import { CartRouteManager } from "../context/CartContext";
 
+function RouteLoadingFallback() {
+  return (
+    <div className="flex min-h-[50vh] w-full items-center justify-center">
+      <div className="flex flex-col items-center gap-2">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+        <span className="text-[11px] font-medium text-gray-400">Loading...</span>
+      </div>
+    </div>
+  );
+}
+
 function AppRouter() {
   return (
     <BrowserRouter>
       <ScrollToTop />
       <GlobalGoogleLogin />
       <CartRouteManager />
-      <Suspense fallback={null}>
+      <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route element={<MainLayout />}>
             <Route path="/" element={<Home />} />

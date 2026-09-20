@@ -20,7 +20,7 @@ export const PRODUCT_PLACEHOLDER_URL = "/product-placeholder.svg";
  */
 export const getCatalogImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) => {
   if (!image) return fallback;
-  if (typeof image === "string") return image.trim() || fallback;
+  if (typeof image === "string") return resolveMediaUrl(image.trim()) || fallback;
 
   // Safely resolve nested image if a product/cart item or array was provided
   let target = image;
@@ -33,11 +33,11 @@ export const getCatalogImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) =>
   }
 
   if (!target) return fallback;
-  if (typeof target === "string") return target.trim() || fallback;
+  if (typeof target === "string") return resolveMediaUrl(target.trim()) || fallback;
 
   // WooCommerce REST API returns `thumbnail` for catalog/sub-sizes
   const url = target.thumbnail || target.src || "";
-  return (typeof url === "string" && url.trim()) ? url.trim() : fallback;
+  return (typeof url === "string" && url.trim()) ? resolveMediaUrl(url.trim()) : fallback;
 };
 
 /**
@@ -51,7 +51,7 @@ export const getCatalogImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) =>
  */
 export const getFullImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) => {
   if (!image) return fallback;
-  if (typeof image === "string") return image.trim() || fallback;
+  if (typeof image === "string") return resolveMediaUrl(image.trim()) || fallback;
 
   let target = image;
   if (Array.isArray(target?.images)) {
@@ -63,7 +63,7 @@ export const getFullImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) => {
   }
 
   if (!target) return fallback;
-  if (typeof target === "string") return target.trim() || fallback;
+  if (typeof target === "string") return resolveMediaUrl(target.trim()) || fallback;
 
   // Primary full-resolution image
   const url = target.src || target.thumbnail || "";

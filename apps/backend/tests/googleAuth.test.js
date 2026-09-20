@@ -191,4 +191,36 @@ test("Google Auth Controller Tests", async (t) => {
     assert.strictEqual(response.status, 500);
     assert.strictEqual(response.data.message, "Unable to authenticate with Google.");
   });
+
+  await t.test("WordPress /sso rejects unauthenticated linking to staff/admin accounts with 403", async () => {
+    OAuth2Client.prototype.verifyIdToken = async () => {
+      return {
+        getPayload: () => ({
+          sub: "google-admin-123",
+          email: "admin@example.com",
+          name: "Admin User",
+          email_verified: true,
+        }),
+      };
+    };
+
+    axios.post = async () => {
+      const error = new Error("Forbidden");
+      error.response = {
+        status: 403,
+        data: {
+          code: "sso_linking_not_allowed",
+          message: "Automatic Google login is disabled for staff and administrator accounts. Please log in with your email and password.",
+        },
+      };
+      throw error;
+    };
+
+    const response = await simulateRequest({ credential: "valid-token" });
+    assert.strictEqual(response.status, 403);
+    assert.strictEqual(
+      response.data.message,
+      "Automatic Google login is disabled for staff and administrator accounts. Please log in with your email and password."
+    );
+  });
 });

@@ -1,10 +1,11 @@
 import axios from "axios";
 import API_URL from "../config/api.js";
+import safeStorage from "../utils/safeStorage.js";
 
 const STORE_API = `${API_URL}/store`;
 
-let nonce = typeof localStorage !== "undefined" ? localStorage.getItem("wc_nonce") || "" : "";
-let cartToken = typeof localStorage !== "undefined" ? localStorage.getItem("wc_cart_token") || "" : "";
+let nonce = safeStorage.getItem("wc_nonce") || "";
+let cartToken = safeStorage.getItem("wc_cart_token") || "";
 
 const getHeader = (headers, key) => {
   if (!headers) return null;
@@ -23,27 +24,21 @@ const updateTokens = (response) => {
   const hNonce = getHeader(response.headers, "nonce");
   if (hNonce) {
     nonce = hNonce;
-    try {
-      localStorage.setItem("wc_nonce", nonce);
-    } catch (_) {}
+    safeStorage.setItem("wc_nonce", nonce);
   }
 
   const hToken = getHeader(response.headers, "cart-token");
   if (hToken) {
     cartToken = hToken;
-    try {
-      localStorage.setItem("wc_cart_token", cartToken);
-    } catch (_) {}
+    safeStorage.setItem("wc_cart_token", cartToken);
   }
 };
 
 export const clearCartSession = () => {
   nonce = "";
   cartToken = "";
-  try {
-    localStorage.removeItem("wc_nonce");
-    localStorage.removeItem("wc_cart_token");
-  } catch (_) {}
+  safeStorage.removeItem("wc_nonce");
+  safeStorage.removeItem("wc_cart_token");
 };
 
 // Create a dedicated Axios client for WooCommerce Store API
@@ -71,12 +66,12 @@ export const ensureSessionNonce = async () => {
 // Request Interceptor: attach active Nonce & Cart-Token headers
 storeClient.interceptors.request.use(
   async (config) => {
-    // Re-sync from localStorage if memory is empty
-    if (!nonce && typeof localStorage !== "undefined") {
-      nonce = localStorage.getItem("wc_nonce") || "";
+    // Re-sync from safeStorage if memory is empty
+    if (!nonce) {
+      nonce = safeStorage.getItem("wc_nonce") || "";
     }
-    if (!cartToken && typeof localStorage !== "undefined") {
-      cartToken = localStorage.getItem("wc_cart_token") || "";
+    if (!cartToken) {
+      cartToken = safeStorage.getItem("wc_cart_token") || "";
     }
 
     // WooCommerce Store API requires a valid Nonce for all mutations and checkout endpoints.
@@ -172,11 +167,20 @@ export const getCart = async () => {
   return response.data;
 };
 
-export const addToCart = async (id, quantity = 1) => {
-  const response = await storeClient.post("/cart/add-item", {
+export const getStoreProductById = async (id) => {
+  const response = await storeClient.get(`/products/${id}`);
+  return response.data;
+};
+
+export const addToCart = async (id, quantity = 1, variation = []) => {
+  const payload = {
     id,
     quantity,
-  });
+  };
+  if (Array.isArray(variation) && variation.length > 0) {
+    payload.variation = variation;
+  }
+  const response = await storeClient.post("/cart/add-item", payload);
   return response.data;
 };
 

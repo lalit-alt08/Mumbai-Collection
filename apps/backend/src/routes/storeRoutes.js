@@ -13,6 +13,14 @@ const router = express.Router();
 
 const WP_BASE_URL = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
 
+// Safe last-known store-hours fallback cache with maximum 5-minute TTL
+let lastKnownStoreStatus = null;
+const STORE_HOURS_FALLBACK_MAX_AGE_MS = 5 * 60 * 1000;
+
+export const _resetStoreRoutesHoursFallbackForTesting = () => {
+  lastKnownStoreStatus = null;
+};
+
 /**
  * Universal Store API Gateway Proxy
  * Forwards requests to WooCommerce Store API v1 (/wp-json/wc/store/v1/)
@@ -39,6 +47,16 @@ async function proxyStoreApi(req, res) {
     // 1. Authoritative Store Hours Guard (Asia/Kolkata)
     try {
       const storeStatus = await storeHoursService.getStoreStatus();
+      if (!storeStatus || typeof storeStatus.is_open !== "boolean") {
+        throw new Error("Invalid store status payload");
+      }
+
+      // Record last known valid store status
+      lastKnownStoreStatus = {
+        status: storeStatus,
+        timestamp: Date.now(),
+      };
+
       if (!storeStatus.is_open) {
         return res.status(403).json({
           success: false,
@@ -52,8 +70,35 @@ async function proxyStoreApi(req, res) {
         });
       }
     } catch (statusErr) {
-      logger.warn({ err: statusErr.message }, "[StoreGateway] Store hours evaluation warning");
-      // Fail open to last-known/default rather than crashing
+      logger.warn({ err: statusErr.message }, "[StoreGateway] Store hours evaluation warning, checking fallback cache");
+
+      const hasValidFallback =
+        lastKnownStoreStatus &&
+        Date.now() - lastKnownStoreStatus.timestamp <= STORE_HOURS_FALLBACK_MAX_AGE_MS;
+
+      if (hasValidFallback) {
+        const fallback = lastKnownStoreStatus.status;
+        if (!fallback || !fallback.is_open) {
+          return res.status(403).json({
+            success: false,
+            code: "STORE_CLOSED",
+            message: fallback?.message || "Our store is currently closed for new orders.",
+            next_opening: fallback?.next_opening || null,
+            current_day: fallback?.current_day,
+            current_time_ist: fallback?.current_time_ist,
+            schedule_today: fallback?.schedule_today,
+            timezone: fallback?.timezone || "Asia/Kolkata",
+          });
+        }
+        // Fallback state is valid within 5 minutes and store was open: allow checkout
+      } else {
+        // Fail closed: no valid cached state exists within 5 minutes
+        return res.status(503).json({
+          success: false,
+          code: "STORE_HOURS_UNAVAILABLE",
+          message: "Unable to verify store operating hours. Please try again in a few moments.",
+        });
+      }
     }
 
     // 2. Authoritative Unified Session Validation (Suspension & Phone Verification)
@@ -80,6 +125,62 @@ async function proxyStoreApi(req, res) {
         success: false,
         code: "PHONE_NOT_VERIFIED",
         message: "Please verify your mobile number with OTP before placing an order.",
+      });
+    }
+
+    // 3. Authoritative Minimum Order Value Check (₹500 product items subtotal)
+    try {
+      const cartHeaders = { Cookie: customerAuth };
+      if (req.headers["cart-token"]) {
+        cartHeaders["Cart-Token"] = req.headers["cart-token"];
+      }
+      if (req.headers.nonce) {
+        cartHeaders["Nonce"] = req.headers.nonce;
+      }
+
+      const cartRes = await axios.get(`${WP_BASE_URL}/wp-json/wc/store/v1/cart`, {
+        headers: cartHeaders,
+        httpsAgent,
+        timeout: 10000,
+      });
+
+      const cart = cartRes.data;
+      if (!cart?.items || cart.items.length === 0) {
+        return res.status(400).json({
+          success: false,
+          code: "EMPTY_CART",
+          message: "Your cart is empty.",
+        });
+      }
+
+      const itemsSubtotal = cart.totals?.total_items
+        ? Number(cart.totals.total_items) / 100
+        : (Array.isArray(cart.items)
+            ? cart.items.reduce(
+                (sum, item) =>
+                  sum +
+                  (Number(item.totals?.line_subtotal) ||
+                    Number(item.totals?.line_total) ||
+                    0),
+                0
+              ) / 100
+            : 0);
+
+      const MIN_ORDER_VALUE_INR = 500;
+      if (itemsSubtotal < MIN_ORDER_VALUE_INR) {
+        const shortfall = Math.max(0, MIN_ORDER_VALUE_INR - itemsSubtotal);
+        return res.status(400).json({
+          success: false,
+          code: "MIN_ORDER_VALUE",
+          message: `Minimum product order value of ₹${MIN_ORDER_VALUE_INR} is required. Please add ₹${shortfall} more.`,
+        });
+      }
+    } catch (cartErr) {
+      logError(req, cartErr, "[StoreGateway] Authoritative cart validation failed before checkout");
+      return res.status(502).json({
+        success: false,
+        code: "CART_FETCH_FAILED",
+        message: "Unable to verify cart contents before checkout. Please try again.",
       });
     }
   }

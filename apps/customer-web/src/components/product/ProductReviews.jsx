@@ -29,6 +29,15 @@ function ProductReviews({ productId }) {
   const [formSuccess, setFormSuccess] = useState("");
 
   const isSubmittingRef = useRef(false);
+  const submitSuccessTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (submitSuccessTimerRef.current) {
+        clearTimeout(submitSuccessTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadReviews = useCallback(async () => {
     if (!productId) return;
@@ -85,9 +94,13 @@ function ProductReviews({ productId }) {
         setReviewText("");
         setRating(5);
         await loadReviews();
-        setTimeout(() => {
+        if (submitSuccessTimerRef.current) {
+          clearTimeout(submitSuccessTimerRef.current);
+        }
+        submitSuccessTimerRef.current = setTimeout(() => {
           setShowForm(false);
           setFormSuccess("");
+          submitSuccessTimerRef.current = null;
         }, 2000);
       } else {
         setFormError(res.message || "Failed to submit review.");

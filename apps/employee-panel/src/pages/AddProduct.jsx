@@ -23,6 +23,7 @@ import {
 import {
   compressImage,
   isAcceptedImage,
+  isHeicFile,
   RAW_IMAGE_MAX_INPUT_BYTES,
   MAX_FILE_SIZE_BYTES,
 } from "../utils/imageCompressor.js";
@@ -125,8 +126,23 @@ function AddProduct() {
       let fileToUpload = file;
       try {
         fileToUpload = await compressImage(file, { maxDimension: 1600 });
-      } catch {
+      } catch (err) {
+        if (isHeicFile(file) || err?.code === "HEIC_UNSUPPORTED") {
+          showToast(
+            `"${file.name}" is in HEIC format and not supported directly by your browser. Please select JPEG, PNG, or WebP.`,
+            "error"
+          );
+          continue;
+        }
         // Fall back to original file if compression encounters an error
+      }
+
+      if (isHeicFile(fileToUpload)) {
+        showToast(
+          `"${file.name}" is in HEIC format and cannot be uploaded. Please select JPEG, PNG, or WebP.`,
+          "error"
+        );
+        continue;
       }
 
       if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
@@ -724,23 +740,28 @@ function AddProduct() {
           </div>
 
           {/* FORM ACTIONS FOOTER */}
-          <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-gray-200">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4 border-t border-gray-200">
             <Link
               to="/products"
-              className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition shadow-xs cursor-pointer"
+              className="w-full sm:w-auto text-center rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition shadow-xs cursor-pointer"
             >
               Cancel
             </Link>
 
             <button
               type="submit"
-              disabled={submitting}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-emerald-500 transition active:scale-95 cursor-pointer disabled:opacity-50"
+              disabled={submitting || images.some((img) => img.uploading)}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-emerald-500 transition active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
                   Creating Product...
+                </>
+              ) : images.some((img) => img.uploading) ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Uploading Images...
                 </>
               ) : (
                 <>

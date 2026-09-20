@@ -12,6 +12,7 @@ import {
 } from "../services/authService";
 
 import { clearCartSession } from "../services/storeApi";
+import safeStorage from "../utils/safeStorage.js";
 
 const AuthContext = createContext();
 
@@ -29,11 +30,8 @@ export function AuthProvider({ children }) {
         const response = await getCurrentUser();
 
         if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
-          const cachedUser = JSON.parse(localStorage.getItem("user") || "{}");
-          let cachedProfile = {};
-          try {
-            cachedProfile = JSON.parse(localStorage.getItem("user_profile") || "{}");
-          } catch {}
+          const cachedUser = safeStorage.getJSON("user", {});
+          const cachedProfile = safeStorage.getJSON("user_profile", {});
 
           const userData = response.user || {
             id: response.current_user_id,
@@ -87,19 +85,16 @@ export function AuthProvider({ children }) {
 
           setUser(userData);
 
-          localStorage.setItem(
-            "user",
-            JSON.stringify(userData)
-          );
+          safeStorage.setJSON("user", userData);
         } else {
           setUser(null);
-          localStorage.removeItem("user");
-          localStorage.removeItem("user_profile");
+          safeStorage.removeItem("user");
+          safeStorage.removeItem("user_profile");
         }
       } catch (error) {
         setUser(null);
-        localStorage.removeItem("user");
-        localStorage.removeItem("user_profile");
+        safeStorage.removeItem("user");
+        safeStorage.removeItem("user_profile");
       } finally {
         setLoading(false);
       }
@@ -114,11 +109,7 @@ export function AuthProvider({ children }) {
 
   const login = (userData) => {
     setUser(userData);
-
-    localStorage.setItem(
-      "user",
-      JSON.stringify(userData)
-    );
+    safeStorage.setJSON("user", userData);
   };
 
   // ==========================================
@@ -128,9 +119,7 @@ export function AuthProvider({ children }) {
   const updateUser = (newData) => {
     setUser((prev) => {
       const updated = { ...(prev || {}), ...newData };
-      try {
-        localStorage.setItem("user", JSON.stringify(updated));
-      } catch {}
+      safeStorage.setJSON("user", updated);
       return updated;
     });
   };
@@ -141,8 +130,8 @@ export function AuthProvider({ children }) {
 
   const handleSessionExpired = () => {
     setUser(null);
-    localStorage.removeItem("user");
-    localStorage.removeItem("user_profile");
+    safeStorage.removeItem("user");
+    safeStorage.removeItem("user_profile");
     clearCartSession();
   };
 
@@ -197,10 +186,8 @@ export function AuthProvider({ children }) {
           userData.phone = response.user?.phone || response.phone;
         }
         setUser((prev) => ({ ...(prev || {}), ...userData }));
-        try {
-          const current = JSON.parse(localStorage.getItem("user") || "{}");
-          localStorage.setItem("user", JSON.stringify({ ...current, ...userData }));
-        } catch {}
+        const current = safeStorage.getJSON("user", {});
+        safeStorage.setJSON("user", { ...current, ...userData });
         return userData;
       } else {
         handleSessionExpired();

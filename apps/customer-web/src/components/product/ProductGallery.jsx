@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ArrowLeft, Heart, Share2, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ArrowLeft, Heart, Share2, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFavorites } from "../../context/FavoritesContext";
 import { getCatalogImageUrl, getFullImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
@@ -22,16 +22,61 @@ function ProductGallery({ product }) {
   const safeIndex = Math.min(selectedIndex, images.length - 1);
   const currentImage = images[safeIndex] || images[0];
 
+  const [shareFeedback, setShareFeedback] = useState(null);
+  const shareTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (shareTimerRef.current) {
+        clearTimeout(shareTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleShare = async () => {
+    const shareUrl = window.location.href;
+    const shareData = {
+      title: product?.name || "Mumbai Collection",
+      url: shareUrl,
+    };
+
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: product.name,
-          url: window.location.href,
-        });
-      } catch {
-        // User cancelled or share not supported
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        // AbortError indicates user simply closed native share sheet - no fallback needed
+        if (err.name === "AbortError") return;
       }
+    }
+
+    // Fallback: Copy link to clipboard
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = shareUrl;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setShareFeedback("Link copied to clipboard!");
+      if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
+      shareTimerRef.current = setTimeout(() => {
+        setShareFeedback(null);
+        shareTimerRef.current = null;
+      }, 2500);
+    } catch {
+      setShareFeedback("Failed to copy link");
+      if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
+      shareTimerRef.current = setTimeout(() => {
+        setShareFeedback(null);
+        shareTimerRef.current = null;
+      }, 2500);
     }
   };
 
@@ -104,10 +149,18 @@ function ProductGallery({ product }) {
             aria-label="Share product"
             className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] backdrop-blur-md transition-transform hover:scale-105 cursor-pointer"
           >
-            <Share2 size={19} />
+            {shareFeedback ? <Check size={18} className="text-emerald-600" /> : <Share2 size={19} />}
           </button>
         </div>
       </div>
+
+      {/* Share Toast Notification */}
+      {shareFeedback && (
+        <div className="absolute top-16 right-4 z-20 flex items-center gap-1.5 rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
+          <Check size={13} className="text-emerald-400" />
+          <span>{shareFeedback}</span>
+        </div>
+      )}
 
       {/* Main Image Container */}
       <div className="relative mx-auto mt-14 flex aspect-square w-full max-w-[420px] items-center justify-center p-4">

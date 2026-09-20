@@ -124,6 +124,9 @@ export const schemas = {
     razorpay_signature: boundedString(256),
   }).passthrough(),
   idParam: z.object({ id: positiveId }).passthrough(),
+  addressIdParam: z.object({
+    id: z.string().trim().regex(/^[a-zA-Z0-9-]+$/).min(1).max(64),
+  }).passthrough(),
   categoryIdParam: z.object({ categoryId: positiveId }).passthrough(),
   productIdParam: z.object({ productId: positiveId }).passthrough(),
   reviewIdParam: z.object({ reviewId: positiveId }).passthrough(),
