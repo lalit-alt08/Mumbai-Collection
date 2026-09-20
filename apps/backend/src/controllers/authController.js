@@ -611,7 +611,10 @@ export const verifyOtp = async (req, res) => {
     }
 
     const normalized = normalizePhoneNumber(phone);
-    const cleanPhone = normalized ? normalized.local : String(phone).replace(/\D/g, "");
+    const cleanPhone =
+      purpose === "verify_phone"
+        ? (normalized ? normalized.local : String(phone).replace(/\D/g, ""))
+        : (normalized ? normalized.local : String(phone).trim());
 
     // Hardening: verify_phone OTP verify strictly requires an authenticated customer session.
     // Customer identity must be derived solely from the authenticated session.
@@ -688,7 +691,7 @@ export const resetPasswordOtp = async (req, res) => {
     }
 
     const normalized = normalizePhoneNumber(phone);
-    const cleanPhone = normalized ? normalized.local : String(phone).replace(/\D/g, "");
+    const cleanPhone = normalized ? normalized.local : String(phone).trim();
 
     const resetResponse = await wp.post(
       "/wp-json/mumbai-auth/v1/otp/reset-password",

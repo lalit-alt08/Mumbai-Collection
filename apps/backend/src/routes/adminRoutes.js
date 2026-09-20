@@ -275,6 +275,14 @@ router.get(
   getAdminStoreHours
 );
 
+router.put(
+  "/store-hours",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  requireIdempotency,
+  updateAdminStoreHours
+);
+
 // Customer Suspension Management
 router.get(
   "/customer-suspension/lookup",

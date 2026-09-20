@@ -214,4 +214,45 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
     assert.equal(ist.minute, 30);
     assert.equal(ist.currentMinutes, 630);
   });
+
+  await t.test("8. Admin Store Hours Controller response payload formatting", async () => {
+    const { default: storeHoursService, normalizeStoreHoursConfig } = await import("../src/services/storeHoursService.js");
+    const { updateAdminStoreHours } = await import("../src/controllers/adminStoreHoursController.js");
+
+    const originalSave = storeHoursService.saveStoreHoursConfig;
+    storeHoursService.saveStoreHoursConfig = async (cfg) => normalizeStoreHoursConfig(cfg);
+
+    try {
+      let statusCalledWith = 200;
+      let jsonResult = null;
+
+      const mockRes = {
+        status(code) {
+          statusCalledWith = code;
+          return this;
+        },
+        json(data) {
+          jsonResult = data;
+          return this;
+        },
+      };
+
+      const mockReq = {
+        body: {
+          manual_override: "closed",
+          closed_message: "Maintenance closure",
+        },
+      };
+
+      await updateAdminStoreHours(mockReq, mockRes);
+      assert.equal(jsonResult.success, true);
+      assert.equal(jsonResult.manual_override, "closed");
+      assert.equal(jsonResult.is_open, false);
+      assert.ok(jsonResult.config);
+      assert.ok(jsonResult.status);
+      assert.equal(jsonResult.config.manual_override, "closed");
+    } finally {
+      storeHoursService.saveStoreHoursConfig = originalSave;
+    }
+  });
 });

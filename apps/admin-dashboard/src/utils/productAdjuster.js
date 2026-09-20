@@ -79,7 +79,7 @@ export function applyProductAdjustment(product, form) {
     regular_price: regularPriceVal !== undefined ? regularPriceVal : product.regular_price,
     sale_price: salePriceVal,
     stock_quantity: stockNum,
-    stock_status: stockNum > 0 ? "instock" : "outofstock",
+    stock_status: stockNum <= 0 ? "outofstock" : stockNum <= 5 ? "lowstock" : "instock",
   };
 }
 

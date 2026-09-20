@@ -565,4 +565,57 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     assert.strictEqual(res.data.user.email, "googleuser@gmail.com");
     assert.ok(res.cookies.mumbai_customer_auth);
   });
+
+  // 16. Email Identifier: verifyOtp and resetPasswordOtp preserve email addresses
+  await suite.test("16. Email OTP: verifyOtp and resetPasswordOtp preserve email address format", async () => {
+    let capturedVerifyPhone = "";
+    let capturedResetPhone = "";
+
+    wp.post = async (url, data) => {
+      if (url.includes("/otp/verify")) {
+        capturedVerifyPhone = data.phone;
+        return {
+          data: {
+            success: true,
+            message: "OTP verified. Proceed to reset password.",
+            reset_token: "mock_reset_token_email_user",
+          },
+        };
+      }
+      if (url.includes("/otp/reset-password")) {
+        capturedResetPhone = data.phone;
+        return {
+          data: {
+            success: true,
+            message: "Password reset successfully.",
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    const verifyRes = await simulateHandler(verifyOtp, {
+      body: {
+        phone: "customer@example.com",
+        otp: "123456",
+        purpose: "reset_password",
+      },
+    });
+
+    assert.strictEqual(verifyRes.status, 200);
+    assert.strictEqual(verifyRes.data.success, true);
+    assert.strictEqual(capturedVerifyPhone, "customer@example.com");
+
+    const resetRes = await simulateHandler(resetPasswordOtp, {
+      body: {
+        phone: "customer@example.com",
+        reset_token: "mock_reset_token_email_user",
+        new_password: "NewPassword123!",
+      },
+    });
+
+    assert.strictEqual(resetRes.status, 200);
+    assert.strictEqual(resetRes.data.success, true);
+    assert.strictEqual(capturedResetPhone, "customer@example.com");
+  });
 });

@@ -14,6 +14,10 @@ export const getAdminStoreHours = async (req, res) => {
       success: true,
       config,
       status,
+      ...config,
+      ...status,
+      current_ist_time: status.current_time_ist || status.current_ist_time,
+      evaluation_reason: status.reason || status.evaluation_reason,
     });
   } catch (error) {
     logError(req, error, "[AdminStoreHours] Error fetching config");
@@ -21,6 +25,7 @@ export const getAdminStoreHours = async (req, res) => {
       success: false,
       message: error.message || "Failed to load store hours configuration.",
       config: storeHoursService.DEFAULT_STORE_HOURS_CONFIG,
+      ...storeHoursService.DEFAULT_STORE_HOURS_CONFIG,
     });
   }
 };
@@ -48,6 +53,10 @@ export const updateAdminStoreHours = async (req, res) => {
       message: "Store hours updated successfully.",
       config: savedConfig,
       status: currentStatus,
+      ...savedConfig,
+      ...currentStatus,
+      current_ist_time: currentStatus.current_time_ist || currentStatus.current_ist_time,
+      evaluation_reason: currentStatus.reason || currentStatus.evaluation_reason,
     });
   } catch (error) {
     logError(req, error, "[AdminStoreHours] Error saving config");
