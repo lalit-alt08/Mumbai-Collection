@@ -235,15 +235,9 @@ function Customers() {
       {/* HEADER & TOP STATS STRIP */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900">
-              Customer Directory
-            </h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-black text-[#FF8A00] border border-amber-200/60 shadow-xs">
-              <Sparkles size={12} className="text-[#FF8A00]" />
-              {totalCustomers} Registered
-            </span>
-          </div>
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900">
+            Customer Directory
+          </h1>
           <p className="mt-0.5 text-xs text-gray-500 font-medium">
             Registered customer accounts, lifetime order metrics, and purchase history.
           </p>
@@ -309,7 +303,7 @@ function Customers() {
               </button>
 
               {isLocationOpen && (
-                <div className="absolute right-0 mt-1.5 w-52 rounded-2xl border border-gray-100 bg-white py-1.5 shadow-xl z-30 animate-in fade-in-50 zoom-in-95">
+              <div className="absolute left-0 mt-1.5 w-52 rounded-2xl border border-gray-100 bg-white py-1.5 shadow-xl z-30 animate-in fade-in-50 zoom-in-95 max-h-72 overflow-y-auto">
                   <div className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-gray-400">
                     Filter by Location
                   </div>

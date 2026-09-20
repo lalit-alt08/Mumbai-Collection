@@ -170,6 +170,20 @@ export const createOrder = async (req, res) => {
         });
       }
 
+      // If order is already paid, return idempotent success so frontend redirects correctly
+      if (existingOrder.status === "processing" || existingOrder.status === "completed") {
+        logger.info(
+          { wc_order_id: existingOrder.id, status: existingOrder.status },
+          "[Payment] Retry on already-paid order — returning idempotent success"
+        );
+        return res.json({
+          success: true,
+          already_paid: true,
+          order_id: existingOrder.id,
+          status: existingOrder.status,
+        });
+      }
+
       // Check order status is pending or on-hold
       if (existingOrder.status !== "pending" && existingOrder.status !== "on-hold") {
         return res.status(409).json({

@@ -1,4 +1,7 @@
+import safeStorage from "./safeStorage.js";
+
 export const CHECKOUT_IDEMP_STORAGE_KEY = "mumbai_checkout_idemp";
+export const PENDING_PAYMENT_STORAGE_KEY = "mumbai_pending_payment";
 
 /**
  * Computes a stable cart fingerprint based on sorted items, variation, quantities, and totals.
@@ -43,47 +46,28 @@ export function generateUUID() {
 /**
  * Returns the existing persisted idempotency key if the cart fingerprint matches.
  * If the cart has changed, or no key exists, generates and persists a new one.
+ *
+ * Uses localStorage (via safeStorage) instead of sessionStorage so the key survives
+ * Razorpay redirect-based payment flows (netbanking, UPI) that cause full page navigations.
+ * The key resets whenever the cart fingerprint changes or the order completes successfully.
  */
 export function getOrCreateCheckoutIdempotencyKey(cart) {
   const fingerprint = computeCartFingerprint(cart);
-  try {
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      const raw = window.sessionStorage.getItem(CHECKOUT_IDEMP_STORAGE_KEY);
-      if (raw) {
-        const stored = JSON.parse(raw);
-        if (stored && stored.fingerprint === fingerprint && stored.key) {
-          return stored.key;
-        }
-      }
-      const newKey = generateUUID();
-      window.sessionStorage.setItem(
-        CHECKOUT_IDEMP_STORAGE_KEY,
-        JSON.stringify({ fingerprint, key: newKey })
-      );
-      return newKey;
-    }
-  } catch (e) {
-    // Gracefully fall back if sessionStorage is disabled, full, or in private mode
+  const stored = safeStorage.getJSON(CHECKOUT_IDEMP_STORAGE_KEY, null);
+  if (stored && stored.fingerprint === fingerprint && stored.key) {
+    return stored.key;
   }
-  return generateUUID();
+  const newKey = generateUUID();
+  safeStorage.setJSON(CHECKOUT_IDEMP_STORAGE_KEY, { fingerprint, key: newKey });
+  return newKey;
 }
 
 /**
  * Clears the persisted idempotency key upon successful order completion.
  */
 export function clearCheckoutIdempotencyKey() {
-  try {
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      window.sessionStorage.removeItem(CHECKOUT_IDEMP_STORAGE_KEY);
-    }
-  } catch (e) {
-    // Ignore storage clearing error
-  }
+  safeStorage.removeItem(CHECKOUT_IDEMP_STORAGE_KEY);
 }
-
-import safeStorage from "./safeStorage.js";
-
-export const PENDING_PAYMENT_STORAGE_KEY = "mumbai_pending_payment";
 
 export function getPendingPayment() {
   return safeStorage.getJSON(PENDING_PAYMENT_STORAGE_KEY, null);

@@ -354,6 +354,21 @@ function BillingForm({ storeHours, onStoreClosed }) {
       });
 
       if (!orderRes || !orderRes.razorpay_order_id) {
+        // If the backend reports the order is already paid (e.g. after a Razorpay redirect retry),
+        // redirect to the success page rather than opening the gateway again.
+        if (orderRes?.already_paid) {
+          clearCheckoutIdempotencyKey();
+          clearPendingPayment();
+          pendingOrderIdRef.current = null;
+          await refreshCart().catch(() => {});
+          navigate(`/order-success/${orderRes.order_id}`, {
+            state: { paymentMethod: "Online Payment", status: orderRes.status || "Processing" },
+          });
+          isSubmittingRef.current = false;
+          setLoading(false);
+          setPaymentStep("");
+          return;
+        }
         throw new Error("Invalid payment order response from server.");
       }
 
@@ -672,12 +687,17 @@ function BillingForm({ storeHours, onStoreClosed }) {
           Payment Method
         </h3>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className={`grid gap-3 sm:grid-cols-2 transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
           {/* Cash on Delivery */}
           <button
             type="button"
             onClick={() => setPaymentMethod("cod")}
-            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all cursor-pointer ${
+            disabled={loading}
+            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all ${
+              loading
+                ? "cursor-not-allowed"
+                : "cursor-pointer"
+            } ${
               paymentMethod === "cod"
                 ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
                 : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
@@ -707,7 +727,12 @@ function BillingForm({ storeHours, onStoreClosed }) {
           <button
             type="button"
             onClick={() => setPaymentMethod("online")}
-            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all cursor-pointer ${
+            disabled={loading}
+            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all ${
+              loading
+                ? "cursor-not-allowed"
+                : "cursor-pointer"
+            } ${
               paymentMethod === "online"
                 ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
                 : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"

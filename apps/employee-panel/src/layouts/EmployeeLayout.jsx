@@ -42,7 +42,7 @@ function EmployeeLayout() {
     if (location.pathname === "/") return "Operational Dashboard";
     if (location.pathname === "/products/add") return "Add New Product";
     if (location.pathname === "/categories/add") return "Category Management";
-    if (location.pathname === "/banners") return "Homepage Banner Management";
+    if (location.pathname === "/banners") return "Banners";
     if (location.pathname.startsWith("/products")) return "Product Inventory";
     if (location.pathname.startsWith("/orders")) return "Orders & Dispatch Pipeline";
     return "Employee Panel";
