@@ -183,6 +183,7 @@ function ProfileSetup() {
   };
 
   const handleSendOtp = async () => {
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 
@@ -214,6 +215,7 @@ function ProfileSetup() {
   };
 
   const handleVerifyOtp = async () => {
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 
@@ -447,11 +449,8 @@ function ProfileSetup() {
     if (!isPhoneVerified) {
       setMessage({
         type: "error",
-        text: "Please verify your mobile number with OTP before saving your profile.",
+        text: "Please verify your mobile number with OTP before saving your profile. Click 'Verify' next to your mobile number to request a verification code.",
       });
-      if (!otpSent) {
-        handleSendOtp();
-      }
       return;
     }
 

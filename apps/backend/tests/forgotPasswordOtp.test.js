@@ -266,8 +266,8 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     assert.match(res.data.message, /Too many failed attempts/i);
   });
 
-  // 6. Resend before 60 seconds (Anti-enumeration rate limiting)
-  await suite.test("6. Resend Cooldown: Returns generic success without dispatching new Email during 60s cooldown", async () => {
+  // 6. Resend before 60 seconds returns 429 without dispatching new Email
+  await suite.test("6. Resend Cooldown: Returns 429 without dispatching new Email during 60s cooldown", async () => {
     wp.post = async (url) => {
       if (url.includes("/otp/store")) {
         return {
@@ -288,9 +288,10 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
       user: null,
     });
 
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.data.success, true);
-    assert.strictEqual(res.data.message, "If the number is registered, an OTP has been sent.");
+    assert.strictEqual(res.status, 429);
+    assert.strictEqual(res.data.success, false);
+    assert.strictEqual(res.data.retryAfter, 60);
+    assert.match(res.data.message, /wait 60 seconds/i);
   });
 
   // 7. Successful OTP invalidates OTP

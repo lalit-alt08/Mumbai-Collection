@@ -364,6 +364,7 @@ function Profile() {
   };
 
   const handleSendPhoneOtp = async () => {
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 
@@ -404,6 +405,7 @@ function Profile() {
   };
 
   const handleVerifyPhoneOtp = async () => {
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 

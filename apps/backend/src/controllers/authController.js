@@ -520,12 +520,22 @@ export const sendOtp = async (req, res) => {
     const targetEmail = storeResponse.data?.email || userEmail;
     const targetName = storeResponse.data?.name || userName || "Valued Customer";
 
-    // Account enumeration prevention: if reset_password and user was not found, in cooldown, or email not found
+    // Cooldown rate limiting: if reset_password and in cooldown, return HTTP 429
+    if (purpose === "reset_password" && storeResponse.data?.rate_limited === true) {
+      if (typeof res.set === "function") {
+        res.set("Retry-After", "60");
+      }
+      return res.status(429).json({
+        success: false,
+        message: "Please wait 60 seconds before requesting a new verification code.",
+        retryAfter: 60,
+      });
+    }
+
+    // Account enumeration prevention: if reset_password and user was not found, or email not found
     if (
       purpose === "reset_password" &&
-      (storeResponse.data?.user_found === false ||
-        storeResponse.data?.rate_limited === true ||
-        !targetEmail)
+      (storeResponse.data?.user_found === false || !targetEmail)
     ) {
       return res.status(200).json({
         success: true,

@@ -25,6 +25,38 @@ const isValidIndianPhone = (val) => {
   return /^[6-9]\d{9}$/.test(digits);
 };
 
+const resolveTargetIdentifier = (input) => {
+  const raw = String(input || "").trim();
+  if (!raw) {
+    return { error: "Please enter your registered email address or mobile number." };
+  }
+
+  // 1. Email input must always remain an email: detect via '@' before phone normalization
+  if (raw.includes("@")) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
+      return { error: "Please enter a valid email address." };
+    }
+    return { cleanTarget: raw.toLowerCase(), isEmail: true };
+  }
+
+  // 2. Only normalize digits when the input is actually a phone number
+  const digits = raw.replace(/\D/g, "");
+  let phoneDigits = digits;
+  if (phoneDigits.length === 13 && (phoneDigits.startsWith("919") || phoneDigits.startsWith("910"))) {
+    phoneDigits = phoneDigits.slice(3);
+  } else if (phoneDigits.length === 12 && phoneDigits.startsWith("91")) {
+    phoneDigits = phoneDigits.slice(2);
+  } else if (phoneDigits.length === 11 && phoneDigits.startsWith("0")) {
+    phoneDigits = phoneDigits.slice(1);
+  }
+
+  if (phoneDigits.length === 10 && isValidIndianPhone(phoneDigits)) {
+    return { cleanTarget: phoneDigits, isEmail: false };
+  }
+
+  return { error: "Please enter a valid 10-digit Indian mobile number or email address." };
+};
+
 function ForgotPassword() {
   const navigate = useNavigate();
 
@@ -42,6 +74,7 @@ function ForgotPassword() {
   // Steps: 1 = Enter Identifier, 2 = Enter OTP, 3 = New Password, 4 = Success
   const [otpStep, setOtpStep] = useState(1);
   const [identifier, setIdentifier] = useState("");
+  const [targetIdentifier, setTargetIdentifier] = useState("");
   const [maskedEmail, setMaskedEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [resetToken, setResetToken] = useState("");
@@ -72,6 +105,7 @@ function ForgotPassword() {
     setEmailSuccess("");
     setOtpError("");
     setOtpSuccess("");
+    setTargetIdentifier("");
   };
 
   // ─────────────────────────────────────────────
@@ -119,33 +153,22 @@ function ForgotPassword() {
   // Step 1: Request OTP
   const handleSendEmailOtp = async (e) => {
     if (e) e.preventDefault();
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 
-    const raw = identifier.trim();
-    if (!raw) {
-      setOtpError("Please enter your registered email address or mobile number.");
+    const resolved = resolveTargetIdentifier(identifier);
+    if (resolved.error) {
+      setOtpError(resolved.error);
       return;
     }
 
-    // Determine if it's a mobile number or email
-    const cleanDigits = raw.replace(/\D/g, "");
-    let cleanTarget = raw;
-    if (cleanDigits.length === 10 && isValidIndianPhone(cleanDigits)) {
-      cleanTarget = cleanDigits;
-    } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
-      cleanTarget = raw.toLowerCase();
-    } else if (cleanDigits.length > 0) {
-      setOtpError("Please enter a valid 10-digit mobile number or email address.");
-      return;
-    } else {
-      setOtpError("Please enter a valid email address.");
-      return;
-    }
+    const cleanTarget = resolved.cleanTarget;
 
     try {
       setOtpLoading(true);
       const res = await sendOtp(cleanTarget, "reset_password");
+      setTargetIdentifier(cleanTarget);
       setOtpStep(2);
       setCooldown(60);
       if (res.masked_email) {
@@ -169,15 +192,18 @@ function ForgotPassword() {
 
   // Step 2: Verify OTP
   const handleVerifyEmailOtp = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 
-    const raw = identifier.trim();
-    const cleanDigits = raw.replace(/\D/g, "");
-    const cleanTarget = cleanDigits.length === 10 ? cleanDigits : raw.toLowerCase();
-    const cleanOtp = String(otp || "").trim();
+    const cleanTarget = targetIdentifier || resolveTargetIdentifier(identifier).cleanTarget;
+    if (!cleanTarget) {
+      setOtpError("Invalid session. Please return to Step 1.");
+      return;
+    }
 
+    const cleanOtp = String(otp || "").trim();
     if (!cleanOtp || cleanOtp.length !== 6) {
       setOtpError("Please enter the 6-digit verification code.");
       return;
@@ -205,7 +231,8 @@ function ForgotPassword() {
 
   // Step 3: Reset Password with Reset Token
   const handleResetPasswordSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (otpLoading) return;
     setOtpError("");
     setOtpSuccess("");
 
@@ -224,9 +251,11 @@ function ForgotPassword() {
       return;
     }
 
-    const raw = identifier.trim();
-    const cleanDigits = raw.replace(/\D/g, "");
-    const cleanTarget = cleanDigits.length === 10 ? cleanDigits : raw.toLowerCase();
+    const cleanTarget = targetIdentifier || resolveTargetIdentifier(identifier).cleanTarget;
+    if (!cleanTarget) {
+      setOtpError("Invalid session. Please return to Step 1.");
+      return;
+    }
 
     try {
       setOtpLoading(true);
@@ -236,6 +265,7 @@ function ForgotPassword() {
         setResetToken("");
         setNewPassword("");
         setConfirmPassword("");
+        setTargetIdentifier("");
         setOtpStep(4);
       } else {
         setOtpError(res.message || "Unable to reset password. Please try again.");
@@ -470,6 +500,7 @@ function ForgotPassword() {
                         setOtpStep(1);
                         setOtp("");
                         setOtpError("");
+                        setTargetIdentifier("");
                       }}
                       className="text-[13px] font-semibold text-[#7C3AED] hover:underline"
                     >
