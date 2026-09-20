@@ -431,7 +431,7 @@ function Terms() {
                 </p>
                 <p className="flex items-center gap-2">
                   <Phone size={15} className="text-[#7C3AED] shrink-0" />
-                  <span><strong>Phone:</strong> +91 73399 51567</span>
+                  <span><strong>Phone:</strong> +91 87936 01567</span>
                 </p>
                 <p className="flex items-start gap-2">
                   <MapPin size={15} className="text-[#7C3AED] shrink-0 mt-0.5" />

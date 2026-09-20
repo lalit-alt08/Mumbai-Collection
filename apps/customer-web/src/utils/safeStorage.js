@@ -22,13 +22,10 @@ function isStorageAvailable(type) {
   }
 }
 
-const hasLocalStorage = isStorageAvailable("localStorage");
-const hasSessionStorage = isStorageAvailable("sessionStorage");
-
 export const safeStorage = {
   getItem(key) {
     try {
-      if (hasLocalStorage && typeof window !== "undefined" && window.localStorage) {
+      if (typeof window !== "undefined" && window.localStorage) {
         return window.localStorage.getItem(key);
       }
     } catch (_) {}
@@ -38,7 +35,7 @@ export const safeStorage = {
   setItem(key, value) {
     const stringValue = String(value);
     try {
-      if (hasLocalStorage && typeof window !== "undefined" && window.localStorage) {
+      if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.setItem(key, stringValue);
         return;
       }
@@ -48,7 +45,7 @@ export const safeStorage = {
 
   removeItem(key) {
     try {
-      if (hasLocalStorage && typeof window !== "undefined" && window.localStorage) {
+      if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.removeItem(key);
       }
     } catch (_) {}
@@ -77,7 +74,7 @@ export const safeStorage = {
 export const safeSessionStorage = {
   getItem(key) {
     try {
-      if (hasSessionStorage && typeof window !== "undefined" && window.sessionStorage) {
+      if (typeof window !== "undefined" && window.sessionStorage) {
         return window.sessionStorage.getItem(key);
       }
     } catch (_) {}
@@ -87,7 +84,7 @@ export const safeSessionStorage = {
   setItem(key, value) {
     const stringValue = String(value);
     try {
-      if (hasSessionStorage && typeof window !== "undefined" && window.sessionStorage) {
+      if (typeof window !== "undefined" && window.sessionStorage) {
         window.sessionStorage.setItem(key, stringValue);
         return;
       }
@@ -97,7 +94,7 @@ export const safeSessionStorage = {
 
   removeItem(key) {
     try {
-      if (hasSessionStorage && typeof window !== "undefined" && window.sessionStorage) {
+      if (typeof window !== "undefined" && window.sessionStorage) {
         window.sessionStorage.removeItem(key);
       }
     } catch (_) {}

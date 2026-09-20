@@ -44,7 +44,7 @@ function ReturnPolicy() {
         </div>
 
         <a
-          href="https://wa.me/917339951567?text=Hi%20Mumbai%20Collection,%20I%20have%20a%20question%20regarding%20returns."
+          href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20have%20a%20question%20regarding%20returns."
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 rounded-full bg-[#25D366]/10 px-3 py-1.5 text-xs font-bold text-[#128C7E] transition hover:bg-[#25D366]/20 active:scale-95"
@@ -56,31 +56,42 @@ function ReturnPolicy() {
 
       {/* ================= CONTENT CONTAINER ================= */}
       <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6 space-y-5">
-        {/* ================= 1. THE 72-HOUR RULE CARD ================= */}
-        <div className="rounded-[20px] border border-gray-100 bg-white p-5 shadow-xs sm:p-6 space-y-3">
+        {/* ================= 1. CONTACT STORE FOR RETURN VERIFICATION CARD ================= */}
+        <div className="rounded-[20px] border border-gray-100 bg-white p-5 shadow-xs sm:p-6 space-y-3.5">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-              <Clock size={19} />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#EDE9FE] text-[#6D28D9]">
+              <MessageCircle size={19} />
             </div>
             <div>
               <h3 className="text-base font-bold text-gray-900">
-                1. The 72-Hour Reporting Window
+                1. Contact Store to Verify Return Eligibility
               </h3>
               <p className="text-xs text-gray-500">
-                Timeframe starts immediately upon delivery confirmation
+                Prior store confirmation required before initiating any return or exchange
               </p>
             </div>
           </div>
 
           <p className="text-xs sm:text-sm text-gray-600 leading-relaxed">
-            All return, replacement, or damage claims must be initiated within <strong>72 hours (3 days)</strong> of the delivery timestamp recorded by our courier partner.
+            Please <strong>contact our store directly to verify whether the product is returnable or not</strong>. Because Mumbai Collection carries toys, games, stationery, and collectibles with varying manufacturer return and exchange policies, our store team must confirm return eligibility before an item can be accepted for return or replacement.
           </p>
 
-          <div className="rounded-xl bg-amber-50/70 p-3.5 border border-amber-100 text-xs text-amber-900 leading-relaxed flex items-start gap-2.5">
-            <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
-            <span>
-              <strong>Why 72 hours?</strong> Being a local Vasai quick store, prompt reporting allows us to dispatch our local delivery agent for a same-day doorstep inspection and replacement before distributor batches sell out.
-            </span>
+          <div className="rounded-xl bg-purple-50/70 p-3.5 border border-purple-100 text-xs text-[#5B21B6] leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle size={16} className="shrink-0 text-[#7C3AED] mt-0.5" />
+              <span>
+                <strong>How to verify:</strong> Message or call our Vasai store team at <strong>+91 87936 01567</strong> with your Order ID and photos of the product. Our team will verify whether the product is eligible for return or exchange within 72 hours of delivery.
+              </span>
+            </div>
+            <a
+              href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20want%20to%20verify%20whether%20my%20product%20is%20returnable%20or%20not."
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#25D366] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#20bd5a] active:scale-95 shrink-0 self-start sm:self-auto"
+            >
+              <MessageCircle size={14} />
+              <span>Verify on WhatsApp</span>
+            </a>
           </div>
         </div>
 
@@ -153,7 +164,7 @@ function ReturnPolicy() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-rose-600 font-bold">•</span>
-                  <span><strong>Reported After 72 Hours:</strong> Requests initiated after the 72-hour window has lapsed.</span>
+                  <span><strong>Unverified or Late Claims:</strong> Items returned without prior store verification or requested after the 72-hour window.</span>
                 </li>
               </ul>
             </div>
@@ -171,7 +182,7 @@ function ReturnPolicy() {
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a
-              href="https://wa.me/917339951567?text=Hi%20Mumbai%20Collection,%20I%20would%20like%20to%20request%20a%20return/replacement%20for%20my%20order."
+              href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20would%20like%20to%20request%20a%20return/replacement%20for%20my%20order."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-5 py-2.5 text-xs font-bold text-white transition hover:bg-[#1EBE5D] active:scale-95 shadow-sm"

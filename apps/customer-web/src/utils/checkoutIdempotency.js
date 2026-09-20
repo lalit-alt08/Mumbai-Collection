@@ -3,14 +3,10 @@ import safeStorage from "./safeStorage.js";
 export const CHECKOUT_IDEMP_STORAGE_KEY = "mumbai_checkout_idemp";
 export const PENDING_PAYMENT_STORAGE_KEY = "mumbai_pending_payment";
 
-/**
- * Computes a stable cart fingerprint based on sorted items, variation, quantities, and totals.
- * Changing quantities or items produces a different fingerprint.
- */
-export function computeCartFingerprint(cart) {
+export function computeCartItemsFingerprint(cart) {
   if (!cart) return "empty";
   const items = Array.isArray(cart.items) ? cart.items : [];
-  const itemsKey = items
+  return items
     .map((item) => {
       const id = item.id ?? item.product_id ?? "";
       const variationId =
@@ -23,6 +19,15 @@ export function computeCartFingerprint(cart) {
     })
     .sort()
     .join("|");
+}
+
+/**
+ * Computes a stable cart fingerprint based on sorted items, variation, quantities, and totals.
+ * Changing quantities or items produces a different fingerprint.
+ */
+export function computeCartFingerprint(cart) {
+  if (!cart) return "empty";
+  const itemsKey = computeCartItemsFingerprint(cart);
 
   const total =
     cart.totals?.total_price ??

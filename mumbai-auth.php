@@ -1905,6 +1905,60 @@ add_action('woocommerce_check_cart_items', function () {
 
 /*
  * ─────────────────────────────────────────────
+ * WOOCOMMERCE EMAIL NOTIFICATIONS CONFIGURATION
+ * ─────────────────────────────────────────────
+ * Mutes routine administrative emails sent to the store owner / admin mailbox:
+ *   - New Order (new_order)
+ *   - Cancelled Order (cancelled_order)
+ *   - Failed Order (failed_order)
+ *   - Low Stock (low_stock)
+ *   - No Stock (no_stock)
+ *   - Backorder (backorder)
+ * These operational events are already actively monitored in the dedicated
+ * Admin and Employee panels.
+ *
+ * All customer transactional emails (order processing, order completed, on-hold,
+ * customer invoice, notes, refunds, account welcome, password reset) REMAIN
+ * ENABLED and addressed to the customer's registered/billing email.
+ */
+
+// 1. Disable routine admin order notifications via recipient & enabled filters
+$mumbai_admin_email_types = ['new_order', 'cancelled_order', 'failed_order'];
+foreach ($mumbai_admin_email_types as $mumbai_email_id) {
+    add_filter("woocommerce_email_recipient_{$mumbai_email_id}", '__return_empty_string', 99, 3);
+    add_filter("woocommerce_email_enabled_{$mumbai_email_id}", '__return_false', 99, 3);
+}
+
+// 2. Disable routine admin stock & inventory notifications via recipient filters
+add_filter('woocommerce_email_recipient_low_stock', '__return_empty_string', 99, 2);
+add_filter('woocommerce_email_recipient_no_stock', '__return_empty_string', 99, 2);
+add_filter('woocommerce_email_recipient_backorder', '__return_empty_string', 99, 2);
+
+// 3. Prevent WooCommerce stock notification checks from querying recipients or triggering mail
+add_filter('pre_option_woocommerce_notify_low_stock', function () { return 'no'; }, 99);
+add_filter('pre_option_woocommerce_notify_no_stock', function () { return 'no'; }, 99);
+add_filter('pre_option_woocommerce_stock_email_recipient', '__return_empty_string', 99);
+
+// 4. Fallback safeguard on WooCommerce email classes registration:
+// Ensures any routine non-customer (admin) email is disabled while strictly preserving customer emails
+add_filter('woocommerce_email_classes', function ($emails) {
+    if (!is_array($emails)) {
+        return $emails;
+    }
+    foreach ($emails as $email) {
+        if (is_object($email) && method_exists($email, 'is_customer_email')) {
+            // Strictly target admin emails; never touch customer transactional emails
+            if (!$email->is_customer_email()) {
+                $email->enabled = 'no';
+                $email->recipient = '';
+            }
+        }
+    }
+    return $emails;
+}, 99, 1);
+
+/*
+ * ─────────────────────────────────────────────
  * OTP ENDPOINTS & PHONE VERIFICATION HOOKS
  * ─────────────────────────────────────────────
  */

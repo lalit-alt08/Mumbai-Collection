@@ -21,6 +21,7 @@ import { getIndianStateCode } from "../../data/indianStates";
 import {
   CHECKOUT_IDEMP_STORAGE_KEY,
   computeCartFingerprint,
+  computeCartItemsFingerprint,
   generateUUID,
   getOrCreateCheckoutIdempotencyKey,
   clearCheckoutIdempotencyKey,
@@ -83,7 +84,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isSubmittingRef = useRef(false);
-  const pendingOrderIdRef = useRef(null);
+  const pendingOrderIdRef = useRef(getPendingPayment()?.order_id || null);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
 
   const verifyPendingOrder = useCallback(async () => {
@@ -97,7 +98,12 @@ function BillingForm({ storeHours, onStoreClosed }) {
     }
 
     const currentFingerprint = computeCartFingerprint(cart);
-    if (stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint) {
+    const currentItemsFingerprint = computeCartItemsFingerprint(cart);
+    const itemsChanged = stored.itemsFingerprint
+      ? stored.itemsFingerprint !== currentItemsFingerprint
+      : stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint;
+
+    if (itemsChanged) {
       clearPendingPayment();
       pendingOrderIdRef.current = null;
       return;
@@ -139,8 +145,13 @@ function BillingForm({ storeHours, onStoreClosed }) {
   useEffect(() => {
     idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
     const currentFingerprint = computeCartFingerprint(cart);
+    const currentItemsFingerprint = computeCartItemsFingerprint(cart);
     const stored = getPendingPayment();
-    if (stored && stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint) {
+    const itemsChanged = stored?.itemsFingerprint
+      ? stored.itemsFingerprint !== currentItemsFingerprint
+      : stored?.cartFingerprint && stored.cartFingerprint !== currentFingerprint;
+
+    if (itemsChanged) {
       clearPendingPayment();
       pendingOrderIdRef.current = null;
     }
@@ -378,6 +389,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
         order_id: orderRes.order_id,
         razorpay_order_id: orderRes.razorpay_order_id,
         cartFingerprint: computeCartFingerprint(cart),
+        itemsFingerprint: computeCartItemsFingerprint(cart),
         timestamp: Date.now(),
       });
 
@@ -586,7 +598,10 @@ function BillingForm({ storeHours, onStoreClosed }) {
           <button
             type="button"
             onClick={() => navigate("/account/addresses")}
-            className="flex items-center gap-1 text-[13px] font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8] hover:underline"
+            disabled={loading}
+            className={`flex items-center gap-1 text-[13px] font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8] hover:underline ${
+              loading ? "opacity-50 pointer-events-none cursor-not-allowed" : ""
+            }`}
           >
             <Plus size={15} />
             Add Address
@@ -609,13 +624,16 @@ function BillingForm({ storeHours, onStoreClosed }) {
             <button
               type="button"
               onClick={() => navigate("/account/addresses")}
-              className="mt-3 rounded-xl bg-[#7C3AED] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#6C35E8]"
+              disabled={loading}
+              className={`mt-3 rounded-xl bg-[#7C3AED] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#6C35E8] ${
+                loading ? "opacity-50 pointer-events-none cursor-not-allowed" : ""
+              }`}
             >
               Add Address
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className={`space-y-3 transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
             {addresses.map((address) => {
               const isSelected = selectedAddressId === address.id;
 
@@ -625,6 +643,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
                 <button
                   key={address.id}
                   type="button"
+                  disabled={loading}
                   onClick={() => setSelectedAddressId(address.id)}
                   className={`w-full rounded-[16px] border-2 p-4 text-left transition-all ${
                     isSelected

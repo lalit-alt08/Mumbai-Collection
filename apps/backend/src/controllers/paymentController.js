@@ -192,6 +192,21 @@ export const createOrder = async (req, res) => {
         });
       }
 
+      // If billing or shipping addresses were changed/provided on retry, update order addresses in WC
+      if (req.body.billing_address || req.body.shipping_address) {
+        try {
+          const updateAddr = {};
+          if (req.body.billing_address) updateAddr.billing = req.body.billing_address;
+          if (req.body.shipping_address) updateAddr.shipping = req.body.shipping_address;
+          await api.put(`orders/${existingOrder.id}`, updateAddr);
+        } catch (addrErr) {
+          logger.warn(
+            { wc_order_id: existingOrder.id, err: addrErr.message },
+            "[Payment] Failed to update addresses on retry order"
+          );
+        }
+      }
+
       const existingRzpOrderId = getExistingRazorpayOrderId(existingOrder);
       const amountInPaise = totalToPaise(existingOrder.total);
 
@@ -374,11 +389,45 @@ export const createOrder = async (req, res) => {
       ...(shippingLines.length > 0 && { shipping_lines: shippingLines }),
     };
 
-    // ── 7. Create WooCommerce order ───────────────────────────────────────
+    // ── 7. Create or Reuse Existing Pending WooCommerce order ──────────────
     let wcOrder;
     try {
-      const orderResponse = await api.post("orders", wcOrderPayload);
-      wcOrder = orderResponse.data;
+      // Prevent duplicate orders: if this customer already has an active pending order
+      // created within the last 15 minutes, reuse and update it instead of creating another order.
+      if (Number(userId) > 0) {
+        try {
+          const recentOrdersRes = await api.get("orders", {
+            customer: Number(userId),
+            status: "pending",
+            per_page: 5,
+            orderby: "date",
+            order: "desc",
+          });
+          const recentPending = (Array.isArray(recentOrdersRes.data) ? recentOrdersRes.data : []).find((ord) => {
+            const createdAt = new Date(ord.date_created_gmt || ord.date_created).getTime();
+            return Date.now() - createdAt < 15 * 60 * 1000 && ord.status === "pending";
+          });
+
+          if (recentPending) {
+            logger.info(
+              { customer_id: userId, existing_order_id: recentPending.id },
+              "[Payment] Found recent pending order for customer — updating and reusing"
+            );
+            await api.put(`orders/${recentPending.id}`, {
+              billing: wcOrderPayload.billing,
+              shipping: wcOrderPayload.shipping,
+            });
+            wcOrder = recentPending;
+          }
+        } catch (findErr) {
+          logger.warn({ err: findErr.message }, "[Payment] Notice: check for existing pending order encountered non-fatal error");
+        }
+      }
+
+      if (!wcOrder) {
+        const orderResponse = await api.post("orders", wcOrderPayload);
+        wcOrder = orderResponse.data;
+      }
     } catch (wcErr) {
       logError(req, wcErr, "[Payment] WooCommerce order creation failed");
 

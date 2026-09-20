@@ -8,7 +8,7 @@ import {
   CHECKOUT_IDEMP_STORAGE_KEY,
 } from "../src/utils/checkoutIdempotency.js";
 
-// Minimal mock for browser window.sessionStorage
+// Minimal mock for browser window storage (sessionStorage and localStorage)
 function setupMockSessionStorage() {
   const store = new Map();
   const mockStorage = {
@@ -20,6 +20,7 @@ function setupMockSessionStorage() {
 
   globalThis.window = {
     sessionStorage: mockStorage,
+    localStorage: mockStorage,
   };
 
   return { store, mockStorage };
@@ -153,18 +154,20 @@ test("Checkout Idempotency Persistence & Cart Fingerprinting Suite", async (t) =
     assert.notEqual(key2, key1, "Next checkout must receive a fresh key after clearance");
   });
 
-  await t.test("6. Graceful fallback when sessionStorage throws (e.g. private browsing / quota exceeded)", () => {
-    // Mock sessionStorage that throws on access
-    globalThis.window = {
-      sessionStorage: {
-        getItem: () => {
-          throw new Error("SecurityError: Storage disabled");
-        },
-        setItem: () => {
-          throw new Error("QuotaExceededError");
-        },
-        removeItem: () => {},
+  await t.test("6. Graceful fallback when storage throws (e.g. private browsing / quota exceeded)", () => {
+    // Mock storage that throws on access
+    const errorStorage = {
+      getItem: () => {
+        throw new Error("SecurityError: Storage disabled");
       },
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+      removeItem: () => {},
+    };
+    globalThis.window = {
+      sessionStorage: errorStorage,
+      localStorage: errorStorage,
     };
 
     const cart = {

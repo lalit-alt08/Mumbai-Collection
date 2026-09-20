@@ -166,7 +166,7 @@ function ProductCard({ product }) {
                 }}
                 className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#7C3AED] bg-white px-2.5 sm:px-3 text-xs font-bold text-[#7C3AED] transition-all duration-200 hover:bg-[#7C3AED] hover:text-white hover:shadow-[0_4px_14px_rgba(124,58,237,0.2)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {updatingCart ? "..." : isOutOfStock ? "Sold Out" : "ADD"}
+                {isOutOfStock ? "Sold Out" : "ADD"}
               </button>
             ) : (
               <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#7C3AED] text-white shadow-[0_4px_14px_rgba(124,58,237,0.2)]">
