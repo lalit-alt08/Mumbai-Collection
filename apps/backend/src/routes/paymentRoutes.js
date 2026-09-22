@@ -20,6 +20,7 @@ import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 import {
   createOrder,
   verifyPayment,
+  checkPaymentStatus,
   handleWebhook,
   reconcileOrder,
 } from "../controllers/paymentController.js";
@@ -45,6 +46,15 @@ router.post(
   requireAuth("customer"),
   requireVerifiedPhone,
   verifyPayment
+);
+
+// POST /api/payments/check-status (App-Switch / Visibility / Reopen Recovery)
+router.post(
+  "/check-status",
+  validateRequest({ body: schemas.paymentCheckStatus }),
+  checkoutLimiter,
+  requireAuth("customer"),
+  checkPaymentStatus
 );
 
 // POST /api/payments/webhook

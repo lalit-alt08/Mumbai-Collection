@@ -178,6 +178,37 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_otp_reset_password',
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
+    // Payment Intent & Atomic Lock Endpoints (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/payment-intent/store', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_store',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/get', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_get',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/delete', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_delete',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/lock', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_lock',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/unlock', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_unlock',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/cart/clear', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_cart_clear',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
     // Internal endpoints (Node.js only — require API key)
     register_rest_route('mumbai-auth/v1', '/addresses', [
         'methods'             => 'GET',
@@ -2010,9 +2041,10 @@ function mumbai_otp_store(WP_REST_Request $request) {
 
     $user = null;
     if ($purpose === 'reset_password') {
-        $user = mumbai_get_user_by_phone($phone);
-        if (!$user && is_email($phone)) {
+        if (is_email($phone)) {
             $user = get_user_by('email', $phone);
+        } else {
+            $user = mumbai_get_user_by_phone($phone);
         }
         if (!$user) {
             return array_merge($generic_success, ['user_found' => false]);
@@ -2066,9 +2098,10 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
 
     $user = null;
     if ($purpose === 'reset_password') {
-        $user = mumbai_get_user_by_phone($phone);
-        if (!$user && is_email($phone)) {
+        if (is_email($phone)) {
             $user = get_user_by('email', $phone);
+        } else {
+            $user = mumbai_get_user_by_phone($phone);
         }
     } else if ($user_id) {
         $user = get_user_by('id', $user_id);
@@ -2097,9 +2130,10 @@ function mumbai_otp_verify(WP_REST_Request $request) {
 
     $user = null;
     if ($purpose === 'reset_password') {
-        $user = mumbai_get_user_by_phone($phone);
-        if (!$user && is_email($phone)) {
+        if (is_email($phone)) {
             $user = get_user_by('email', $phone);
+        } else {
+            $user = mumbai_get_user_by_phone($phone);
         }
         if (!$user) {
             return new WP_Error('invalid_otp', 'Invalid or expired OTP.', ['status' => 400]);
@@ -2187,9 +2221,10 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
         return new WP_Error('weak_password', 'Password must be at least 8 characters.', ['status' => 400]);
     }
 
-    $user = mumbai_get_user_by_phone($phone);
-    if (!$user && is_email($phone)) {
+    if (is_email($phone)) {
         $user = get_user_by('email', $phone);
+    } else {
+        $user = mumbai_get_user_by_phone($phone);
     }
     if (!$user) {
         return new WP_Error('invalid_request', 'Invalid request.', ['status' => 400]);
@@ -3464,3 +3499,101 @@ function mumbai_admin_customer_suspension_unsuspend(WP_REST_Request $request) {
         ],
     ]);
 }
+
+/**
+ * ─────────────────────────────────────────────
+ * PAYMENT INTENT & ATOMIC LOCKING (Internal Node.js only)
+ * ─────────────────────────────────────────────
+ */
+
+function mumbai_payment_intent_store(WP_REST_Request $request) {
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    $payload      = $request->get_param('payload');
+    $expires_in   = absint($request->get_param('expires_in') ?? 3600);
+
+    if (empty($rzp_order_id) || empty($payload)) {
+        return new WP_Error('missing_params', 'rzp_order_id and payload are required.', ['status' => 400]);
+    }
+
+    if ($expires_in <= 0) $expires_in = 3600;
+
+    set_transient('_mumbai_pay_' . $rzp_order_id, $payload, $expires_in);
+    return rest_ensure_response(['success' => true]);
+}
+
+function mumbai_payment_intent_get(WP_REST_Request $request) {
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    if (empty($rzp_order_id)) {
+        return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
+    }
+
+    $intent = get_transient('_mumbai_pay_' . $rzp_order_id);
+    return rest_ensure_response([
+        'success' => true,
+        'intent'  => $intent ? $intent : null,
+    ]);
+}
+
+function mumbai_payment_intent_delete(WP_REST_Request $request) {
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    if (empty($rzp_order_id)) {
+        return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
+    }
+
+    delete_transient('_mumbai_pay_' . $rzp_order_id);
+    return rest_ensure_response(['success' => true]);
+}
+
+function mumbai_payment_intent_lock(WP_REST_Request $request) {
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    $worker_id    = sanitize_text_field($request->get_param('worker_id') ?? 'worker');
+
+    if (empty($rzp_order_id)) {
+        return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
+    }
+
+    $opt_name  = '_mumbai_lock_' . $rzp_order_id;
+    $lock_data = [
+        'locked_at' => time(),
+        'worker_id' => $worker_id,
+    ];
+
+    $acquired = add_option($opt_name, $lock_data, '', 'no');
+    if (!$acquired) {
+        $existing = get_option($opt_name);
+        if (is_array($existing) && isset($existing['locked_at']) && (time() - (int) $existing['locked_at'] > 30)) {
+            // Stale lock recovery (worker crashed or timed out > 30 seconds ago)
+            update_option($opt_name, $lock_data);
+            $acquired = true;
+        }
+    }
+
+    return rest_ensure_response([
+        'success'  => true,
+        'acquired' => (bool) $acquired,
+    ]);
+}
+
+function mumbai_payment_intent_unlock(WP_REST_Request $request) {
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    if (empty($rzp_order_id)) {
+        return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
+    }
+
+    delete_option('_mumbai_lock_' . $rzp_order_id);
+    return rest_ensure_response(['success' => true]);
+}
+
+function mumbai_cart_clear(WP_REST_Request $request) {
+    $user_id = absint($request->get_param('user_id') ?? 0);
+    if ($user_id > 0 && class_exists('WC_Session_Handler')) {
+        try {
+            $session_handler = new WC_Session_Handler();
+            $session_handler->delete_session($user_id);
+        } catch (\Throwable $e) {
+            mumbai_log("Warning: Failed to delete WC session for customer {$user_id}: " . $e->getMessage());
+        }
+    }
+    return rest_ensure_response(['success' => true]);
+}
+

@@ -118,10 +118,13 @@ export const schemas = {
     }).passthrough().optional(),
   }).passthrough(),
   paymentVerify: z.object({
-    order_id: positiveId,
+    order_id: positiveId.optional().nullable(),
     razorpay_order_id: boundedString(100),
     razorpay_payment_id: boundedString(100),
     razorpay_signature: boundedString(256),
+  }).passthrough(),
+  paymentCheckStatus: z.object({
+    razorpay_order_id: boundedString(100),
   }).passthrough(),
   idParam: z.object({ id: positiveId }).passthrough(),
   addressIdParam: z.object({

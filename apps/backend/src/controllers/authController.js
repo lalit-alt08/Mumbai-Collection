@@ -428,8 +428,12 @@ export const sendOtp = async (req, res) => {
     }
 
     let cleanPhone = "";
-    if (purpose === "verify_phone") {
-      const normalized = normalizePhoneNumber(phone);
+    const rawInput = String(phone || "").trim();
+    const isEmailInput = rawInput.includes("@");
+    if (isEmailInput) {
+      cleanPhone = rawInput.toLowerCase();
+    } else if (purpose === "verify_phone") {
+      const normalized = normalizePhoneNumber(rawInput);
       if (!normalized) {
         return res.status(400).json({
           success: false,
@@ -438,8 +442,8 @@ export const sendOtp = async (req, res) => {
       }
       cleanPhone = normalized.local;
     } else {
-      const normalized = normalizePhoneNumber(phone);
-      cleanPhone = normalized ? normalized.local : String(phone).trim();
+      const normalized = normalizePhoneNumber(rawInput);
+      cleanPhone = normalized ? normalized.local : rawInput;
     }
 
     if (process.env.NODE_ENV !== "production") {
@@ -620,11 +624,18 @@ export const verifyOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing parameters." });
     }
 
-    const normalized = normalizePhoneNumber(phone);
-    const cleanPhone =
-      purpose === "verify_phone"
-        ? (normalized ? normalized.local : String(phone).replace(/\D/g, ""))
-        : (normalized ? normalized.local : String(phone).trim());
+    const rawPhone = String(phone || "").trim();
+    const isEmail = rawPhone.includes("@");
+    let cleanPhone = "";
+    if (isEmail) {
+      cleanPhone = rawPhone.toLowerCase();
+    } else if (purpose === "verify_phone") {
+      const normalized = normalizePhoneNumber(rawPhone);
+      cleanPhone = normalized ? normalized.local : rawPhone.replace(/\D/g, "");
+    } else {
+      const normalized = normalizePhoneNumber(rawPhone);
+      cleanPhone = normalized ? normalized.local : rawPhone;
+    }
 
     // Hardening: verify_phone OTP verify strictly requires an authenticated customer session.
     // Customer identity must be derived solely from the authenticated session.
@@ -700,8 +711,15 @@ export const resetPasswordOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing parameters." });
     }
 
-    const normalized = normalizePhoneNumber(phone);
-    const cleanPhone = normalized ? normalized.local : String(phone).trim();
+    const rawPhone = String(phone || "").trim();
+    const isEmail = rawPhone.includes("@");
+    let cleanPhone = "";
+    if (isEmail) {
+      cleanPhone = rawPhone.toLowerCase();
+    } else {
+      const normalized = normalizePhoneNumber(rawPhone);
+      cleanPhone = normalized ? normalized.local : rawPhone;
+    }
 
     const resetResponse = await wp.post(
       "/wp-json/mumbai-auth/v1/otp/reset-password",

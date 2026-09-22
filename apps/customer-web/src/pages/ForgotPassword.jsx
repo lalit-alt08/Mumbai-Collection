@@ -530,7 +530,7 @@ function ForgotPassword() {
                     required
                   />
                   <p className="mt-2 text-xs text-gray-500 font-medium">
-                    Please check your registered email inbox and spam folder for the code.
+                    Please check your registered email inbox, spam folder, or "Updates" / "Promotions" tab (especially for Gmail).
                   </p>
                 </div>
 

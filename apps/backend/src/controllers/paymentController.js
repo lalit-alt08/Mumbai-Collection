@@ -1,29 +1,38 @@
 /**
- * Payment Controller — Stage 1: Backend Payment Foundation
- *
- * Handles:
- * - POST /api/payments/create-order  → Creates WooCommerce pending order + Razorpay order
- * - POST /api/payments/verify        → Verifies Razorpay payment and marks WC order processing
+ * Payment Controller — Deferred WooCommerce Order Creation for Razorpay
  *
  * Architecture:
- * 1. WooCommerce is the authoritative source for order totals, prices, stock, and inventory.
- * 2. Razorpay handles payment transactions.
- * 3. Node orchestrates, validates, and verifies.
+ * 1. createOrder (New Checkout):
+ *    - Validates all guards (suspension, store hours, address, stock, min ₹500, phone verification).
+ *    - Calculates authoritative amount in paise directly from live cart.
+ *    - Creates Razorpay order ONLY (receipt: rcpt_<userId>_<timestamp>).
+ *    - Stores signed/sanitized payment intent with 1-hour expiry in fast memory cache & WordPress transient.
+ *    - Returns Razorpay order details with order_id: null.
+ *    - INVARIANT: 0 WooCommerce orders created before payment capture.
  *
- * SECURITY:
- * - Amount is NEVER accepted from the frontend.
- * - Signature verification uses HMAC SHA256 with timing-safe comparison.
- * - Payment amount is cross-verified against WooCommerce order total.
- * - Customer ownership is validated before any order modification.
- * - No secrets, signatures, or sensitive payment data are logged.
+ * 2. finalizePaymentAndCreateOrder (Browser Verify & Webhook & App-Switch Recovery):
+ *    - Verifies HMAC SHA256 signature / payment capture state / exact amount.
+ *    - Acquires WordPress-backed atomic lock for rzp_order_id (with stale-lock self-healing).
+ *    - Re-checks if WooCommerce order was already created for this rzp_order_id (idempotent duplicate prevention).
+ *    - Revalidates checkout state (stock, suspension, store hours, amount, customer ID).
+ *    - If validation fails, records recoverable anomaly state and never creates corrupt order.
+ *    - Creates ONE WooCommerce order directly with status: "processing", set_paid: true, transaction_id.
+ *    - ONLY after WooCommerce order creation succeeds:
+ *      - Deletes payment intent.
+ *      - Clears customer WooCommerce cart session.
+ *      - Invalidates operational caches.
+ *    - Releases lock in finally block.
+ *    - Returns created WooCommerce order ID.
  */
 
-import api from "../config/woocommerce.js";
+import crypto from "crypto";
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
-import { logError, logger } from "../utils/logger.js";
+import https from "https";
+import api from "../config/woocommerce.js";
+import { logger, logError } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import storeHoursService from "../services/storeHoursService.js";
+import paymentIntentService from "../services/paymentIntentService.js";
 import {
   createRazorpayOrder,
   verifyPaymentSignature,
@@ -33,8 +42,12 @@ import {
   fetchRazorpayOrderPayments,
 } from "../services/razorpayService.js";
 
-const WP_BASE_URL = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 const MIN_ORDER_VALUE_INR = 500;
+
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: process.env.NODE_ENV === "production",
+});
 
 // Safe last-known store-hours fallback cache with maximum 5-minute TTL
 let lastKnownStoreStatus = null;
@@ -66,7 +79,7 @@ const getCustomerCart = async (wpAuthCookie) => {
 /**
  * Reads an existing Razorpay order ID from WooCommerce order meta.
  */
-const getExistingRazorpayOrderId = (order) => {
+export const getExistingRazorpayOrderId = (order) => {
   if (!order?.meta_data || !Array.isArray(order.meta_data)) return null;
   const meta = order.meta_data.find((m) => m.key === "_razorpay_order_id");
   return meta?.value || null;
@@ -75,10 +88,47 @@ const getExistingRazorpayOrderId = (order) => {
 /**
  * Converts WooCommerce order total (string like "1250.00") to paise (integer 125000).
  */
-const totalToPaise = (total) => {
+export const totalToPaise = (total) => {
   const parsed = parseFloat(total);
   if (isNaN(parsed) || parsed <= 0) return 0;
   return Math.round(parsed * 100);
+};
+
+/**
+ * Computes a stable cart fingerprint based on sorted items, variation, quantities, and totals.
+ */
+export const computeCartFingerprint = (cart) => {
+  if (!cart) return "";
+  const items = (cart.items || []).map((i) => ({
+    id: i.id,
+    variation_id: i.variation_id || null,
+    quantity: i.quantity,
+    totals: i.totals?.line_total || null,
+  }));
+  items.sort((a, b) => a.id - b.id);
+  const data = {
+    items,
+    total_price: cart.totals?.total_price || null,
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(data)).digest("hex");
+};
+
+/**
+ * Looks up an existing WooCommerce order matching a given Razorpay order ID in order meta.
+ */
+export const findOrderByRazorpayOrderId = async (rzpOrderId) => {
+  if (!rzpOrderId) return null;
+  try {
+    const res = await api.get("orders", {
+      search: rzpOrderId,
+      per_page: 5,
+    });
+    const orders = Array.isArray(res.data) ? res.data : [];
+    return orders.find((o) => getExistingRazorpayOrderId(o) === rzpOrderId) || null;
+  } catch (err) {
+    logger.warn({ rzpOrderId, err: err.message }, "[Payment] Notice: Lookup for order by Razorpay order ID error");
+    return null;
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,9 +186,7 @@ export const createOrder = async (req, res) => {
             next_opening: fallback?.next_opening || null,
           });
         }
-        // Fallback state is valid within 5 minutes and store was open: allow checkout
       } else {
-        // Fail closed: no valid cached state exists within 5 minutes
         return res.status(503).json({
           success: false,
           code: "STORE_HOURS_UNAVAILABLE",
@@ -147,7 +195,8 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    // ── 3. Handle Retry for Existing Pending Order ─────────────────────────
+    // ── 3. Handle Retry for Legacy Existing WooCommerce Order ──────────────
+    // Only used when client explicitly passes a pre-existing WooCommerce order_id
     const existingOrderId = req.body.order_id;
     if (existingOrderId) {
       let existingOrder;
@@ -170,7 +219,7 @@ export const createOrder = async (req, res) => {
         });
       }
 
-      // If order is already paid, return idempotent success so frontend redirects correctly
+      // If order is already paid, return idempotent success
       if (existingOrder.status === "processing" || existingOrder.status === "completed") {
         logger.info(
           { wc_order_id: existingOrder.id, status: existingOrder.status },
@@ -192,21 +241,6 @@ export const createOrder = async (req, res) => {
         });
       }
 
-      // If billing or shipping addresses were changed/provided on retry, update order addresses in WC
-      if (req.body.billing_address || req.body.shipping_address) {
-        try {
-          const updateAddr = {};
-          if (req.body.billing_address) updateAddr.billing = req.body.billing_address;
-          if (req.body.shipping_address) updateAddr.shipping = req.body.shipping_address;
-          await api.put(`orders/${existingOrder.id}`, updateAddr);
-        } catch (addrErr) {
-          logger.warn(
-            { wc_order_id: existingOrder.id, err: addrErr.message },
-            "[Payment] Failed to update addresses on retry order"
-          );
-        }
-      }
-
       const existingRzpOrderId = getExistingRazorpayOrderId(existingOrder);
       const amountInPaise = totalToPaise(existingOrder.total);
 
@@ -221,7 +255,7 @@ export const createOrder = async (req, res) => {
       if (existingRzpOrderId) {
         logger.info(
           { wc_order_id: existingOrder.id, razorpay_order_id: existingRzpOrderId },
-          "[Payment] Reusing existing Razorpay order for order retry"
+          "[Payment] Reusing existing Razorpay order for legacy order retry"
         );
         return res.json({
           success: true,
@@ -249,11 +283,10 @@ export const createOrder = async (req, res) => {
         logError(req, rzpErr, "[Payment] Razorpay order creation failed during retry");
         return res.status(502).json({
           success: false,
-          message: "Unable to initialize payment. Please try again.",
+          message: "Unable to initialize payment gateway. Please try again.",
         });
       }
 
-      // Attach Razorpay order ID to WooCommerce order
       try {
         await api.put(`orders/${existingOrder.id}`, {
           meta_data: [{ key: "_razorpay_order_id", value: rzpOrder.id }],
@@ -261,11 +294,11 @@ export const createOrder = async (req, res) => {
       } catch (metaErr) {
         logger.warn(
           { wc_order_id: existingOrder.id, razorpay_order_id: rzpOrder.id },
-          "[Payment] Failed to update Razorpay order ID on retry order"
+          "[Payment] Notice: Failed to attach Razorpay order ID to existing WooCommerce order"
         );
       }
 
-      return res.status(201).json({
+      return res.json({
         success: true,
         order_id: existingOrder.id,
         razorpay_order_id: rzpOrder.id,
@@ -275,7 +308,7 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // ── 4. Validate request body for new checkout ─────────────────────────
+    // ── 4. New Online Checkout Flow (DEFERRED WC ORDER CREATION) ────────────
     const { billing_address, shipping_address } = req.body;
     if (!billing_address || !shipping_address) {
       return res.status(400).json({
@@ -284,7 +317,7 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // ── 4. Get customer's cart from WooCommerce Store API ─────────────────
+    // ── 5. Get customer's cart from WooCommerce Store API ──────────────────
     let cart;
     try {
       cart = await getCustomerCart(req.wpAuthCookie);
@@ -303,7 +336,7 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // ── 5. Minimum order value check ──────────────────────────────────────
+    // ── 6. Minimum order value check (₹500 on product subtotal) ────────────
     const itemsSubtotal = cart.totals?.total_items
       ? Number(cart.totals.total_items) / 100
       : 0;
@@ -317,13 +350,12 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // ── 6. Build WooCommerce order payload from cart ───────────────────────
+    // ── 7. Build and validate line items from live cart ─────────────────────
     const lineItems = cart.items.map((item) => {
       const entry = {
         product_id: item.id,
         quantity: item.quantity,
       };
-      // Preserve variation selection if present
       if (item.variation && Array.isArray(item.variation) && item.variation.length > 0) {
         const variationId = item.variation_id || item.id;
         if (variationId !== item.id) {
@@ -333,12 +365,10 @@ export const createOrder = async (req, res) => {
       return entry;
     });
 
-    // Extract applied coupons from cart
     const couponLines = Array.isArray(cart.coupons)
       ? cart.coupons.map((c) => ({ code: c.code }))
       : [];
 
-    // Extract shipping from cart (if available)
     const shippingLines = [];
     if (Array.isArray(cart.shipping_rates)) {
       for (const pkg of cart.shipping_rates) {
@@ -355,208 +385,401 @@ export const createOrder = async (req, res) => {
       }
     }
 
-    const wcOrderPayload = {
-      status: "pending",
-      payment_method: "razorpay",
-      payment_method_title: "Online Payment",
-      set_paid: false,
-      customer_id: Number(userId),
-      billing: {
-        first_name: billing_address.first_name || "",
-        last_name: billing_address.last_name || "",
-        email: billing_address.email || req.wpUserEmail || "",
-        phone: billing_address.phone || "",
-        address_1: billing_address.address_1 || "",
-        address_2: billing_address.address_2 || "",
-        city: billing_address.city || "",
-        state: billing_address.state || "",
-        postcode: billing_address.postcode || "",
-        country: billing_address.country || "IN",
-      },
-      shipping: {
-        first_name: shipping_address.first_name || "",
-        last_name: shipping_address.last_name || "",
-        phone: shipping_address.phone || "",
-        address_1: shipping_address.address_1 || "",
-        address_2: shipping_address.address_2 || "",
-        city: shipping_address.city || "",
-        state: shipping_address.state || "",
-        postcode: shipping_address.postcode || "",
-        country: shipping_address.country || "IN",
-      },
-      line_items: lineItems,
-      coupon_lines: couponLines,
-      ...(shippingLines.length > 0 && { shipping_lines: shippingLines }),
-    };
-
-    // ── 7. Create or Reuse Existing Pending WooCommerce order ──────────────
-    let wcOrder;
-    try {
-      // Prevent duplicate orders: if this customer already has an active pending order
-      // created within the last 15 minutes, reuse and update it instead of creating another order.
-      if (Number(userId) > 0) {
-        try {
-          const recentOrdersRes = await api.get("orders", {
-            customer: Number(userId),
-            status: "pending",
-            per_page: 5,
-            orderby: "date",
-            order: "desc",
-          });
-          const recentPending = (Array.isArray(recentOrdersRes.data) ? recentOrdersRes.data : []).find((ord) => {
-            const createdAt = new Date(ord.date_created_gmt || ord.date_created).getTime();
-            return Date.now() - createdAt < 15 * 60 * 1000 && ord.status === "pending";
-          });
-
-          if (recentPending) {
-            logger.info(
-              { customer_id: userId, existing_order_id: recentPending.id },
-              "[Payment] Found recent pending order for customer — updating and reusing"
-            );
-            await api.put(`orders/${recentPending.id}`, {
-              billing: wcOrderPayload.billing,
-              shipping: wcOrderPayload.shipping,
-            });
-            wcOrder = recentPending;
-          }
-        } catch (findErr) {
-          logger.warn({ err: findErr.message }, "[Payment] Notice: check for existing pending order encountered non-fatal error");
-        }
-      }
-
-      if (!wcOrder) {
-        const orderResponse = await api.post("orders", wcOrderPayload);
-        wcOrder = orderResponse.data;
-      }
-    } catch (wcErr) {
-      logError(req, wcErr, "[Payment] WooCommerce order creation failed");
-
-      const wcMessage = wcErr.response?.data?.message;
-      if (wcMessage && typeof wcMessage === "string" && wcMessage.toLowerCase().includes("stock")) {
-        return res.status(409).json({
-          success: false,
-          code: "INSUFFICIENT_STOCK",
-          message: "Some items in your cart are no longer available in the requested quantity.",
-        });
-      }
-
-      return res.status(502).json({
-        success: false,
-        message: "Unable to create your order. Please try again.",
-      });
-    }
-
-    // ── 8. Read authoritative order total from WooCommerce ────────────────
-    const amountInPaise = totalToPaise(wcOrder.total);
+    // Authoritative total price directly from WooCommerce cart
+    const amountInPaise = Number(cart.totals?.total_price || 0);
     if (amountInPaise <= 0) {
-      // Safety: cancel orphan order if total is invalid
-      try {
-        await api.put(`orders/${wcOrder.id}`, { status: "cancelled" });
-      } catch { /* cleanup best-effort */ }
-
       return res.status(400).json({
         success: false,
-        message: "Invalid order total calculated. Please review your cart and try again.",
+        message: "Invalid cart total calculated. Please review your cart and try again.",
       });
     }
 
-    // ── 9. Check for existing Razorpay order (reuse) ──────────────────────
-    const existingRzpOrderId = getExistingRazorpayOrderId(wcOrder);
-    if (existingRzpOrderId) {
-      logger.info(
-        { wc_order_id: wcOrder.id, razorpay_order_id: existingRzpOrderId },
-        "[Payment] Reusing existing Razorpay order"
-      );
+    const cartFingerprint = computeCartFingerprint(cart);
 
-      return res.json({
-        success: true,
-        order_id: wcOrder.id,
-        razorpay_order_id: existingRzpOrderId,
-        amount: amountInPaise,
-        currency: "INR",
-        key_id: getPublicKeyId(),
-      });
-    }
-
-    // ── 10. Create Razorpay order ─────────────────────────────────────────
+    // ── 8. Create Razorpay Order ONLY (No WooCommerce order created yet) ───
+    const receipt = `rcpt_${userId}_${Date.now()}`;
     let rzpOrder;
     try {
       rzpOrder = await createRazorpayOrder({
         amountInPaise,
         currency: "INR",
-        receipt: `wc_order_${wcOrder.id}`,
+        receipt,
         notes: {
-          wc_order_id: String(wcOrder.id),
           customer_id: String(userId),
+          cart_fingerprint: cartFingerprint,
         },
       });
     } catch (rzpErr) {
-      // ── Orphan Order Cleanup ────────────────────────────────────────────
-      // WooCommerce order was created, but Razorpay failed.
-      // Attempt to cancel the WooCommerce order to release held stock.
-      logger.error(
-        { wc_order_id: wcOrder.id },
-        "[Payment] Razorpay order creation failed — attempting WooCommerce order cleanup"
-      );
-
-      try {
-        await api.put(`orders/${wcOrder.id}`, { status: "cancelled" });
-        logger.info(
-          { wc_order_id: wcOrder.id },
-          "[Payment] Orphan WooCommerce order cancelled successfully"
-        );
-      } catch (cleanupErr) {
-        logger.error(
-          { wc_order_id: wcOrder.id, cleanup_error: cleanupErr.message },
-          "[Payment] Failed to cancel orphan WooCommerce order — manual review required"
-        );
-      }
-
+      logError(req, rzpErr, "[Payment] Razorpay order creation failed");
       return res.status(502).json({
         success: false,
-        message: "Unable to initialize payment. Please try again.",
+        message: "Unable to initialize payment gateway. Please try again.",
       });
     }
 
-    // ── 11. Store Razorpay order ID in WooCommerce metadata ───────────────
-    try {
-      await api.put(`orders/${wcOrder.id}`, {
-        meta_data: [
-          { key: "_razorpay_order_id", value: rzpOrder.id },
-        ],
-      });
-    } catch (metaErr) {
-      logger.warn(
-        { wc_order_id: wcOrder.id, razorpay_order_id: rzpOrder.id },
-        "[Payment] Failed to store Razorpay order ID in WooCommerce meta — payment can still proceed"
-      );
-    }
+    // ── 9. Store Payment Intent for Post-Payment Finalization ───────────────
+    const paymentIntent = {
+      rzp_order_id: rzpOrder.id,
+      customer_id: Number(userId),
+      customer_email: req.wpUserEmail || billing_address.email || "",
+      amount_in_paise: amountInPaise,
+      currency: "INR",
+      cart_fingerprint: cartFingerprint,
+      created_at: Date.now(),
+      expires_at: Date.now() + 3600 * 1000,
+      checkout_payload: {
+        customer_id: Number(userId),
+        billing: {
+          first_name: billing_address.first_name || "",
+          last_name: billing_address.last_name || "",
+          email: billing_address.email || req.wpUserEmail || "",
+          phone: billing_address.phone || "",
+          address_1: billing_address.address_1 || "",
+          address_2: billing_address.address_2 || "",
+          city: billing_address.city || "",
+          state: billing_address.state || "",
+          postcode: billing_address.postcode || "",
+          country: billing_address.country || "IN",
+        },
+        shipping: {
+          first_name: shipping_address.first_name || "",
+          last_name: shipping_address.last_name || "",
+          phone: shipping_address.phone || "",
+          address_1: shipping_address.address_1 || "",
+          address_2: shipping_address.address_2 || "",
+          city: shipping_address.city || "",
+          state: shipping_address.state || "",
+          postcode: shipping_address.postcode || "",
+          country: shipping_address.country || "IN",
+        },
+        line_items: lineItems,
+        coupon_lines: couponLines,
+        shipping_lines: shippingLines,
+      },
+    };
 
-    // ── 12. Invalidate caches ─────────────────────────────────────────────
-    serverCache.invalidatePrefix("employee:overview");
-    serverCache.invalidatePrefix("admin:analytics");
-    serverCache.delete("product_stock_counts");
+    await paymentIntentService.storePaymentIntent(rzpOrder.id, paymentIntent);
 
-    // ── 13. Return payment initiation data ────────────────────────────────
     logger.info(
-      { wc_order_id: wcOrder.id, razorpay_order_id: rzpOrder.id, amount: amountInPaise },
-      "[Payment] Order created successfully"
+      { customer_id: userId, razorpay_order_id: rzpOrder.id, amount: amountInPaise },
+      "[Payment] Razorpay order created and payment intent stored — 0 WooCommerce orders created before payment"
     );
 
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      order_id: wcOrder.id,
+      order_id: null, // Explicitly null: WooCommerce order will be created upon verified payment capture
       razorpay_order_id: rzpOrder.id,
       amount: amountInPaise,
       currency: "INR",
       key_id: getPublicKeyId(),
     });
   } catch (error) {
-    logError(req, error, "[Payment] Unexpected error in create-order");
+    logError(req, error, "[Payment] Unhandled error during createOrder");
     return res.status(500).json({
       success: false,
-      message: "An unexpected error occurred. Please try again.",
+      message: "An unexpected error occurred while initializing payment. Please try again.",
     });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified Payment Finalization Logic (Browser & Webhook & Recovery)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const finalizePaymentAndCreateOrder = async ({
+  rzpOrderId,
+  rzpPaymentId,
+  rzpSignature = null,
+  expectedCustomerId = null,
+  source = "browser",
+  req = null,
+}) => {
+  if (!rzpOrderId || !rzpPaymentId) {
+    return {
+      success: false,
+      status: 400,
+      message: "Missing Razorpay order ID or payment ID.",
+    };
+  }
+
+  // 1. Signature Verification (for browser verify requests)
+  if (rzpSignature) {
+    const isValid = verifyPaymentSignature({
+      razorpay_order_id: rzpOrderId,
+      razorpay_payment_id: rzpPaymentId,
+      razorpay_signature: rzpSignature,
+    });
+    if (!isValid) {
+      logger.warn({ rzpOrderId, rzpPaymentId }, "[Payment Finalize] Invalid payment signature");
+      return {
+        success: false,
+        status: 400,
+        message: "Payment verification failed: invalid signature.",
+      };
+    }
+  }
+
+  // 2. Fetch Payment directly from Razorpay to verify status & amount
+  let rzpPayment;
+  try {
+    rzpPayment = await fetchRazorpayPayment(rzpPaymentId);
+  } catch (err) {
+    logger.warn({ rzpOrderId, rzpPaymentId, err: err.message }, "[Payment Finalize] Failed to fetch payment from Razorpay");
+    return {
+      success: false,
+      status: 502,
+      message: "Unable to verify payment status with gateway. Please retry in a moment.",
+    };
+  }
+
+  if (rzpPayment.order_id !== rzpOrderId) {
+    logger.warn(
+      { expected_order: rzpOrderId, payment_order: rzpPayment.order_id },
+      "[Payment Finalize] Payment does not belong to expected Razorpay order"
+    );
+    return {
+      success: false,
+      status: 400,
+      message: "Payment verification failed: payment does not belong to this order.",
+    };
+  }
+
+  if (rzpPayment.status !== "captured") {
+    logger.warn({ rzpOrderId, status: rzpPayment.status }, "[Payment Finalize] Payment is not yet captured");
+    return {
+      success: false,
+      status: 400,
+      message: `Payment is not yet confirmed (status: ${rzpPayment.status}). Please wait or retry.`,
+    };
+  }
+
+  if ((rzpPayment.currency || "").toUpperCase() !== "INR") {
+    return {
+      success: false,
+      status: 400,
+      message: "Payment verification failed: currency mismatch.",
+    };
+  }
+
+  // 3. Acquire Distributed Atomic Lock for rzpOrderId
+  const workerId = `${source}_${process.pid}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+  const lockAcquired = await paymentIntentService.acquireLock(rzpOrderId, workerId, 4000);
+  if (!lockAcquired) {
+    // Check if concurrent thread already created the order
+    const existing = await findOrderByRazorpayOrderId(rzpOrderId);
+    if (existing) {
+      return {
+        success: true,
+        order_id: existing.id,
+        status: existing.status,
+        message: "Payment already verified.",
+        _idempotent: true,
+      };
+    }
+    return {
+      success: false,
+      status: 409,
+      message: "Payment finalization is currently in progress. Please wait a moment.",
+    };
+  }
+
+  try {
+    // 4. Idempotency Check (Double-checked inside lock)
+    const existingOrder = await findOrderByRazorpayOrderId(rzpOrderId);
+    if (existingOrder) {
+      logger.info(
+        { wc_order_id: existingOrder.id, rzpOrderId, source },
+        "[Payment Finalize] Order already created — returning idempotent success"
+      );
+      return {
+        success: true,
+        order_id: existingOrder.id,
+        status: existingOrder.status,
+        message: "Payment already verified.",
+        _idempotent: true,
+      };
+    }
+
+    // 5. Retrieve Stored Payment Intent
+    const intent = await paymentIntentService.getPaymentIntent(rzpOrderId);
+    if (!intent) {
+      // Legacy order check: if notes contain a wc_order_id created before this deployment
+      const legacyOrderId = rzpPayment.notes?.wc_order_id;
+      if (legacyOrderId) {
+        try {
+          const legacyRes = await api.get(`orders/${encodeURIComponent(legacyOrderId)}`);
+          const legacyOrder = legacyRes.data;
+          if (legacyOrder && (legacyOrder.status === "pending" || legacyOrder.status === "on-hold")) {
+            await api.put(`orders/${legacyOrder.id}`, {
+              status: "processing",
+              transaction_id: rzpPaymentId,
+              meta_data: [
+                { key: "_razorpay_payment_id", value: rzpPaymentId },
+                { key: "_razorpay_order_id", value: rzpOrderId },
+                { key: "_payment_verified_at", value: new Date().toISOString() },
+              ],
+            });
+            return {
+              success: true,
+              order_id: legacyOrder.id,
+              status: "processing",
+              message: "Payment verified successfully.",
+            };
+          }
+        } catch (_) {}
+      }
+
+      logger.warn({ rzpOrderId, rzpPaymentId }, "[Payment Finalize] Payment intent not found or expired");
+      return {
+        success: false,
+        status: 404,
+        message: "Payment session expired or not found. If amount was debited, support will reconcile.",
+      };
+    }
+
+    // 6. Customer Authorization & Amount Validation
+    if (expectedCustomerId && Number(intent.customer_id) !== Number(expectedCustomerId)) {
+      logger.warn(
+        { expected: expectedCustomerId, actual: intent.customer_id },
+        "[Payment Finalize] Customer ID mismatch"
+      );
+      return {
+        success: false,
+        status: 403,
+        message: "You are not authorized to verify this payment.",
+      };
+    }
+
+    if (rzpPayment.amount !== intent.amount_in_paise) {
+      logger.error(
+        { expected_amount: intent.amount_in_paise, actual_amount: rzpPayment.amount },
+        "[Payment Finalize] Amount mismatch detected"
+      );
+      return {
+        success: false,
+        status: 400,
+        message: "Payment verification failed: amount mismatch.",
+      };
+    }
+
+    // 7. Revalidate Store Hours & Operating Constraints
+    try {
+      const storeStatus = await storeHoursService.getStoreStatus();
+      if (storeStatus && storeStatus.is_open === false) {
+        logger.warn(
+          { rzpOrderId, rzpPaymentId },
+          "[Payment Finalize] Store closed during payment capture — proceeding with order creation to avoid stranded capture"
+        );
+      }
+    } catch (_) {}
+
+    // 8. Revalidate Stock for Line Items (Safety Check)
+    const lineItems = intent.checkout_payload?.line_items || [];
+    let stockValid = true;
+    for (const item of lineItems) {
+      try {
+        const prodRes = await api.get(`products/${item.product_id}`);
+        const prod = prodRes.data;
+        if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
+          if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
+            stockValid = false;
+            logger.error(
+              { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
+              "[Payment Finalize] Stock depleted between checkout initiation and capture"
+            );
+          }
+        }
+      } catch (_) {
+        // Upstream product check network blip should not strand a captured payment
+      }
+    }
+
+    if (!stockValid) {
+      // Store explicit recoverable anomaly record for staff intervention
+      serverCache.set(
+        `payment_val_failure:${rzpOrderId}`,
+        {
+          rzpOrderId,
+          rzpPaymentId,
+          reason: "OUT_OF_STOCK",
+          intent,
+          timestamp: Date.now(),
+        },
+        7 * 24 * 3600 * 1000
+      );
+      return {
+        success: false,
+        status: 422,
+        code: "ITEM_OUT_OF_STOCK",
+        message: "An item in your order went out of stock during payment. Our team has been notified to process an immediate refund or fulfillment.",
+      };
+    }
+
+    // 9. CREATE ONE WOOCOMMERCE ORDER DIRECTLY IN "processing" STATUS
+    const wcOrderPayload = {
+      ...intent.checkout_payload,
+      status: "processing",
+      payment_method: "razorpay",
+      payment_method_title: "Online Payment",
+      set_paid: true,
+      transaction_id: rzpPaymentId,
+      meta_data: [
+        { key: "_razorpay_payment_id", value: rzpPaymentId },
+        { key: "_razorpay_order_id", value: rzpOrderId },
+        { key: "_payment_verified_at", value: new Date().toISOString() },
+        { key: "_payment_method_detail", value: rzpPayment.method || "online" },
+        { key: "_cart_fingerprint", value: intent.cart_fingerprint || "" },
+      ],
+    };
+
+    let createdOrder;
+    try {
+      const orderResponse = await api.post("orders", wcOrderPayload);
+      createdOrder = orderResponse.data;
+    } catch (orderErr) {
+      logger.error(
+        { rzpOrderId, rzpPaymentId, err: orderErr.message },
+        "[Payment Finalize] CRITICAL: WooCommerce order creation failed after payment captured"
+      );
+      // RETAIN PAYMENT INTENT so webhook or retry can recreate the order!
+      return {
+        success: false,
+        status: 502,
+        message: "Payment captured, but order registration encountered an error. Support has been notified.",
+      };
+    }
+
+    // 10. Post-Creation Cleanup (ONLY after WooCommerce order is securely created)
+    await paymentIntentService.deletePaymentIntent(rzpOrderId);
+    await paymentIntentService.clearCustomerWcCart(intent.customer_id);
+
+    serverCache.invalidatePrefix("employee:overview");
+    serverCache.invalidatePrefix("admin:analytics");
+    serverCache.invalidatePrefix("admin:customers");
+    serverCache.delete("product_stock_counts");
+
+    if (Array.isArray(createdOrder.line_items)) {
+      for (const item of createdOrder.line_items) {
+        if (item.product_id) {
+          serverCache.delete(`catalog:product:${item.product_id}`);
+        }
+      }
+    }
+
+    logger.info(
+      { wc_order_id: createdOrder.id, razorpay_order_id: rzpOrderId, razorpay_payment_id: rzpPaymentId, source },
+      "[Payment Finalize] SUCCESS: Exactly 1 WooCommerce order created in processing status"
+    );
+
+    return {
+      success: true,
+      order_id: createdOrder.id,
+      status: "processing",
+      message: "Payment verified successfully.",
+    };
+  } finally {
+    // 11. Guarantee Distributed Lock Release
+    await paymentIntentService.releaseLock(rzpOrderId);
   }
 };
 
@@ -574,205 +797,171 @@ export const verifyPayment = async (req, res) => {
       razorpay_signature,
     } = req.body;
 
-    // ── 1. Validate required fields ───────────────────────────────────────
-    if (!order_id || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({
         success: false,
         message: "Missing required payment verification parameters.",
       });
     }
 
-    // ── 2. Fetch WooCommerce order ────────────────────────────────────────
-    let wcOrder;
-    try {
-      const orderResponse = await api.get(`orders/${encodeURIComponent(order_id)}`);
-      wcOrder = orderResponse.data;
-    } catch (wcErr) {
-      logError(req, wcErr, "[Payment] Failed to fetch WooCommerce order for verification");
-      return res.status(404).json({
-        success: false,
-        message: "Order not found.",
-      });
-    }
+    // ── Handle Legacy Order Verification (if order_id is provided and exists) ──
+    if (order_id) {
+      let wcOrder;
+      try {
+        const orderResponse = await api.get(`orders/${encodeURIComponent(order_id)}`);
+        wcOrder = orderResponse.data;
+      } catch (wcErr) {
+        // If not found as legacy order, fall through to deferred finalization
+        wcOrder = null;
+      }
 
-    // ── 3. Verify customer owns the order ─────────────────────────────────
-    if (Number(wcOrder.customer_id) !== Number(userId)) {
-      logger.warn(
-        { wc_order_id: order_id, expected_customer: userId, actual_customer: wcOrder.customer_id },
-        "[Payment] Ownership mismatch during payment verification"
-      );
-      return res.status(403).json({
-        success: false,
-        message: "You are not authorized to verify this payment.",
-      });
-    }
-
-    // ── 4. Idempotent success: order already paid ─────────────────────────
-    const currentStatus = wcOrder.status;
-    if (currentStatus === "processing" || currentStatus === "completed") {
-      logger.info(
-        { wc_order_id: order_id, status: currentStatus },
-        "[Payment] Order already verified — returning idempotent success"
-      );
-      return res.json({
-        success: true,
-        order_id: wcOrder.id,
-        status: currentStatus,
-        message: "Payment already verified.",
-        _idempotent: true,
-      });
-    }
-
-    // ── 5. Reject if order is not in a payable state ──────────────────────
-    if (currentStatus !== "pending" && currentStatus !== "on-hold") {
-      return res.status(409).json({
-        success: false,
-        message: `Order cannot be verified in its current state (${currentStatus}).`,
-      });
-    }
-
-    // ── 6. Verify WooCommerce order contains expected Razorpay order ID ───
-    const storedRzpOrderId = getExistingRazorpayOrderId(wcOrder);
-    if (!storedRzpOrderId || storedRzpOrderId !== razorpay_order_id) {
-      logger.warn(
-        { wc_order_id: order_id, expected_rzp: storedRzpOrderId, received_rzp: razorpay_order_id },
-        "[Payment] Razorpay order ID mismatch"
-      );
-      return res.status(400).json({
-        success: false,
-        message: "Payment verification failed: order mismatch.",
-      });
-    }
-
-    // ── 7. Verify Razorpay signature (HMAC SHA256) ────────────────────────
-    const isSignatureValid = verifyPaymentSignature({
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    });
-
-    if (!isSignatureValid) {
-      logger.warn(
-        { wc_order_id: order_id, razorpay_order_id },
-        "[Payment] Razorpay signature verification failed"
-      );
-      return res.status(400).json({
-        success: false,
-        message: "Payment verification failed: invalid signature.",
-      });
-    }
-
-    // ── 8. Fetch payment directly from Razorpay ───────────────────────────
-    let rzpPayment;
-    try {
-      rzpPayment = await fetchRazorpayPayment(razorpay_payment_id);
-    } catch (fetchErr) {
-      logError(req, fetchErr, "[Payment] Failed to fetch Razorpay payment details");
-      return res.status(502).json({
-        success: false,
-        message: "Unable to verify payment status. Please try again.",
-      });
-    }
-
-    // ── 9. Cross-verify payment integrity ─────────────────────────────────
-    const expectedAmountPaise = totalToPaise(wcOrder.total);
-
-    // 9a. Verify payment belongs to the expected Razorpay order
-    if (rzpPayment.order_id !== razorpay_order_id) {
-      logger.warn(
-        { wc_order_id: order_id, expected_order: razorpay_order_id, payment_order: rzpPayment.order_id },
-        "[Payment] Payment order_id mismatch"
-      );
-      return res.status(400).json({
-        success: false,
-        message: "Payment verification failed: payment does not belong to this order.",
-      });
-    }
-
-    // 9b. Verify payment amount matches WooCommerce order total
-    if (rzpPayment.amount !== expectedAmountPaise) {
-      logger.warn(
-        { wc_order_id: order_id, expected_amount: expectedAmountPaise, actual_amount: rzpPayment.amount },
-        "[Payment] Amount mismatch detected"
-      );
-      return res.status(400).json({
-        success: false,
-        message: "Payment verification failed: amount mismatch.",
-      });
-    }
-
-    // 9c. Verify currency
-    if ((rzpPayment.currency || "").toUpperCase() !== "INR") {
-      return res.status(400).json({
-        success: false,
-        message: "Payment verification failed: currency mismatch.",
-      });
-    }
-
-    // 9d. Verify payment is captured
-    if (rzpPayment.status !== "captured") {
-      logger.warn(
-        { wc_order_id: order_id, payment_status: rzpPayment.status },
-        "[Payment] Payment not captured"
-      );
-      return res.status(400).json({
-        success: false,
-        message: `Payment is not yet confirmed (status: ${rzpPayment.status}). Please wait or retry.`,
-      });
-    }
-
-    // ── 10. All checks passed — update WooCommerce order ──────────────────
-    try {
-      await api.put(`orders/${wcOrder.id}`, {
-        status: "processing",
-        transaction_id: razorpay_payment_id,
-        meta_data: [
-          { key: "_razorpay_payment_id", value: razorpay_payment_id },
-          { key: "_razorpay_order_id", value: razorpay_order_id },
-          { key: "_payment_verified_at", value: new Date().toISOString() },
-          { key: "_payment_method_detail", value: rzpPayment.method || "online" },
-        ],
-      });
-    } catch (updateErr) {
-      logError(req, updateErr, "[Payment] Failed to update WooCommerce order after payment verification");
-      return res.status(502).json({
-        success: false,
-        message: "Payment was successful, but order update failed. Please contact support with your order ID.",
-      });
-    }
-
-    // ── 11. Invalidate operational caches ──────────────────────────────────
-    serverCache.invalidatePrefix("employee:overview");
-    serverCache.invalidatePrefix("admin:analytics");
-    serverCache.invalidatePrefix("admin:customers");
-    serverCache.delete("product_stock_counts");
-
-    // Invalidate product detail caches for ordered items
-    if (Array.isArray(wcOrder.line_items)) {
-      for (const item of wcOrder.line_items) {
-        const productId = item.product_id;
-        if (productId) {
-          serverCache.delete(`catalog:product:${productId}`);
+      if (wcOrder) {
+        if (Number(wcOrder.customer_id) !== Number(userId)) {
+          return res.status(403).json({
+            success: false,
+            message: "You are not authorized to verify this payment.",
+          });
         }
+
+        if (wcOrder.status === "processing" || wcOrder.status === "completed") {
+          return res.json({
+            success: true,
+            order_id: wcOrder.id,
+            status: wcOrder.status,
+            message: "Payment already verified.",
+            _idempotent: true,
+          });
+        }
+
+        const isSignatureValid = verifyPaymentSignature({
+          razorpay_order_id,
+          razorpay_payment_id,
+          razorpay_signature,
+        });
+
+        if (!isSignatureValid) {
+          return res.status(400).json({
+            success: false,
+            message: "Payment verification failed: invalid signature.",
+          });
+        }
+
+        const rzpPayment = await fetchRazorpayPayment(razorpay_payment_id);
+        if (rzpPayment.order_id !== razorpay_order_id || rzpPayment.status !== "captured") {
+          return res.status(400).json({
+            success: false,
+            message: "Payment verification failed.",
+          });
+        }
+
+        await api.put(`orders/${wcOrder.id}`, {
+          status: "processing",
+          transaction_id: razorpay_payment_id,
+          meta_data: [
+            { key: "_razorpay_payment_id", value: razorpay_payment_id },
+            { key: "_razorpay_order_id", value: razorpay_order_id },
+            { key: "_payment_verified_at", value: new Date().toISOString() },
+            { key: "_payment_method_detail", value: rzpPayment.method || "online" },
+          ],
+        });
+
+        serverCache.invalidatePrefix("employee:overview");
+        serverCache.invalidatePrefix("admin:analytics");
+        serverCache.invalidatePrefix("admin:customers");
+        serverCache.delete("product_stock_counts");
+
+        return res.json({
+          success: true,
+          order_id: wcOrder.id,
+          status: "processing",
+          message: "Payment verified successfully.",
+        });
       }
     }
 
-    logger.info(
-      { wc_order_id: wcOrder.id, razorpay_payment_id },
-      "[Payment] Payment verified and order marked processing"
-    );
-
-    return res.json({
-      success: true,
-      order_id: wcOrder.id,
-      status: "processing",
-      message: "Payment verified successfully.",
+    // ── Deferred Order Creation Verification ───────────────────────────────
+    const result = await finalizePaymentAndCreateOrder({
+      rzpOrderId: razorpay_order_id,
+      rzpPaymentId: razorpay_payment_id,
+      rzpSignature: razorpay_signature,
+      expectedCustomerId: userId,
+      source: "browser",
+      req,
     });
+
+    const statusCode = result.status || (result.success ? 200 : 400);
+    return res.status(statusCode).json(result);
   } catch (error) {
-    logError(req, error, "[Payment] Unexpected error in verify-payment");
+    logError(req, error, "[Payment] Unhandled error during verifyPayment");
     return res.status(500).json({
       success: false,
-      message: "An unexpected error occurred during payment verification. Please try again.",
+      message: "Payment verification could not be completed. Please try again.",
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/payments/check-status (Browser Reload / App-Switch Recovery)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const checkPaymentStatus = async (req, res) => {
+  try {
+    const userId = req.wpUserId;
+    const { razorpay_order_id } = req.body;
+
+    if (!razorpay_order_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing razorpay_order_id.",
+      });
+    }
+
+    // 1. Check if order was already created
+    const existing = await findOrderByRazorpayOrderId(razorpay_order_id);
+    if (existing) {
+      return res.json({
+        success: true,
+        order_id: existing.id,
+        status: existing.status,
+        already_paid: true,
+      });
+    }
+
+    // 2. Fetch payments from Razorpay
+    let paymentsRes;
+    try {
+      paymentsRes = await fetchRazorpayOrderPayments(razorpay_order_id);
+    } catch (err) {
+      return res.status(502).json({
+        success: false,
+        message: "Failed to query payment status from gateway.",
+      });
+    }
+
+    const items = paymentsRes?.items || [];
+    const captured = items.find((p) => p.status === "captured");
+
+    if (captured) {
+      const result = await finalizePaymentAndCreateOrder({
+        rzpOrderId: razorpay_order_id,
+        rzpPaymentId: captured.id,
+        expectedCustomerId: userId,
+        source: "app_switch_recovery",
+        req,
+      });
+      return res.status(result.status || (result.success ? 200 : 400)).json(result);
+    }
+
+    return res.json({
+      success: false,
+      paid: false,
+      message: "Payment not completed or still processing.",
+    });
+  } catch (error) {
+    logError(req, error, "[Payment] Error in checkPaymentStatus");
+    return res.status(500).json({
+      success: false,
+      message: "Unable to check payment status.",
     });
   }
 };
@@ -784,7 +973,6 @@ export const verifyPayment = async (req, res) => {
 export const handleWebhook = async (req, res) => {
   try {
     const signature = req.headers["x-razorpay-signature"];
-
     if (!signature) {
       logger.warn("[Payment Webhook] Missing X-Razorpay-Signature header");
       return res.status(400).json({
@@ -793,9 +981,7 @@ export const handleWebhook = async (req, res) => {
       });
     }
 
-    // Exact raw body for HMAC SHA256 verification
     const rawBody = req.rawBody || (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
-
     const isValid = verifyWebhookSignature(rawBody, signature);
     if (!isValid) {
       logger.warn("[Payment Webhook] Invalid webhook signature");
@@ -808,7 +994,6 @@ export const handleWebhook = async (req, res) => {
     const event = req.body?.event;
     const eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id;
 
-    // Event-level idempotency
     if (eventId) {
       const cacheKey = `webhook:event:${eventId}`;
       if (serverCache.get(cacheKey)) {
@@ -819,31 +1004,18 @@ export const handleWebhook = async (req, res) => {
           _idempotent: true,
         });
       }
-      // Cache event for 24 hours
       serverCache.set(cacheKey, true, 24 * 60 * 60 * 1000);
     }
 
     logger.info({ event, eventId }, "[Payment Webhook] Verified webhook received");
 
-    // ── Handle Payment Failure ──────────────────────────────────────────────
     if (event === "payment.failed") {
-      const paymentEntity = req.body?.payload?.payment?.entity;
-      logger.warn(
-        {
-          event,
-          razorpay_payment_id: paymentEntity?.id,
-          razorpay_order_id: paymentEntity?.order_id,
-          error_code: paymentEntity?.error_code,
-        },
-        "[Payment Webhook] Individual payment attempt failed on gateway — preserving pending order for retry"
-      );
       return res.status(200).json({
         success: true,
         message: "Payment failure event acknowledged.",
       });
     }
 
-    // ── Handle Successful Captured Payment ──────────────────────────────────
     if (event === "order.paid" || event === "payment.captured") {
       const paymentEntity = req.body?.payload?.payment?.entity;
       const orderEntity = req.body?.payload?.order?.entity;
@@ -859,181 +1031,177 @@ export const handleWebhook = async (req, res) => {
         });
       }
 
-      // Resolve WooCommerce order
-      const wcOrderIdCandidate =
-        paymentEntity?.notes?.wc_order_id ||
-        orderEntity?.notes?.wc_order_id ||
-        (orderEntity?.receipt?.startsWith("wc_order_")
-          ? orderEntity.receipt.replace("wc_order_", "")
-          : null);
-
-      let wcOrder = null;
-
-      if (wcOrderIdCandidate) {
+      // Check if this webhook corresponds to an existing WooCommerce order (e.g. order retry or legacy checkout)
+      const wcOrderId = paymentEntity?.notes?.wc_order_id || orderEntity?.notes?.wc_order_id;
+      if (wcOrderId) {
+        let wcOrder;
         try {
-          const orderRes = await api.get(`orders/${encodeURIComponent(wcOrderIdCandidate)}`);
-          if (orderRes.data && getExistingRazorpayOrderId(orderRes.data) === rzpOrderId) {
-            wcOrder = orderRes.data;
-          }
-        } catch (err) {
-          // If candidate lookup fails due to network/5xx, fail with 502 so Razorpay retries
-          if (err.response?.status >= 500 || err.code === "ECONNABORTED" || err.code === "ECONNRESET") {
-            logError(req, err, "[Payment Webhook] Upstream WooCommerce connection error");
-            return res.status(502).json({
-              success: false,
-              message: "Upstream error resolving order. Retry required.",
-            });
-          }
-        }
-      }
-
-      // Fallback search by Razorpay order ID if candidate didn't match
-      if (!wcOrder) {
-        try {
-          const searchRes = await api.get("orders", { search: rzpOrderId });
-          if (Array.isArray(searchRes.data)) {
-            wcOrder = searchRes.data.find(
-              (o) => getExistingRazorpayOrderId(o) === rzpOrderId
-            ) || null;
-          }
-        } catch (searchErr) {
-          logError(req, searchErr, "[Payment Webhook] Order search failed");
+          const orderRes = await api.get(`orders/${encodeURIComponent(wcOrderId)}`);
+          wcOrder = orderRes.data;
+        } catch (fetchErr) {
+          logError(req, fetchErr, "[Payment Webhook] Failed to fetch order from WooCommerce");
           return res.status(502).json({
             success: false,
-            message: "Upstream search failed. Retry required.",
+            message: "Failed to communicate with store backend.",
           });
         }
-      }
 
-      if (!wcOrder) {
-        logger.warn(
-          { razorpay_order_id: rzpOrderId, razorpay_payment_id: rzpPaymentId },
-          "[Payment Webhook] No matching WooCommerce order found for Razorpay order"
-        );
-        return res.status(200).json({
-          success: true,
-          message: "Order not found in store — recorded for reconciliation.",
-        });
-      }
+        if (!wcOrder) {
+          return res.status(404).json({
+            success: false,
+            message: "Referenced WooCommerce order not found.",
+          });
+        }
 
-      // Order-level idempotency: already paid/processing
-      if (wcOrder.status === "processing" || wcOrder.status === "completed") {
+        // Order-level idempotency: already paid/processing
+        if (wcOrder.status === "processing" || wcOrder.status === "completed") {
+          logger.info(
+            { wc_order_id: wcOrder.id, status: wcOrder.status },
+            "[Payment Webhook] Order already marked paid — returning idempotent 200"
+          );
+          return res.status(200).json({
+            success: true,
+            order_id: wcOrder.id,
+            status: wcOrder.status,
+            message: "Order already verified and processed.",
+            _idempotent: true,
+          });
+        }
+
+        // Verify payable state
+        if (wcOrder.status !== "pending" && wcOrder.status !== "on-hold") {
+          logger.warn(
+            { wc_order_id: wcOrder.id, status: wcOrder.status },
+            "[Payment Webhook] Order is in non-payable state"
+          );
+          return res.status(200).json({
+            success: true,
+            message: `Order in non-payable status (${wcOrder.status}).`,
+          });
+        }
+
+        // Amount Integrity Check
+        const expectedAmountPaise = totalToPaise(wcOrder.total);
+        if (paymentEntity?.amount && Number(paymentEntity.amount) !== expectedAmountPaise) {
+          logger.error(
+            {
+              wc_order_id: wcOrder.id,
+              expected: expectedAmountPaise,
+              actual: paymentEntity.amount,
+            },
+            "[Payment Webhook] CRITICAL: Amount mismatch on payment webhook"
+          );
+          return res.status(400).json({
+            success: false,
+            message: "Amount mismatch detected.",
+          });
+        }
+
+        // Currency check
+        if (paymentEntity?.currency && paymentEntity.currency.toUpperCase() !== "INR") {
+          logger.warn({ currency: paymentEntity.currency }, "[Payment Webhook] Invalid currency");
+          return res.status(400).json({
+            success: false,
+            message: "Invalid currency.",
+          });
+        }
+
+        // Update WooCommerce order to processing
+        try {
+          await api.put(`orders/${wcOrder.id}`, {
+            status: "processing",
+            transaction_id: rzpPaymentId || wcOrder.transaction_id || "",
+            meta_data: [
+              ...(rzpPaymentId ? [{ key: "_razorpay_payment_id", value: rzpPaymentId }] : []),
+              { key: "_razorpay_order_id", value: rzpOrderId },
+              { key: "_payment_verified_at", value: new Date().toISOString() },
+              { key: "_payment_verified_by", value: "webhook" },
+              { key: "_payment_method_detail", value: paymentEntity?.method || "online" },
+              { key: "_webhook_processed_at", value: new Date().toISOString() },
+            ],
+          });
+        } catch (updateErr) {
+          logError(req, updateErr, "[Payment Webhook] Failed to transition order to processing");
+          return res.status(502).json({
+            success: false,
+            message: "Failed to update order state. Retry required.",
+          });
+        }
+
+        // Invalidate caches
+        serverCache.invalidatePrefix("employee:overview");
+        serverCache.invalidatePrefix("admin:analytics");
+        serverCache.invalidatePrefix("admin:customers");
+        serverCache.delete("product_stock_counts");
+
+        if (Array.isArray(wcOrder.line_items)) {
+          for (const item of wcOrder.line_items) {
+            if (item.product_id) {
+              serverCache.delete(`catalog:product:${item.product_id}`);
+            }
+          }
+        }
+
         logger.info(
-          { wc_order_id: wcOrder.id, status: wcOrder.status },
-          "[Payment Webhook] Order already marked paid — returning idempotent 200"
+          { wc_order_id: wcOrder.id, razorpay_payment_id: rzpPaymentId },
+          "[Payment Webhook] Order successfully updated to processing via webhook"
         );
+
         return res.status(200).json({
           success: true,
           order_id: wcOrder.id,
-          status: wcOrder.status,
-          message: "Order already verified and processed.",
-          _idempotent: true,
+          status: "processing",
+          message: "Order successfully processed via webhook.",
         });
       }
 
-      // Verify payable state
-      if (wcOrder.status !== "pending" && wcOrder.status !== "on-hold") {
-        logger.warn(
-          { wc_order_id: wcOrder.id, status: wcOrder.status },
-          "[Payment Webhook] Order is in non-payable state"
-        );
+      // Deferred order creation (no wc_order_id before payment)
+      const result = await finalizePaymentAndCreateOrder({
+        rzpOrderId,
+        rzpPaymentId,
+        source: "webhook",
+        req,
+      });
+
+      if (result.success) {
+        logger.info({ rzpOrderId, wc_order_id: result.order_id }, "[Payment Webhook] Finalized order successfully via webhook");
         return res.status(200).json({
           success: true,
-          message: `Order in non-payable status (${wcOrder.status}).`,
+          order_id: result.order_id,
+          message: "Webhook processed successfully.",
         });
       }
 
-      // Amount Integrity Check
-      const expectedAmountPaise = totalToPaise(wcOrder.total);
-      if (paymentEntity?.amount && Number(paymentEntity.amount) !== expectedAmountPaise) {
-        logger.error(
-          {
-            wc_order_id: wcOrder.id,
-            expected: expectedAmountPaise,
-            actual: paymentEntity.amount,
-          },
-          "[Payment Webhook] CRITICAL: Amount mismatch on payment webhook"
-        );
-        return res.status(400).json({
-          success: false,
-          message: "Amount mismatch detected.",
+      if (result.status === 409 || result._idempotent) {
+        return res.status(200).json({
+          success: true,
+          message: "Order already finalized or in progress.",
         });
       }
 
-      // Currency check
-      if (paymentEntity?.currency && paymentEntity.currency.toUpperCase() !== "INR") {
-        logger.warn({ currency: paymentEntity.currency }, "[Payment Webhook] Invalid currency");
-        return res.status(400).json({
-          success: false,
-          message: "Invalid currency.",
-        });
-      }
-
-      // Update WooCommerce order to processing
-      try {
-        await api.put(`orders/${wcOrder.id}`, {
-          status: "processing",
-          transaction_id: rzpPaymentId || wcOrder.transaction_id || "",
-          meta_data: [
-            ...(rzpPaymentId ? [{ key: "_razorpay_payment_id", value: rzpPaymentId }] : []),
-            { key: "_razorpay_order_id", value: rzpOrderId },
-            { key: "_payment_verified_at", value: new Date().toISOString() },
-            { key: "_payment_verified_by", value: "webhook" },
-            { key: "_payment_method_detail", value: paymentEntity?.method || "online" },
-            { key: "_webhook_processed_at", value: new Date().toISOString() },
-          ],
-        });
-      } catch (updateErr) {
-        logError(req, updateErr, "[Payment Webhook] Failed to transition order to processing");
-        return res.status(502).json({
-          success: false,
-          message: "Failed to update order state. Retry required.",
-        });
-      }
-
-      // Invalidate caches
-      serverCache.invalidatePrefix("employee:overview");
-      serverCache.invalidatePrefix("admin:analytics");
-      serverCache.invalidatePrefix("admin:customers");
-      serverCache.delete("product_stock_counts");
-
-      if (Array.isArray(wcOrder.line_items)) {
-        for (const item of wcOrder.line_items) {
-          if (item.product_id) {
-            serverCache.delete(`catalog:product:${item.product_id}`);
-          }
-        }
-      }
-
-      logger.info(
-        { wc_order_id: wcOrder.id, razorpay_payment_id: rzpPaymentId },
-        "[Payment Webhook] Order successfully updated to processing via webhook"
-      );
-
+      // If transient/intent was missing or error occurred, return 200 so Razorpay does not endlessly retry
+      logger.warn({ rzpOrderId, result }, "[Payment Webhook] Webhook could not finalize order — acknowledged");
       return res.status(200).json({
-        success: true,
-        order_id: wcOrder.id,
-        status: "processing",
-        message: "Order successfully processed via webhook.",
+        success: false,
+        message: result.message || "Webhook acknowledged.",
       });
     }
 
-    // Acknowledge other unhandled events safely with 200
     return res.status(200).json({
       success: true,
-      message: `Event ${event} acknowledged.`,
+      message: "Webhook event ignored.",
     });
   } catch (error) {
-    logError(req, error, "[Payment Webhook] Unexpected webhook error");
+    logError(req, error, "[Payment Webhook] Unhandled error during webhook processing");
     return res.status(500).json({
       success: false,
-      message: "An unexpected error occurred processing the webhook.",
+      message: "Internal server error.",
     });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/payments/reconcile/:id (Admin Reconciliation Endpoint)
+// POST /api/payments/reconcile/:id (Admin Reconciliation)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const reconcileOrder = async (req, res) => {
@@ -1061,7 +1229,6 @@ export const reconcileOrder = async (req, res) => {
       });
     }
 
-    // If order is already completed or processing, no reconciliation mutation needed
     if (wcOrder.status === "processing" || wcOrder.status === "completed") {
       return res.json({
         reconciled: true,
@@ -1071,7 +1238,6 @@ export const reconcileOrder = async (req, res) => {
       });
     }
 
-    // Fetch payments for this order from Razorpay
     let payments;
     try {
       const paymentsRes = await fetchRazorpayOrderPayments(rzpOrderId);
@@ -1087,7 +1253,6 @@ export const reconcileOrder = async (req, res) => {
     const capturedPayment = payments.find((p) => p.status === "captured");
     const expectedAmountPaise = totalToPaise(wcOrder.total);
 
-    // Case 1: Razorpay payment captured BUT WooCommerce order still pending
     if (capturedPayment && (wcOrder.status === "pending" || wcOrder.status === "on-hold")) {
       if (capturedPayment.amount !== expectedAmountPaise) {
         logger.error(
@@ -1103,7 +1268,6 @@ export const reconcileOrder = async (req, res) => {
         });
       }
 
-      // Synchronize WooCommerce order to processing
       await api.put(`orders/${wcOrder.id}`, {
         status: "processing",
         transaction_id: capturedPayment.id,
@@ -1133,22 +1297,10 @@ export const reconcileOrder = async (req, res) => {
       });
     }
 
-    // Case 2: WooCommerce order is processing or completed
-    if (wcOrder.status === "processing" || wcOrder.status === "completed") {
-      return res.json({
-        reconciled: true,
-        action: "none",
-        message: "Order is already in a completed/processing state.",
-        order_status: wcOrder.status,
-        has_captured_payment: Boolean(capturedPayment),
-      });
-    }
-
-    // Case 3: No captured payment found in Razorpay
     return res.json({
       reconciled: true,
       action: "none",
-      message: "No captured payment found in Razorpay for this order.",
+      message: "No un-reconciled captured payment found in Razorpay for this order.",
       order_status: wcOrder.status,
       payments_count: payments.length,
     });

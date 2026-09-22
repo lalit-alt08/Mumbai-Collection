@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
-import { createPaymentOrder, verifyPayment } from "../../services/paymentService.js";
+import { createPaymentOrder, verifyPayment, checkPaymentStatus } from "../../services/paymentService.js";
 import { getOrderById } from "../../services/orderService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
@@ -89,7 +89,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
   const verifyPendingOrder = useCallback(async () => {
     const stored = getPendingPayment();
-    if (!stored || !stored.order_id) return;
+    if (!stored || (!stored.razorpay_order_id && !stored.order_id)) return;
 
     const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
     if (Date.now() - (stored.timestamp || 0) > MAX_AGE_MS) {
@@ -109,35 +109,53 @@ function BillingForm({ storeHours, onStoreClosed }) {
       return;
     }
 
-    try {
-      const res = await getOrderById(stored.order_id);
-      const orderData = res?.order || res;
-      const status = (orderData?.status || "").toLowerCase();
+    // 1. Primary path: query payment finalization state by Razorpay order ID
+    if (stored.razorpay_order_id) {
+      try {
+        const res = await checkPaymentStatus(stored.razorpay_order_id);
+        if (res?.success && res?.order_id) {
+          clearPendingPayment();
+          clearCheckoutIdempotencyKey();
+          pendingOrderIdRef.current = null;
+          await refreshCart().catch(() => {});
+          navigate(`/order-success/${res.order_id}`, {
+            state: { paymentMethod: "Online Payment", status: res.status || "Processing" },
+            replace: true,
+          });
+          return;
+        }
+      } catch (_) {}
+    }
 
-      // If order was already paid (processing, completed)
-      if (status === "processing" || status === "completed") {
-        clearPendingPayment();
-        clearCheckoutIdempotencyKey();
-        pendingOrderIdRef.current = null;
-        await refreshCart().catch(() => {});
-        navigate(`/order-success/${stored.order_id}`, {
-          state: { paymentMethod: "Online Payment", status: "Processing" },
-          replace: true,
-        });
-        return;
-      }
+    // 2. Legacy fallback for pre-existing orders
+    if (stored.order_id) {
+      try {
+        const res = await getOrderById(stored.order_id);
+        const orderData = res?.order || res;
+        const status = (orderData?.status || "").toLowerCase();
 
-      if (status === "pending" || status === "on-hold") {
-        // Order is still pending, reuse order_id so retry doesn't duplicate
-        pendingOrderIdRef.current = stored.order_id;
-      } else {
-        clearPendingPayment();
-        pendingOrderIdRef.current = null;
-      }
-    } catch (err) {
-      // If order query fails, keep pendingOrderIdRef if still fresh
-      if (stored.order_id) {
-        pendingOrderIdRef.current = stored.order_id;
+        if (status === "processing" || status === "completed") {
+          clearPendingPayment();
+          clearCheckoutIdempotencyKey();
+          pendingOrderIdRef.current = null;
+          await refreshCart().catch(() => {});
+          navigate(`/order-success/${stored.order_id}`, {
+            state: { paymentMethod: "Online Payment", status: "Processing" },
+            replace: true,
+          });
+          return;
+        }
+
+        if (status === "pending" || status === "on-hold") {
+          pendingOrderIdRef.current = stored.order_id;
+        } else {
+          clearPendingPayment();
+          pendingOrderIdRef.current = null;
+        }
+      } catch (_) {
+        if (stored.order_id) {
+          pendingOrderIdRef.current = stored.order_id;
+        }
       }
     }
   }, [cart, navigate, refreshCart]);
@@ -398,16 +416,14 @@ function BillingForm({ storeHours, onStoreClosed }) {
         amount: orderRes.amount,
         currency: orderRes.currency || "INR",
         name: "Mumbai Collection",
-        description: `Order #${orderRes.order_id}`,
+        description: orderRes.order_id ? `Order #${orderRes.order_id}` : "Mumbai Collection Online Payment",
         order_id: orderRes.razorpay_order_id,
         prefill: {
           name: `${firstName} ${lastName}`.trim(),
           email: userEmail,
           contact: userPhone,
         },
-        notes: {
-          wc_order_id: String(orderRes.order_id),
-        },
+        notes: orderRes.order_id ? { wc_order_id: String(orderRes.order_id) } : {},
         theme: {
           color: "#7C3AED",
         },
@@ -419,17 +435,15 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
             // Check whether order was already completed in backend (e.g. via webhook while in UPI app)
             try {
-              if (orderRes.order_id) {
-                const checkRes = await getOrderById(orderRes.order_id);
-                const orderData = checkRes?.order || checkRes;
-                const status = (orderData?.status || "").toLowerCase();
-                if (status === "processing" || status === "completed") {
+              if (orderRes.razorpay_order_id) {
+                const checkRes = await checkPaymentStatus(orderRes.razorpay_order_id);
+                if (checkRes?.success && checkRes?.order_id) {
                   clearPendingPayment();
                   clearCheckoutIdempotencyKey();
                   pendingOrderIdRef.current = null;
                   await refreshCart().catch(() => {});
-                  navigate(`/order-success/${orderRes.order_id}`, {
-                    state: { paymentMethod: "Online Payment", status: "Processing" },
+                  navigate(`/order-success/${checkRes.order_id}`, {
+                    state: { paymentMethod: "Online Payment", status: checkRes.status || "Processing" },
                   });
                   return;
                 }
@@ -446,19 +460,19 @@ function BillingForm({ storeHours, onStoreClosed }) {
             setError("");
 
             const verifyRes = await verifyPayment({
-              order_id: orderRes.order_id,
+              order_id: orderRes.order_id || null,
               razorpay_order_id: paymentResponse.razorpay_order_id,
               razorpay_payment_id: paymentResponse.razorpay_payment_id,
               razorpay_signature: paymentResponse.razorpay_signature,
             });
 
-            if (verifyRes.success) {
+            if (verifyRes.success && verifyRes.order_id) {
               clearCheckoutIdempotencyKey();
               clearPendingPayment();
               pendingOrderIdRef.current = null;
               await refreshCart().catch(() => {});
-              navigate(`/order-success/${orderRes.order_id}`, {
-                state: { paymentMethod: "Online Payment", status: "Processing" },
+              navigate(`/order-success/${verifyRes.order_id}`, {
+                state: { paymentMethod: "Online Payment", status: verifyRes.status || "Processing" },
               });
             } else {
               setError(verifyRes.message || "Payment verification failed. Please contact support.");

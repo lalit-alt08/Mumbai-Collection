@@ -48,7 +48,20 @@ export const verifyPayment = async (payload) => {
   return response.data;
 };
 
+/**
+ * Checks payment state on backend by Razorpay order ID (for recovery after browser close / app switch).
+ *
+ * @param {string} razorpayOrderId
+ * @returns {Promise<Object>}
+ */
+export const checkPaymentStatus = async (razorpayOrderId) => {
+  const response = await API.post("/check-status", { razorpay_order_id: razorpayOrderId });
+  return response.data;
+};
+
 export default {
   createPaymentOrder,
   verifyPayment,
+  checkPaymentStatus,
 };
+

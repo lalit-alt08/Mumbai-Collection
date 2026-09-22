@@ -108,6 +108,8 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const login = (userData) => {
+    // Purge any leftover cart tokens from prior session/guest to prevent cross-account leakage
+    clearCartSession();
     setUser(userData);
     safeStorage.setJSON("user", userData);
   };

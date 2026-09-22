@@ -27,7 +27,7 @@ let razorpayInstance = null;
  * Returns a lazily-initialized Razorpay SDK instance.
  * Throws if credentials are not configured.
  */
-const getRazorpayInstance = () => {
+export const getRazorpayInstance = () => {
   if (razorpayInstance) return razorpayInstance;
 
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -44,6 +44,10 @@ const getRazorpayInstance = () => {
 
   logger.info("Razorpay client initialized");
   return razorpayInstance;
+};
+
+export const _setRazorpayInstanceForTesting = (instance) => {
+  razorpayInstance = instance;
 };
 
 // ─────────────────────────────────────────────────────────
