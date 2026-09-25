@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./config/env.js";
 import app from "./app.js";
 import { logger, sanitizeError } from "./utils/logger.js";
 import { checkAlertChannelsConfigured, sendDailyHealthAlert } from "./services/alertService.js";

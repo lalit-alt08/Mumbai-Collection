@@ -44,6 +44,17 @@ jobs:
 
       - name: Run backend tests
         working-directory: apps/backend
+        env:
+          NODE_ENV: test
+          WOOCOMMERCE_URL: https://mumbai-collection.local
+          WOOCOMMERCE_CONSUMER_KEY: ck_mock
+          WOOCOMMERCE_CONSUMER_SECRET: cs_mock
+          WORDPRESS_URL: https://mumbai-collection.local
+          MUMBAI_INTERNAL_API_KEY: mc_internal_mock
+          RAZORPAY_KEY_ID: rzp_test_mock
+          RAZORPAY_KEY_SECRET: mock_secret
+          RAZORPAY_WEBHOOK_SECRET: mock_webhook_secret
+          OTP_HMAC_SECRET: mock_otp_hmac_secret_32_chars_long!!
         run: pnpm test
 
       - name: Run employee-panel tests
