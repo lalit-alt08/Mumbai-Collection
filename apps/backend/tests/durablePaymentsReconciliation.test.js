@@ -215,6 +215,10 @@ describe("Durable Payments & Reconciliation Suite", () => {
   test("5. Reconciler polls Razorpay for stuck 'created' intents (> 10m): finalizes order or auto-refunds if stock 0", async () => {
     const originalApiGet = api.get;
     const originalApiPost = api.post;
+    const originalAcquireLock = paymentIntentService.acquireLock;
+    const originalReleaseLock = paymentIntentService.releaseLock;
+    paymentIntentService.acquireLock = async () => true;
+    paymentIntentService.releaseLock = async () => true;
 
     try {
       // 5a: Stock > 0 -> Reconciler discovers captured payment, creates WC order
@@ -355,6 +359,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
     } finally {
       api.get = originalApiGet;
       api.post = originalApiPost;
+      paymentIntentService.acquireLock = originalAcquireLock;
+      paymentIntentService.releaseLock = originalReleaseLock;
     }
   });
 

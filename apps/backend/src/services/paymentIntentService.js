@@ -191,6 +191,24 @@ export const updatePaymentIntentStatus = async ({
 }) => {
   if (!rzpOrderId || !toStatus) return false;
 
+  const cacheKey = `payment_intent:${rzpOrderId}`;
+  const inMemory = serverCache.get(cacheKey);
+  if (inMemory) {
+    serverCache.set(
+      cacheKey,
+      {
+        ...inMemory,
+        status: toStatus,
+        ...(rzpPaymentId && { rzp_payment_id: rzpPaymentId }),
+        ...(wcOrderId && { wc_order_id: wcOrderId }),
+        ...(refundId && { refund_id: refundId }),
+        error_reason: toStatus === "order_created" ? null : (errorReason ?? inMemory.error_reason),
+        ...(capturedAmountPaise && { captured_amount_paise: capturedAmountPaise }),
+      },
+      3600 * 1000
+    );
+  }
+
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/update-status", {
       rzp_order_id: rzpOrderId,

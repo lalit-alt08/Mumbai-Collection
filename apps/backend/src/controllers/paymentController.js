@@ -906,7 +906,6 @@ export const finalizePaymentAndCreateOrder = async ({
       wcOrderId: createdOrder.id,
       capturedAmountPaise: rzpPayment.amount,
     });
-    await paymentIntentService.deletePaymentIntent(rzpOrderId);
     await paymentIntentService.clearCustomerWcCart(intent.customer_id);
 
     serverCache.invalidatePrefix("employee:overview");

@@ -369,8 +369,10 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
   // ───────────────────────────────────────────────────────────────────────────
 
   await t.test("4.1. Failed WooCommerce order creation retains payment intent for recovery", async () => {
-    const rzpOrderId = "order_wc_fail_003";
-    const rzpPaymentId = "pay_wc_fail_003";
+    const rzpOrderId = `order_wc_fail_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const rzpPaymentId = `pay_wc_fail_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const originalFindWcOrder = paymentIntentService.findWcOrderByRazorpayOrderId;
+    paymentIntentService.findWcOrderByRazorpayOrderId = async () => null;
 
     api.post = async (path) => {
       if (path === "orders") {
@@ -418,6 +420,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
       assert.ok(intent, "Payment intent must be retained when WC creation fails so webhook/retry can recover");
     } finally {
       rzpInstance.payments.fetch = originalPaymentsFetch;
+      paymentIntentService.findWcOrderByRazorpayOrderId = originalFindWcOrder;
     }
   });
 
