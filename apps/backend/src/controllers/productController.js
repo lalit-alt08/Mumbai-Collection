@@ -12,7 +12,7 @@ import { serverCache } from "../utils/memoryCache.js";
 
 export const getAllProducts = async (req, res) => {
   try {
-    const cacheKey = `catalog:products:all:${JSON.stringify(req.query || {})}`;
+    const cacheKey = "catalog:products:all";
     const products = await serverCache.getOrFetch(cacheKey, () => fetchProducts(), 60000);
 
     if (Array.isArray(products)) {
@@ -149,7 +149,7 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const cacheKey = `catalog:categories:all:${JSON.stringify(req.query || {})}`;
+    const cacheKey = "catalog:categories:all";
     const categories = await serverCache.getOrFetch(
       cacheKey,
       () => fetchCategories(),

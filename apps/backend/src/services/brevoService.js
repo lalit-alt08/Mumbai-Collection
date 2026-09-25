@@ -74,6 +74,19 @@ export const getBrevoEmailSender = () => {
 };
 
 /**
+ * Sanitize user input by encoding HTML special characters to prevent template injection.
+ */
+export const escapeHtml = (str) => {
+  if (!str || typeof str !== "string") return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
+/**
  * Build a clean, responsive Mumbai Collection branded transactional email HTML template.
  */
 export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
@@ -84,6 +97,8 @@ export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
   const lead = isVerifyPhone
     ? "Please use the 6-digit verification code below to verify your mobile number on your Mumbai Collection account."
     : "We received a request to reset your Mumbai Collection account password. Please use the 6-digit verification code below to proceed.";
+
+  const safeName = escapeHtml(toName);
 
   return `<!DOCTYPE html>
 <html>
@@ -115,7 +130,7 @@ export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
                 ${title}
               </h2>
               <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #4B5563;">
-                Hello${toName ? ` ${toName}` : ""},
+                Hello${safeName ? ` ${safeName}` : ""},
               </p>
               <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #4B5563;">
                 ${lead}
@@ -267,5 +282,57 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "verify_pho
     safeError.status = status;
     safeError.isBrevoError = true;
     throw safeError;
+  }
+};
+
+/**
+ * Sends a transactional customer notification email when a refund is processed.
+ */
+export const sendRefundEmail = async ({ toEmail, toName, amountInInr, rzpOrderId, refundId, reason }) => {
+  if (!toEmail || typeof toEmail !== "string") return false;
+
+  const subject = `Refund Processed for Order #${rzpOrderId} — Mumbai Collection`;
+  const textContent = `Hello ${toName || "Customer"},\n\nA refund of ₹${amountInInr} has been processed for your order #${rzpOrderId}.\nReason: ${reason || "Item unavailable / checkout validation"}\nRefund Reference: ${refundId}\n\nThe amount should reflect in your original payment method in 5-7 business days.\n\nThank you,\nMumbai Collection`;
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+      <h2 style="color: #7C3AED;">Mumbai Collection</h2>
+      <p>Hello ${toName || "Customer"},</p>
+      <p>A refund of <strong>₹${amountInInr}</strong> has been processed for your order <code>#${rzpOrderId}</code>.</p>
+      <div style="background: #f4f4f5; padding: 12px; border-radius: 6px; margin: 15px 0;">
+        <p style="margin: 4px 0;"><strong>Reason:</strong> ${reason || "Out of stock or checkout finalization issue"}</p>
+        <p style="margin: 4px 0;"><strong>Refund ID:</strong> <code>${refundId}</code></p>
+      </div>
+      <p>The funds will be credited back to your original payment method within 5-7 business days depending on your bank.</p>
+      <p style="margin-top: 25px; font-size: 12px; color: #71717a;">Mumbai Collection &bull; Vasai, Mumbai</p>
+    </div>
+  `;
+
+  if (isMockEmailEnabled()) {
+    console.log(`[MOCK EMAIL] Refund notice to ${toEmail}: ₹${amountInInr} (Refund ID: ${refundId})`);
+    return { success: true, mock: true };
+  }
+
+  try {
+    const apiKey = getBrevoApiKey();
+    const sender = getBrevoEmailSender();
+
+    await axios.post(
+      BREVO_TRANSACTIONAL_EMAIL_URL,
+      {
+        sender: { name: sender.name, email: sender.email },
+        to: [{ email: toEmail, name: toName || "Customer" }],
+        subject,
+        htmlContent,
+        textContent,
+      },
+      {
+        headers: { "api-key": apiKey, "Content-Type": "application/json" },
+        timeout: 10000,
+      }
+    );
+    return { success: true };
+  } catch (err) {
+    logger.warn({ toEmail, rzpOrderId, err: err.message }, "[Brevo] Failed to send customer refund email");
+    return { success: false, error: err.message };
   }
 };

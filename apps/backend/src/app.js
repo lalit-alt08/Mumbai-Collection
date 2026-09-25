@@ -18,7 +18,7 @@ import mediaRoutes from "./routes/mediaRoutes.js";
 import storeHoursRoutes from "./routes/storeHoursRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import { verifyCsrf, isOriginAllowed } from "./middlewares/csrfMiddleware.js";
-import { storeLimiter } from "./middlewares/rateLimiter.js";
+import { storeLimiter, catalogLimiter } from "./middlewares/rateLimiter.js";
 import pinoHttp from "pino-http";
 import crypto from "crypto";
 import { logger, sanitizeError } from "./utils/logger.js";
@@ -150,7 +150,7 @@ app.use(verifyCsrf(allowedOrigins));
 
 app.use("/api/store", storeLimiter, storeRoutes);
 app.use("/api/media", mediaRoutes);
-app.use("/api/products", productRoutes);
+app.use("/api/products", catalogLimiter, productRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/auth", authRoutes);

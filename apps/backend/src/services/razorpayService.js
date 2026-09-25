@@ -37,6 +37,16 @@ export const getRazorpayInstance = () => {
     throw new Error("Razorpay credentials are not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.");
   }
 
+  if (
+    process.env.NODE_ENV === "production" &&
+    keyId.startsWith("rzp_test_") &&
+    process.env.ALLOW_TEST_PAYMENTS !== "true"
+  ) {
+    throw new Error(
+      "FATAL: Razorpay test credentials cannot be used in production. Set ALLOW_TEST_PAYMENTS=true for staging."
+    );
+  }
+
   razorpayInstance = new Razorpay({
     key_id: keyId,
     key_secret: keySecret,
@@ -204,5 +214,48 @@ export const verifyWebhookSignature = (rawBody, signature) => {
 export const fetchRazorpayOrderPayments = async (orderId) => {
   const razorpay = getRazorpayInstance();
   return razorpay.orders.fetchPayments(orderId);
+};
+
+/**
+ * Executes a refund on a captured Razorpay payment.
+ *
+ * @param {Object} params
+ * @param {string} params.paymentId - Razorpay payment ID
+ * @param {number} params.amountInPaise - Exact amount in paise to refund
+ * @param {Object} [params.notes={}] - Refund notes
+ * @returns {Promise<Object>} Razorpay refund object
+ */
+export const refundRazorpayPayment = async ({ paymentId, amountInPaise, notes = {} }) => {
+  const razorpay = getRazorpayInstance();
+  const payment = await razorpay.payments.fetch(paymentId);
+
+  // Invariant: check already-refunded amount from Razorpay
+  const alreadyRefunded = Number(payment.amount_refunded || 0);
+  const remainingCapturable = Number(payment.amount || 0) - alreadyRefunded;
+
+  if (remainingCapturable <= 0) {
+    logger.warn({ paymentId, alreadyRefunded }, "[Razorpay] Payment is already fully refunded");
+    return {
+      id: payment.refund_status === "full" ? "already_refunded" : `rfnd_existing_${paymentId}`,
+      amount: 0,
+      status: "processed",
+      already_refunded: true,
+    };
+  }
+
+  const finalRefundPaise = Math.min(amountInPaise, remainingCapturable);
+
+  const refund = await razorpay.payments.refund(paymentId, {
+    amount: finalRefundPaise,
+    speed: "optimum",
+    notes,
+  });
+
+  logger.info(
+    { refund_id: refund.id, payment_id: paymentId, amount: finalRefundPaise, status: refund.status },
+    "[Razorpay] Refund initiated successfully"
+  );
+
+  return refund;
 };
 

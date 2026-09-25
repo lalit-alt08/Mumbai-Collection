@@ -202,12 +202,29 @@ function ProfileSetup() {
       setOtpSuccess(res.message || (res.masked_email ? `Verification code sent to ${res.masked_email}.` : "Verification code sent to your registered email."));
       setCooldown(60);
     } catch (err) {
+      if (err.response?.status === 401) {
+        if (handleSessionExpired) handleSessionExpired();
+        navigate("/login", { replace: true, state: { from: location.pathname } });
+        return;
+      }
       const parsed = parseOtpRateLimitError(err);
       if (parsed.isRateLimited) {
         setOtpError(parsed.message);
         setCooldown(parsed.retryAfter);
       } else {
-        setOtpError(parsed.message);
+        const errorData = err.response?.data;
+        if (
+          err.response?.status === 409 ||
+          errorData?.code === "phone_in_use" ||
+          (typeof errorData?.message === "string" && (
+            errorData.message.toLowerCase().includes("already registered") ||
+            errorData.message.toLowerCase().includes("already in use")
+          ))
+        ) {
+          setOtpError("This phone number is already registered to another account. Please use a different number.");
+        } else {
+          setOtpError(parsed.message);
+        }
       }
     } finally {
       setOtpLoading(false);
@@ -710,6 +727,8 @@ function ProfileSetup() {
                         className={`h-10 w-full rounded-xl border bg-gray-50/50 pl-11 pr-22 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:bg-white focus:ring-3 ${
                           isPhoneVerified
                             ? "border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/10"
+                            : !otpSent && otpError
+                            ? "border-red-300 focus:border-red-500 focus:ring-red-500/10"
                             : "border-gray-200 focus:border-[#7C3AED] focus:ring-[#7C3AED]/10"
                         }`}
                       />
@@ -724,6 +743,12 @@ function ProfileSetup() {
                         </button>
                       )}
                     </div>
+                    {!isPhoneVerified && !otpSent && otpError && (
+                      <div className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 p-2 text-[11px] font-medium text-red-600 border border-red-200">
+                        <AlertCircle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                        <span>{otpError}</span>
+                      </div>
+                    )}
                     {!isPhoneVerified && (
                       <p className="mt-1 text-[11px] text-gray-500 font-medium">
                         A 6-digit verification code will be sent to your registered email address to verify this mobile number.

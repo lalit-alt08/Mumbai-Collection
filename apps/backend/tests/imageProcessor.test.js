@@ -5,6 +5,7 @@ import {
   processProductImage,
   MAX_PROCESSED_DIMENSION,
   WEBP_QUALITY,
+  MAX_INPUT_PIXELS,
 } from "../src/services/imageProcessor.js";
 import { uploadMedia } from "../src/services/wordpressMediaService.js";
 import axios from "axios";
@@ -25,6 +26,7 @@ const isWebpBuffer = (buf) =>
 test("ImageProcessor: Constants match Phase 2 requirements", () => {
   assert.equal(MAX_PROCESSED_DIMENSION, 1600, "Max dimension must be 1600px");
   assert.equal(WEBP_QUALITY, 82, "WebP quality must be 82");
+  assert.equal(MAX_INPUT_PIXELS, 36000000, "Max input pixels must be 36,000,000");
 });
 
 test("ImageProcessor: Resizes large images so max dimension does not exceed 1600px while maintaining aspect ratio", async () => {
@@ -187,6 +189,35 @@ test("ImageProcessor: Rejects truncated or malformed image data (fail-closed gua
     () => processProductImage(truncatedJpeg),
     /Image processing failed/i
   );
+});
+
+test("ImageProcessor: Rejects input exceeding pixel-flood decompression bomb threshold", async () => {
+  // Test that limitInputPixels option strictly halts processing if pixel count exceeds threshold
+  const sampleJpeg = await sharp({
+    create: { width: 50, height: 50, channels: 3, background: { r: 100, g: 100, b: 100 } },
+  })
+    .jpeg()
+    .toBuffer();
+
+  // 50x50 = 2500 pixels. With limitInputPixels: 1000, it should reject
+  await assert.rejects(
+    () => processProductImage(sampleJpeg, { limitInputPixels: 1000 }),
+    /Image processing failed.*pixel limit/i
+  );
+});
+
+test("ImageProcessor: Multi-frame animated GIF extracts only first frame into single-frame WebP", async () => {
+  const gifInput = await sharp({
+    create: { width: 60, height: 60, channels: 3, background: { r: 255, g: 255, b: 0 } },
+  })
+    .gif()
+    .toBuffer();
+
+  const result = await processProductImage(gifInput);
+  assert.equal(result.format, "webp");
+  assert.ok(isWebpBuffer(result.buffer));
+  const meta = await sharp(result.buffer).metadata();
+  assert.equal(meta.pages || 1, 1, "Resulting WebP must be single-frame");
 });
 
 test("WordPressMediaService: uploadMedia processes image through Sharp before posting to WordPress", async () => {

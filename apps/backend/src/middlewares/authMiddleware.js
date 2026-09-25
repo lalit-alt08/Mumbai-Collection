@@ -20,6 +20,17 @@ export const COOKIE_NAMES = {
 // 60-second session cache to eliminate double-hop latency
 const sessionCache = new Map();
 const SESSION_CACHE_TTL = 60 * 1000; // 60 seconds
+const SESSION_CACHE_MAX_SIZE = 5000; // Hard memory cap to prevent unbounded growth
+
+const setSessionCache = (cookie, data) => {
+  if (sessionCache.size >= SESSION_CACHE_MAX_SIZE) {
+    const oldestKey = sessionCache.keys().next().value;
+    if (oldestKey) {
+      sessionCache.delete(oldestKey);
+    }
+  }
+  sessionCache.set(cookie, data);
+};
 
 // Periodic cleanup every 5 minutes
 setInterval(() => {
@@ -112,7 +123,7 @@ const executeAuth = async (context, req, res, next) => {
     }
 
     // 3. Cache validated session, roles, and email
-    sessionCache.set(wpAuth, {
+    setSessionCache(wpAuth, {
       userId,
       roles,
       email,
@@ -240,7 +251,7 @@ export const getSessionValidation = async (wpAuth) => {
         return { valid: false, error: "SESSION_EXPIRED" };
       }
 
-      sessionCache.set(wpAuth, {
+      setSessionCache(wpAuth, {
         userId,
         roles,
         email,
@@ -333,7 +344,7 @@ export const optionalAuth = async (req, res, next) => {
     const isSuspended = response.data?.is_suspended === true;
 
     if (response.data?.logged_in && userId) {
-      sessionCache.set(wpAuth, {
+      setSessionCache(wpAuth, {
         userId,
         roles,
         email,

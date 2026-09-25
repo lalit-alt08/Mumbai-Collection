@@ -34,6 +34,8 @@ async function proxyStoreApi(req, res) {
   if (req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout") {
     const customerAuth =
       req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_admin_auth ||
+      req.cookies?.mumbai_employee_auth ||
       req.cookies?.mumbai_wp_auth;
 
     if (!customerAuth) {
@@ -193,8 +195,9 @@ async function proxyStoreApi(req, res) {
   // Map customer auth cookie to native WordPress auth cookie so WooCommerce Store API resolves the logged-in customer
   const customerAuth =
     req.cookies?.mumbai_customer_auth ||
-    req.cookies?.mumbai_wp_auth ||
-    req.cookies?.mumbai_admin_auth;
+    req.cookies?.mumbai_admin_auth ||
+    req.cookies?.mumbai_employee_auth ||
+    req.cookies?.mumbai_wp_auth;
 
   if (customerAuth) {
     forwardHeaders["Cookie"] = customerAuth;
@@ -263,8 +266,79 @@ async function proxyStoreApi(req, res) {
   }
 }
 
-// Apply checkout rate limiting and idempotency specifically to POST /checkout
-router.post(["/checkout", "/checkout/"], checkoutLimiter, requireIdempotency);
+/**
+ * Resolve and enforce authenticated customer identity before checkout rate limiting and idempotency.
+ * Fails closed with 401 if unauthenticated, ensuring requireIdempotency runs only with a verified req.wpUserId.
+ */
+const resolveCheckoutCustomer = async (req, res, next) => {
+  const customerAuth =
+    req.cookies?.mumbai_customer_auth ||
+    req.cookies?.mumbai_admin_auth ||
+    req.cookies?.mumbai_employee_auth ||
+    req.cookies?.mumbai_wp_auth;
+
+  if (!customerAuth) {
+    return res.status(401).json({
+      success: false,
+      code: "AUTH_REQUIRED",
+      message: "Please log in to place an order.",
+    });
+  }
+
+  try {
+    const sessionData = await getSessionValidation(customerAuth);
+    if (!sessionData?.valid || !sessionData.userId) {
+      return res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to place an order.",
+      });
+    }
+
+    if (sessionData.isSuspended) {
+      return res.status(403).json({
+        success: false,
+        code: "CUSTOMER_SUSPENDED",
+        message: "Your account is currently suspended and you cannot place new orders.",
+      });
+    }
+
+    if (!sessionData.isPhoneVerified) {
+      return res.status(403).json({
+        success: false,
+        code: "PHONE_NOT_VERIFIED",
+        message: "Please verify your mobile number with OTP before placing an order.",
+      });
+    }
+
+    req.wpUserId = sessionData.userId;
+    req.user = {
+      id: sessionData.userId,
+      roles: sessionData.roles || [],
+      email: sessionData.email || "",
+      is_phone_verified: true,
+      is_suspended: false,
+    };
+    req.isPhoneVerified = true;
+    req.isSuspended = false;
+    next();
+  } catch (err) {
+    logError(req, err, "Checkout customer authentication error");
+    return res.status(401).json({
+      success: false,
+      code: "AUTH_REQUIRED",
+      message: "Please log in to place an order.",
+    });
+  }
+};
+
+// Apply checkout customer resolution, rate limiting, and idempotency specifically to POST /checkout
+router.post(
+  ["/checkout", "/checkout/"],
+  resolveCheckoutCustomer,
+  checkoutLimiter,
+  requireIdempotency
+);
 
 // Mount proxy middleware for all methods and paths under /api/store
 router.use(proxyStoreApi);

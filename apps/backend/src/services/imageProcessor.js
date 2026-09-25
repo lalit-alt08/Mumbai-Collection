@@ -2,6 +2,7 @@ import sharp from "sharp";
 
 export const MAX_PROCESSED_DIMENSION = 1600;
 export const WEBP_QUALITY = 82;
+export const MAX_INPUT_PIXELS = 36000000; // 36 MP max (matches MAX_IMAGE_WIDTH 6000 x MAX_IMAGE_HEIGHT 6000)
 
 /**
  * Process an image buffer using Sharp for employee product uploads:
@@ -9,6 +10,7 @@ export const WEBP_QUALITY = 82;
  * 2. Strip all EXIF, GPS, and camera metadata (Sharp strips metadata by default when not using withMetadata).
  * 3. Resize bounding box to max 1600px width / height (fit: 'inside', withoutEnlargement: true).
  * 4. Encode to WebP format at quality 82.
+ * 5. Restrict input pixel flood (limitInputPixels) and animated multi-frame decoding (pages: 1).
  *
  * @param {Buffer} buffer - Input image buffer (JPEG, PNG, WebP, GIF)
  * @param {Object} [options] - Optional overrides for dimension or quality
@@ -22,9 +24,14 @@ export const processProductImage = async (buffer, options = {}) => {
   const maxWidth = Number(options.maxWidth) || MAX_PROCESSED_DIMENSION;
   const maxHeight = Number(options.maxHeight) || MAX_PROCESSED_DIMENSION;
   const quality = Number(options.quality) || WEBP_QUALITY;
+  const limitInputPixels = Number(options.limitInputPixels) || MAX_INPUT_PIXELS;
 
   try {
-    const pipeline = sharp(buffer, { failOn: "error" })
+    const pipeline = sharp(buffer, {
+      failOn: "error",
+      limitInputPixels,
+      pages: 1, // Single-frame extract: neutralizes multi-frame animated GIF/WebP bombs
+    })
       .rotate() // Auto-rotates based on EXIF orientation and strips orientation tag
       .resize({
         width: maxWidth,
@@ -58,5 +65,6 @@ export const processProductImage = async (buffer, options = {}) => {
 export default {
   MAX_PROCESSED_DIMENSION,
   WEBP_QUALITY,
+  MAX_INPUT_PIXELS,
   processProductImage,
 };

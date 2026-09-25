@@ -354,9 +354,11 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
       assert.equal(result.order_id, 7777);
       assert.equal(wcOrderCreated, true, "WooCommerce order must be created by webhook");
 
-      // Verify intent was deleted after order creation
+      // Verify intent transitioned to order_created (durable payments)
       const remainingIntent = await paymentIntentService.getPaymentIntent(rzpOrderId);
-      assert.equal(remainingIntent, null, "Payment intent must be deleted after order creation");
+      assert.ok(remainingIntent, "Payment intent must persist durably");
+      assert.equal(remainingIntent.status, "order_created", "Payment intent status must be order_created after order creation");
+      assert.equal(remainingIntent.wc_order_id, 7777, "Payment intent must link wc_order_id");
     } finally {
       rzpInstance.payments.fetch = originalPaymentsFetch;
     }

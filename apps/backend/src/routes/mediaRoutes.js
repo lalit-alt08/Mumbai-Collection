@@ -46,7 +46,8 @@ router.use(async (req, res) => {
     return res.status(403).json({ success: false, message: "Unsupported file type." });
   }
 
-  const targetUrl = `${WP_BASE_URL}/wp-content/uploads/${normalized.replace(/\\/g, "/")}`;
+  const wpBaseUrl = process.env.WORDPRESS_URL || WP_BASE_URL;
+  const targetUrl = `${wpBaseUrl}/wp-content/uploads/${normalized.replace(/\\/g, "/")}`;
 
   try {
     let response;
@@ -95,6 +96,12 @@ router.use(async (req, res) => {
     // Explicitly allow cross-origin embedding by frontend apps (e.g. Vercel deployment)
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    // Strictly neutralize stored XSS execution in SVG files
+    if (ext === ".svg") {
+      res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
+    }
 
     res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
 

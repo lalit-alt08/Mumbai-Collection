@@ -175,7 +175,7 @@ function ProductInfo({ product }) {
           className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50 cursor-pointer group"
         >
           <PackageX size={24} className="text-[#7C3AED] transition-transform group-hover:scale-105" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#1F2937] group-hover:text-[#7C3AED] transition-colors">Check Return Policy</span>
+          <span className="text-xs font-bold text-[#1F2937] group-hover:text-[#7C3AED] transition-colors">No Return or Exchange</span>
         </Link>
         <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50">
           <Truck size={24} className="text-[#7C3AED]" strokeWidth={1.75} />

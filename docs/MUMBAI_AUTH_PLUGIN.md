@@ -70,6 +70,14 @@ define('MUMBAI_INTERNAL_API_KEY', 'your_secure_internal_api_key_here');
 // Required: Frontend URL for CORS and password reset redirection
 define('MUMBAI_FRONTEND_URL', 'https://mumbai-collection.vercel.app');
 
+// Production Hardening: Disable built-in theme/plugin code editor
+define('DISALLOW_FILE_EDIT', true);
+
+// Production Hardening: Disable error output and debug logging
+define('WP_DEBUG', false);
+define('WP_DEBUG_LOG', false);
+define('WP_DEBUG_DISPLAY', false);
+
 // Optional: Maximum failed login attempts before lockout (default: 5)
 define('MUMBAI_MAX_LOGIN_ATTEMPTS', 5);
 

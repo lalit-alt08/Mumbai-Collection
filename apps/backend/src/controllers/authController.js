@@ -3,7 +3,7 @@ import axios from "axios";
 import wp from "../services/wordpress.js";
 import wcApi from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
-import { COOKIE_NAMES, invalidateSessionCache } from "../middlewares/authMiddleware.js";
+import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache } from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
 import { maskEmail } from "../utils/auditLogger.js";
@@ -72,6 +72,27 @@ export const login = async (req, res) => {
 
     const data = response.data;
 
+    // Role verification: ensure user has appropriate permissions for the requested panel context
+    const userRoles = Array.isArray(data.user?.roles) ? data.user.roles : [];
+
+    if (context === "admin" && !userRoles.includes("administrator")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Administrator privileges required.",
+      });
+    }
+
+    if (
+      context === "employee" &&
+      !userRoles.includes("employee") &&
+      !userRoles.includes("administrator")
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Staff privileges required.",
+      });
+    }
+
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
         cookieConfig.auth,
@@ -124,6 +145,7 @@ export const logout = async (req, res) => {
         {
           headers: {
             Cookie: wpAuth,
+            ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
           },
           httpsAgent,
           timeout: 5000,
@@ -227,6 +249,10 @@ export const resetPassword = async (req, res) => {
       password,
     });
 
+    if (response.data?.user_id) {
+      invalidateUserSessionCache(response.data.user_id);
+    }
+
     res.json(response.data);
   } catch (error) {
     logError(req, error, "Reset password error");
@@ -260,6 +286,7 @@ export const me = async (req, res) => {
       {
         headers: {
           Cookie: wpAuth,
+          ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
         },
         httpsAgent,
         timeout: 8000,
@@ -383,6 +410,27 @@ export const googleLogin = async (req, res) => {
 
     const data = response.data;
 
+    // Role verification: ensure user has appropriate permissions for the requested panel context
+    const userRoles = Array.isArray(data.user?.roles) ? data.user.roles : [];
+
+    if (context === "admin" && !userRoles.includes("administrator")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Administrator privileges required.",
+      });
+    }
+
+    if (
+      context === "employee" &&
+      !userRoles.includes("employee") &&
+      !userRoles.includes("administrator")
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Staff privileges required.",
+      });
+    }
+
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
         cookieConfig.auth,
@@ -419,6 +467,13 @@ export const googleLogin = async (req, res) => {
   }
 };
 
+export const hashOtp = (otp) => {
+  const secret = process.env.OTP_HMAC_SECRET;
+  if (!secret) {
+    throw new Error("OTP_HMAC_SECRET is not configured");
+  }
+  return crypto.createHmac("sha256", secret).update(String(otp).trim()).digest("hex");
+};
 
 export const sendOtp = async (req, res) => {
   try {
@@ -472,7 +527,10 @@ export const sendOtp = async (req, res) => {
             const meRes = await axios.get(
               `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
               {
-                headers: { Cookie: wpAuth },
+                headers: {
+                  Cookie: wpAuth,
+                  ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
+                },
                 httpsAgent,
                 timeout: 4000,
               }
@@ -496,7 +554,7 @@ export const sendOtp = async (req, res) => {
 
     // Generate secure 6-digit OTP
     const otp = crypto.randomInt(100000, 1000000).toString();
-    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+    const otpHash = hashOtp(otp);
 
     // Store OTP state in WordPress
     const storeResponse = await wp.post(
@@ -599,6 +657,9 @@ export const sendOtp = async (req, res) => {
         : (masked ? `Verification code sent to ${masked}.` : "Verification code sent to your registered email.")),
     });
   } catch (error) {
+    if (error.message === "OTP_HMAC_SECRET is not configured") {
+      logError(req, error, "Critical OTP Configuration Error: OTP_HMAC_SECRET is missing");
+    }
     const status = error.response?.status || 500;
     if (status === 429) {
       const headerRetry = error.response?.headers?.["retry-after"];
@@ -651,7 +712,10 @@ export const verifyOtp = async (req, res) => {
             const meRes = await axios.get(
               `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
               {
-                headers: { Cookie: wpAuth },
+                headers: {
+                  Cookie: wpAuth,
+                  ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
+                },
                 httpsAgent,
                 timeout: 4000,
               }
@@ -671,7 +735,7 @@ export const verifyOtp = async (req, res) => {
       }
     }
 
-    const otpHash = crypto.createHash("sha256").update(String(otp).trim()).digest("hex");
+    const otpHash = hashOtp(otp);
 
     const verifyResponse = await wp.post(
       "/wp-json/mumbai-auth/v1/otp/verify",
@@ -698,6 +762,9 @@ export const verifyOtp = async (req, res) => {
 
     return res.status(200).json(verifyResponse.data);
   } catch (error) {
+    if (error.message === "OTP_HMAC_SECRET is not configured") {
+      logError(req, error, "Critical OTP Configuration Error: OTP_HMAC_SECRET is missing");
+    }
     return res.status(error.response?.status || 400).json(
       error.response?.data || { success: false, message: "OTP verification failed" }
     );
@@ -734,6 +801,10 @@ export const resetPasswordOtp = async (req, res) => {
         },
       }
     );
+
+    if (resetResponse.data?.user_id) {
+      invalidateUserSessionCache(resetResponse.data.user_id);
+    }
 
     return res.status(200).json(resetResponse.data);
   } catch (error) {

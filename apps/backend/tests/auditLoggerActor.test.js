@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { logAuditEvent, maskEmail, redactSensitive } from "../src/utils/auditLogger.js";
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { logAuditEvent, maskEmail, redactSensitive, rotateAuditLogIfNeeded } from "../src/utils/auditLogger.js";
 
 test("Audit Logger Actor Resolution Suite", async (t) => {
   let capturedLogs = [];
@@ -183,5 +186,36 @@ test("Audit Logger Actor Resolution Suite", async (t) => {
     assert.equal(capturedLogs[4].actor.role, "guest");
     assert.equal(capturedLogs[4].actor.id, "unauthenticated");
     assert.equal(capturedLogs[4].actor.email, null);
+  });
+
+  await t.test("6. rotateAuditLogIfNeeded rotates files when file size threshold is reached", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "audit-rotate-test-"));
+    const testLogFile = path.join(tmpDir, "test-audit.log");
+
+    try {
+      // Create a small test log file (100 bytes)
+      fs.writeFileSync(testLogFile, "x".repeat(100));
+
+      // With maxSizeBytes = 200: does not rotate
+      const rotatedBefore = rotateAuditLogIfNeeded(testLogFile, 200, 3);
+      assert.equal(rotatedBefore, false);
+      assert.equal(fs.existsSync(testLogFile), true);
+      assert.equal(fs.existsSync(`${testLogFile}.1`), false);
+
+      // With maxSizeBytes = 50: rotates to .1
+      const rotatedAfter = rotateAuditLogIfNeeded(testLogFile, 50, 3);
+      assert.equal(rotatedAfter, true);
+      assert.equal(fs.existsSync(testLogFile), false);
+      assert.equal(fs.existsSync(`${testLogFile}.1`), true);
+
+      // Create new active log file and rotate again
+      fs.writeFileSync(testLogFile, "y".repeat(100));
+      const rotatedSecond = rotateAuditLogIfNeeded(testLogFile, 50, 3);
+      assert.equal(rotatedSecond, true);
+      assert.equal(fs.existsSync(`${testLogFile}.1`), true);
+      assert.equal(fs.existsSync(`${testLogFile}.2`), true);
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
   });
 });

@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
  * ─────────────────────────────────────────────
  */
 // Fail early if the internal API key is not configured
-if (!defined('MUMBAI_INTERNAL_API_KEY')) {
+if (!defined('MUMBAI_INTERNAL_API_KEY') && !defined('MUMBAI_INTERNAL_API_KEY_FALLBACK')) {
     add_action('admin_notices', function () {
         echo '<div class="notice notice-error"><p><strong>Mumbai Collection Auth:</strong> '
            . 'MUMBAI_INTERNAL_API_KEY is not defined in wp-config.php. '
@@ -41,6 +41,26 @@ if (!defined('MUMBAI_MAX_LOGIN_ATTEMPTS')) {
 if (!defined('MUMBAI_LOCKOUT_DURATION')) {
     define('MUMBAI_LOCKOUT_DURATION', 15 * MINUTE_IN_SECONDS);
 }
+
+// Production Hardening: Ensure file editing is disabled in WordPress
+if (!defined('DISALLOW_FILE_EDIT')) {
+    define('DISALLOW_FILE_EDIT', true);
+}
+
+// Production Hardening: Warn if WP_DEBUG is enabled
+if (defined('WP_DEBUG') && WP_DEBUG) {
+    add_action('admin_notices', function () {
+        echo '<div class="notice notice-warning is-dismissible"><p><strong>Mumbai Collection Security Notice:</strong> '
+           . 'WP_DEBUG is enabled. Ensure WP_DEBUG is set to false in wp-config.php for production deployments.</p></div>';
+    });
+}
+
+// WooCommerce High-Performance Order Storage (HPOS) Compatibility Declaration
+add_action('before_woocommerce_init', function () {
+    if (class_exists(\Automattic\WooCommerce\Utilities\FeaturesUtil::class)) {
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+    }
+});
 /*
  * ─────────────────────────────────────────────
  * HELPER: Conditional debug logging
@@ -53,6 +73,109 @@ function mumbai_log($message) {
         error_log('[Mumbai Auth] ' . $message);
     }
 }
+
+/**
+ * Check if the internal server API key is configured.
+ */
+function mumbai_has_internal_key_configured()
+{
+    return (defined('MUMBAI_INTERNAL_API_KEY') && constant('MUMBAI_INTERNAL_API_KEY') !== '') ||
+           (defined('MUMBAI_INTERNAL_API_KEY_FALLBACK') && constant('MUMBAI_INTERNAL_API_KEY_FALLBACK') !== '');
+}
+
+/**
+ * Validate internal API key with support for zero-downtime rotation.
+ * Checks primary key (MUMBAI_INTERNAL_API_KEY) and optional fallback key (MUMBAI_INTERNAL_API_KEY_FALLBACK).
+ * Also supports comma-separated keys in either constant.
+ */
+function mumbai_is_valid_internal_key($api_key)
+{
+    if (empty($api_key) || !is_string($api_key)) {
+        return false;
+    }
+
+    $valid_keys = [];
+    if (defined('MUMBAI_INTERNAL_API_KEY') && constant('MUMBAI_INTERNAL_API_KEY')) {
+        foreach (explode(',', constant('MUMBAI_INTERNAL_API_KEY')) as $k) {
+            $trimmed = trim($k);
+            if ($trimmed !== '') {
+                $valid_keys[] = $trimmed;
+            }
+        }
+    }
+    if (defined('MUMBAI_INTERNAL_API_KEY_FALLBACK') && constant('MUMBAI_INTERNAL_API_KEY_FALLBACK')) {
+        foreach (explode(',', constant('MUMBAI_INTERNAL_API_KEY_FALLBACK')) as $k) {
+            $trimmed = trim($k);
+            if ($trimmed !== '') {
+                $valid_keys[] = $trimmed;
+            }
+        }
+    }
+
+    if (empty($valid_keys)) {
+        return false;
+    }
+
+    foreach ($valid_keys as $valid_key) {
+        if (hash_equals($valid_key, $api_key)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/*
+ * ─────────────────────────────────────────────
+ * HARDENING: DISABLE XML-RPC & PINGBACKS
+ * ─────────────────────────────────────────────
+ * Neutralize brute-force, reflection, and amplification attacks via xmlrpc.php.
+ */
+add_filter('xmlrpc_enabled', '__return_false');
+add_filter('xmlrpc_methods', function () {
+    return [];
+});
+add_filter('wp_headers', function ($headers) {
+    unset($headers['X-Pingback']);
+    return $headers;
+});
+
+/*
+ * ─────────────────────────────────────────────
+ * HARDENING: BLOCK PUBLIC USER ENUMERATION
+ * ─────────────────────────────────────────────
+ * Prohibit unauthenticated visitors and crawlers from enumerating users via
+ * /wp-json/wp/v2/users or /?author=N while preserving access for trusted callers
+ * (server internal key or authenticated users with list_users capability).
+ */
+add_filter('rest_pre_dispatch', function ($result, $server, $request) {
+    if (!empty($result)) {
+        return $result;
+    }
+
+    $route = $request->get_route();
+    if (strpos($route, '/wp/v2/users') === 0) {
+        $internal_key = $request->get_header('X-Mumbai-Internal-Key');
+        $is_internal = function_exists('mumbai_is_valid_internal_key') && mumbai_is_valid_internal_key($internal_key);
+
+        if (!$is_internal && !current_user_can('list_users')) {
+            return new WP_Error(
+                'rest_cannot_access',
+                'User listing is restricted.',
+                ['status' => rest_authorization_required_code()]
+            );
+        }
+    }
+
+    return $result;
+}, 10, 3);
+
+add_action('template_redirect', function () {
+    if (is_author() && !is_admin()) {
+        wp_safe_redirect(home_url(), 301);
+        exit;
+    }
+});
 
 /**
  * Ensure the 'employee' role exists in WordPress
@@ -101,7 +224,7 @@ add_filter('determine_current_user', function ($user_id) {
 
     if ($is_state_changing) {
         $internal_key = $_SERVER['HTTP_X_MUMBAI_INTERNAL_KEY'] ?? '';
-        $is_internal = defined('MUMBAI_INTERNAL_API_KEY') && !empty($internal_key) && hash_equals(MUMBAI_INTERNAL_API_KEY, $internal_key);
+        $is_internal = mumbai_is_valid_internal_key($internal_key);
 
         if (!$is_internal) {
             $nonce = $_SERVER['HTTP_X_WP_NONCE'] ?? ($_REQUEST['_wpnonce'] ?? '');
@@ -120,26 +243,26 @@ add_filter('determine_current_user', function ($user_id) {
  * ─────────────────────────────────────────────
  */
 add_action('rest_api_init', function () {
-    // Auth endpoints (public)
+    // Auth endpoints (Internal Node.js Express gateway only — require internal API key)
     register_rest_route('mumbai-auth/v1', '/login', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_login',
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/register', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_register',
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/forgot-password', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_forgot_password',
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/reset-password', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_reset_password',
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/logout', [
         'methods'             => 'POST',
@@ -192,6 +315,46 @@ add_action('rest_api_init', function () {
     register_rest_route('mumbai-auth/v1', '/payment-intent/delete', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_payment_intent_delete',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/update-status', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_update_status',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/reconciliation-list', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_payment_intent_reconciliation_list',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/reconciliation/watermark', [
+        'methods'             => ['GET', 'POST'],
+        'callback'            => function (WP_REST_Request $request) {
+            if ($request->get_method() === 'POST') {
+                return mumbai_reconciliation_set_watermark($request);
+            }
+            return mumbai_reconciliation_get_watermark($request);
+        },
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/webhook-event/store', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_webhook_event_store',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/webhook-event/update-status', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_webhook_event_update_status',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/webhook-events/orphans', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_webhook_events_orphans',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/orders/by-razorpay-order-id', [
+        'methods'             => ['GET', 'POST'],
+        'callback'            => 'mumbai_find_order_by_razorpay_order_id',
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/payment-intent/lock', [
@@ -285,6 +448,15 @@ add_action('rest_api_init', function () {
     register_rest_route('mumbai-auth/v1', '/store-hours', [
       'methods'             => ['PUT', 'POST'],
       'callback'            => 'mumbai_save_store_hours',
+      'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
+    register_rest_route('mumbai-auth/v1', '/store-hours/clear-transient', [
+      'methods'             => 'POST',
+      'callback'            => function () {
+          delete_transient('mumbai_store_hours');
+          return rest_ensure_response(['success' => true, 'transient_deleted' => true]);
+      },
       'permission_callback' => 'mumbai_internal_server_permission',
     ]);
 
@@ -499,6 +671,7 @@ function mumbai_login(WP_REST_Request $request)
             'name'     => $signon->display_name,
             'email'    => $signon->user_email,
             'username' => $signon->user_login,
+            'roles'    => array_values((array) $signon->roles),
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
@@ -628,6 +801,7 @@ function mumbai_sso(WP_REST_Request $request)
             'name'              => $user->display_name,
             'email'             => $user->user_email,
             'username'          => $user->user_login,
+            'roles'             => array_values((array) $user->roles),
             'is_phone_verified' => $is_phone_verified,
         ],
         'session'     => $logged_in_cookie,
@@ -707,6 +881,17 @@ function mumbai_register(WP_REST_Request $request)
             ['status' => 409]
         );
     }
+    $phone = sanitize_text_field($request->get_param('phone'));
+    if (!empty($phone)) {
+        $existing_by_phone = mumbai_get_user_by_phone($phone);
+        if ($existing_by_phone) {
+            return new WP_Error(
+                'phone_exists',
+                'An account with this phone number already exists.',
+                ['status' => 409]
+            );
+        }
+    }
     // Create unique username from email with safe fallback (M3 fix)
     $email_prefix = current(explode('@', $email));
     $username = sanitize_user($email_prefix, true);
@@ -747,6 +932,10 @@ function mumbai_register(WP_REST_Request $request)
     update_user_meta($user_id, 'billing_last_name', $last_name);
     update_user_meta($user_id, 'shipping_first_name', $first_name);
     update_user_meta($user_id, 'shipping_last_name', $last_name);
+    if (!empty($phone)) {
+        $clean_phone = mumbai_normalize_phone($phone);
+        update_user_meta($user_id, 'billing_phone', $clean_phone);
+    }
 
     // Check if email was pre-allowlisted for employee access
     $allowlist = get_option('_mumbai_employee_allowlist', []);
@@ -903,6 +1092,7 @@ function mumbai_reset_password(WP_REST_Request $request)
     return [
         'success' => true,
         'message' => 'Password reset successfully. You can now login.',
+        'user_id' => (int) $user->ID,
     ];
 }
 /*
@@ -1063,7 +1253,7 @@ function mumbai_me()
  */
 function mumbai_internal_server_permission(WP_REST_Request $request)
 {
-    if (!defined('MUMBAI_INTERNAL_API_KEY')) {
+    if (!mumbai_has_internal_key_configured()) {
         return new WP_Error(
             'plugin_misconfigured',
             'Server configuration error.',
@@ -1078,7 +1268,7 @@ function mumbai_internal_server_permission(WP_REST_Request $request)
             ['status' => 401]
         );
     }
-    if (!hash_equals(MUMBAI_INTERNAL_API_KEY, $api_key)) {
+    if (!mumbai_is_valid_internal_key($api_key)) {
         mumbai_log('Invalid internal API key attempt.');
         return new WP_Error(
             'invalid_internal_key',
@@ -2015,9 +2205,23 @@ function mumbai_reset_phone_verification($meta_id, $user_id, $meta_key, $meta_va
 
 function mumbai_get_user_by_phone($phone) {
     if (empty($phone)) return null;
+    $clean_phone = mumbai_normalize_phone($phone);
+    if (empty($clean_phone)) return null;
+
     $users = get_users([
-        'meta_key'   => 'billing_phone',
-        'meta_value' => sanitize_text_field($phone),
+        'meta_query' => [
+            'relation' => 'OR',
+            [
+                'key'     => 'billing_phone',
+                'value'   => $clean_phone,
+                'compare' => '=',
+            ],
+            [
+                'key'     => '_mumbai_verified_phone',
+                'value'   => $clean_phone,
+                'compare' => '=',
+            ],
+        ],
         'number'     => 1,
         'fields'     => 'all',
     ]);
@@ -2249,6 +2453,7 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
     return [
         'success' => true,
         'message' => 'Password reset successfully.',
+        'user_id' => (int) $user->ID,
     ];
 }
 
@@ -2615,6 +2820,33 @@ add_action('mumbai_daily_media_cleanup', 'mumbai_cleanup_pending_orphans');
 if (!wp_next_scheduled('mumbai_daily_media_cleanup')) {
     wp_schedule_event(time() + 3600, 'daily', 'mumbai_daily_media_cleanup');
 }
+
+/**
+ * Hardening: Ensure .htaccess in wp-content/uploads/ prevents direct execution of PHP scripts.
+ */
+function mumbai_secure_uploads_directory() {
+    $upload_dir = wp_upload_dir();
+    $basedir = !empty($upload_dir['basedir']) ? $upload_dir['basedir'] : null;
+    if (!$basedir || !is_dir($basedir) || !is_writable($basedir)) {
+        return;
+    }
+
+    $htaccess_file = rtrim($basedir, '/\\') . '/.htaccess';
+    if (!file_exists($htaccess_file)) {
+        $rules = "# Block direct script execution in WordPress uploads directory\n"
+               . "<FilesMatch \"(?i)\\.(php|phtml|php3|php4|php5|php7|php8|phar|inc|cgi|pl)$\">\n"
+               . "    <IfModule mod_authz_core.c>\n"
+               . "        Require all denied\n"
+               . "    </IfModule>\n"
+               . "    <IfModule !mod_authz_core.c>\n"
+               . "        Deny from all\n"
+               . "    </IfModule>\n"
+               . "</FilesMatch>\n";
+        @file_put_contents($htaccess_file, $rules);
+    }
+}
+add_action('admin_init', 'mumbai_secure_uploads_directory');
+add_action('mumbai_daily_media_cleanup', 'mumbai_secure_uploads_directory');
 
 /*
  * ─────────────────────────────────────────────
@@ -3149,7 +3381,10 @@ function mumbai_admin_revoke_employee_sessions(WP_REST_Request $request) {
  * Get store operating hours configuration from wp_options
  */
 function mumbai_get_store_hours() {
-    $hours = get_option('mumbai_store_hours', null);
+    $hours = get_transient('mumbai_store_hours');
+    if ($hours === false || $hours === null) {
+        $hours = get_option('mumbai_store_hours', null);
+    }
     return rest_ensure_response([
         'success'     => true,
         'store_hours' => $hours,
@@ -3165,6 +3400,7 @@ function mumbai_save_store_hours(WP_REST_Request $request) {
         return new WP_Error('invalid_config', 'store_hours must be an array/object.', ['status' => 400]);
     }
     update_option('mumbai_store_hours', $config, false);
+    set_transient('mumbai_store_hours', $config, DAY_IN_SECONDS);
     return rest_ensure_response([
         'success'     => true,
         'message'     => 'Store hours updated successfully.',
@@ -3506,7 +3742,104 @@ function mumbai_admin_customer_suspension_unsuspend(WP_REST_Request $request) {
  * ─────────────────────────────────────────────
  */
 
+/**
+ * ─────────────────────────────────────────────
+ * DURABLE PAYMENT INTENTS & WEBHOOK EVENTS (MIGRATION & RECONCILIATION)
+ * ─────────────────────────────────────────────
+ */
+
+function mumbai_run_durable_payments_migration() {
+    global $wpdb;
+    $installed_ver = (int) get_option('mumbai_durable_db_ver', 0);
+    $target_ver = 1;
+
+    $table_intents = $wpdb->prefix . 'mumbai_payment_intents';
+    $table_events  = $wpdb->prefix . 'mumbai_webhook_events';
+    $table_locks   = $wpdb->prefix . 'mumbai_locks';
+
+    $tables_missing = (
+        $wpdb->get_var("SHOW TABLES LIKE '{$table_intents}'") !== $table_intents ||
+        $wpdb->get_var("SHOW TABLES LIKE '{$table_events}'") !== $table_events ||
+        $wpdb->get_var("SHOW TABLES LIKE '{$table_locks}'") !== $table_locks
+    );
+
+    if ($installed_ver < $target_ver || $tables_missing) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $sql_intents = "CREATE TABLE {$table_intents} (
+            rzp_order_id varchar(64) NOT NULL,
+            user_id bigint(20) unsigned NOT NULL,
+            amount_paise bigint(20) unsigned NOT NULL,
+            captured_amount_paise bigint(20) unsigned DEFAULT 0,
+            status varchar(32) NOT NULL DEFAULT 'created',
+            cart_fingerprint varchar(64) NOT NULL,
+            checkout_payload longtext,
+            rzp_payment_id varchar(64) DEFAULT NULL,
+            wc_order_id bigint(20) unsigned DEFAULT NULL,
+            refund_id varchar(64) DEFAULT NULL,
+            error_reason text DEFAULT NULL,
+            attempts int(10) unsigned NOT NULL DEFAULT 0,
+            last_attempt_at datetime DEFAULT NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (rzp_order_id),
+            KEY idx_status_created (status, created_at),
+            KEY idx_rzp_payment (rzp_payment_id),
+            KEY idx_user (user_id)
+        ) {$charset_collate};";
+
+        $sql_events = "CREATE TABLE {$table_events} (
+            event_id varchar(64) NOT NULL,
+            event_type varchar(64) NOT NULL,
+            rzp_order_id varchar(64) DEFAULT NULL,
+            rzp_payment_id varchar(64) DEFAULT NULL,
+            raw_payload longtext NOT NULL,
+            status varchar(32) NOT NULL DEFAULT 'stored',
+            created_at datetime NOT NULL,
+            PRIMARY KEY  (event_id),
+            KEY idx_rzp_order (rzp_order_id),
+            KEY idx_status (status)
+        ) {$charset_collate};";
+
+        $sql_locks = "CREATE TABLE {$table_locks} (
+            lock_key varchar(64) NOT NULL,
+            worker_id varchar(64) NOT NULL,
+            locked_at int(10) unsigned NOT NULL,
+            PRIMARY KEY  (lock_key)
+        ) {$charset_collate};";
+
+        dbDelta($sql_intents);
+        dbDelta($sql_events);
+        dbDelta($sql_locks);
+
+        update_option('mumbai_durable_db_ver', $target_ver);
+    }
+}
+add_action('init', 'mumbai_run_durable_payments_migration');
+
+function mumbai_purge_stale_payment_intent_payloads() {
+    global $wpdb;
+    $table_intents = $wpdb->prefix . 'mumbai_payment_intents';
+    $retention_days = 7;
+    $cutoff = date('Y-m-d H:i:s', time() - ($retention_days * DAY_IN_SECONDS));
+
+    $wpdb->query($wpdb->prepare(
+        "UPDATE {$table_intents} 
+         SET checkout_payload = NULL 
+         WHERE status IN ('order_created', 'refunded') 
+           AND updated_at < %s 
+           AND checkout_payload IS NOT NULL",
+        $cutoff
+    ));
+}
+add_action('mumbai_daily_maintenance', 'mumbai_purge_stale_payment_intent_payloads');
+if (!wp_next_scheduled('mumbai_daily_maintenance')) {
+    wp_schedule_event(time(), 'daily', 'mumbai_daily_maintenance');
+}
+
 function mumbai_payment_intent_store(WP_REST_Request $request) {
+    global $wpdb;
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     $payload      = $request->get_param('payload');
     $expires_in   = absint($request->get_param('expires_in') ?? 3600);
@@ -3517,21 +3850,332 @@ function mumbai_payment_intent_store(WP_REST_Request $request) {
 
     if ($expires_in <= 0) $expires_in = 3600;
 
+    // Backward-compatible transient fallback
     set_transient('_mumbai_pay_' . $rzp_order_id, $payload, $expires_in);
+
+    // Durable store in wp_mumbai_payment_intents table
+    mumbai_run_durable_payments_migration();
+    $table = $wpdb->prefix . 'mumbai_payment_intents';
+    $now = current_time('mysql');
+
+    $user_id = isset($payload['user_id']) ? absint($payload['user_id']) : 0;
+    $amount_paise = isset($payload['amount']) ? absint($payload['amount']) : 0;
+    $cart_fingerprint = isset($payload['cart_fingerprint']) ? sanitize_text_field($payload['cart_fingerprint']) : '';
+    $json_payload = wp_json_encode($payload);
+
+    $wpdb->query($wpdb->prepare(
+        "INSERT INTO {$table} (rzp_order_id, user_id, amount_paise, status, cart_fingerprint, checkout_payload, created_at, updated_at)
+         VALUES (%s, %d, %d, 'created', %s, %s, %s, %s)
+         ON DUPLICATE KEY UPDATE 
+            user_id = VALUES(user_id),
+            amount_paise = VALUES(amount_paise),
+            cart_fingerprint = VALUES(cart_fingerprint),
+            checkout_payload = VALUES(checkout_payload),
+            updated_at = VALUES(updated_at)",
+        $rzp_order_id, $user_id, $amount_paise, $cart_fingerprint, $json_payload, $now, $now
+    ));
+
     return rest_ensure_response(['success' => true]);
 }
 
 function mumbai_payment_intent_get(WP_REST_Request $request) {
+    global $wpdb;
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     if (empty($rzp_order_id)) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
     }
 
-    $intent = get_transient('_mumbai_pay_' . $rzp_order_id);
+    $table = $wpdb->prefix . 'mumbai_payment_intents';
+    $row = null;
+    if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE rzp_order_id = %s", $rzp_order_id), ARRAY_A);
+    }
+
+    $intent = null;
+    if ($row) {
+        $intent = !empty($row['checkout_payload']) ? json_decode($row['checkout_payload'], true) : [];
+        if (!is_array($intent)) $intent = [];
+        $intent['status'] = $row['status'];
+        $intent['rzp_payment_id'] = $row['rzp_payment_id'];
+        $intent['wc_order_id'] = (!is_null($row['wc_order_id']) && $row['wc_order_id'] !== '') ? (int) $row['wc_order_id'] : null;
+        $intent['refund_id'] = $row['refund_id'];
+        $intent['captured_amount_paise'] = (int) $row['captured_amount_paise'];
+        $intent['attempts'] = (int) $row['attempts'];
+        $intent['error_reason'] = $row['error_reason'];
+        $intent['created_at'] = $row['created_at'];
+        $intent['updated_at'] = $row['updated_at'];
+    }
+
+    if (!$intent) {
+        $intent = get_transient('_mumbai_pay_' . $rzp_order_id);
+    }
+
     return rest_ensure_response([
         'success' => true,
         'intent'  => $intent ? $intent : null,
+        'raw_row' => $row ? $row : null,
     ]);
+}
+
+function mumbai_payment_intent_update_status(WP_REST_Request $request) {
+    global $wpdb;
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    $from_status  = sanitize_text_field($request->get_param('from_status'));
+    $to_status    = sanitize_text_field($request->get_param('to_status'));
+
+    if (empty($rzp_order_id) || empty($to_status)) {
+        return new WP_Error('missing_params', 'rzp_order_id and to_status are required.', ['status' => 400]);
+    }
+
+    mumbai_run_durable_payments_migration();
+    $table = $wpdb->prefix . 'mumbai_payment_intents';
+    $now = current_time('mysql');
+
+    $rzp_payment_id = $request->get_param('rzp_payment_id') ? sanitize_text_field($request->get_param('rzp_payment_id')) : null;
+    $wc_order_id    = $request->get_param('wc_order_id') ? absint($request->get_param('wc_order_id')) : null;
+    $refund_id      = $request->get_param('refund_id') ? sanitize_text_field($request->get_param('refund_id')) : null;
+    $error_reason   = $request->get_param('error_reason') ? sanitize_text_field($request->get_param('error_reason')) : null;
+    $captured_paise = $request->get_param('captured_amount_paise') ? absint($request->get_param('captured_amount_paise')) : null;
+    $inc_attempts   = (bool) $request->get_param('increment_attempts');
+
+    $set_clauses = ["status = %s", "updated_at = %s"];
+    $params = [$to_status, $now];
+
+    if ($rzp_payment_id !== null) {
+        $set_clauses[] = "rzp_payment_id = %s";
+        $params[] = $rzp_payment_id;
+    }
+    if ($wc_order_id !== null) {
+        $set_clauses[] = "wc_order_id = %d";
+        $params[] = $wc_order_id;
+    }
+    if ($refund_id !== null) {
+        $set_clauses[] = "refund_id = %s";
+        $params[] = $refund_id;
+    }
+    if ($to_status === 'order_created') {
+        $set_clauses[] = "error_reason = NULL";
+    } elseif ($error_reason !== null) {
+        $set_clauses[] = "error_reason = %s";
+        $params[] = $error_reason;
+    }
+    if ($captured_paise !== null) {
+        $set_clauses[] = "captured_amount_paise = %d";
+        $params[] = $captured_paise;
+    }
+    if ($inc_attempts) {
+        $set_clauses[] = "attempts = attempts + 1";
+        $set_clauses[] = "last_attempt_at = %s";
+        $params[] = $now;
+    }
+
+    $sql = "UPDATE {$table} SET " . implode(", ", $set_clauses) . " WHERE rzp_order_id = %s";
+    $params[] = $rzp_order_id;
+
+    if (!empty($from_status)) {
+        $sql .= " AND status = %s";
+        $params[] = $from_status;
+    }
+
+    $updated = $wpdb->query($wpdb->prepare($sql, $params));
+
+    return rest_ensure_response([
+        'success' => true,
+        'updated' => ($updated === 1),
+    ]);
+}
+
+function mumbai_reconciliation_get_watermark(WP_REST_Request $request) {
+    $watermark = get_option('mumbai_reconciler_watermark', '');
+    return rest_ensure_response(['success' => true, 'watermark' => $watermark]);
+}
+
+function mumbai_reconciliation_set_watermark(WP_REST_Request $request) {
+    $watermark = sanitize_text_field($request->get_param('watermark') ?? '');
+    update_option('mumbai_reconciler_watermark', $watermark);
+    return rest_ensure_response(['success' => true, 'watermark' => $watermark]);
+}
+
+function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'mumbai_payment_intents';
+    if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        return rest_ensure_response(['success' => true, 'intents' => [], 'page' => 1, 'has_more' => false]);
+    }
+
+    $limit = absint($request->get_param('limit') ?? 50);
+    if ($limit <= 0 || $limit > 100) $limit = 50;
+    $page = absint($request->get_param('page') ?? 1);
+    if ($page <= 0) $page = 1;
+    $offset = ($page - 1) * $limit;
+
+    $older_than_param = $request->get_param('older_than_minutes');
+    $older_than_minutes = ($older_than_param !== null && $older_than_param !== '') ? absint($older_than_param) : 2;
+    $cutoff = ($older_than_minutes > 0)
+        ? date('Y-m-d H:i:s', time() - ($older_than_minutes * MINUTE_IN_SECONDS))
+        : date('Y-m-d H:i:s', time() + 60);
+
+    $created_older_than_param = $request->get_param('created_older_than_minutes');
+    $created_older_than_minutes = ($created_older_than_param !== null && $created_older_than_param !== '')
+        ? absint($created_older_than_param)
+        : ($older_than_minutes === 0 ? 0 : 10);
+    $created_cutoff = ($created_older_than_minutes > 0)
+        ? date('Y-m-d H:i:s', time() - ($created_older_than_minutes * MINUTE_IN_SECONDS))
+        : date('Y-m-d H:i:s', time() + 60);
+
+    // Overlapping window: if watermark provided, overlap by 5 minutes (300 seconds)
+    $watermark = sanitize_text_field($request->get_param('watermark') ?? '');
+    $params = [$cutoff, $created_cutoff];
+    $watermark_where = "";
+
+    if (!empty($watermark)) {
+        $watermark_ts = strtotime($watermark);
+        if ($watermark_ts) {
+            $overlap_cutoff = date('Y-m-d H:i:s', $watermark_ts - 300);
+            $watermark_where = " AND updated_at >= %s";
+            $params[] = $overlap_cutoff;
+        }
+    }
+
+    $sql = "SELECT * FROM {$table} 
+         WHERE ((status IN ('paid', 'refund_pending', 'refund_failed') AND updated_at < %s)
+            OR (status = 'created' AND created_at < %s))" . $watermark_where . "
+         ORDER BY updated_at ASC LIMIT %d OFFSET %d";
+
+    $params[] = $limit;
+    $params[] = $offset;
+
+    $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
+    $count = is_array($rows) ? count($rows) : 0;
+
+    return rest_ensure_response([
+        'success'   => true,
+        'page'      => $page,
+        'limit'     => $limit,
+        'has_more'  => ($count === $limit),
+        'intents'   => is_array($rows) ? $rows : [],
+    ]);
+}
+
+function mumbai_webhook_event_store(WP_REST_Request $request) {
+    global $wpdb;
+    mumbai_run_durable_payments_migration();
+    $event_id     = sanitize_text_field($request->get_param('event_id'));
+    $event_type   = sanitize_text_field($request->get_param('event_type'));
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    $rzp_payment_id = sanitize_text_field($request->get_param('rzp_payment_id'));
+    $raw_payload  = $request->get_param('raw_payload');
+
+    if (empty($event_id) || empty($event_type)) {
+        return new WP_Error('missing_params', 'event_id and event_type are required.', ['status' => 400]);
+    }
+
+    $table = $wpdb->prefix . 'mumbai_webhook_events';
+    $now = current_time('mysql');
+    $payload_str = is_string($raw_payload) ? $raw_payload : wp_json_encode($raw_payload);
+
+    $inserted = $wpdb->query($wpdb->prepare(
+        "INSERT IGNORE INTO {$table} (event_id, event_type, rzp_order_id, rzp_payment_id, raw_payload, status, created_at)
+         VALUES (%s, %s, %s, %s, %s, 'stored', %s)",
+        $event_id, $event_type, $rzp_order_id, $rzp_payment_id, $payload_str, $now
+    ));
+
+    return rest_ensure_response([
+        'success'   => true,
+        'is_new'    => ($inserted === 1),
+        'event_id'  => $event_id,
+    ]);
+}
+
+function mumbai_webhook_event_update_status(WP_REST_Request $request) {
+    global $wpdb;
+    mumbai_run_durable_payments_migration();
+    $event_id = sanitize_text_field($request->get_param('event_id'));
+    $status   = sanitize_text_field($request->get_param('status'));
+
+    if (empty($event_id) || empty($status)) {
+        return new WP_Error('missing_params', 'event_id and status are required.', ['status' => 400]);
+    }
+
+    $valid_statuses = ['stored', 'processed', 'orphan', 'failed'];
+    if (!in_array($status, $valid_statuses, true)) {
+        return new WP_Error('invalid_status', 'Status must be one of stored, processed, orphan, failed.', ['status' => 400]);
+    }
+
+    $table = $wpdb->prefix . 'mumbai_webhook_events';
+    $updated = $wpdb->update(
+        $table,
+        ['status' => $status],
+        ['event_id' => $event_id],
+        ['%s'],
+        ['%s']
+    );
+
+    return rest_ensure_response([
+        'success'  => true,
+        'updated'  => ($updated !== false),
+        'event_id' => $event_id,
+        'status'   => $status,
+    ]);
+}
+
+function mumbai_webhook_events_orphans(WP_REST_Request $request) {
+    global $wpdb;
+    mumbai_run_durable_payments_migration();
+    $table = $wpdb->prefix . 'mumbai_webhook_events';
+
+    $limit = absint($request->get_param('limit') ?? 50);
+    if ($limit <= 0 || $limit > 100) $limit = 50;
+    $page = absint($request->get_param('page') ?? 1);
+    if ($page <= 0) $page = 1;
+    $offset = ($page - 1) * $limit;
+
+    $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE status = 'orphan'");
+    $rows = $wpdb->get_results(
+        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, status, created_at FROM {$table} WHERE status = 'orphan' ORDER BY created_at DESC LIMIT %d OFFSET %d", $limit, $offset),
+        ARRAY_A
+    );
+
+    return rest_ensure_response([
+        'success'  => true,
+        'count'    => $total,
+        'page'     => $page,
+        'limit'    => $limit,
+        'orphans'  => is_array($rows) ? $rows : [],
+    ]);
+}
+
+function mumbai_find_order_by_razorpay_order_id(WP_REST_Request $request) {
+    $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
+    if (empty($rzp_order_id)) {
+        return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
+    }
+
+    if (!function_exists('wc_get_orders')) {
+        return rest_ensure_response(['success' => true, 'order' => null]);
+    }
+
+    $orders = wc_get_orders([
+        'limit'      => 1,
+        'meta_key'   => '_razorpay_order_id',
+        'meta_value' => $rzp_order_id,
+        'return'     => 'objects',
+    ]);
+
+    if (!empty($orders)) {
+        $order = $orders[0];
+        return rest_ensure_response([
+            'success' => true,
+            'order'   => [
+                'id'             => $order->get_id(),
+                'status'         => $order->get_status(),
+                'transaction_id' => $order->get_transaction_id(),
+                'total'          => $order->get_total(),
+            ],
+        ]);
+    }
+
+    return rest_ensure_response(['success' => true, 'order' => null]);
 }
 
 function mumbai_payment_intent_delete(WP_REST_Request $request) {
@@ -3545,6 +4189,7 @@ function mumbai_payment_intent_delete(WP_REST_Request $request) {
 }
 
 function mumbai_payment_intent_lock(WP_REST_Request $request) {
+    global $wpdb;
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     $worker_id    = sanitize_text_field($request->get_param('worker_id') ?? 'worker');
 
@@ -3552,18 +4197,26 @@ function mumbai_payment_intent_lock(WP_REST_Request $request) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
     }
 
-    $opt_name  = '_mumbai_lock_' . $rzp_order_id;
-    $lock_data = [
-        'locked_at' => time(),
-        'worker_id' => $worker_id,
-    ];
+    $lock_key = '_mumbai_lock_' . $rzp_order_id;
+    $now = time();
+    $table_name = $wpdb->prefix . 'mumbai_locks';
 
-    $acquired = add_option($opt_name, $lock_data, '', 'no');
+    mumbai_run_durable_payments_migration();
+
+    // Attempt atomic INSERT (fails on duplicate primary key)
+    $inserted = $wpdb->query($wpdb->prepare(
+        "INSERT IGNORE INTO `{$table_name}` (`lock_key`, `worker_id`, `locked_at`) VALUES (%s, %s, %d)",
+        $lock_key, $worker_id, $now
+    ));
+
+    $acquired = ($inserted === 1);
     if (!$acquired) {
-        $existing = get_option($opt_name);
-        if (is_array($existing) && isset($existing['locked_at']) && (time() - (int) $existing['locked_at'] > 30)) {
-            // Stale lock recovery (worker crashed or timed out > 30 seconds ago)
-            update_option($opt_name, $lock_data);
+        // Atomic stale lock recovery (worker timed out > 30s)
+        $stale = $wpdb->query($wpdb->prepare(
+            "UPDATE `{$table_name}` SET `worker_id` = %s, `locked_at` = %d WHERE `lock_key` = %s AND `locked_at` < %d",
+            $worker_id, $now, $lock_key, $now - 30
+        ));
+        if ($stale === 1) {
             $acquired = true;
         }
     }
@@ -3575,12 +4228,17 @@ function mumbai_payment_intent_lock(WP_REST_Request $request) {
 }
 
 function mumbai_payment_intent_unlock(WP_REST_Request $request) {
+    global $wpdb;
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     if (empty($rzp_order_id)) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
     }
 
-    delete_option('_mumbai_lock_' . $rzp_order_id);
+    $lock_key = '_mumbai_lock_' . $rzp_order_id;
+    $table_name = $wpdb->prefix . 'mumbai_locks';
+    $wpdb->delete($table_name, ['lock_key' => $lock_key]);
+    delete_option($lock_key);
+
     return rest_ensure_response(['success' => true]);
 }
 

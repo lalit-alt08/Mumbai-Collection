@@ -168,7 +168,7 @@ function Orders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const requestIdRef = useRef(0);
   const pollTimerRef = useRef(null);
-  const [updatingId, setUpdatingId] = useState(null);
+  const [updatingIds, setUpdatingIds] = useState(() => new Set());
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
 
@@ -356,30 +356,132 @@ function Orders() {
   };
 
   const handleStatusUpdate = async (orderId, newStatus) => {
-    try {
-      setUpdatingId(orderId);
-      const res = await updateOrderStatus(orderId, newStatus);
-      await fetchOrderList();
-      showToast(`Order #${orderId} status updated to ${newStatus}.`);
-      if (selectedOrder && selectedOrder.id === orderId) {
-        setSelectedOrder((prev) => ({
+    // Prevent duplicate concurrent requests on the same order
+    if (updatingIds.has(orderId)) return;
+
+    // Snapshot previous state for precise rollback on failure
+    const previousOrder = orders.find((o) => o.id === orderId);
+    const previousSelectedOrder =
+      selectedOrder && selectedOrder.id === orderId ? selectedOrder : null;
+
+    const optimisticDeliveryCompletedAt =
+      newStatus === "completed" ? new Date().toISOString() : undefined;
+
+    // Optimistically update local orders state immediately (0ms feedback)
+    setOrders((prev) =>
+      prev.map((ord) => {
+        if (ord.id === orderId) {
+          return {
+            ...ord,
+            status: newStatus,
+            ...(optimisticDeliveryCompletedAt
+              ? {
+                  delivery_completed_at: ord.delivery_completed_at || optimisticDeliveryCompletedAt,
+                  date_completed: ord.date_completed || optimisticDeliveryCompletedAt,
+                }
+              : {}),
+            is_status_locked: false,
+          };
+        }
+        return ord;
+      })
+    );
+
+    if (selectedOrder && selectedOrder.id === orderId) {
+      setSelectedOrder((prev) => {
+        if (!prev || prev.id !== orderId) return prev;
+        return {
           ...prev,
           status: newStatus,
-          delivery_completed_at:
-            res?.order?.meta_data?.find((m) => m.key === "_delivery_completed_at")?.value ||
-            (newStatus === "completed" ? new Date().toISOString() : prev.delivery_completed_at),
-          date_completed: res?.order?.date_completed || prev.date_completed,
-          date_completed_gmt: res?.order?.date_completed_gmt || prev.date_completed_gmt,
+          ...(optimisticDeliveryCompletedAt
+            ? {
+                delivery_completed_at: prev.delivery_completed_at || optimisticDeliveryCompletedAt,
+                date_completed: prev.date_completed || optimisticDeliveryCompletedAt,
+              }
+            : {}),
           is_status_locked: false,
-        }));
+        };
+      });
+    }
+
+    // Mark this order as in-flight (React-safe Set update)
+    setUpdatingIds((prev) => {
+      const next = new Set(prev);
+      next.add(orderId);
+      return next;
+    });
+
+    try {
+      const res = await updateOrderStatus(orderId, newStatus);
+
+      // Merge authoritative server response into local orders state without re-fetching entire list
+      if (res?.order) {
+        const serverOrder = res.order;
+        const deliveryMeta = serverOrder.meta_data?.find(
+          (m) => m.key === "_delivery_status"
+        );
+        const effectiveStatus = deliveryMeta?.value || serverOrder.status || newStatus;
+        const deliveryCompletedAt =
+          serverOrder.delivery_completed_at ||
+          serverOrder.meta_data?.find((m) => m.key === "_delivery_completed_at")?.value ||
+          (newStatus === "completed" ? new Date().toISOString() : undefined);
+
+        setOrders((prev) =>
+          prev.map((ord) => {
+            if (ord.id === orderId) {
+              return {
+                ...ord,
+                ...serverOrder,
+                status: effectiveStatus,
+                ...(deliveryCompletedAt ? { delivery_completed_at: deliveryCompletedAt } : {}),
+                ...(serverOrder.date_completed ? { date_completed: serverOrder.date_completed } : {}),
+                ...(serverOrder.date_completed_gmt ? { date_completed_gmt: serverOrder.date_completed_gmt } : {}),
+                is_status_locked: false,
+              };
+            }
+            return ord;
+          })
+        );
+
+        if (selectedOrder && selectedOrder.id === orderId) {
+          setSelectedOrder((prev) => {
+            if (!prev || prev.id !== orderId) return prev;
+            return {
+              ...prev,
+              ...serverOrder,
+              status: effectiveStatus,
+              delivery_completed_at:
+                deliveryCompletedAt || prev.delivery_completed_at,
+              date_completed: serverOrder.date_completed || prev.date_completed,
+              date_completed_gmt: serverOrder.date_completed_gmt || prev.date_completed_gmt,
+              is_status_locked: false,
+            };
+          });
+        }
       }
     } catch (err) {
+      // Roll back only the affected order to its saved previous state
+      if (previousOrder) {
+        setOrders((prev) =>
+          prev.map((ord) => (ord.id === orderId ? previousOrder : ord))
+        );
+      }
+      if (previousSelectedOrder) {
+        setSelectedOrder((prev) =>
+          prev && prev.id === orderId ? previousSelectedOrder : prev
+        );
+      }
       showToast(
         "Failed to update status: " + (err.response?.data?.message || err.message),
         "error"
       );
     } finally {
-      setUpdatingId(null);
+      // React-safe Set update to remove in-flight status
+      setUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
     }
   };
 
@@ -498,7 +600,7 @@ function Orders() {
   };
 
   const renderPrimaryAction = (order, isMobile = false) => {
-    const isUpdating = updatingId === order.id;
+    const isUpdating = updatingIds.has(order.id);
 
     if (order.status === "processing") {
       return (
@@ -512,8 +614,8 @@ function Orders() {
             isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
           }`}
         >
-          <Package size={13} className="shrink-0" />
-          <span>{isUpdating ? "Packing..." : "Pack"}</span>
+          {isUpdating ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Package size={13} className="shrink-0" />}
+          <span>{isUpdating ? "Updating..." : "Pack"}</span>
         </button>
       );
     }
@@ -530,8 +632,8 @@ function Orders() {
             isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
           }`}
         >
-          <Truck size={13} className="shrink-0" />
-          <span>{isUpdating ? "Dispatching..." : "Dispatch"}</span>
+          {isUpdating ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Truck size={13} className="shrink-0" />}
+          <span>{isUpdating ? "Updating..." : "Dispatch"}</span>
         </button>
       );
     }
@@ -548,8 +650,8 @@ function Orders() {
             isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
           }`}
         >
-          <CheckCircle2 size={13} className="shrink-0" />
-          <span>{isUpdating ? "Delivering..." : "Mark Delivered"}</span>
+          {isUpdating ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <CheckCircle2 size={13} className="shrink-0" />}
+          <span>{isUpdating ? "Updating..." : "Mark Delivered"}</span>
         </button>
       );
     }
@@ -773,18 +875,18 @@ function Orders() {
 
       {/* ORDERS PRESENTATION (MOBILE STACKED CARDS / DESKTOP CLEAN TABLE) */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-xs overflow-hidden">
-        {loading ? (
+        {loading && orders.length === 0 ? (
           <div className="flex h-64 items-center justify-center">
             <div className="flex flex-col items-center gap-2">
               <Loader2 size={24} className="animate-spin text-emerald-600" />
               <p className="text-xs font-bold text-gray-400">Loading order pipeline...</p>
             </div>
           </div>
-        ) : error ? (
+        ) : error && orders.length === 0 ? (
           <div className="p-8 text-center text-rose-600">
             <p className="text-sm font-bold">{error}</p>
             <button
-              onClick={fetchOrderList}
+              onClick={() => fetchOrderList(false)}
               className="mt-3 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-500 transition cursor-pointer"
             >
               <RotateCcw size={14} /> Retry
@@ -991,7 +1093,7 @@ function Orders() {
                                   e.stopPropagation();
                                   handleStatusUpdate(order.id, "out-for-delivery");
                                 }}
-                                disabled={updatingId === order.id}
+                                disabled={updatingIds.has(order.id)}
                                 className="inline-flex items-center gap-1 rounded-xl bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer disabled:opacity-50"
                                 title="Quick Dispatch"
                               >
@@ -1011,7 +1113,7 @@ function Orders() {
         )}
 
         {/* Server Pagination Controls */}
-        {!loading && totalPages > 1 && (
+        {(orders.length > 0 || !loading) && totalPages > 1 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/50 px-4 py-3 sm:px-6 sm:py-3.5">
             <p className="text-xs text-gray-500 font-medium text-center sm:text-left">
               Showing <span className="font-bold text-gray-900">{(page - 1) * perPage + 1}</span> to{" "}
@@ -1348,7 +1450,7 @@ function Orders() {
                   <div className="relative w-full" ref={statusDropdownRef}>
                     <button
                       type="button"
-                      disabled={updatingId === selectedOrder.id}
+                      disabled={updatingIds.has(selectedOrder.id)}
                       onClick={() => setIsStatusDropdownOpen((prev) => !prev)}
                       className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none hover:border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-60"
                     >
@@ -1530,7 +1632,7 @@ function Orders() {
                       handleStatusUpdate(selectedOrder.id, "cancelled");
                     }
                   }}
-                  disabled={updatingId === selectedOrder.id}
+                  disabled={updatingIds.has(selectedOrder.id)}
                   className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer disabled:opacity-50"
                 >
                   Cancel Order
@@ -1541,7 +1643,7 @@ function Orders() {
                 <>
                   <button
                     onClick={() => handleStatusUpdate(selectedOrder.id, "packed")}
-                    disabled={updatingId === selectedOrder.id}
+                    disabled={updatingIds.has(selectedOrder.id)}
                     className="flex-1 min-w-[120px] rounded-xl bg-purple-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-purple-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
                     <Package size={14} />
@@ -1549,7 +1651,7 @@ function Orders() {
                   </button>
                   <button
                     onClick={() => handleStatusUpdate(selectedOrder.id, "out-for-delivery")}
-                    disabled={updatingId === selectedOrder.id}
+                    disabled={updatingIds.has(selectedOrder.id)}
                     className="flex-1 min-w-[120px] rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
                     <Truck size={14} />
@@ -1561,7 +1663,7 @@ function Orders() {
               {selectedOrder.status === "packed" && (
                 <button
                   onClick={() => handleStatusUpdate(selectedOrder.id, "out-for-delivery")}
-                  disabled={updatingId === selectedOrder.id}
+                  disabled={updatingIds.has(selectedOrder.id)}
                   className="flex-1 rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <Truck size={14} />
@@ -1572,7 +1674,7 @@ function Orders() {
               {(selectedOrder.status === "out-for-delivery" || selectedOrder.status === "dispatched") && (
                 <button
                   onClick={() => handleStatusUpdate(selectedOrder.id, "completed")}
-                  disabled={updatingId === selectedOrder.id}
+                  disabled={updatingIds.has(selectedOrder.id)}
                   className="flex-1 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <CheckCircle2 size={14} />
