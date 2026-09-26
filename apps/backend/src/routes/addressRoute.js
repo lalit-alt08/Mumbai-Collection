@@ -6,8 +6,8 @@ import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 const router = express.Router();
 
 router.get("/", requireAuth("customer"), getAddresses);
-router.post("/", requireAuth("customer"), saveAddress);
-router.put("/:id", validateRequest({ params: schemas.addressIdParam }), requireAuth("customer"), updateAddress);
+router.post("/", validateRequest({ body: schemas.address }), requireAuth("customer"), saveAddress);
+router.put("/:id", validateRequest({ params: schemas.addressIdParam, body: schemas.address }), requireAuth("customer"), updateAddress);
 router.delete("/:id", validateRequest({ params: schemas.addressIdParam }), requireAuth("customer"), deleteAddress);
 
 export default router;

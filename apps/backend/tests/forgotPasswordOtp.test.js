@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert";
 import axios from "axios";
 import wp from "../src/services/wordpress.js";
+import crypto from "crypto";
 import {
+  hashOtp,
   sendOtp,
   verifyOtp,
   resetPasswordOtp,
@@ -12,6 +14,8 @@ import {
   googleLogin,
 } from "../src/controllers/authController.js";
 import { OAuth2Client } from "google-auth-library";
+import { escapeHtml, buildOtpEmailHtml } from "../src/services/brevoService.js";
+import { requireAuth } from "../src/middlewares/authMiddleware.js";
 
 test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   const originalEnv = { ...process.env };
@@ -22,6 +26,7 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
 
   process.env.WORDPRESS_URL = "http://mock-wordpress";
   process.env.MUMBAI_INTERNAL_API_KEY = "test-internal-key";
+  process.env.OTP_HMAC_SECRET = "test-otp-hmac-secret-32-chars-long";
   process.env.MOCK_EMAIL = "true";
   process.env.NODE_ENV = "test";
   process.env.GOOGLE_CLIENT_ID = "test-client-id";
@@ -36,6 +41,7 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   suite.beforeEach(() => {
     process.env.MOCK_EMAIL = "true";
     process.env.NODE_ENV = "test";
+    process.env.OTP_HMAC_SECRET = "test-otp-hmac-secret-32-chars-long";
     axios.post = mockAxiosPost;
   });
 
@@ -43,6 +49,7 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     process.env = { ...originalEnv };
     process.env.MOCK_EMAIL = "true";
     process.env.NODE_ENV = "test";
+    process.env.OTP_HMAC_SECRET = "test-otp-hmac-secret-32-chars-long";
     axios.get = originalAxiosGet;
     axios.post = originalAxiosPost;
     wp.post = originalWpPost;
@@ -618,5 +625,229 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     assert.strictEqual(resetRes.status, 200);
     assert.strictEqual(resetRes.data.success, true);
     assert.strictEqual(capturedResetPhone, "customer@example.com");
+  });
+
+  // 17. Security hardening: Recipient name HTML escaping in email templates
+  await suite.test("17. HTML escaping prevents template/markup injection in transactional emails", async () => {
+    const maliciousName = '<script>alert("XSS")</script>&"\'test';
+    const escaped = escapeHtml(maliciousName);
+    assert.strictEqual(
+      escaped,
+      "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;&amp;&quot;&#39;test"
+    );
+
+    const emailHtml = buildOtpEmailHtml({
+      toName: maliciousName,
+      otp: "654321",
+      purpose: "reset_password",
+    });
+
+    assert.ok(!emailHtml.includes("<script>"));
+    assert.ok(emailHtml.includes("&lt;script&gt;"));
+    assert.ok(emailHtml.includes("&quot;XSS&quot;"));
+  });
+
+  // 18. Security hardening: OTP hashes use dedicated OTP_HMAC_SECRET and fail closed when missing
+  await suite.test("18. OTP storage and verification use OTP_HMAC_SECRET and fail closed when missing", async () => {
+    let capturedStorePayload = null;
+    let capturedVerifyPayload = null;
+
+    wp.post = async (url, payload) => {
+      if (url.includes("/otp/store")) {
+        capturedStorePayload = payload;
+        return {
+          data: {
+            success: true,
+            user_found: true,
+            message: "OTP stored successfully.",
+          },
+        };
+      }
+      if (url.includes("/otp/verify")) {
+        capturedVerifyPayload = payload;
+        return {
+          data: {
+            success: true,
+            message: "OTP verified.",
+            reset_token: "mock_token_hmac",
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    // Step A: Send OTP
+    const sendRes = await simulateHandler(sendOtp, {
+      body: { phone: "9820123456", purpose: "reset_password" },
+    });
+    assert.strictEqual(sendRes.status, 200);
+    assert.ok(capturedStorePayload.otp_hash);
+    assert.strictEqual(capturedStorePayload.otp_hash.length, 64);
+
+    // Step B: Verify that verifyOtp sends an HMAC-SHA256 hash matching OTP_HMAC_SECRET
+    const testOtp = "847291";
+    const expectedHmac = crypto
+      .createHmac("sha256", process.env.OTP_HMAC_SECRET)
+      .update(testOtp)
+      .digest("hex");
+    const plainSha256 = crypto
+      .createHash("sha256")
+      .update(testOtp)
+      .digest("hex");
+    const fallbackHmac = crypto
+      .createHmac("sha256", "mumbai-otp-secret")
+      .update(testOtp)
+      .digest("hex");
+
+    await simulateHandler(verifyOtp, {
+      body: { phone: "9820123456", otp: testOtp, purpose: "reset_password" },
+    });
+
+    assert.strictEqual(capturedVerifyPayload.otp_hash, expectedHmac);
+    assert.notStrictEqual(capturedVerifyPayload.otp_hash, plainSha256);
+    assert.notStrictEqual(capturedVerifyPayload.otp_hash, fallbackHmac);
+
+    // Step C: Direct unit verification of hashOtp
+    assert.strictEqual(hashOtp(testOtp), expectedHmac);
+
+    // Step D: Fail closed when OTP_HMAC_SECRET is missing or empty
+    const savedSecret = process.env.OTP_HMAC_SECRET;
+    try {
+      delete process.env.OTP_HMAC_SECRET;
+
+      // Direct call throws configuration error
+      assert.throws(
+        () => hashOtp(testOtp),
+        /OTP_HMAC_SECRET is not configured/
+      );
+
+      // sendOtp fails closed with HTTP 500 and does NOT proceed with storing OTP
+      capturedStorePayload = null;
+      const failedSendRes = await simulateHandler(sendOtp, {
+        body: { phone: "9820123456", purpose: "reset_password" },
+      });
+      assert.strictEqual(failedSendRes.status, 500);
+      assert.strictEqual(capturedStorePayload, null);
+
+      // verifyOtp fails closed with HTTP 400 and does NOT proceed with verification
+      capturedVerifyPayload = null;
+      const failedVerifyRes = await simulateHandler(verifyOtp, {
+        body: { phone: "9820123456", otp: testOtp, purpose: "reset_password" },
+      });
+      assert.strictEqual(failedVerifyRes.status, 400);
+      assert.strictEqual(capturedVerifyPayload, null);
+    } finally {
+      process.env.OTP_HMAC_SECRET = savedSecret;
+    }
+  });
+
+  // 19. Security hardening: Password reset immediately invalidates in-memory session cache across all devices
+  await suite.test("19. Password reset immediately invalidates in-memory session cache across all devices", async () => {
+    let meCallCount = 0;
+    const testCookie = "wordpress_logged_in_active_session_token_123";
+
+    axios.get = async (url, config) => {
+      if (url.includes("/wp-json/mumbai-auth/v1/me")) {
+        meCallCount++;
+        return {
+          status: 200,
+          data: {
+            logged_in: true,
+            current_user_id: 42,
+            roles: ["customer"],
+            email: "cacheduser@example.com",
+            is_phone_verified: true,
+            is_suspended: false,
+          },
+        };
+      }
+      return { status: 404, data: {} };
+    };
+
+    wp.post = async (url, payload) => {
+      if (url.includes("/otp/reset-password")) {
+        return {
+          data: {
+            success: true,
+            message: "Password reset successfully.",
+            user_id: 42,
+          },
+        };
+      }
+      if (url.includes("/reset-password")) {
+        return {
+          data: {
+            success: true,
+            message: "Password reset successfully.",
+            user_id: 42,
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    // Helper to simulate middleware
+    const runAuthMiddleware = () =>
+      new Promise((resolve) => {
+        const req = {
+          cookies: { mumbai_customer_auth: testCookie },
+          headers: {},
+        };
+        const res = {
+          statusCode: 200,
+          status: function (code) {
+            this.statusCode = code;
+            return this;
+          },
+          json: function (data) {
+            resolve({ status: this.statusCode, data });
+          },
+        };
+        const next = () => resolve({ status: 200, ok: true, user: req.user });
+        requireAuth(req, res, next);
+      });
+
+    // Call 1: Populates sessionCache (meCallCount becomes 1)
+    const auth1 = await runAuthMiddleware();
+    assert.strictEqual(auth1.ok, true);
+    assert.strictEqual(meCallCount, 1);
+
+    // Call 2: Uses sessionCache without hitting WordPress (meCallCount stays 1)
+    const auth2 = await runAuthMiddleware();
+    assert.strictEqual(auth2.ok, true);
+    assert.strictEqual(meCallCount, 1);
+
+    // Reset password via resetPasswordOtp
+    const resetRes = await simulateHandler(resetPasswordOtp, {
+      body: {
+        phone: "9820123456",
+        reset_token: "mock_token_abc",
+        new_password: "BrandNewPassword123!",
+      },
+    });
+    assert.strictEqual(resetRes.status, 200);
+
+    // Call 3: sessionCache for user 42 was invalidated! Must hit /me again (meCallCount becomes 2)
+    const auth3 = await runAuthMiddleware();
+    assert.strictEqual(auth3.ok, true);
+    assert.strictEqual(meCallCount, 2);
+
+    // Re-verify for direct resetPassword controller as well:
+    // Call 4: Uses sessionCache again (meCallCount stays 2)
+    await runAuthMiddleware();
+    assert.strictEqual(meCallCount, 2);
+
+    // Reset password via resetPassword (token flow)
+    const resetDirectRes = await simulateHandler(resetPassword, {
+      body: {
+        token: "mock_wp_token_xyz",
+        password: "BrandNewPassword456!",
+      },
+    });
+    assert.strictEqual(resetDirectRes.status, 200);
+
+    // Call 5: sessionCache invalidated again! (meCallCount becomes 3)
+    await runAuthMiddleware();
+    assert.strictEqual(meCallCount, 3);
   });
 });

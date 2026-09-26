@@ -32,7 +32,18 @@ import api from "../config/woocommerce.js";
 import { logger, logError } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import storeHoursService from "../services/storeHoursService.js";
-import paymentIntentService from "../services/paymentIntentService.js";
+import paymentIntentService, {
+  storePaymentIntent,
+  getPaymentIntent,
+  deletePaymentIntent,
+  acquireLock,
+  releaseLock,
+  clearCustomerWcCart,
+  updatePaymentIntentStatus,
+  storeWebhookEvent,
+  updateWebhookEventStatus,
+  findWcOrderByRazorpayOrderId,
+} from "../services/paymentIntentService.js";
 import {
   createRazorpayOrder,
   verifyPaymentSignature,
@@ -40,7 +51,10 @@ import {
   getPublicKeyId,
   verifyWebhookSignature,
   fetchRazorpayOrderPayments,
+  refundRazorpayPayment,
 } from "../services/razorpayService.js";
+import { sendRefundEmail } from "../services/brevoService.js";
+import { alertStaffAnomaly } from "../services/alertService.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 const MIN_ORDER_VALUE_INR = 500;
@@ -119,6 +133,25 @@ export const computeCartFingerprint = (cart) => {
 export const findOrderByRazorpayOrderId = async (rzpOrderId) => {
   if (!rzpOrderId) return null;
   try {
+    // 1. Fast durable check in payment_intents table
+    const intent = await paymentIntentService.getPaymentIntent(rzpOrderId);
+    if (intent && intent.wc_order_id) {
+      return {
+        id: Number(intent.wc_order_id),
+        status: intent.status === "order_created" ? "processing" : intent.status,
+      };
+    }
+
+    // 2. Authoritative HPOS-safe lookup via wc_get_orders meta
+    const hposOrder = await paymentIntentService.findWcOrderByRazorpayOrderId(rzpOrderId);
+    if (hposOrder) {
+      return {
+        id: Number(hposOrder.id),
+        status: hposOrder.status,
+      };
+    }
+
+    // 3. Upstream WooCommerce query fallback
     const res = await api.get("orders", {
       search: rzpOrderId,
       per_page: 5,
@@ -602,6 +635,19 @@ export const finalizePaymentAndCreateOrder = async ({
 
     // 5. Retrieve Stored Payment Intent
     const intent = await paymentIntentService.getPaymentIntent(rzpOrderId);
+    if (intent && (intent.status === "order_created" || intent.wc_order_id)) {
+      logger.info(
+        { wc_order_id: intent.wc_order_id, rzpOrderId, source },
+        "[Payment Finalize] Intent already in order_created state — returning idempotent success"
+      );
+      return {
+        success: true,
+        order_id: Number(intent.wc_order_id),
+        status: "processing",
+        message: "Payment already verified.",
+        _idempotent: true,
+      };
+    }
     if (!intent) {
       // Legacy order check: if notes contain a wc_order_id created before this deployment
       const legacyOrderId = rzpPayment.notes?.wc_order_id;
@@ -695,23 +741,86 @@ export const finalizePaymentAndCreateOrder = async ({
     }
 
     if (!stockValid) {
-      // Store explicit recoverable anomaly record for staff intervention
-      serverCache.set(
-        `payment_val_failure:${rzpOrderId}`,
-        {
+      logger.error(
+        { rzpOrderId, rzpPaymentId },
+        "[Payment Finalize] Deterministic failure: Stock depleted during payment. Initiating refund."
+      );
+
+      // Transition to refund_pending FIRST via compare-and-set
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "refund_pending",
+        rzpPaymentId,
+        errorReason: "ITEM_OUT_OF_STOCK",
+      });
+
+      let refundConfirmed = false;
+      let refundId = null;
+
+      try {
+        const refund = await refundRazorpayPayment({
+          paymentId: rzpPaymentId,
+          amountInPaise: rzpPayment.amount,
+          notes: {
+            reason: "Auto-refund: Item out of stock during payment capture",
+            rzp_order_id: rzpOrderId,
+          },
+        });
+        if (refund?.id) {
+          refundId = refund.id;
+          refundConfirmed = true;
+        }
+      } catch (refundErr) {
+        logger.error(
+          { rzpOrderId, rzpPaymentId, err: refundErr.message },
+          "[Payment Finalize] Refund API attempt failed — reconciler will retry"
+        );
+        await updatePaymentIntentStatus({
+          rzpOrderId,
+          toStatus: "refund_failed",
+          errorReason: `Refund API error: ${refundErr.message}`,
+        });
+      }
+
+      if (refundConfirmed) {
+        // Transition to refunded ONLY after confirmation
+        await updatePaymentIntentStatus({
+          rzpOrderId,
+          fromStatus: "refund_pending",
+          toStatus: "refunded",
+          refundId,
+          capturedAmountPaise: rzpPayment.amount,
+        });
+
+        const customerEmail = intent.checkout_payload?.billing?.email;
+        const customerName = `${intent.checkout_payload?.billing?.first_name || ""} ${intent.checkout_payload?.billing?.last_name || ""}`.trim();
+        if (customerEmail) {
+          await sendRefundEmail({
+            toEmail: customerEmail,
+            toName: customerName,
+            amountInInr: (rzpPayment.amount / 100).toFixed(2),
+            rzpOrderId,
+            refundId,
+            reason: "Item out of stock during checkout completion",
+          });
+        }
+
+        await alertStaffAnomaly({
+          type: "AUTO_REFUND_STOCK_DEPLETED",
+          severity: "warning",
           rzpOrderId,
           rzpPaymentId,
-          reason: "OUT_OF_STOCK",
-          intent,
-          timestamp: Date.now(),
-        },
-        7 * 24 * 3600 * 1000
-      );
+          message: `Auto-refunded ₹${(rzpPayment.amount / 100).toFixed(2)} due to stock depletion`,
+          details: { refund_id: refundId },
+        });
+      }
+
       return {
         success: false,
         status: 422,
         code: "ITEM_OUT_OF_STOCK",
-        message: "An item in your order went out of stock during payment. Our team has been notified to process an immediate refund or fulfillment.",
+        message: "An item in your order went out of stock during payment. Your payment has been refunded automatically.",
+        refund_id: refundId,
       };
     }
 
@@ -732,6 +841,28 @@ export const finalizePaymentAndCreateOrder = async ({
       ],
     };
 
+    // 9b. HPOS-safe lookup immediately before order creation (guards against slow worker exceeding lock TTL)
+    const immediateExisting = await findOrderByRazorpayOrderId(rzpOrderId);
+    if (immediateExisting) {
+      logger.info(
+        { wc_order_id: immediateExisting.id, rzpOrderId, source },
+        "[Payment Finalize] Existing order detected immediately before creation — returning idempotent success"
+      );
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "order_created",
+        rzpPaymentId,
+        wcOrderId: immediateExisting.id,
+      });
+      return {
+        success: true,
+        order_id: immediateExisting.id,
+        status: immediateExisting.status || "processing",
+        message: "Payment already verified.",
+        _idempotent: true,
+      };
+    }
+
     let createdOrder;
     try {
       const orderResponse = await api.post("orders", wcOrderPayload);
@@ -741,7 +872,25 @@ export const finalizePaymentAndCreateOrder = async ({
         { rzpOrderId, rzpPaymentId, err: orderErr.message },
         "[Payment Finalize] CRITICAL: WooCommerce order creation failed after payment captured"
       );
-      // RETAIN PAYMENT INTENT so webhook or retry can recreate the order!
+      // RETAIN PAYMENT INTENT in 'paid' status so background reconciler keeps retrying finalization for ~15 min!
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "paid",
+        rzpPaymentId,
+        capturedAmountPaise: rzpPayment.amount,
+        incrementAttempts: true,
+        errorReason: `WooCommerce order creation failed: ${orderErr.message}`,
+      });
+
+      await alertStaffAnomaly({
+        type: "ORDER_CREATION_FAILED",
+        severity: "critical",
+        rzpOrderId,
+        rzpPaymentId,
+        message: "WooCommerce order creation failed after payment capture; reconciler will retry",
+        details: { error: orderErr.message },
+      });
+
       return {
         success: false,
         status: 502,
@@ -750,7 +899,13 @@ export const finalizePaymentAndCreateOrder = async ({
     }
 
     // 10. Post-Creation Cleanup (ONLY after WooCommerce order is securely created)
-    await paymentIntentService.deletePaymentIntent(rzpOrderId);
+    await updatePaymentIntentStatus({
+      rzpOrderId,
+      toStatus: "order_created",
+      rzpPaymentId,
+      wcOrderId: createdOrder.id,
+      capturedAmountPaise: rzpPayment.amount,
+    });
     await paymentIntentService.clearCustomerWcCart(intent.customer_id);
 
     serverCache.invalidatePrefix("employee:overview");
@@ -992,11 +1147,26 @@ export const handleWebhook = async (req, res) => {
     }
 
     const event = req.body?.event;
-    const eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id;
+    const eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const paymentEntity = req.body?.payload?.payment?.entity;
+    const orderEntity = req.body?.payload?.order?.entity;
+    const rzpOrderId = paymentEntity?.order_id || orderEntity?.id;
+    const rzpPaymentId = paymentEntity?.id;
+
+    // 1. Store raw webhook event durably FIRST in WordPress MySQL
+    await storeWebhookEvent({
+      eventId,
+      eventType: event || "unknown",
+      rzpOrderId,
+      rzpPaymentId,
+      rawPayload: req.body,
+    });
 
     if (eventId) {
       const cacheKey = `webhook:event:${eventId}`;
       if (serverCache.get(cacheKey)) {
+        await updateWebhookEventStatus({ eventId, status: "processed" });
         logger.info({ eventId }, "[Payment Webhook] Event already processed — returning idempotent 200");
         return res.status(200).json({
           success: true,
@@ -1007,9 +1177,10 @@ export const handleWebhook = async (req, res) => {
       serverCache.set(cacheKey, true, 24 * 60 * 60 * 1000);
     }
 
-    logger.info({ event, eventId }, "[Payment Webhook] Verified webhook received");
+    logger.info({ event, eventId }, "[Payment Webhook] Verified webhook received and stored durably");
 
     if (event === "payment.failed") {
+      await updateWebhookEventStatus({ eventId, status: "processed" });
       return res.status(200).json({
         success: true,
         message: "Payment failure event acknowledged.",
@@ -1147,6 +1318,8 @@ export const handleWebhook = async (req, res) => {
           "[Payment Webhook] Order successfully updated to processing via webhook"
         );
 
+        await updateWebhookEventStatus({ eventId, status: "processed" });
+
         return res.status(200).json({
           success: true,
           order_id: wcOrder.id,
@@ -1164,6 +1337,7 @@ export const handleWebhook = async (req, res) => {
       });
 
       if (result.success) {
+        await updateWebhookEventStatus({ eventId, status: "processed" });
         logger.info({ rzpOrderId, wc_order_id: result.order_id }, "[Payment Webhook] Finalized order successfully via webhook");
         return res.status(200).json({
           success: true,
@@ -1173,25 +1347,48 @@ export const handleWebhook = async (req, res) => {
       }
 
       if (result.status === 409 || result._idempotent) {
+        await updateWebhookEventStatus({ eventId, status: "processed" });
         return res.status(200).json({
           success: true,
           message: "Order already finalized or in progress.",
         });
       }
 
-      // If transient/intent was missing or error occurred, return 200 so Razorpay does not endlessly retry
-      logger.warn({ rzpOrderId, result }, "[Payment Webhook] Webhook could not finalize order — acknowledged");
+      // Unknown intent or unfinalized order: Record orphan record, alert, and return 200 (reconciler handles it)
+      logger.warn({ rzpOrderId, rzpPaymentId, result }, "[Payment Webhook] Webhook missing intent or failed order creation — recorded for reconciliation");
+      await updateWebhookEventStatus({ eventId, status: "orphan" });
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "orphan_payment",
+        rzpPaymentId,
+        errorReason: result?.message || "Missing intent on webhook capture",
+      });
+
+      await alertStaffAnomaly({
+        type: "ORPHAN_PAYMENT_WEBHOOK",
+        severity: "critical",
+        rzpOrderId,
+        rzpPaymentId,
+        message: "Payment captured on Razorpay webhook with unknown/missing intent; recorded for reconciliation",
+        details: { result },
+      });
+
       return res.status(200).json({
         success: false,
-        message: result.message || "Webhook acknowledged.",
+        message: result.message || "Webhook acknowledged and recorded for reconciliation.",
+        recorded_as_orphan: true,
       });
     }
 
+    await updateWebhookEventStatus({ eventId, status: "processed" });
     return res.status(200).json({
       success: true,
       message: "Webhook event ignored.",
     });
   } catch (error) {
+    if (eventId) {
+      await updateWebhookEventStatus({ eventId, status: "failed" });
+    }
     logError(req, error, "[Payment Webhook] Unhandled error during webhook processing");
     return res.status(500).json({
       success: false,

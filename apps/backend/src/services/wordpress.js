@@ -13,6 +13,17 @@ const wp = axios.create({
   httpsAgent,
 });
 
+// Automatically attach internal API key for server-to-server trust boundary
+wp.interceptors.request.use((config) => {
+  if (process.env.MUMBAI_INTERNAL_API_KEY) {
+    config.headers = config.headers || {};
+    if (!config.headers["X-Mumbai-Internal-Key"]) {
+      config.headers["X-Mumbai-Internal-Key"] = process.env.MUMBAI_INTERNAL_API_KEY;
+    }
+  }
+  return config;
+});
+
 // Automatically retry once if a socket was closed by the web server
 wp.interceptors.response.use(
   (response) => response,

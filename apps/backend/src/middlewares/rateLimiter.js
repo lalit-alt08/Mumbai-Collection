@@ -2,6 +2,18 @@
  * Lightweight, zero-dependency in-memory rate limiter
  * Protects auth and upload routes from brute-force and spam attacks.
  */
+/**
+ * Extracts client IP with support for Cloudflare's CF-Connecting-IP header.
+ * Falls back to Express req.ip or socket address.
+ */
+export const getClientIp = (req) => {
+  const cfIp = req?.headers?.["cf-connecting-ip"];
+  if (typeof cfIp === "string" && cfIp.trim()) {
+    return cfIp.trim();
+  }
+  return req?.ip || req?.socket?.remoteAddress || "unknown";
+};
+
 export const createRateLimiter = ({
   windowMs = 15 * 60 * 1000, // 15 minutes
   max = 15,                  // max attempts
@@ -35,7 +47,7 @@ export const createRateLimiter = ({
       key = keyGenerator(req);
     }
     if (!key) {
-      key = req.ip || req.socket?.remoteAddress || "unknown";
+      key = getClientIp(req);
     }
 
     const now = Date.now();
@@ -85,7 +97,7 @@ export const uploadLimiter = createRateLimiter({
     if (userId) {
       return `user:${userId}`;
     }
-    const ip = req.ip || req.socket?.remoteAddress || "unknown";
+    const ip = getClientIp(req);
     return `ip:${ip}`;
   },
 });
@@ -94,6 +106,12 @@ export const storeLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minute
   max: 120,            // 120 requests per minute per IP
   message: "Too many store requests. Please slow down.",
+});
+
+export const catalogLimiter = createRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 300,            // 300 requests per minute per IP (generous for browsing & search autocomplete)
+  message: "Too many catalog requests. Please slow down.",
 });
 
 export const checkoutLimiter = createRateLimiter({
@@ -107,11 +125,13 @@ export const checkoutLimiter = createRateLimiter({
     }
     const customerAuth =
       req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_admin_auth ||
+      req.cookies?.mumbai_employee_auth ||
       req.cookies?.mumbai_wp_auth;
     if (customerAuth) {
       return `checkout:cookie:${customerAuth.slice(-32)}`;
     }
-    const clientIp = req.ip || req.socket?.remoteAddress || "unknown";
+    const clientIp = getClientIp(req);
     return `checkout:ip:${clientIp}`;
   },
 });

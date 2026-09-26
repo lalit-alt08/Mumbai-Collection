@@ -40,9 +40,16 @@ export const requireIdempotency = (req, res, next) => {
   }
 
   const rawKey = idempotencyKey.trim();
-  const userId = req.wpUserId || req.ip || "anon";
+  const verifiedUserId = req.wpUserId || req.user?.id;
+  const customerAuth =
+    req.cookies?.mumbai_customer_auth ||
+    req.cookies?.mumbai_admin_auth ||
+    req.cookies?.mumbai_employee_auth ||
+    req.cookies?.mumbai_wp_auth;
+  const cookieScope = customerAuth ? `cookie:${customerAuth.slice(-32)}` : null;
+  const userScope = verifiedUserId ? `user:${verifiedUserId}` : (cookieScope || `ip:${req.ip || "anon"}`);
   const routePath = `${req.baseUrl || ""}${req.path || ""}`;
-  const key = `${userId}:${req.method}:${routePath}:${rawKey}`;
+  const key = `${userScope}:${req.method}:${routePath}:${rawKey}`;
 
   // Enforce bounded store size before adding
   if (idempotencyStore.size >= MAX_IDEMPOTENCY_STORE_SIZE && !idempotencyStore.has(key)) {
@@ -125,6 +132,10 @@ export const requireIdempotency = (req, res, next) => {
   };
 
   next();
+};
+
+export const _clearIdempotencyStoreForTesting = () => {
+  idempotencyStore.clear();
 };
 
 export default requireIdempotency;

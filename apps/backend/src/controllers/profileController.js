@@ -1,9 +1,9 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
-import wcApi from "../config/woocommerce.js";
 import {
   COOKIE_NAMES,
   invalidateSessionCache,
+  invalidateUserSessionCache,
 } from "../middlewares/authMiddleware.js";
 import { parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
@@ -159,11 +159,21 @@ export const deleteAccount = async (req, res) => {
         .catch(() => {});
     }
 
-    // 2. Permanently delete customer from WooCommerce & WordPress (force: true)
-    // This permanently erases the user row and all associated user metadata
-    await wcApi.delete(`customers/${userId}`, {
-      force: true,
-    });
+    invalidateUserSessionCache(userId);
+
+    // 2. Delegate account deletion to WordPress custom plugin to enforce role protections,
+    // session revocation, and content reassignment
+    const wpDeleteRes = await axios.delete(
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
+      {
+        headers: {
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+          "X-Mumbai-User-ID": String(userId),
+        },
+        httpsAgent,
+        timeout: 10000,
+      }
+    );
 
     // 3. Clear customer auth cookies on response
     const isHttps =
@@ -185,7 +195,7 @@ export const deleteAccount = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Your account has been permanently deleted.",
+      message: wpDeleteRes.data?.message || "Your account has been permanently deleted.",
     });
   } catch (error) {
     logError(req, error, "Delete account error");

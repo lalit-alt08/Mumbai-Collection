@@ -85,19 +85,7 @@ export const verifyCsrf = (allowedOrigins = []) => {
       return next();
     }
 
-    // 2. Only protect cookie-authenticated requests
-    const hasAuthCookie = Boolean(
-      req.cookies?.mumbai_customer_auth ||
-      req.cookies?.mumbai_admin_auth ||
-      req.cookies?.mumbai_employee_auth
-    );
-
-    if (!hasAuthCookie) {
-      // Unauthenticated mutations (e.g. login, register) are handled by auth/rate-limit middleware
-      return next();
-    }
-
-    // 3. Check Origin header
+    // 2. Check Origin header (protects both authenticated and unauthenticated browser requests)
     const originHeader = req.headers.origin;
     if (originHeader) {
       const isAllowed = isOriginAllowed(originHeader, allowedList);
@@ -110,7 +98,7 @@ export const verifyCsrf = (allowedOrigins = []) => {
       return next();
     }
 
-    // 4. Same-origin Referer fallback when Origin is omitted
+    // 3. Same-origin Referer fallback when Origin is omitted
     const refererHeader = req.headers.referer;
     if (refererHeader) {
       try {
@@ -131,13 +119,25 @@ export const verifyCsrf = (allowedOrigins = []) => {
       }
     }
 
-    // 5. Fetch Metadata fallback (modern browsers)
+    // 4. Fetch Metadata fallback (modern browsers)
     const secFetchSite = req.headers["sec-fetch-site"];
     if (secFetchSite === "cross-site") {
       return res.status(403).json({
         success: false,
         message: "CSRF validation failed: cross-site request blocked.",
       });
+    }
+
+    // 5. Unauthenticated requests without browser Origin/Referer (e.g. non-browser API clients, curl, testing)
+    const hasAuthCookie = Boolean(
+      req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_admin_auth ||
+      req.cookies?.mumbai_employee_auth ||
+      req.cookies?.mumbai_wp_auth
+    );
+
+    if (!hasAuthCookie) {
+      return next();
     }
 
     // In local development or automated testing with non-browser clients (where Origin/Referer may be absent)

@@ -175,6 +175,209 @@ export const clearCustomerWcCart = async (userId) => {
   }
 };
 
+/**
+ * Updates status of a payment intent using compare-and-set in WordPress MySQL.
+ */
+export const updatePaymentIntentStatus = async ({
+  rzpOrderId,
+  fromStatus,
+  toStatus,
+  rzpPaymentId = null,
+  wcOrderId = null,
+  refundId = null,
+  errorReason = null,
+  capturedAmountPaise = null,
+  incrementAttempts = false,
+}) => {
+  if (!rzpOrderId || !toStatus) return false;
+
+  const cacheKey = `payment_intent:${rzpOrderId}`;
+  const inMemory = serverCache.get(cacheKey);
+  if (inMemory) {
+    serverCache.set(
+      cacheKey,
+      {
+        ...inMemory,
+        status: toStatus,
+        ...(rzpPaymentId && { rzp_payment_id: rzpPaymentId }),
+        ...(wcOrderId && { wc_order_id: wcOrderId }),
+        ...(refundId && { refund_id: refundId }),
+        error_reason: toStatus === "order_created" ? null : (errorReason ?? inMemory.error_reason),
+        ...(capturedAmountPaise && { captured_amount_paise: capturedAmountPaise }),
+      },
+      3600 * 1000
+    );
+  }
+
+  try {
+    const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/update-status", {
+      rzp_order_id: rzpOrderId,
+      from_status: fromStatus,
+      to_status: toStatus,
+      rzp_payment_id: rzpPaymentId,
+      wc_order_id: wcOrderId,
+      refund_id: refundId,
+      error_reason: errorReason,
+      captured_amount_paise: capturedAmountPaise,
+      increment_attempts: incrementAttempts,
+    });
+    return res.data?.updated === true;
+  } catch (err) {
+    logger.warn(
+      { rzpOrderId, fromStatus, toStatus, err: err.message },
+      "[PaymentIntentService] Failed to update payment intent status"
+    );
+    return false;
+  }
+};
+
+/**
+ * Stores raw webhook event durably in WordPress MySQL.
+ */
+export const storeWebhookEvent = async ({
+  eventId,
+  eventType,
+  rzpOrderId = null,
+  rzpPaymentId = null,
+  rawPayload,
+}) => {
+  if (!eventId || !eventType) return false;
+
+  try {
+    const res = await wpClient.post("/wp-json/mumbai-auth/v1/webhook-event/store", {
+      event_id: eventId,
+      event_type: eventType,
+      rzp_order_id: rzpOrderId,
+      rzp_payment_id: rzpPaymentId,
+      raw_payload: rawPayload,
+    });
+    return res.data?.success === true;
+  } catch (err) {
+    logger.error(
+      { eventId, eventType, err: err.message },
+      "[PaymentIntentService] Critical error storing raw webhook event"
+    );
+    return false;
+  }
+};
+
+/**
+ * Fetches intents needing reconciliation from WordPress with pagination and watermark support.
+ */
+export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanMinutes = 2, watermark = "" } = {}) => {
+  try {
+    const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/reconciliation-list", {
+      limit,
+      page,
+      older_than_minutes: olderThanMinutes,
+      watermark,
+    });
+    return {
+      intents: Array.isArray(res.data?.intents) ? res.data.intents : [],
+      page: res.data?.page || page,
+      limit: res.data?.limit || limit,
+      hasMore: Boolean(res.data?.has_more),
+    };
+  } catch (err) {
+    logger.warn(
+      { err: err.message },
+      "[PaymentIntentService] Failed to fetch reconciliation list"
+    );
+    return { intents: [], page, limit, hasMore: false };
+  }
+};
+
+/**
+ * Retrieves persistent reconciliation watermark from WordPress options.
+ */
+export const getReconciliationWatermark = async () => {
+  try {
+    const res = await wpClient.get("/wp-json/mumbai-auth/v1/reconciliation/watermark");
+    return res.data?.watermark || "";
+  } catch (err) {
+    logger.warn({ err: err.message }, "[PaymentIntentService] Failed to get reconciliation watermark");
+    return "";
+  }
+};
+
+/**
+ * Persists reconciliation watermark to WordPress options.
+ */
+export const setReconciliationWatermark = async (watermark) => {
+  try {
+    const res = await wpClient.post("/wp-json/mumbai-auth/v1/reconciliation/watermark", {
+      watermark,
+    });
+    return res.data?.watermark || watermark;
+  } catch (err) {
+    logger.warn({ err: err.message }, "[PaymentIntentService] Failed to set reconciliation watermark");
+    return watermark;
+  }
+};
+
+/**
+ * Updates status of a stored webhook event (e.g. processed, orphan, failed).
+ */
+export const updateWebhookEventStatus = async ({ eventId, status }) => {
+  if (!eventId || !status) return false;
+
+  try {
+    const res = await wpClient.post("/wp-json/mumbai-auth/v1/webhook-event/update-status", {
+      event_id: eventId,
+      status,
+    });
+    return res.data?.updated === true;
+  } catch (err) {
+    logger.warn(
+      { eventId, status, err: err.message },
+      "[PaymentIntentService] Failed to update webhook event status"
+    );
+    return false;
+  }
+};
+
+/**
+ * Fetches list and count of orphan webhook events.
+ */
+export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1 } = {}) => {
+  try {
+    const res = await wpClient.get("/wp-json/mumbai-auth/v1/webhook-events/orphans", {
+      params: { limit, page },
+    });
+    return {
+      count: res.data?.count || 0,
+      orphans: Array.isArray(res.data?.orphans) ? res.data.orphans : [],
+      page: res.data?.page || page,
+      limit: res.data?.limit || limit,
+    };
+  } catch (err) {
+    logger.warn(
+      { err: err.message },
+      "[PaymentIntentService] Failed to fetch orphan webhook events"
+    );
+    return { count: 0, orphans: [], page, limit };
+  }
+};
+
+/**
+ * Authoritative HPOS-safe lookup for WooCommerce order by _razorpay_order_id.
+ */
+export const findWcOrderByRazorpayOrderId = async (rzpOrderId) => {
+  if (!rzpOrderId) return null;
+  try {
+    const res = await wpClient.get("/wp-json/mumbai-auth/v1/orders/by-razorpay-order-id", {
+      params: { rzp_order_id: rzpOrderId },
+    });
+    return res.data?.order || null;
+  } catch (err) {
+    logger.warn(
+      { rzpOrderId, err: err.message },
+      "[PaymentIntentService] HPOS order lookup failed"
+    );
+    return null;
+  }
+};
+
 export default {
   storePaymentIntent,
   getPaymentIntent,
@@ -182,4 +385,13 @@ export default {
   acquireLock,
   releaseLock,
   clearCustomerWcCart,
+  updatePaymentIntentStatus,
+  storeWebhookEvent,
+  updateWebhookEventStatus,
+  fetchOrphanWebhookEvents,
+  findWcOrderByRazorpayOrderId,
+  fetchReconciliationList,
+  getReconciliationWatermark,
+  setReconciliationWatermark,
 };
+

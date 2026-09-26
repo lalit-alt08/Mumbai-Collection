@@ -83,6 +83,44 @@ export const redactSensitive = (obj) => {
   return result;
 };
 
+export const DEFAULT_MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per log file
+export const DEFAULT_MAX_BACKUPS = 5; // keep audit.log.1 through audit.log.5
+
+/**
+ * Check file size and rotate if it exceeds maxSizeBytes
+ */
+export const rotateAuditLogIfNeeded = (
+  filePath = AUDIT_LOG_PATH,
+  maxSizeBytes = DEFAULT_MAX_LOG_SIZE_BYTES,
+  maxBackups = DEFAULT_MAX_BACKUPS
+) => {
+  try {
+    if (!fs.existsSync(filePath)) return false;
+    const stats = fs.statSync(filePath);
+    if (stats.size < maxSizeBytes) return false;
+
+    // Shift existing backup files: audit.log.4 -> audit.log.5, etc.
+    for (let i = maxBackups - 1; i >= 1; i--) {
+      const currentBackup = `${filePath}.${i}`;
+      const nextBackup = `${filePath}.${i + 1}`;
+      if (fs.existsSync(currentBackup)) {
+        if (i + 1 > maxBackups) {
+          try { fs.unlinkSync(currentBackup); } catch {}
+        } else {
+          try { fs.renameSync(currentBackup, nextBackup); } catch {}
+        }
+      }
+    }
+
+    // Rename active audit.log -> audit.log.1
+    fs.renameSync(filePath, `${filePath}.1`);
+    return true;
+  } catch (err) {
+    logger.warn({ err: err.message }, "[AuditLogger] Log rotation error");
+    return false;
+  }
+};
+
 /**
  * Log a structured audit event
  */
@@ -124,8 +162,9 @@ export const logAuditEvent = ({
   // Write to console with distinct prefix
   console.log(`[AUDIT] ${jsonLine}`);
 
-  // Persistent file append
+  // Persistent file append with bounded rotation
   try {
+    rotateAuditLogIfNeeded(AUDIT_LOG_PATH);
     fs.appendFile(AUDIT_LOG_PATH, `${jsonLine}\n`, (err) => {
       if (err) {
         // Fail open: logging error must never break the user HTTP transaction
