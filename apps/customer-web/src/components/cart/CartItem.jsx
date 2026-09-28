@@ -28,7 +28,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
       </div>
 
       {/* Product Details */}
-      <div className="flex flex-1 flex-col justify-between py-1 h-[90px]">
+      <div className="flex flex-1 flex-col justify-between py-0.5 min-h-[90px] gap-1.5">
         <div>
           <h2 className="line-clamp-2 text-[14px] font-semibold leading-snug text-[#1E1E1E]">
             {item.name}
@@ -40,21 +40,21 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           )}
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           {/* Price */}
-          <div className="flex flex-col">
+          <div className="flex items-baseline gap-1.5 flex-wrap">
             <span className="text-[16px] font-bold text-[#1E1E1E]">
               ₹{price}
             </span>
             {regularPrice > price && (
-              <span className="text-[12px] font-medium text-[#666666] line-through">
+              <span className="text-[12px] font-medium text-[#71717A] line-through">
                 ₹{regularPrice}
               </span>
             )}
           </div>
 
           {/* Quantity Controls */}
-          <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#7C3AED] px-1 text-white shadow-sm">
+          <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#7C3AED] px-1 text-white shadow-sm flex-shrink-0">
             <button
               type="button"
               disabled={isUpdating}
@@ -66,11 +66,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
             </button>
 
             <span className="text-[14px] font-bold">
-              {isUpdating ? (
-                <span className="animate-pulse">...</span>
-              ) : (
-                item.quantity
-              )}
+              {item.quantity}
             </span>
 
             <button

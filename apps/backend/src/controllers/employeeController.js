@@ -228,10 +228,12 @@ export const getEmployeeOrders = async (req, res) => {
       if (bounds?.after && bounds?.before) {
         queryParams.after = bounds.after;
         queryParams.before = bounds.before;
+        queryParams.dates_are_gmt = true;
       }
     } else if (req.query.after || req.query.before) {
       if (req.query.after) queryParams.after = req.query.after;
       if (req.query.before) queryParams.before = req.query.before;
+      queryParams.dates_are_gmt = true;
     }
 
     const cleanSearch = (search || "").trim();
@@ -518,6 +520,7 @@ export const getEmployeeOverview = async (req, res) => {
       api.get("orders", {
         after: todayBounds?.after,
         before: todayBounds?.before,
+        dates_are_gmt: true,
         per_page: 1,
       }).catch(() => ({ headers: { "x-wp-total": 0 }, data: [] })),
 
@@ -526,6 +529,7 @@ export const getEmployeeOverview = async (req, res) => {
         status: "completed",
         after: todayBounds?.after,
         before: todayBounds?.before,
+        dates_are_gmt: true,
         per_page: 1,
       }).catch(() => ({ headers: { "x-wp-total": 0 }, data: [] })),
 
@@ -539,7 +543,7 @@ export const getEmployeeOverview = async (req, res) => {
       // Accurate live stock counts (cached for 60s)
       fetchStockCounts().catch(() => ({ all: 0, instock: 0, lowstock: 0, outofstock: 0 })),
 
-      // Sample of low stock products for preview list
+      // Direct query for low stock products (up to 6 items)
       api.get("products", {
         stock_status: "lowstock",
         per_page: 6,
@@ -548,7 +552,7 @@ export const getEmployeeOverview = async (req, res) => {
 
     const activeOrders = Array.isArray(activeOrdersRes?.data) ? activeOrdersRes.data : [];
     const recentOrders = Array.isArray(recentOrdersRes?.data) ? recentOrdersRes.data : [];
-    const lowStockSample = Array.isArray(lowStockProductsRes?.data) ? lowStockProductsRes.data : [];
+    const allCatalogProducts = Array.isArray(lowStockProductsRes?.data) ? lowStockProductsRes.data : [];
 
     let ordersToPackCount = 0;
     let ordersPackedCount = 0;
@@ -602,13 +606,13 @@ export const getEmployeeOverview = async (req, res) => {
       return formatOverviewOrderItem(order, effectiveStatus);
     });
 
-    const lowStockProductsFormatted = lowStockSample.map((p) => ({
+    // Directly queried low stock items (up to 6)
+    const lowStockProductsFormatted = allCatalogProducts.slice(0, 6).map((p) => ({
       id: p.id,
       name: p.name,
       image: p.images?.[0]?.src || null,
       stock_quantity: p.stock_quantity,
       stock_status: p.stock_status,
-      price: p.price,
     }));
 
     const receivedTodayCount = Number(receivedTodayRes?.headers?.["x-wp-total"]) || 0;

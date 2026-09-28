@@ -1,7 +1,10 @@
 import api from "../config/woocommerce.js";
+import wp from "../services/wordpress.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logError } from "../utils/logger.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
+import { fetchStockCounts } from "./adminProductController.js";
+import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
 
 /**
  * Statuses that represent invalid/voided/unpaid orders.
@@ -104,99 +107,58 @@ export const getDashboardOverview = async (req, res) => {
         return res.json(cachedOverview);
       }
     }
-    // 1. Fetch ALL orders via paginated WooCommerce requests (H5 fix)
-    const orders = await fetchAllOrders();
 
-    // 2. Fetch catalog products
-    const productsRes = await api.get("products", {
-      per_page: 100,
-    });
-
-    const products = Array.isArray(productsRes.data) ? productsRes.data : [];
-
-    // Metrics calculation
-    let totalRevenue = 0;
-    let todaySales = 0;
-    let monthSales = 0;
-    let monthOrdersCount = 0;
-    let activeOrdersCount = 0;
-    let completedOrdersCount = 0;
-    let cancelledOrdersCount = 0;
-    let validRevenueOrderCount = 0;
-
-    const todayDateString = new Date().toISOString().split("T")[0];
+    const todayBounds = getISTDateBoundaries("today");
     const { istMonthStartUTC, istNextMonthStartUTC } = getISTMonthBoundaries();
+    const monthAfter = new Date(istMonthStartUTC).toISOString();
+    const monthBefore = new Date(istNextMonthStartUTC).toISOString();
 
-    // Last 7 days map for sales chart
-    const last7DaysMap = new Map();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateKey = d.toISOString().split("T")[0];
-      const dayLabel = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric" });
-      last7DaysMap.set(dateKey, { date: dateKey, label: dayLabel, revenue: 0, orders: 0 });
-    }
+    const todayDateString = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
 
-    orders.forEach((order) => {
-      const effectiveStatus = getEffectiveStatus(order);
-      const orderTotal = Number(order.total) || 0;
-      const orderDate = order.date_created ? order.date_created.split("T")[0] : "";
-      const isInvalid = isInvalidOrder(order);
-      const isCancelled = ["cancelled", "failed", "refunded"].includes(effectiveStatus);
+    // Parallel fetch: direct low stock query, 10 recent orders, live stock counts, and HPOS analytics summary
+    const [summaryRes, recentOrdersRes, lowStockRes, stockCounts] = await Promise.all([
+      wp.get("/wp-json/mumbai-auth/v1/admin/analytics-summary", {
+        headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
+        params: {
+          today_after: todayBounds?.after,
+          today_before: todayBounds?.before,
+          month_after: monthAfter,
+          month_before: monthBefore,
+        },
+        timeout: 6000,
+      }).catch(() => null),
 
-      if (!isInvalid) {
-        validRevenueOrderCount += 1;
-        totalRevenue += orderTotal;
+      api.get("orders", {
+        per_page: 10,
+        orderby: "date",
+        order: "desc",
+      }).catch(() => ({ data: [] })),
 
-        if (orderDate === todayDateString) {
-          todaySales += orderTotal;
-        }
+      api.get("products", {
+        stock_status: "lowstock",
+        per_page: 6,
+      }).catch(() => ({ data: [] })),
 
-        // Compare order creation timestamp against IST month boundaries
-        const orderTimestamp = order.date_created ? new Date(order.date_created).getTime() : 0;
-        if (orderTimestamp >= istMonthStartUTC && orderTimestamp < istNextMonthStartUTC) {
-          monthSales += orderTotal;
-          monthOrdersCount += 1;
-        }
+      fetchStockCounts().catch(() => ({ all: 0, instock: 0, lowstock: 0, outofstock: 0 })),
+    ]);
 
-        if (last7DaysMap.has(orderDate)) {
-          const dayData = last7DaysMap.get(orderDate);
-          dayData.revenue += orderTotal;
-          dayData.orders += 1;
-        }
-      }
+    const lowStockProducts = (Array.isArray(lowStockRes?.data) ? lowStockRes.data : []).slice(0, 6).map((p) => ({
+      id: p.id,
+      name: p.name,
+      image: p.images?.[0]?.src || null,
+      stock_quantity: p.stock_quantity,
+      stock_status: p.stock_status,
+      price: p.price,
+    }));
 
-      if (["processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(effectiveStatus)) {
-        activeOrdersCount += 1;
-      } else if (effectiveStatus === "completed") {
-        completedOrdersCount += 1;
-      } else if (isCancelled) {
-        cancelledOrdersCount += 1;
-      }
-    });
-
-    // Low stock products (strictly low stock: stock > 0 and <= 5 items)
-    const lowStockProducts = products
-      .filter((p) => {
-        if (p.stock_status === "outofstock") return false;
-        const qty = p.stock_quantity;
-        if (qty !== null && qty !== undefined && qty > 0 && qty <= 5) return true;
-        if (p.manage_stock && qty !== null && qty !== undefined && qty > 0 && qty <= 5) return true;
-        return false;
-      })
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        image: p.images?.[0]?.src || null,
-        stock_quantity: p.stock_quantity,
-        stock_status: p.stock_status,
-        price: p.price,
-      }));
-
-    // Formatted recent 10 orders
-    const recentOrders = orders.slice(0, 10).map((o) => {
+    const rawRecentOrders = Array.isArray(recentOrdersRes?.data) ? recentOrdersRes.data : [];
+    const recentOrders = rawRecentOrders.map((o) => {
       const effectiveStatus = getEffectiveStatus(o);
-
       return {
         id: o.id,
         order_number: o.number || String(o.id),
@@ -212,19 +174,110 @@ export const getDashboardOverview = async (req, res) => {
       };
     });
 
-    const summaryData = {
-      totalRevenue: Math.round(totalRevenue),
-      todaySales: Math.round(todaySales),
-      monthSales: Math.round(monthSales),
-      monthOrdersCount,
-      totalOrders: orders.length,
-      activeOrders: activeOrdersCount,
-      completedOrders: completedOrdersCount,
-      cancelledOrders: cancelledOrdersCount,
-      totalProducts: products.length,
-      lowStockCount: lowStockProducts.length,
-      avgOrderValue: validRevenueOrderCount > 0 ? Math.round(totalRevenue / validRevenueOrderCount) : 0,
-    };
+    // Last 7 days map for sales chart (IST keys)
+    const last7DaysMap = new Map();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateKey = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+      const dayLabel = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric" });
+      last7DaysMap.set(dateKey, { date: dateKey, label: dayLabel, revenue: 0, orders: 0 });
+    }
+
+    let summaryData = null;
+
+    if (summaryRes?.data?.success) {
+      const s = summaryRes.data;
+      const sc = s.statusCounts || {};
+      const activeOrdersCount =
+        (sc.processing || 0) +
+        (sc.packed || 0) +
+        (sc["on-hold"] || 0) +
+        (sc["out-for-delivery"] || 0) +
+        (sc.dispatched || 0);
+
+      summaryData = {
+        totalRevenue: s.totalRevenue,
+        todaySales: s.todaySales,
+        monthSales: s.monthSales,
+        monthOrdersCount: s.monthOrdersCount,
+        totalOrders: s.totalOrders,
+        activeOrders: activeOrdersCount,
+        completedOrders: sc.completed || 0,
+        cancelledOrders: (sc.cancelled || 0) + (sc.failed || 0) + (sc.refunded || 0),
+        totalProducts: stockCounts?.all || 0,
+        lowStockCount: stockCounts?.lowstock ?? lowStockProducts.length,
+        avgOrderValue: s.avgOrderValue,
+      };
+    } else {
+      // Fallback: paginated WooCommerce requests if direct SQL summary is offline
+      const orders = await fetchAllOrders();
+
+      let totalRevenue = 0;
+      let todaySales = 0;
+      let monthSales = 0;
+      let monthOrdersCount = 0;
+      let activeOrdersCount = 0;
+      let completedOrdersCount = 0;
+      let cancelledOrdersCount = 0;
+      let validRevenueOrderCount = 0;
+
+      orders.forEach((order) => {
+        const effectiveStatus = getEffectiveStatus(order);
+        const orderTotal = Number(order.total) || 0;
+        const orderDate = order.date_created ? order.date_created.split("T")[0] : "";
+        const isInvalid = isInvalidOrder(order);
+        const isCancelled = ["cancelled", "failed", "refunded"].includes(effectiveStatus);
+
+        if (!isInvalid) {
+          validRevenueOrderCount += 1;
+          totalRevenue += orderTotal;
+
+          if (orderDate === todayDateString) {
+            todaySales += orderTotal;
+          }
+
+          const orderTimestamp = order.date_created ? new Date(order.date_created).getTime() : 0;
+          if (orderTimestamp >= istMonthStartUTC && orderTimestamp < istNextMonthStartUTC) {
+            monthSales += orderTotal;
+            monthOrdersCount += 1;
+          }
+
+          if (last7DaysMap.has(orderDate)) {
+            const dayData = last7DaysMap.get(orderDate);
+            dayData.revenue += orderTotal;
+            dayData.orders += 1;
+          }
+        }
+
+        if (["processing", "packed", "on-hold", "out-for-delivery", "dispatched"].includes(effectiveStatus)) {
+          activeOrdersCount += 1;
+        } else if (effectiveStatus === "completed") {
+          completedOrdersCount += 1;
+        } else if (isCancelled) {
+          cancelledOrdersCount += 1;
+        }
+      });
+
+      summaryData = {
+        totalRevenue: Math.round(totalRevenue),
+        todaySales: Math.round(todaySales),
+        monthSales: Math.round(monthSales),
+        monthOrdersCount,
+        totalOrders: orders.length,
+        activeOrders: activeOrdersCount,
+        completedOrders: completedOrdersCount,
+        cancelledOrders: cancelledOrdersCount,
+        totalProducts: stockCounts?.all || 0,
+        lowStockCount: stockCounts?.lowstock ?? lowStockProducts.length,
+        avgOrderValue: validRevenueOrderCount > 0 ? Math.round(totalRevenue / validRevenueOrderCount) : 0,
+      };
+    }
 
     const responsePayload = {
       success: true,
@@ -280,202 +333,270 @@ export const getAdminAnalytics = async (req, res) => {
       }
     }
 
-    // Fetch ALL orders via paginated requests (H5 fix)
-    const orders = await fetchAllOrders();
+    let summaryRes = null;
+    try {
+      summaryRes = await wp.get("/wp-json/mumbai-auth/v1/admin/analytics-summary", {
+        headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
+        timeout: 7000,
+      });
+    } catch (_) {}
 
-    // ── Revenue & valid-order accumulators ───────────────────────────────────
-    let totalRevenue = 0;       // valid orders only
-    let completedRevenue = 0;   // completed status only
-    let shippingRevenue = 0;    // valid orders only
-    let discountTotal = 0;      // valid orders only
-    let validOrderCount = 0;    // count of non-cancelled/failed/refunded orders
+    let responsePayload = null;
 
-    // ── Order-status counters (all orders) ───────────────────────────────────
-    let completedOrders = 0;
-    let processingOrders = 0;
-    let outForDeliveryOrders = 0;
-    let cancelledOrders = 0;
-    let refundedOrders = 0;
-    let otherOrders = 0;
+    if (summaryRes?.data?.success) {
+      const s = summaryRes.data;
+      const sc = s.statusCounts || {};
+      const outForDeliveryOrders = (sc["out-for-delivery"] || 0) + (sc.dispatched || 0);
 
-    // ── Payment breakdown (valid orders only) ────────────────────────────────
-    let codCount = 0;
-    let codRevenue = 0;
-    let onlineCount = 0;
-    let onlineRevenue = 0;
-
-    // ── Per-entity maps (valid orders only) ──────────────────────────────────
-    const productSalesMap = new Map();
-    const customerSalesMap = new Map();
-
-    // ── Daily trend (valid orders only, last 7 days) ─────────────────────────
-    const dailyRevenueMap = new Map();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateKey = d.toISOString().split("T")[0];
-      const dayName = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
-      dailyRevenueMap.set(dateKey, { date: dateKey, day: dayName, sales: 0, orders: 0 });
-    }
-
-    orders.forEach((o) => {
-      const effectiveStatus = getEffectiveStatus(o);
-      const orderTotal = Number(o.total) || 0;
-      const orderShipping = Number(o.shipping_total) || 0;
-      const orderDiscount = Number(o.discount_total) || 0;
-      const paymentMethod = (o.payment_method_title || o.payment_method || "").toLowerCase();
-      const invalid = INVALID_ORDER_STATUSES.has(effectiveStatus);
-
-      // ── Status counters — ALL orders ──────────────────────────────────────
-      if (effectiveStatus === "completed") {
-        completedOrders++;
-        completedRevenue += orderTotal;
-      } else if (effectiveStatus === "out-for-delivery" || effectiveStatus === "dispatched") {
-        outForDeliveryOrders++;
-      } else if (effectiveStatus === "processing") {
-        processingOrders++;
-      } else if (effectiveStatus === "cancelled" || effectiveStatus === "failed") {
-        cancelledOrders++;
-      } else if (effectiveStatus === "refunded") {
-        refundedOrders++;
-      } else {
-        otherOrders++;
+      // 7-day daily trend template (IST dates)
+      const dailyRevenueMap = new Map();
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateKey = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(d);
+        const dayName = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+        dailyRevenueMap.set(dateKey, { date: dateKey, day: dayName, sales: 0, orders: 0 });
       }
 
-      // ── Skip invalid orders for all revenue/metric aggregations ───────────
-      if (invalid) return;
+      const validOrderCount = s.validOrderCount || 0;
+      const codCount = s.payments?.cod?.count || 0;
+      const codRevenue = s.payments?.cod?.revenue || 0;
+      const onlineCount = s.payments?.online?.count || 0;
+      const onlineRevenue = s.payments?.online?.revenue || 0;
 
-      validOrderCount++;
-      totalRevenue += orderTotal;
-      shippingRevenue += orderShipping;
-      discountTotal += orderDiscount;
+      responsePayload = {
+        success: true,
+        data: {
+          revenue: {
+            totalRevenue: s.totalRevenue,
+            completedRevenue: s.completedRevenue,
+            shippingRevenue: s.shippingRevenue,
+            discountTotal: s.discountTotal,
+            avgOrderValue: s.avgOrderValue,
+            dailyTrend: Array.from(dailyRevenueMap.values()),
+          },
+          orders: {
+            total: s.totalOrders,
+            completed: sc.completed || 0,
+            processing: sc.processing || 0,
+            outForDelivery: outForDeliveryOrders,
+            cancelled: (sc.cancelled || 0) + (sc.failed || 0),
+            refunded: sc.refunded || 0,
+            fulfillmentRate: s.totalOrders > 0 ? Math.round(((sc.completed || 0) / s.totalOrders) * 100) : 100,
+          },
+          payments: {
+            cod: {
+              count: codCount,
+              revenue: codRevenue,
+              percentage: validOrderCount > 0 ? Math.round((codCount / validOrderCount) * 100) : 0,
+            },
+            online: {
+              count: onlineCount,
+              revenue: onlineRevenue,
+              percentage: validOrderCount > 0 ? Math.round((onlineCount / validOrderCount) * 100) : 0,
+            },
+          },
+          topProducts: s.topProducts || [],
+          topCustomers: s.topCustomers || [],
+          customerMetrics: s.customerMetrics || {
+            totalUniqueCustomers: 0,
+            repeatCustomerRate: 0,
+          },
+        },
+      };
+    } else {
+      // Fallback: paginated WooCommerce requests
+      const orders = await fetchAllOrders();
 
-      // ── Payment breakdown ─────────────────────────────────────────────────
-      if (paymentMethod.includes("cod") || paymentMethod.includes("cash")) {
-        codCount++;
-        codRevenue += orderTotal;
-      } else {
-        onlineCount++;
-        onlineRevenue += orderTotal;
+      let totalRevenue = 0;
+      let completedRevenue = 0;
+      let shippingRevenue = 0;
+      let discountTotal = 0;
+      let validOrderCount = 0;
+
+      let completedOrders = 0;
+      let processingOrders = 0;
+      let outForDeliveryOrders = 0;
+      let cancelledOrders = 0;
+      let refundedOrders = 0;
+      let otherOrders = 0;
+
+      let codCount = 0;
+      let codRevenue = 0;
+      let onlineCount = 0;
+      let onlineRevenue = 0;
+
+      const productSalesMap = new Map();
+      const customerSalesMap = new Map();
+
+      const dailyRevenueMap = new Map();
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateKey = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(d);
+        const dayName = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+        dailyRevenueMap.set(dateKey, { date: dateKey, day: dayName, sales: 0, orders: 0 });
       }
 
-      // ── Daily trend ───────────────────────────────────────────────────────
-      if (o.date_created) {
-        const orderDate = o.date_created.split("T")[0];
-        if (dailyRevenueMap.has(orderDate)) {
-          const entry = dailyRevenueMap.get(orderDate);
-          entry.sales += orderTotal;
-          entry.orders += 1;
-        }
-      }
+      orders.forEach((o) => {
+        const effectiveStatus = getEffectiveStatus(o);
+        const orderTotal = Number(o.total) || 0;
+        const orderShipping = Number(o.shipping_total) || 0;
+        const orderDiscount = Number(o.discount_total) || 0;
+        const paymentMethod = (o.payment_method_title || o.payment_method || "").toLowerCase();
+        const invalid = INVALID_ORDER_STATUSES.has(effectiveStatus);
 
-      // ── Product sales ─────────────────────────────────────────────────────
-      (o.line_items || []).forEach((item) => {
-        const pId = item.product_id || item.id;
-        const pName = item.name || "Product";
-        const qty = Number(item.quantity) || 1;
-        const itemTotal = Number(item.total) || 0;
-        const pImage = item.image?.src || null;
-
-        if (!productSalesMap.has(pId)) {
-          productSalesMap.set(pId, {
-            id: pId,
-            name: pName,
-            totalQuantitySold: qty,
-            totalRevenue: itemTotal,
-            image: pImage,
-          });
+        if (effectiveStatus === "completed") {
+          completedOrders++;
+          completedRevenue += orderTotal;
+        } else if (effectiveStatus === "out-for-delivery" || effectiveStatus === "dispatched") {
+          outForDeliveryOrders++;
+        } else if (effectiveStatus === "processing") {
+          processingOrders++;
+        } else if (effectiveStatus === "cancelled" || effectiveStatus === "failed") {
+          cancelledOrders++;
+        } else if (effectiveStatus === "refunded") {
+          refundedOrders++;
         } else {
-          const existing = productSalesMap.get(pId);
-          existing.totalQuantitySold += qty;
-          existing.totalRevenue += itemTotal;
-          if (!existing.image && pImage) existing.image = pImage;
+          otherOrders++;
+        }
+
+        if (invalid) return;
+
+        validOrderCount++;
+        totalRevenue += orderTotal;
+        shippingRevenue += orderShipping;
+        discountTotal += orderDiscount;
+
+        if (paymentMethod.includes("cod") || paymentMethod.includes("cash")) {
+          codCount++;
+          codRevenue += orderTotal;
+        } else {
+          onlineCount++;
+          onlineRevenue += orderTotal;
+        }
+
+        if (o.date_created) {
+          const orderDate = o.date_created.split("T")[0];
+          if (dailyRevenueMap.has(orderDate)) {
+            const entry = dailyRevenueMap.get(orderDate);
+            entry.sales += orderTotal;
+            entry.orders += 1;
+          }
+        }
+
+        (o.line_items || []).forEach((item) => {
+          const pId = item.product_id || item.id;
+          const pName = item.name || "Product";
+          const qty = Number(item.quantity) || 1;
+          const itemTotal = Number(item.total) || 0;
+          const pImage = item.image?.src || null;
+
+          if (!productSalesMap.has(pId)) {
+            productSalesMap.set(pId, {
+              id: pId,
+              name: pName,
+              totalQuantitySold: qty,
+              totalRevenue: itemTotal,
+              image: pImage,
+            });
+          } else {
+            const existing = productSalesMap.get(pId);
+            existing.totalQuantitySold += qty;
+            existing.totalRevenue += itemTotal;
+            if (!existing.image && pImage) existing.image = pImage;
+          }
+        });
+
+        const email = (o.billing?.email || "").trim().toLowerCase();
+        if (email) {
+          const custName = formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, email);
+          const custPhone = o.billing?.phone || "";
+
+          if (!customerSalesMap.has(email)) {
+            customerSalesMap.set(email, {
+              email,
+              name: custName,
+              phone: custPhone,
+              ordersCount: 1,
+              lifetimeSpent: orderTotal,
+            });
+          } else {
+            const existing = customerSalesMap.get(email);
+            existing.ordersCount += 1;
+            existing.lifetimeSpent += orderTotal;
+          }
         }
       });
 
-      // ── Customer LTV & repeat-customer tracking ───────────────────────────
-      const email = (o.billing?.email || "").trim().toLowerCase();
-      if (email) {
-        const custName = formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, email);
-        const custPhone = o.billing?.phone || "";
+      const avgOrderValue = validOrderCount > 0 ? Math.round(totalRevenue / validOrderCount) : 0;
 
-        if (!customerSalesMap.has(email)) {
-          customerSalesMap.set(email, {
-            email,
-            name: custName,
-            phone: custPhone,
-            ordersCount: 1,
-            lifetimeSpent: orderTotal,
-          });
-        } else {
-          const existing = customerSalesMap.get(email);
-          existing.ordersCount += 1;
-          existing.lifetimeSpent += orderTotal;
-        }
-      }
-    });
+      const topProducts = Array.from(productSalesMap.values())
+        .sort((a, b) => b.totalQuantitySold - a.totalQuantitySold || b.totalRevenue - a.totalRevenue)
+        .slice(0, 5);
 
-    // ── AOV: validRevenue / validOrderCount (clean population) ───────────────
-    const avgOrderValue = validOrderCount > 0 ? Math.round(totalRevenue / validOrderCount) : 0;
+      const topCustomers = Array.from(customerSalesMap.values())
+        .sort((a, b) => b.lifetimeSpent - a.lifetimeSpent)
+        .slice(0, 5)
+        .map((c) => ({
+          ...c,
+          lifetimeSpent: Math.round(c.lifetimeSpent),
+        }));
 
-    // ── Top selling products sorted by quantity sold & revenue ───────────────
-    const topProducts = Array.from(productSalesMap.values())
-      .sort((a, b) => b.totalQuantitySold - a.totalQuantitySold || b.totalRevenue - a.totalRevenue)
-      .slice(0, 5);
+      const repeatCustomersCount = Array.from(customerSalesMap.values()).filter((c) => c.ordersCount > 1).length;
+      const repeatRate = customerSalesMap.size > 0 ? Math.round((repeatCustomersCount / customerSalesMap.size) * 100) : 0;
 
-    // ── Top customers sorted by lifetime spend ───────────────────────────────
-    const topCustomers = Array.from(customerSalesMap.values())
-      .sort((a, b) => b.lifetimeSpent - a.lifetimeSpent)
-      .slice(0, 5)
-      .map((c) => ({
-        ...c,
-        lifetimeSpent: Math.round(c.lifetimeSpent),
-      }));
-
-    // ── Repeat-customer rate (valid orders only) ──────────────────────────────
-    const repeatCustomersCount = Array.from(customerSalesMap.values()).filter((c) => c.ordersCount > 1).length;
-    const repeatRate = customerSalesMap.size > 0 ? Math.round((repeatCustomersCount / customerSalesMap.size) * 100) : 0;
-
-    const responsePayload = {
-      success: true,
-      data: {
-        revenue: {
-          totalRevenue: Math.round(totalRevenue),
-          completedRevenue: Math.round(completedRevenue),
-          shippingRevenue: Math.round(shippingRevenue),
-          discountTotal: Math.round(discountTotal),
-          avgOrderValue,
-          dailyTrend: Array.from(dailyRevenueMap.values()),
-        },
-        orders: {
-          total: orders.length,
-          completed: completedOrders,
-          processing: processingOrders,
-          outForDelivery: outForDeliveryOrders,
-          cancelled: cancelledOrders,
-          refunded: refundedOrders,
-          fulfillmentRate: orders.length > 0 ? Math.round((completedOrders / orders.length) * 100) : 100,
-        },
-        payments: {
-          cod: {
-            count: codCount,
-            revenue: Math.round(codRevenue),
-            percentage: validOrderCount > 0 ? Math.round((codCount / validOrderCount) * 100) : 0,
+      responsePayload = {
+        success: true,
+        data: {
+          revenue: {
+            totalRevenue: Math.round(totalRevenue),
+            completedRevenue: Math.round(completedRevenue),
+            shippingRevenue: Math.round(shippingRevenue),
+            discountTotal: Math.round(discountTotal),
+            avgOrderValue,
+            dailyTrend: Array.from(dailyRevenueMap.values()),
           },
-          online: {
-            count: onlineCount,
-            revenue: Math.round(onlineRevenue),
-            percentage: validOrderCount > 0 ? Math.round((onlineCount / validOrderCount) * 100) : 0,
+          orders: {
+            total: orders.length,
+            completed: completedOrders,
+            processing: processingOrders,
+            outForDelivery: outForDeliveryOrders,
+            cancelled: cancelledOrders,
+            refunded: refundedOrders,
+            fulfillmentRate: orders.length > 0 ? Math.round((completedOrders / orders.length) * 100) : 100,
+          },
+          payments: {
+            cod: {
+              count: codCount,
+              revenue: Math.round(codRevenue),
+              percentage: validOrderCount > 0 ? Math.round((codCount / validOrderCount) * 100) : 0,
+            },
+            online: {
+              count: onlineCount,
+              revenue: Math.round(onlineRevenue),
+              percentage: validOrderCount > 0 ? Math.round((onlineCount / validOrderCount) * 100) : 0,
+            },
+          },
+          topProducts,
+          topCustomers,
+          customerMetrics: {
+            totalUniqueCustomers: customerSalesMap.size,
+            repeatCustomerRate: repeatRate,
           },
         },
-        topProducts,
-        topCustomers,
-        customerMetrics: {
-          totalUniqueCustomers: customerSalesMap.size,
-          repeatCustomerRate: repeatRate,
-        },
-      },
-    };
+      };
+    }
 
     serverCache.set("admin:analytics:deep", responsePayload, 120000);
 

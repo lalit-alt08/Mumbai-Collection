@@ -4,6 +4,7 @@ import { httpsAgent } from "../config/httpAgent.js";
 import { checkSessionSuspended } from "../middlewares/authMiddleware.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { logError, logger } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 /**
  * Helper to sanitize customer reviewer display name, avoiding email/phone/system fallbacks
@@ -47,45 +48,56 @@ const getCustomerDetails = async (req) => {
     reviewerEmail = `customer_${userId}@mumbai-collection.local`;
   }
 
-  // If reviewer name is default/empty, attempt WordPress lookup
+  // If reviewer name is default/empty, attempt WordPress lookup (cached 5 min)
   if (reviewerName === "Customer" && (req.wpAuthCookie || userId)) {
-    try {
-      const wpAuth = req.wpAuthCookie;
-      if (wpAuth) {
-        const meRes = await axios.get(
-          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
-          {
-            headers: { Cookie: wpAuth },
-            httpsAgent,
-            timeout: 4000,
+    const cacheKey = `customer:review_details:${userId || req.wpAuthCookie?.slice(0, 32)}`;
+    const cached = serverCache.get(cacheKey);
+    if (cached) {
+      if (cached.reviewerName && reviewerName === "Customer") reviewerName = cached.reviewerName;
+      if (cached.reviewerEmail && !reviewerEmail.includes("@")) reviewerEmail = cached.reviewerEmail;
+    } else {
+      try {
+        const wpAuth = req.wpAuthCookie;
+        if (wpAuth) {
+          const meRes = await axios.get(
+            `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
+            {
+              headers: { Cookie: wpAuth },
+              httpsAgent,
+              timeout: 4000,
+            }
+          );
+          if (meRes.data?.email && !reviewerEmail.includes("@")) {
+            reviewerEmail = meRes.data.email;
           }
-        );
-        if (meRes.data?.email && !reviewerEmail.includes("@")) {
-          reviewerEmail = meRes.data.email;
+          if (meRes.data?.user?.display_name) {
+            reviewerName = meRes.data.user.display_name;
+          }
         }
-        if (meRes.data?.user?.display_name) {
-          reviewerName = meRes.data.user.display_name;
-        }
-      }
 
-      if (reviewerName === "Customer" && userId) {
-        const profRes = await axios.get(
-          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
-          {
-            headers: {
-              "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-              "X-Mumbai-User-ID": String(userId),
-            },
-            httpsAgent,
-            timeout: 4000,
+        if (reviewerName === "Customer" && userId) {
+          const profRes = await axios.get(
+            `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
+            {
+              headers: {
+                "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+                "X-Mumbai-User-ID": String(userId),
+              },
+              httpsAgent,
+              timeout: 4000,
+            }
+          );
+          if (profRes.data?.full_name && profRes.data.full_name.trim()) {
+            reviewerName = profRes.data.full_name.trim();
           }
-        );
-        if (profRes.data?.full_name && profRes.data.full_name.trim()) {
-          reviewerName = profRes.data.full_name.trim();
         }
+
+        if (reviewerName !== "Customer" || (reviewerEmail && reviewerEmail.includes("@"))) {
+          serverCache.set(cacheKey, { reviewerName, reviewerEmail }, 300000);
+        }
+      } catch (err) {
+        logger.warn({ err: err.message }, "Customer profile detail fetch warning for review");
       }
-    } catch (err) {
-      logger.warn({ err: err.message }, "Customer profile detail fetch warning for review");
     }
   }
 
@@ -159,9 +171,38 @@ export const getProductReviews = async (req, res) => {
       };
     });
 
-    const totalReviews = formattedReviews.length;
+    // If authenticated user left a review that moved past the top 50, fetch and pin it
+    const wpTotal = Number(response.headers?.["x-wp-total"]);
+    const hasMoreReviews = !isNaN(wpTotal) && wpTotal > formattedReviews.length;
+
+    if (currentCustomerEmail && !formattedReviews.some((r) => r.isOwner) && hasMoreReviews) {
+      try {
+        const userReviewRes = await api.get("products/reviews", {
+          product: [productId],
+          reviewer_email: currentCustomerEmail,
+          per_page: 1,
+        });
+        const userReviewData = Array.isArray(userReviewRes.data) && userReviewRes.data[0];
+        if (userReviewData) {
+          formattedReviews.unshift({
+            id: userReviewData.id,
+            productId: userReviewData.product_id,
+            rating: Math.max(1, Math.min(5, Number(userReviewData.rating) || 5)),
+            reviewer: sanitizeReviewerDisplayName(userReviewData.reviewer, "Customer"),
+            review: String(userReviewData.review || "").replace(/<[^>]*>?/gm, "").trim(),
+            verified: Boolean(userReviewData.verified),
+            dateCreated: userReviewData.date_created,
+            isOwner: true,
+          });
+        }
+      } catch (_) {
+        // Non-blocking fallback
+      }
+    }
+
+    const totalReviews = !isNaN(wpTotal) && wpTotal > 0 ? Math.max(wpTotal, formattedReviews.length) : formattedReviews.length;
     const averageRating =
-      totalReviews > 0 ? Number((totalScore / totalReviews).toFixed(1)) : 0;
+      formattedReviews.length > 0 ? Number((totalScore / formattedReviews.length).toFixed(1)) : 0;
 
     res.json({
       success: true,
@@ -251,6 +292,8 @@ export const createOrUpdateReview = async (req, res) => {
       }),
       api.get("products/reviews", {
         product: [productId],
+        reviewer_email: reviewerEmail,
+        per_page: 50,
       }),
     ]);
 
@@ -300,6 +343,10 @@ export const createOrUpdateReview = async (req, res) => {
       });
       resultReview = createRes.data;
     }
+
+    // Invalidate product catalog cache so fresh rating is immediately reflected
+    serverCache.delete(`catalog:product:${productId}`);
+    serverCache.delete("catalog:products:all");
 
     res.status(200).json({
       success: true,
@@ -362,6 +409,12 @@ export const deleteReview = async (req, res) => {
     await api.delete(`products/reviews/${reviewId}`, {
       force: true,
     });
+
+    // Invalidate product catalog cache so fresh rating is immediately reflected
+    if (reviewData?.product_id) {
+      serverCache.delete(`catalog:product:${reviewData.product_id}`);
+      serverCache.delete("catalog:products:all");
+    }
 
     res.json({
       success: true,

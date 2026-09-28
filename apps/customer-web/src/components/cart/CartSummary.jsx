@@ -147,7 +147,7 @@ function CartSummary({
             onClick={onCheckout}
             className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#7C3AED] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#6C35E8] hover:shadow-[0_4px_20px_rgba(124,58,237,0.25)] active:scale-95 cursor-pointer"
           >
-            Proceed to Checkout &rarr;
+            Checkout &rarr;
           </button>
         ) : (
           <button

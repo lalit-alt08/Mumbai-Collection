@@ -90,8 +90,6 @@ function FloatingCartBar() {
     return null;
   }
 
-  const totalPrice =
-    hasItems && cart.totals ? Number(cart.totals.total_price) / 100 : 0;
   const firstItemImage = hasItems ? getCatalogImageUrl(cart.items[0]) : null;
   const firstItemAlt = hasItems ? cart.items[0]?.name || "Cart item" : "Cart item";
 
@@ -133,12 +131,9 @@ function FloatingCartBar() {
               <div className="h-full w-full rounded-full bg-gray-100" />
             )}
           </div>
-          <div className="flex flex-col text-white">
-            <span className="text-[11px] font-medium text-purple-100 leading-tight">
-              {totalItems} item{totalItems > 1 ? "s" : ""}
-            </span>
-            <span className="text-[14px] font-bold leading-tight">₹{totalPrice}</span>
-          </div>
+          <span className="text-[14px] font-bold text-white leading-tight">
+            {totalItems} item{totalItems > 1 ? "s" : ""}
+          </span>
         </div>
 
         <div className="flex items-center gap-1 font-bold text-white text-[13px]">

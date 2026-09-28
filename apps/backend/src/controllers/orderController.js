@@ -4,6 +4,7 @@ import { httpsAgent } from "../config/httpAgent.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { logError, logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { sendResult } from "../utils/responseHelper.js";
 
 /**
  * Fetch authenticated customer's orders from WooCommerce
@@ -130,8 +131,9 @@ export const getCustomerOrders = async (req, res) => {
     const userId = req.wpUserId;
 
     if (!userId) {
-      return res.status(401).json({
+      return sendResult(res, {
         success: false,
+        errorCode: "AUTH_REQUIRED",
         message: "Authentication required.",
         orders: [],
       });
@@ -161,13 +163,22 @@ export const getCustomerOrders = async (req, res) => {
     let totalPages = 1;
 
     try {
-      const customerOrderRes = await api.get("orders", {
+      const orderQueryParams = {
         customer: userId,
         page,
         per_page: limit,
         orderby: "date",
         order: "desc",
-      });
+      };
+      if (req.query.after) {
+        orderQueryParams.after = req.query.after;
+        orderQueryParams.dates_are_gmt = true;
+      }
+      if (req.query.before) {
+        orderQueryParams.before = req.query.before;
+        orderQueryParams.dates_are_gmt = true;
+      }
+      const customerOrderRes = await api.get("orders", orderQueryParams);
       rawOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
       totalOrders = Number(customerOrderRes.headers?.["x-wp-total"]) || rawOrders.length;
       totalPages = Number(customerOrderRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
@@ -213,7 +224,7 @@ export const getCustomerOrders = async (req, res) => {
     // Sort formatted orders consistently by date, newest first
     formattedOrders.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
 
-    res.json({
+    return sendResult(res, {
       success: true,
       page,
       per_page: limit,
@@ -225,8 +236,9 @@ export const getCustomerOrders = async (req, res) => {
   } catch (error) {
     logError(req, error, "Get customer orders error");
 
-    res.status(error.response?.status || 500).json({
+    return sendResult(res, {
       success: false,
+      errorCode: "INTERNAL_SERVER_ERROR",
       message: "Unable to retrieve orders.",
       orders: [],
     });
@@ -242,8 +254,9 @@ export const getOrderById = async (req, res) => {
     const userId = req.wpUserId;
 
     if (!userId) {
-      return res.status(401).json({
+      return sendResult(res, {
         success: false,
+        errorCode: "AUTH_REQUIRED",
         message: "Authentication required.",
       });
     }
@@ -252,8 +265,9 @@ export const getOrderById = async (req, res) => {
     const order = response.data;
 
     if (!order || !order.id) {
-      return res.status(404).json({
+      return sendResult(res, {
         success: false,
+        errorCode: "ORDER_NOT_FOUND",
         message: "Order not found.",
       });
     }
@@ -265,33 +279,46 @@ export const getOrderById = async (req, res) => {
     let isOwner = orderCustomerId > 0 && orderCustomerId === Number(userId);
     
     if (!isOwner && userId) {
-      try {
-        const customerRes = await api.get(`customers/${userId}`);
-        const userEmail = customerRes.data?.email?.trim().toLowerCase();
-        if (userEmail && orderBillingEmail === userEmail) {
-          isOwner = true;
+      const tokenEmail = (req.user?.email || req.wpUserEmail || "").trim().toLowerCase();
+      if (tokenEmail && orderBillingEmail === tokenEmail) {
+        isOwner = true;
+      } else {
+        try {
+          const userEmail = await serverCache.getOrFetch(
+            `customer:email:${userId}`,
+            async () => {
+              const customerRes = await api.get(`customers/${userId}`);
+              return customerRes.data?.email ? customerRes.data.email.trim().toLowerCase() : "";
+            },
+            600000 // 10 minutes TTL
+          );
+          if (userEmail && orderBillingEmail === userEmail) {
+            isOwner = true;
+          }
+        } catch (err) {
+          // Ignore lookup error
         }
-      } catch (err) {
-        // Ignore lookup error
       }
     }
 
     if (!isOwner) {
-      return res.status(403).json({
+      return sendResult(res, {
         success: false,
+        errorCode: "FORBIDDEN_ORDER_ACCESS",
         message: "You are not authorized to view this order.",
       });
     }
 
-    res.json({
+    return sendResult(res, {
       success: true,
       order: transformMediaUrls(formatCustomerOrder(order), req),
     });
   } catch (error) {
     logError(req, error, "Get order by ID error");
 
-    res.status(error.response?.status || 500).json({
+    return sendResult(res, {
       success: false,
+      errorCode: "INTERNAL_SERVER_ERROR",
       message: "Unable to load order details.",
     });
   }

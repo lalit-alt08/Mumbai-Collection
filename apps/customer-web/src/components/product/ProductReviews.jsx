@@ -143,7 +143,7 @@ function ProductReviews({ productId }) {
   const currentUserReview = reviews.find((r) => r.isOwner === true);
 
   return (
-    <section className="rounded-2xl bg-white p-4 sm:p-5 shadow-[0_4px_16px_rgba(0,0,0,0.02)] border border-gray-100 space-y-3.5 sm:space-y-4">
+    <section id="product-reviews" className="rounded-2xl bg-white p-4 sm:p-5 shadow-[0_4px_16px_rgba(0,0,0,0.02)] border border-gray-100 space-y-3.5 sm:space-y-4 scroll-mt-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-3">
         <div>

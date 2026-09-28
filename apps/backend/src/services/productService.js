@@ -1,8 +1,10 @@
 import api from "../config/woocommerce.js";
 import { logger } from "../utils/logger.js";
 
-export const fetchProducts = async () => {
-  const response = await api.get("products");
+export const fetchProducts = async (per_page = 50) => {
+  const response = await api.get("products", {
+    per_page: Math.min(100, Math.max(1, Number(per_page) || 50)),
+  });
 
   if (!Array.isArray(response.data)) {
     logger.error("Unexpected WooCommerce products response structure");
