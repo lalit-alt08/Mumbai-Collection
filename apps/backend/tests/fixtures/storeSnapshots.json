@@ -1,0 +1,71 @@
+{
+  "checkout_unauth": {
+    "statusCode": 401,
+    "body": {
+      "success": false,
+      "code": "AUTH_REQUIRED",
+      "message": "Please log in to place an order."
+    }
+  },
+  "checkout_suspended": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "code": "CUSTOMER_SUSPENDED",
+      "message": "Your account is currently suspended and you cannot place new orders."
+    }
+  },
+  "checkout_phone_not_verified": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "code": "PHONE_NOT_VERIFIED",
+      "message": "Please verify your mobile number with OTP before placing an order."
+    }
+  },
+  "checkout_store_closed": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "code": "STORE_CLOSED",
+      "message": "Store closed for the night",
+      "next_opening": "Tomorrow at 09:00 AM",
+      "current_day": "Monday",
+      "current_time_ist": "23:00",
+      "schedule_today": "09:00 - 22:00",
+      "timezone": "Asia/Kolkata"
+    }
+  },
+  "checkout_store_hours_unavailable": {
+    "statusCode": 503,
+    "body": {
+      "success": false,
+      "code": "STORE_HOURS_UNAVAILABLE",
+      "message": "Unable to verify store operating hours. Please try again in a few moments."
+    }
+  },
+  "checkout_empty_cart": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "code": "EMPTY_CART",
+      "message": "Your cart is empty."
+    }
+  },
+  "checkout_min_order_value": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "code": "MIN_ORDER_VALUE",
+      "message": "Minimum product order value of ₹500 is required. Please add ₹200 more."
+    }
+  },
+  "checkout_cart_fetch_failed": {
+    "statusCode": 502,
+    "body": {
+      "success": false,
+      "code": "CART_FETCH_FAILED",
+      "message": "Unable to verify cart contents before checkout. Please try again."
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Boxes,
   Search,
@@ -44,16 +45,25 @@ import {
 } from "../utils/productAdjuster.js";
 
 function Products() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const urlStockParam = searchParams.get("stock_status");
+  const urlCategoryParam = searchParams.get("category");
+  const urlSearchParam = searchParams.get("search");
+
   const [products, setProducts] = useState([]);
+  const [stockCounts, setStockCounts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [stockFilter, setStockFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState(urlSearchParam || "");
+  const [debouncedSearch, setDebouncedSearch] = useState(urlSearchParam || "");
+  const [stockFilter, setStockFilter] = useState(() => {
+    return urlStockParam === "instock" || urlStockParam === "outofstock" ? urlStockParam : "all";
+  });
 
   // Category filter state
   const [categories, setCategories] = useState([]);
-  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState(urlCategoryParam || "all");
   const [isMobileCategoryOpen, setIsMobileCategoryOpen] = useState(false);
   const mobileCategoryRef = useRef(null);
 
@@ -158,16 +168,93 @@ function Products() {
     }, 3500);
   };
 
-  // Debounce search input by 400ms
+  // Sync state when URL searchParams change externally (e.g. back/forward navigation or dashboard link)
+  useEffect(() => {
+    const stockParam = searchParams.get("stock_status");
+    const catParam = searchParams.get("category");
+    const searchParam = searchParams.get("search");
+
+    const resolvedStock = stockParam === "instock" || stockParam === "outofstock" ? stockParam : "all";
+    setStockFilter((prev) => (prev !== resolvedStock ? resolvedStock : prev));
+
+    const resolvedCat = catParam || "all";
+    setCategoryFilter((prev) => (prev !== resolvedCat ? resolvedCat : prev));
+
+    if (searchParam !== null && searchParam !== undefined) {
+      setSearchQuery((prev) => (prev !== searchParam ? searchParam : prev));
+      setDebouncedSearch((prev) => (prev !== searchParam ? searchParam : prev));
+    }
+  }, [searchParams]);
+
+  // Handle URL updates when stock filter changes
+  const handleStockFilterChange = (newStock) => {
+    setStockFilter(newStock);
+    setPage(1);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (newStock && newStock !== "all") {
+          next.set("stock_status", newStock);
+        } else {
+          next.delete("stock_status");
+        }
+        return next;
+      },
+      { replace: true }
+    );
+  };
+
+  // Handle URL updates when category filter changes
+  const handleCategoryFilterChange = (newCat) => {
+    setCategoryFilter(newCat);
+    setPage(1);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (newCat && newCat !== "all") {
+          next.set("category", newCat);
+        } else {
+          next.delete("category");
+        }
+        return next;
+      },
+      { replace: true }
+    );
+  };
+
+  // Reset all active filters
+  const handleClearFilters = () => {
+    setStockFilter("all");
+    setCategoryFilter("all");
+    setSearchQuery("");
+    setDebouncedSearch("");
+    setPage(1);
+    setSearchParams({}, { replace: true });
+  };
+
+  // Debounce search input by 400ms and sync with URL
   useEffect(() => {
     const timer = setTimeout(() => {
       const normalized = searchQuery.trim();
-      setDebouncedSearch(normalized.length >= 2 ? normalized : "");
+      const nextSearch = normalized.length >= 2 ? normalized : "";
+      setDebouncedSearch(nextSearch);
       setPage(1);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (nextSearch) {
+            next.set("search", nextSearch);
+          } else {
+            next.delete("search");
+          }
+          return next;
+        },
+        { replace: true }
+      );
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, setSearchParams]);
 
   // Fetch categories on mount for category filtering
   useEffect(() => {
@@ -231,6 +318,9 @@ function Products() {
 
       if (res.success) {
         setProducts(res.products || []);
+        if (res.counts) {
+          setStockCounts(res.counts);
+        }
         setTotalProducts(res.total !== undefined ? res.total : (res.products?.length || 0));
         setTotalPages(res.totalPages !== undefined ? res.totalPages : (Math.ceil((res.total || 1) / perPage) || 1));
       }
@@ -529,6 +619,13 @@ function Products() {
       ? `${selectedCategoryObj.name} ${selectedCategoryObj.count !== undefined ? `(${selectedCategoryObj.count})` : ""}`
       : "All Categories";
 
+  // Stock filter tabs with authoritative counts from server (Low Stock removed as API doesn't support it)
+  const stockFilterTabs = [
+    { id: "all", label: "All Items", count: stockCounts?.all },
+    { id: "instock", label: "In Stock", count: stockCounts?.instock },
+    { id: "outofstock", label: "Out of Stock", count: stockCounts?.outofstock },
+  ];
+
   return (
     <div className="space-y-4 sm:space-y-5">
       {/* Toast Notification */}
@@ -571,29 +668,36 @@ function Products() {
 
       {/* 2. Filter Tabs & Category Selector Card */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-gray-200 bg-white p-3.5 sm:p-4 shadow-xs">
-        {/* Stock Filter Pills */}
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            { id: "all", label: "All Items" },
-            { id: "instock", label: "In Stock" },
-            { id: "lowstock", label: "Low Stock" },
-            { id: "outofstock", label: "Out of Stock" },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setStockFilter(tab.id);
-                setPage(1);
-              }}
-              className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer active:scale-95 ${
-                stockFilter === tab.id
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-xs"
-                  : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Stock Filter Pills: Equal 3-column grid on mobile to eliminate orphaned pills */}
+        <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:flex-wrap">
+          {stockFilterTabs.map((tab) => {
+            const isSelected = stockFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleStockFilterChange(tab.id)}
+                className={`flex items-center justify-center gap-1.5 rounded-xl px-2.5 sm:px-3 py-2 sm:py-1.5 text-xs font-bold transition cursor-pointer active:scale-95 text-center ${
+                  isSelected
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-xs"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                <span className="truncate">{tab.label}</span>
+                {tab.count !== undefined && tab.count !== null && (
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                      isSelected
+                        ? "bg-emerald-200/70 text-emerald-800"
+                        : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Mobile Custom Category Dropdown (<640px) */}
@@ -628,8 +732,7 @@ function Products() {
                 role="option"
                 aria-selected={categoryFilter === "all"}
                 onClick={() => {
-                  setCategoryFilter("all");
-                  setPage(1);
+                  handleCategoryFilterChange("all");
                   setIsMobileCategoryOpen(false);
                 }}
                 className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
@@ -653,8 +756,7 @@ function Products() {
                     role="option"
                     aria-selected={isSelected}
                     onClick={() => {
-                      setCategoryFilter(String(c.id));
-                      setPage(1);
+                      handleCategoryFilterChange(String(c.id));
                       setIsMobileCategoryOpen(false);
                     }}
                     className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
@@ -689,10 +791,7 @@ function Products() {
           />
           <select
             value={categoryFilter}
-            onChange={(e) => {
-              setCategoryFilter(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => handleCategoryFilterChange(e.target.value)}
             className="w-full sm:w-auto h-8.5 rounded-xl border border-gray-200 bg-white pl-8 pr-7 text-xs font-bold text-gray-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition cursor-pointer shadow-2xs"
             aria-label="Filter by Category"
           >
@@ -706,14 +805,14 @@ function Products() {
         </div>
       </div>
 
-      {/* 3. Add Product Button (Below Filter Card) */}
-      <div className="flex items-center justify-between sm:justify-end">
-        <p className="text-xs text-gray-500 font-medium hidden sm:block">
+      {/* 3. Total Products Count & Add Product Button (Visible on mobile and desktop) */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-gray-500 font-medium">
           Total Products: <span className="font-bold text-gray-900">{totalProducts}</span>
         </p>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-3 sm:py-2.5 text-xs sm:text-sm font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer shrink-0 active:scale-95"
+          className="flex items-center justify-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer shrink-0 active:scale-95"
           title="Add New Product"
         >
           <Plus size={16} />
@@ -820,8 +919,32 @@ function Products() {
             </button>
           </div>
         ) : displayedProducts.length === 0 ? (
-          <div className="py-16 text-center text-xs font-medium text-gray-400">
-            No products found matching your filter criteria.
+          <div className="py-16 px-4 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 border border-gray-100 text-gray-400 shadow-2xs">
+              <Boxes size={22} />
+            </div>
+            <p className="text-sm font-bold text-gray-800">
+              No products found
+            </p>
+            <p className="mt-1 text-xs text-gray-500 max-w-sm mx-auto">
+              {searchQuery.trim()
+                ? `No products match your search "${searchQuery.trim()}".`
+                : stockFilter !== "all"
+                ? `There are currently no products marked as "${stockFilter === "instock" ? "In Stock" : "Out of Stock"}".`
+                : categoryFilter !== "all"
+                ? "No products found in the selected category."
+                : "No products found matching your filter criteria."}
+            </p>
+            {(stockFilter !== "all" || categoryFilter !== "all" || searchQuery.trim() !== "") && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer active:scale-95 shadow-2xs"
+              >
+                <RotateCcw size={13} />
+                <span>Clear All Filters</span>
+              </button>
+            )}
           </div>
         ) : (
           <>

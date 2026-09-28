@@ -15,9 +15,13 @@ const DEDUP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
  * @param {string} alert.severity - "critical" | "warning" | "info"
  * @param {string} [alert.rzpOrderId]
  * @param {string} [alert.rzpPaymentId]
- * @param {string} alert.message
  * @param {Object} [alert.details]
  */
+let customAnomalyHandler = null;
+export const _setAnomalyHandlerForTesting = (handler) => {
+  customAnomalyHandler = handler;
+};
+
 export const alertStaffAnomaly = async ({
   type,
   severity = "critical",
@@ -26,6 +30,9 @@ export const alertStaffAnomaly = async ({
   message,
   details = {},
 }) => {
+  if (customAnomalyHandler) {
+    return customAnomalyHandler({ type, severity, rzpOrderId, rzpPaymentId, message, details });
+  }
   try {
     const targetId = rzpPaymentId || rzpOrderId || "system";
     const dedupKey = `${targetId}:${type}`;

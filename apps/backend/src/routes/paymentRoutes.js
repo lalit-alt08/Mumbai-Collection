@@ -14,7 +14,7 @@
 import express from "express";
 import { requireAuth, requireVerifiedPhone } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
-import { checkoutLimiter } from "../middlewares/rateLimiter.js";
+import { checkoutLimiter, statusCheckLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 import {
@@ -42,7 +42,7 @@ router.post(
 router.post(
   "/verify",
   validateRequest({ body: schemas.paymentVerify }),
-  checkoutLimiter,
+  statusCheckLimiter,
   requireAuth("customer"),
   requireVerifiedPhone,
   verifyPayment
@@ -52,7 +52,7 @@ router.post(
 router.post(
   "/check-status",
   validateRequest({ body: schemas.paymentCheckStatus }),
-  checkoutLimiter,
+  statusCheckLimiter,
   requireAuth("customer"),
   checkPaymentStatus
 );

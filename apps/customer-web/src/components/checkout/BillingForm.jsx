@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { updateCheckout } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment, checkPaymentStatus } from "../../services/paymentService.js";
-import { getOrderById } from "../../services/orderService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
 import safeStorage from "../../utils/safeStorage.js";
@@ -84,18 +83,40 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isSubmittingRef = useRef(false);
-  const pendingOrderIdRef = useRef(getPendingPayment()?.order_id || null);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
 
   const verifyPendingOrder = useCallback(async () => {
     const stored = getPendingPayment();
-    if (!stored || (!stored.razorpay_order_id && !stored.order_id)) return;
+    if (!stored || !stored.razorpay_order_id) return;
 
     const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
     if (Date.now() - (stored.timestamp || 0) > MAX_AGE_MS) {
       clearPendingPayment();
       return;
     }
+
+    // Query payment finalization state by Razorpay order ID FIRST
+    // (Prevents clearing pending payment if the server already created the order and cleared the cart)
+    try {
+      const res = await checkPaymentStatus(stored.razorpay_order_id);
+      if (res?.success && res?.order_id) {
+        clearPendingPayment();
+        clearCheckoutIdempotencyKey();
+        await refreshCart().catch(() => {});
+        navigate(`/order-success/${res.order_id}`, {
+          state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
+          replace: true,
+        });
+        return;
+      }
+      if (res?.refunded || res?.terminal) {
+        clearPendingPayment();
+        clearCheckoutIdempotencyKey();
+        await refreshCart().catch(() => {});
+        setError(res.message || "An item in your order went out of stock during checkout. Your payment was automatically refunded.");
+        return;
+      }
+    } catch (_) {}
 
     const currentFingerprint = computeCartFingerprint(cart);
     const currentItemsFingerprint = computeCartItemsFingerprint(cart);
@@ -105,58 +126,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
     if (itemsChanged) {
       clearPendingPayment();
-      pendingOrderIdRef.current = null;
       return;
-    }
-
-    // 1. Primary path: query payment finalization state by Razorpay order ID
-    if (stored.razorpay_order_id) {
-      try {
-        const res = await checkPaymentStatus(stored.razorpay_order_id);
-        if (res?.success && res?.order_id) {
-          clearPendingPayment();
-          clearCheckoutIdempotencyKey();
-          pendingOrderIdRef.current = null;
-          await refreshCart().catch(() => {});
-          navigate(`/order-success/${res.order_id}`, {
-            state: { paymentMethod: "Online Payment", status: res.status || "Processing" },
-            replace: true,
-          });
-          return;
-        }
-      } catch (_) {}
-    }
-
-    // 2. Legacy fallback for pre-existing orders
-    if (stored.order_id) {
-      try {
-        const res = await getOrderById(stored.order_id);
-        const orderData = res?.order || res;
-        const status = (orderData?.status || "").toLowerCase();
-
-        if (status === "processing" || status === "completed") {
-          clearPendingPayment();
-          clearCheckoutIdempotencyKey();
-          pendingOrderIdRef.current = null;
-          await refreshCart().catch(() => {});
-          navigate(`/order-success/${stored.order_id}`, {
-            state: { paymentMethod: "Online Payment", status: "Processing" },
-            replace: true,
-          });
-          return;
-        }
-
-        if (status === "pending" || status === "on-hold") {
-          pendingOrderIdRef.current = stored.order_id;
-        } else {
-          clearPendingPayment();
-          pendingOrderIdRef.current = null;
-        }
-      } catch (_) {
-        if (stored.order_id) {
-          pendingOrderIdRef.current = stored.order_id;
-        }
-      }
     }
   }, [cart, navigate, refreshCart]);
 
@@ -171,15 +141,12 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
     if (itemsChanged) {
       clearPendingPayment();
-      pendingOrderIdRef.current = null;
     }
   }, [cart]);
 
-  // Check pending order status on mount and when returning from mobile UPI/banking app
+  // Check pending order status on mount (including hard refresh) and when returning from mobile UPI/banking app
   useEffect(() => {
-    if (cart && cart.items && cart.items.length > 0) {
-      verifyPendingOrder();
-    }
+    verifyPendingOrder();
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -191,7 +158,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [cart, verifyPendingOrder]);
+  }, [verifyPendingOrder]);
 
   // Load saved addresses
   useEffect(() => {
@@ -344,7 +311,6 @@ function BillingForm({ storeHours, onStoreClosed }) {
         // Clear persisted idempotency key and pending payment on successful order completion
         clearCheckoutIdempotencyKey();
         clearPendingPayment();
-        pendingOrderIdRef.current = null;
 
         // Refresh cart state to clear items and badges
         await refreshCart().catch(() => {});
@@ -373,7 +339,6 @@ function BillingForm({ storeHours, onStoreClosed }) {
       const paymentOrderPayload = {
         billing_address: billingAddress,
         shipping_address: shippingAddress,
-        ...(pendingOrderIdRef.current ? { order_id: pendingOrderIdRef.current } : {}),
       };
 
       const orderRes = await createPaymentOrder(paymentOrderPayload, {
@@ -388,10 +353,9 @@ function BillingForm({ storeHours, onStoreClosed }) {
         if (orderRes?.already_paid) {
           clearCheckoutIdempotencyKey();
           clearPendingPayment();
-          pendingOrderIdRef.current = null;
           await refreshCart().catch(() => {});
           navigate(`/order-success/${orderRes.order_id}`, {
-            state: { paymentMethod: "Online Payment", status: orderRes.status || "Processing" },
+            state: { paymentMethod: "Online Payment", status: orderRes.orderStatus || "Processing" },
           });
           isSubmittingRef.current = false;
           setLoading(false);
@@ -401,10 +365,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
         throw new Error("Invalid payment order response from server.");
       }
 
-      // Store pending order ID so user can retry payment without creating duplicate WC orders
-      pendingOrderIdRef.current = orderRes.order_id;
       setPendingPayment({
-        order_id: orderRes.order_id,
         razorpay_order_id: orderRes.razorpay_order_id,
         cartFingerprint: computeCartFingerprint(cart),
         itemsFingerprint: computeCartItemsFingerprint(cart),
@@ -416,14 +377,14 @@ function BillingForm({ storeHours, onStoreClosed }) {
         amount: orderRes.amount,
         currency: orderRes.currency || "INR",
         name: "Mumbai Collection",
-        description: orderRes.order_id ? `Order #${orderRes.order_id}` : "Mumbai Collection Online Payment",
+        description: "Mumbai Collection Online Payment",
         order_id: orderRes.razorpay_order_id,
         prefill: {
           name: `${firstName} ${lastName}`.trim(),
           email: userEmail,
           contact: userPhone,
         },
-        notes: orderRes.order_id ? { wc_order_id: String(orderRes.order_id) } : {},
+        notes: {},
         theme: {
           color: "#7C3AED",
         },
@@ -440,11 +401,17 @@ function BillingForm({ storeHours, onStoreClosed }) {
                 if (checkRes?.success && checkRes?.order_id) {
                   clearPendingPayment();
                   clearCheckoutIdempotencyKey();
-                  pendingOrderIdRef.current = null;
                   await refreshCart().catch(() => {});
                   navigate(`/order-success/${checkRes.order_id}`, {
-                    state: { paymentMethod: "Online Payment", status: checkRes.status || "Processing" },
+                    state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
                   });
+                  return;
+                }
+                if (checkRes?.refunded || checkRes?.terminal) {
+                  clearPendingPayment();
+                  clearCheckoutIdempotencyKey();
+                  await refreshCart().catch(() => {});
+                  setError(checkRes.message || "An item in your order went out of stock. Your payment has been refunded.");
                   return;
                 }
               }
@@ -460,7 +427,6 @@ function BillingForm({ storeHours, onStoreClosed }) {
             setError("");
 
             const verifyRes = await verifyPayment({
-              order_id: orderRes.order_id || null,
               razorpay_order_id: paymentResponse.razorpay_order_id,
               razorpay_payment_id: paymentResponse.razorpay_payment_id,
               razorpay_signature: paymentResponse.razorpay_signature,
@@ -469,15 +435,20 @@ function BillingForm({ storeHours, onStoreClosed }) {
             if (verifyRes.success && verifyRes.order_id) {
               clearCheckoutIdempotencyKey();
               clearPendingPayment();
-              pendingOrderIdRef.current = null;
               await refreshCart().catch(() => {});
               navigate(`/order-success/${verifyRes.order_id}`, {
-                state: { paymentMethod: "Online Payment", status: verifyRes.status || "Processing" },
+                state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing" },
               });
             } else {
+              clearCheckoutIdempotencyKey();
+              clearPendingPayment();
+              await refreshCart().catch(() => {});
               setError(verifyRes.message || "Payment verification failed. Please contact support.");
             }
           } catch (verifyErr) {
+            clearCheckoutIdempotencyKey();
+            clearPendingPayment();
+            await refreshCart().catch(() => {});
             setError(
               verifyErr.response?.data?.message ||
               "Payment verification could not be completed. Please check your order history or contact support."
@@ -828,11 +799,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
             ) : isStoreClosed ? (
               "Store is Currently Closed for Orders"
             ) : paymentMethod === "online" ? (
-              pendingOrderIdRef.current ? (
-                "Retry Online Payment →"
-              ) : (
-                "Pay Online securely →"
-              )
+              "Pay Online securely →"
             ) : (
               "Place Order securely →"
             )}

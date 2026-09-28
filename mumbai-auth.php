@@ -528,6 +528,13 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
 
+    // Analytics Summary & Customer LTV Aggregations (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/admin/analytics-summary', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_admin_get_analytics_summary',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+
     // Customer Suspension Management (Internal Node.js only)
     register_rest_route('mumbai-auth/v1', '/admin/customer-suspension/lookup', [
         'methods'             => 'GET',
@@ -3007,10 +3014,24 @@ function mumbai_admin_get_employees(WP_REST_Request $request) {
     $processed_emails = [];
 
     // 1. Fetch users with employee role or with _mumbai_employee_status meta
-    $users = get_users([
+    $employee_role_users = get_users([
+        'role'   => 'employee',
         'number' => 200,
         'fields' => 'all',
     ]);
+
+    $meta_users = get_users([
+        'meta_key'     => '_mumbai_employee_status',
+        'meta_compare' => 'EXISTS',
+        'number'       => 200,
+        'fields'       => 'all',
+    ]);
+
+    $users_by_id = [];
+    foreach (array_merge($employee_role_users, $meta_users) as $u) {
+        $users_by_id[$u->ID] = $u;
+    }
+    $users = array_values($users_by_id);
 
     foreach ($users as $u) {
         $roles = (array) $u->roles;
@@ -3419,12 +3440,15 @@ function mumbai_save_store_hours(WP_REST_Request $request) {
  * Returns all registered users with role customer/subscriber, excluding admins and employees.
  */
 function mumbai_admin_get_customers(WP_REST_Request $request) {
-    $search = sanitize_text_field($request->get_param('search') ?? '');
+    $search   = sanitize_text_field($request->get_param('search') ?? '');
+    $per_page = (int) ($request->get_param('per_page') ?? 1000);
+    $page     = (int) ($request->get_param('page') ?? 1);
 
     $args = [
         'role__in'     => ['customer', 'subscriber'],
         'role__not_in' => ['administrator', 'employee'],
-        'number'       => 1000,
+        'number'       => min(1000, max(1, $per_page)),
+        'paged'        => max(1, $page),
         'fields'       => 'all',
         'orderby'      => 'registered',
         'order'        => 'DESC',
@@ -3436,6 +3460,13 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
     }
 
     $users = get_users($args);
+
+    // Prime the WordPress user metadata cache in a single bulk query to eliminate N+1 DB lookups
+    $user_ids = wp_list_pluck($users, 'ID');
+    if (!empty($user_ids)) {
+        update_meta_cache('user', $user_ids);
+    }
+
     $customers = [];
 
     foreach ($users as $u) {
@@ -3487,6 +3518,308 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
         'success'   => true,
         'customers' => $customers,
         'count'     => count($customers),
+    ]);
+}
+
+/**
+ * HPOS-Safe Analytics & Customer LTV Aggregations
+ * Direct SQL aggregates over wp_wc_orders to prevent 2,000 order caps and slow loops.
+ */
+function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
+    global $wpdb;
+
+    $type = sanitize_text_field($request->get_param('type') ?? 'all');
+    $table_orders = $wpdb->prefix . 'wc_orders';
+    $has_hpos = ($wpdb->get_var("SHOW TABLES LIKE '{$table_orders}'") === $table_orders);
+
+    if (!$has_hpos) {
+        return rest_ensure_response([
+            'success'  => false,
+            'fallback' => true,
+            'message'  => 'HPOS orders table not available',
+        ]);
+    }
+
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+
+    // Customer LTV aggregations across entire store history (for Admin Customer Directory)
+    if ($type === 'customer_ltv') {
+        $ltv_rows = $wpdb->get_results(
+            "SELECT 
+                customer_id,
+                LOWER(TRIM(billing_email)) AS email,
+                COUNT(id) AS ordersCount,
+                COALESCE(SUM(total_amount), 0) AS lifetimeSpent,
+                MAX(date_created_gmt) AS lastOrderDate,
+                MAX(id) AS lastOrderId
+             FROM {$table_orders}
+             WHERE status NOT IN {$invalid_statuses_sql}
+             GROUP BY customer_id, LOWER(TRIM(billing_email))",
+            ARRAY_A
+        );
+
+        return rest_ensure_response([
+            'success'      => true,
+            'customer_ltv' => $ltv_rows ?: [],
+        ]);
+    }
+
+    // Status breakdown across all orders
+    $status_rows = $wpdb->get_results(
+        "SELECT 
+            REPLACE(status, 'wc-', '') AS clean_status,
+            COUNT(id) AS count,
+            COALESCE(SUM(total_amount), 0) AS total_revenue
+         FROM {$table_orders}
+         GROUP BY clean_status",
+        ARRAY_A
+    );
+
+    $status_counts = [
+        'completed'        => 0,
+        'processing'       => 0,
+        'on-hold'          => 0,
+        'out-for-delivery' => 0,
+        'dispatched'       => 0,
+        'cancelled'        => 0,
+        'refunded'         => 0,
+        'failed'           => 0,
+        'total'            => 0,
+    ];
+    $completed_revenue = 0.0;
+    $total_orders = 0;
+
+    if ($status_rows) {
+        foreach ($status_rows as $row) {
+            $s = strtolower($row['clean_status']);
+            $c = (int) $row['count'];
+            $r = (float) $row['total_revenue'];
+            $total_orders += $c;
+            if (isset($status_counts[$s])) {
+                $status_counts[$s] += $c;
+            }
+            if ($s === 'completed') {
+                $completed_revenue += $r;
+            }
+        }
+    }
+    $status_counts['total'] = $total_orders;
+
+    // Operational delivery status overrides from meta table
+    $table_meta = $wpdb->prefix . 'wc_orders_meta';
+    $has_meta = ($wpdb->get_var("SHOW TABLES LIKE '{$table_meta}'") === $table_meta);
+    if ($has_meta) {
+        $delivery_meta_rows = $wpdb->get_results(
+            "SELECT meta_value, COUNT(order_id) AS count 
+             FROM {$table_meta} 
+             WHERE meta_key = '_delivery_status' 
+             GROUP BY meta_value",
+            ARRAY_A
+        );
+        if ($delivery_meta_rows) {
+            foreach ($delivery_meta_rows as $dm) {
+                $val = strtolower($dm['meta_value']);
+                if (isset($status_counts[$val])) {
+                    $status_counts[$val] = (int) $dm['count'];
+                }
+            }
+        }
+    }
+
+    // Revenue aggregations on valid orders
+    $table_operational = $wpdb->prefix . 'wc_order_operational_data';
+    $has_operational = ($wpdb->get_var("SHOW TABLES LIKE '{$table_operational}'") === $table_operational);
+
+    if ($has_operational) {
+        $rev_row = $wpdb->get_row(
+            "SELECT 
+                COALESCE(SUM(o.total_amount), 0) AS total_revenue,
+                COALESCE(SUM(op.shipping_total_amount), 0) AS shipping_revenue,
+                COALESCE(SUM(op.discount_total_amount), 0) AS discount_total,
+                COUNT(o.id) AS valid_order_count
+             FROM {$table_orders} o
+             LEFT JOIN {$table_operational} op ON op.order_id = o.id
+             WHERE o.status NOT IN {$invalid_statuses_sql}",
+            ARRAY_A
+        );
+    } else {
+        $rev_row = $wpdb->get_row(
+            "SELECT 
+                COALESCE(SUM(total_amount), 0) AS total_revenue,
+                0 AS shipping_revenue,
+                0 AS discount_total,
+                COUNT(id) AS valid_order_count
+             FROM {$table_orders}
+             WHERE status NOT IN {$invalid_statuses_sql}",
+            ARRAY_A
+        );
+    }
+
+    $total_revenue = (float) ($rev_row['total_revenue'] ?? 0);
+    $shipping_revenue = (float) ($rev_row['shipping_revenue'] ?? 0);
+    $discount_total = (float) ($rev_row['discount_total'] ?? 0);
+    $valid_order_count = (int) ($rev_row['valid_order_count'] ?? 0);
+    $avg_order_value = $valid_order_count > 0 ? (int) round($total_revenue / $valid_order_count) : 0;
+
+    // Today's Sales in IST
+    $today_after = sanitize_text_field($request->get_param('today_after') ?? '');
+    $today_before = sanitize_text_field($request->get_param('today_before') ?? '');
+    $today_sales = 0.0;
+    if (!empty($today_after) && !empty($today_before)) {
+        $today_row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COALESCE(SUM(total_amount), 0) AS today_sales
+             FROM {$table_orders}
+             WHERE date_created_gmt >= %s AND date_created_gmt <= %s
+               AND status NOT IN {$invalid_statuses_sql}",
+            $today_after,
+            $today_before
+        ), ARRAY_A);
+        $today_sales = (float) ($today_row['today_sales'] ?? 0);
+    }
+
+    // Month's Sales in IST
+    $month_after = sanitize_text_field($request->get_param('month_after') ?? '');
+    $month_before = sanitize_text_field($request->get_param('month_before') ?? '');
+    $month_sales = 0.0;
+    $month_orders = 0;
+    if (!empty($month_after) && !empty($month_before)) {
+        $month_row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COALESCE(SUM(total_amount), 0) AS month_sales, COUNT(id) AS month_orders
+             FROM {$table_orders}
+             WHERE date_created_gmt >= %s AND date_created_gmt <= %s
+               AND status NOT IN {$invalid_statuses_sql}",
+            $month_after,
+            $month_before
+        ), ARRAY_A);
+        $month_sales = (float) ($month_row['month_sales'] ?? 0);
+        $month_orders = (int) ($month_row['month_orders'] ?? 0);
+    }
+
+    // Payment methods breakdown (valid orders only)
+    $payment_rows = $wpdb->get_results(
+        "SELECT 
+            payment_method,
+            COUNT(id) AS count,
+            COALESCE(SUM(total_amount), 0) AS revenue
+         FROM {$table_orders}
+         WHERE status NOT IN {$invalid_statuses_sql}
+         GROUP BY payment_method",
+        ARRAY_A
+    );
+
+    $cod_count = 0;
+    $cod_revenue = 0.0;
+    $online_count = 0;
+    $online_revenue = 0.0;
+
+    if ($payment_rows) {
+        foreach ($payment_rows as $pr) {
+            $pm = strtolower($pr['payment_method'] ?? '');
+            $c = (int) $pr['count'];
+            $r = (float) $pr['revenue'];
+            if (strpos($pm, 'cod') !== false || strpos($pm, 'cash') !== false) {
+                $cod_count += $c;
+                $cod_revenue += $r;
+            } else {
+                $online_count += $c;
+                $online_revenue += $r;
+            }
+        }
+    }
+
+    // Top Customers by spend
+    $top_customers = $wpdb->get_results(
+        "SELECT 
+            LOWER(TRIM(billing_email)) AS email,
+            COUNT(id) AS ordersCount,
+            COALESCE(SUM(total_amount), 0) AS lifetimeSpent
+         FROM {$table_orders}
+         WHERE status NOT IN {$invalid_statuses_sql}
+           AND billing_email != ''
+         GROUP BY LOWER(TRIM(billing_email))
+         ORDER BY lifetimeSpent DESC
+         LIMIT 5",
+        ARRAY_A
+    );
+
+    // Repeat customer stats
+    $repeat_row = $wpdb->get_row(
+        "SELECT 
+            COUNT(*) AS total_customers,
+            SUM(CASE WHEN order_count > 1 THEN 1 ELSE 0 END) AS repeat_customers
+         FROM (
+            SELECT LOWER(TRIM(billing_email)) AS email, COUNT(id) AS order_count
+            FROM {$table_orders}
+            WHERE status NOT IN {$invalid_statuses_sql}
+              AND billing_email != ''
+            GROUP BY LOWER(TRIM(billing_email))
+         ) AS cust_stats",
+        ARRAY_A
+    );
+    $total_unique_cust = (int) ($repeat_row['total_customers'] ?? 0);
+    $repeat_cust = (int) ($repeat_row['repeat_customers'] ?? 0);
+    $repeat_rate = $total_unique_cust > 0 ? (int) round(($repeat_cust / $total_unique_cust) * 100) : 0;
+
+    // Top Products from order items
+    $table_items = $wpdb->prefix . 'woocommerce_order_items';
+    $table_itemmeta = $wpdb->prefix . 'woocommerce_order_itemmeta';
+    $has_items = ($wpdb->get_var("SHOW TABLES LIKE '{$table_items}'") === $table_items);
+
+    $top_products = [];
+    if ($has_items) {
+        $top_product_rows = $wpdb->get_results(
+            "SELECT 
+                meta_prod.meta_value AS id,
+                items.order_item_name AS name,
+                SUM(CAST(meta_qty.meta_value AS SIGNED)) AS totalQuantitySold,
+                SUM(CAST(meta_total.meta_value AS DECIMAL(10,2))) AS totalRevenue
+             FROM {$table_items} items
+             JOIN {$table_orders} o ON items.order_id = o.id
+             JOIN {$table_itemmeta} meta_prod ON items.order_item_id = meta_prod.order_item_id AND meta_prod.meta_key = '_product_id'
+             LEFT JOIN {$table_itemmeta} meta_qty ON items.order_item_id = meta_qty.order_item_id AND meta_qty.meta_key = '_qty'
+             LEFT JOIN {$table_itemmeta} meta_total ON items.order_item_id = meta_total.order_item_id AND meta_total.meta_key = '_line_total'
+             WHERE o.status NOT IN {$invalid_statuses_sql}
+             GROUP BY meta_prod.meta_value, items.order_item_name
+             ORDER BY totalQuantitySold DESC, totalRevenue DESC
+             LIMIT 5",
+            ARRAY_A
+        );
+        if ($top_product_rows) {
+            foreach ($top_product_rows as $tpr) {
+                $top_products[] = [
+                    'id'                => (int) $tpr['id'],
+                    'name'              => $tpr['name'],
+                    'totalQuantitySold' => (int) $tpr['totalQuantitySold'],
+                    'totalRevenue'      => (float) $tpr['totalRevenue'],
+                    'image'             => null,
+                ];
+            }
+        }
+    }
+
+    return rest_ensure_response([
+        'success'           => true,
+        'totalRevenue'      => (int) round($total_revenue),
+        'completedRevenue'  => (int) round($completed_revenue),
+        'shippingRevenue'   => (int) round($shipping_revenue),
+        'discountTotal'     => (int) round($discount_total),
+        'todaySales'        => (int) round($today_sales),
+        'monthSales'        => (int) round($month_sales),
+        'monthOrdersCount'  => $month_orders,
+        'validOrderCount'   => $valid_order_count,
+        'totalOrders'       => $total_orders,
+        'avgOrderValue'     => $avg_order_value,
+        'statusCounts'      => $status_counts,
+        'payments'          => [
+            'cod'    => ['count' => $cod_count, 'revenue' => (int) round($cod_revenue)],
+            'online' => ['count' => $online_count, 'revenue' => (int) round($online_revenue)],
+        ],
+        'topProducts'       => $top_products,
+        'topCustomers'      => $top_customers ?: [],
+        'customerMetrics'   => [
+            'totalUniqueCustomers' => $total_unique_cust,
+            'repeatCustomerRate'   => $repeat_rate,
+        ],
     ]);
 }
 

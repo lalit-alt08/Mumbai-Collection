@@ -12,8 +12,6 @@ const VALID_REVENUE_STATUSES = [
   "out_for_delivery",
   "delivered",
   "on-hold",
-  "pending",
-  "refunded",
 ];
 
 const CUSTOMER_LOCATION_KEYWORDS = {
@@ -54,7 +52,7 @@ async function fetchRegisteredCustomers() {
 /**
  * Fetch all WooCommerce orders using server-side pagination (H5 fix).
  * Caps at 20 pages (2 000 orders max) to avoid runaway loops.
- * Filters out trash orders.
+ * Filters out trash orders. Used as fallback if direct SQL aggregate endpoint is offline.
  */
 async function fetchAllOrders() {
   const perPage = 100;
@@ -91,9 +89,6 @@ async function buildAggregatedCustomerDirectory() {
   // 1. Fetch registered customer accounts (authoritative population)
   const registeredCustomers = await fetchRegisteredCustomers();
 
-  // 2. Fetch non-trash orders
-  const orders = await fetchAllOrders();
-
   // Map registered customers by ID and email
   const customerMap = new Map();
   const emailToIdMap = new Map();
@@ -125,42 +120,83 @@ async function buildAggregatedCustomerDirectory() {
     }
   }
 
-  // Reconcile WooCommerce orders with registered customers
-  for (const o of orders) {
-    if (o.status === "trash") continue;
+  // 2. Fast HPOS direct SQL customer LTV aggregations
+  let sqlAggregated = false;
+  try {
+    const ltvRes = await wp.get("/wp-json/mumbai-auth/v1/admin/analytics-summary", {
+      headers: {
+        "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+      },
+      params: { type: "customer_ltv" },
+      timeout: 7000,
+    });
 
-    const rawCustId = Number(o.customer_id);
-    const email = (o.billing?.email || "").trim().toLowerCase();
-    const orderTotal = Number(o.total) || 0;
+    if (ltvRes.data?.success && Array.isArray(ltvRes.data.customer_ltv)) {
+      sqlAggregated = true;
+      for (const row of ltvRes.data.customer_ltv) {
+        const rawCustId = Number(row.customer_id);
+        const email = (row.email || "").trim().toLowerCase();
 
-    const orderSummary = {
-      id: o.id,
-      order_number: o.number || String(o.id),
-      date: o.date_created,
-      total: o.total,
-      status: o.status,
-      payment_method: o.payment_method_title || "Cash on Delivery",
-      items_count: o.line_items?.length || 0,
-    };
+        let matchedUser = null;
+        if (rawCustId > 0 && customerMap.has(rawCustId)) {
+          matchedUser = customerMap.get(rawCustId);
+        } else if (email && emailToIdMap.has(email)) {
+          matchedUser = customerMap.get(emailToIdMap.get(email));
+        }
 
-    let matchedUser = null;
-    if (rawCustId > 0 && customerMap.has(rawCustId)) {
-      matchedUser = customerMap.get(rawCustId);
-    } else if (email && emailToIdMap.has(email)) {
-      matchedUser = customerMap.get(emailToIdMap.get(email));
-    }
-
-    if (matchedUser) {
-      matchedUser.orders.push(orderSummary);
-      if (VALID_REVENUE_STATUSES.includes(o.status)) {
-        matchedUser.ordersCount += 1;
-        matchedUser.lifetimeSpent += orderTotal;
+        if (matchedUser) {
+          matchedUser.ordersCount += Number(row.ordersCount) || 0;
+          matchedUser.lifetimeSpent += Number(row.lifetimeSpent) || 0;
+          if (!matchedUser.lastOrderDate || new Date(row.lastOrderDate) > new Date(matchedUser.lastOrderDate)) {
+            matchedUser.lastOrderDate = row.lastOrderDate;
+            matchedUser.lastOrderId = row.lastOrderId;
+          }
+        }
       }
-      if (!matchedUser.lastOrderDate || new Date(o.date_created) > new Date(matchedUser.lastOrderDate)) {
-        matchedUser.lastOrderDate = o.date_created;
-        matchedUser.lastOrderId = o.id;
-        if ((!matchedUser.phone || matchedUser.phone === "") && (o.billing?.phone || o.shipping?.phone)) {
-          matchedUser.phone = o.billing?.phone || o.shipping?.phone;
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, "[AdminCustomers] SQL LTV aggregation failed, falling back to orders fetch");
+  }
+
+  // 3. Fallback to fetchAllOrders only if SQL endpoint was unavailable
+  if (!sqlAggregated) {
+    const orders = await fetchAllOrders();
+    for (const o of orders) {
+      if (o.status === "trash") continue;
+
+      const rawCustId = Number(o.customer_id);
+      const email = (o.billing?.email || "").trim().toLowerCase();
+      const orderTotal = Number(o.total) || 0;
+
+      const orderSummary = {
+        id: o.id,
+        order_number: o.number || String(o.id),
+        date: o.date_created,
+        total: o.total,
+        status: o.status,
+        payment_method: o.payment_method_title || "Cash on Delivery",
+        items_count: o.line_items?.length || 0,
+      };
+
+      let matchedUser = null;
+      if (rawCustId > 0 && customerMap.has(rawCustId)) {
+        matchedUser = customerMap.get(rawCustId);
+      } else if (email && emailToIdMap.has(email)) {
+        matchedUser = customerMap.get(emailToIdMap.get(email));
+      }
+
+      if (matchedUser) {
+        matchedUser.orders.push(orderSummary);
+        if (VALID_REVENUE_STATUSES.includes(o.status)) {
+          matchedUser.ordersCount += 1;
+          matchedUser.lifetimeSpent += orderTotal;
+        }
+        if (!matchedUser.lastOrderDate || new Date(o.date_created) > new Date(matchedUser.lastOrderDate)) {
+          matchedUser.lastOrderDate = o.date_created;
+          matchedUser.lastOrderId = o.id;
+          if ((!matchedUser.phone || matchedUser.phone === "") && (o.billing?.phone || o.shipping?.phone)) {
+            matchedUser.phone = o.billing?.phone || o.shipping?.phone;
+          }
         }
       }
     }

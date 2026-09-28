@@ -278,7 +278,7 @@ function Dashboard() {
               Needs stock update
             </span>
             <Link
-              to="/products?stock_status=outofstock"
+              to="/products"
               className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-0.5"
             >
               UPDATE STOCK <ChevronRight size={12} />
@@ -528,7 +528,7 @@ function Dashboard() {
                       {(product.stock_quantity ?? 0) <= 0 ? "Out of Stock" : `${product.stock_quantity} left`}
                     </span>
                     <Link
-                      to={`/products`}
+                      to={`/products?search=${encodeURIComponent(product.name)}`}
                       className="text-[11px] font-bold text-rose-600 hover:text-rose-700"
                     >
                       Update Stock →

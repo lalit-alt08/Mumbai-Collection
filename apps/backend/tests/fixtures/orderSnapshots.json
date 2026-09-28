@@ -1,0 +1,163 @@
+{
+  "getCustomerOrders_unauth": {
+    "statusCode": 401,
+    "body": {
+      "success": false,
+      "message": "Authentication required.",
+      "orders": []
+    }
+  },
+  "getCustomerOrders_success": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "page": 1,
+      "per_page": 10,
+      "total": 1,
+      "totalPages": 1,
+      "count": 1,
+      "orders": [
+        {
+          "id": 101,
+          "order_number": "101",
+          "status": "processing",
+          "display_status": "Preparing & Packing",
+          "status_color": "blue",
+          "tracking_stage": 2,
+          "date_created": "2026-09-28T12:00:00",
+          "date_completed": null,
+          "date_modified": null,
+          "total": "500.00",
+          "currency_symbol": "₹",
+          "payment_method_title": "Cash on Delivery",
+          "billing": {
+            "first_name": "John",
+            "last_name": "Doe",
+            "phone": "",
+            "email": "test@example.com",
+            "address_1": "",
+            "address_2": "",
+            "city": "",
+            "state": "",
+            "postcode": ""
+          },
+          "shipping": {
+            "first_name": "John",
+            "last_name": "Doe",
+            "phone": "",
+            "address_1": "",
+            "address_2": "",
+            "city": "",
+            "state": "",
+            "postcode": ""
+          },
+          "item_count": 1,
+          "line_items": [
+            {
+              "id": 1,
+              "name": "Shirt",
+              "quantity": 1,
+              "price": 500,
+              "image": null
+            }
+          ],
+          "shipping_total": "0.00",
+          "discount_total": "0.00",
+          "total_tax": "0.00"
+        }
+      ]
+    }
+  },
+  "getCustomerOrders_upstream_error": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "page": 1,
+      "per_page": 10,
+      "total": 0,
+      "totalPages": 1,
+      "count": 0,
+      "orders": []
+    }
+  },
+  "getCustomerOrders_outer_error": {
+    "statusCode": 500,
+    "body": {
+      "success": false,
+      "message": "Unable to retrieve orders.",
+      "orders": []
+    }
+  },
+  "getOrderById_unauth": {
+    "statusCode": 401,
+    "body": {
+      "success": false,
+      "message": "Authentication required."
+    }
+  },
+  "getOrderById_not_found": {
+    "statusCode": 404,
+    "body": {
+      "success": false,
+      "message": "Order not found."
+    }
+  },
+  "getOrderById_forbidden": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "message": "You are not authorized to view this order."
+    }
+  },
+  "getOrderById_success": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "order": {
+        "id": 101,
+        "order_number": "101",
+        "status": "processing",
+        "display_status": "Preparing & Packing",
+        "status_color": "blue",
+        "tracking_stage": 2,
+        "date_completed": null,
+        "date_modified": null,
+        "currency_symbol": "₹",
+        "payment_method_title": "Cash on Delivery",
+        "billing": {
+          "first_name": "John",
+          "last_name": "Doe",
+          "phone": "",
+          "email": "test@example.com",
+          "address_1": "",
+          "address_2": "",
+          "city": "",
+          "state": "",
+          "postcode": ""
+        },
+        "shipping": {
+          "first_name": "John",
+          "last_name": "Doe",
+          "phone": "",
+          "address_1": "",
+          "address_2": "",
+          "city": "",
+          "state": "",
+          "postcode": ""
+        },
+        "item_count": 0,
+        "line_items": [],
+        "shipping_total": "0.00",
+        "discount_total": "0.00",
+        "total_tax": "0.00"
+      }
+    }
+  },
+  "getOrderById_upstream_error": {
+    "statusCode": 500,
+    "body": {
+      "success": false,
+      "message": "Unable to load order details."
+    }
+  }
+}

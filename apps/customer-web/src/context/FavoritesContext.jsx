@@ -80,7 +80,7 @@ export const FavoritesProvider = ({ children }) => {
         await addFavApi(productId);
       }
       return { success: true, isFavorited: !currentlyFavorited };
-    } catch {
+    } catch (err) {
       // Rollback on error
       setFavoriteIds((prev) => {
         const next = new Set(prev);
@@ -91,8 +91,14 @@ export const FavoritesProvider = ({ children }) => {
         }
         return next;
       });
-      fetchFavorites();
-      return { success: false, error: err.message };
+      if (currentlyFavorited) {
+        if (typeof product === "object" && product.id) {
+          setFavorites((prev) => [product, ...prev]);
+        }
+      } else {
+        setFavorites((prev) => prev.filter((p) => Number(p.id) !== productId));
+      }
+      return { success: false, error: err?.message || "Failed to update wishlist" };
     }
   };
 

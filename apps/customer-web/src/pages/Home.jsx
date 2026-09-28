@@ -6,11 +6,19 @@ import ProductCard from "../components/product/ProductCard";
 import { getProducts, getCategories } from "../services/productService";
 import { CheckCircle2, X, ChevronRight } from "lucide-react";
 
+// In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
+let cachedHomeData = {
+  products: null,
+  categories: null,
+  timestamp: 0,
+};
+
 function Home() {
   const location = useLocation();
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState(() => cachedHomeData.products || []);
+  const [categories, setCategories] = useState(() => cachedHomeData.categories || []);
+  // Instant hydration: If cached data exists in memory, skip initial loading skeleton
+  const [loading, setLoading] = useState(() => !cachedHomeData.products);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
 
   useEffect(() => {
@@ -26,7 +34,11 @@ function Home() {
     let isMounted = true;
     const loadHomeData = async () => {
       try {
-        setLoading(true);
+        // Only trigger skeleton if we have no prior cache
+        if (!cachedHomeData.products) {
+          setLoading(true);
+        }
+
         const [productsData, categoriesData] = await Promise.allSettled([
           getProducts(),
           getCategories(),
@@ -35,10 +47,13 @@ function Home() {
         if (isMounted) {
           if (productsData.status === "fulfilled" && Array.isArray(productsData.value)) {
             setProducts(productsData.value);
+            cachedHomeData.products = productsData.value;
           }
           if (categoriesData.status === "fulfilled" && Array.isArray(categoriesData.value)) {
             setCategories(categoriesData.value);
+            cachedHomeData.categories = categoriesData.value;
           }
+          cachedHomeData.timestamp = Date.now();
         }
       } catch {
         // Fallback or empty home state

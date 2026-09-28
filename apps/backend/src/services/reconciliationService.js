@@ -346,21 +346,31 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               const parsedPayload = intentRow.checkout_payload ? JSON.parse(intentRow.checkout_payload) : null;
               let stockValid = true;
 
-              if (parsedPayload?.line_items && Array.isArray(parsedPayload.line_items)) {
-                for (const item of parsedPayload.line_items) {
-                  try {
-                    const prodRes = await api.get(`products/${item.product_id}`);
-                    const prod = prodRes.data;
-                    if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
-                      if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
-                        stockValid = false;
-                        logger.error(
-                          { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
-                          "[Reconciler] Stock depleted during reconciler discovery"
-                        );
+              if (parsedPayload?.line_items && Array.isArray(parsedPayload.line_items) && parsedPayload.line_items.length > 0) {
+                const stockResults = await Promise.allSettled(
+                  parsedPayload.line_items.map(async (item) => {
+                    try {
+                      const prodRes = await api.get(`products/${item.product_id}`);
+                      const prod = prodRes?.data;
+                      if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
+                        if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
+                          logger.error(
+                            { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
+                            "[Reconciler] Stock depleted during reconciler discovery"
+                          );
+                          return false;
+                        }
                       }
-                    }
-                  } catch (_) {}
+                    } catch (_) {}
+                    return true;
+                  })
+                );
+
+                for (const r of stockResults) {
+                  if (r.status === "fulfilled" && r.value === false) {
+                    stockValid = false;
+                    break;
+                  }
                 }
               }
 

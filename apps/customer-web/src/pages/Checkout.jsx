@@ -5,6 +5,8 @@ import { ArrowLeft, ShoppingBag, Clock, AlertTriangle, ShieldAlert } from "lucid
 import { useAuth } from "../context/AuthContext";
 import BillingForm from "../components/checkout/BillingForm";
 import { getCatalogImageUrl } from "../utils/imageUtils";
+import { checkPaymentStatus } from "../services/paymentService";
+import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey } from "../utils/checkoutIdempotency";
 
 function Checkout() {
   const navigate = useNavigate();
@@ -28,6 +30,26 @@ function Checkout() {
         getCart(),
         getStoreHours().catch(() => ({ is_open: true })),
       ]);
+
+      // Check if a completed pending payment exists before declaring cart empty on hard refresh
+      if (!cartData?.items || cartData.items.length === 0) {
+        const stored = getPendingPayment();
+        if (stored?.razorpay_order_id) {
+          try {
+            const checkRes = await checkPaymentStatus(stored.razorpay_order_id);
+            if (checkRes?.success && checkRes?.order_id) {
+              clearPendingPayment();
+              clearCheckoutIdempotencyKey();
+              navigate(`/order-success/${checkRes.order_id}`, {
+                state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
+                replace: true,
+              });
+              return;
+            }
+          } catch (_) {}
+        }
+      }
+
       setCart(cartData);
       setStoreHours(storeHoursData);
 

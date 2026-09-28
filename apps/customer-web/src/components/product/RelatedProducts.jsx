@@ -5,20 +5,32 @@ import ProductCard from "./ProductCard";
 function RelatedProducts({ product }) {
   const [products, setProducts] = useState([]);
 
+  const productId = product?.id;
+  const primaryCategoryId = product?.categories?.[0]?.id;
+
   useEffect(() => {
+    let isMounted = true;
     const loadRelatedProducts = async () => {
-      if (!product.categories?.length) return;
+      if (!primaryCategoryId || !productId) return;
 
-      const data = await getRelatedProducts(
-        product.categories[0].id,
-        product.id
-      );
-
-      setProducts(data);
+      try {
+        const data = await getRelatedProducts(
+          primaryCategoryId,
+          productId
+        );
+        if (isMounted) {
+          setProducts(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (isMounted) setProducts([]);
+      }
     };
 
     loadRelatedProducts();
-  }, [product]);
+    return () => {
+      isMounted = false;
+    };
+  }, [productId, primaryCategoryId]);
 
   if (!products.length) return null;
 

@@ -135,3 +135,26 @@ export const checkoutLimiter = createRateLimiter({
     return `checkout:ip:${clientIp}`;
   },
 });
+
+export const statusCheckLimiter = createRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60,             // 60 requests per 1 minute per user/IP
+  message: "Too many payment status verification attempts. Please wait a moment.",
+  keyGenerator: (req) => {
+    const userId = req.user?.id || req.wpUserId;
+    if (userId) {
+      return `status_check:user:${userId}`;
+    }
+    const customerAuth =
+      req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_admin_auth ||
+      req.cookies?.mumbai_employee_auth ||
+      req.cookies?.mumbai_wp_auth;
+    if (customerAuth) {
+      return `status_check:cookie:${customerAuth.slice(-32)}`;
+    }
+    const clientIp = getClientIp(req);
+    return `status_check:ip:${clientIp}`;
+  },
+});
+

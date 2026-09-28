@@ -5,7 +5,7 @@ import {
   removeCartItem,
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
-import { Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 
@@ -87,6 +87,46 @@ function ProductInfo({ product }) {
           <h1 className="text-[22px] font-bold leading-snug text-[#1F2937] md:text-[26px]">
             {product.name}
           </h1>
+
+          {/* Star Rating & Review Link */}
+          <div className="mt-2 flex items-center gap-3">
+            {Number(product.rating_count) > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById("product-reviews");
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-[#7C3AED] transition cursor-pointer"
+              >
+                <div className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 border border-amber-200">
+                  <Star size={13} className="fill-amber-400 text-amber-400" />
+                  <span className="font-extrabold text-amber-900 text-xs">
+                    {Number(product.average_rating) > 0 ? Number(product.average_rating).toFixed(1) : "5.0"}
+                  </span>
+                </div>
+                <span className="text-gray-500 hover:underline">
+                  ({product.rating_count} review{Number(product.rating_count) > 1 ? "s" : ""})
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById("product-reviews");
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 hover:text-[#7C3AED] transition cursor-pointer"
+              >
+                <Star size={12} className="text-gray-300" />
+                <span>No reviews yet • Be the first to review</span>
+              </button>
+            )}
+          </div>
 
           {/* Stock Availability Badge */}
           <div className="mt-2.5">

@@ -306,9 +306,6 @@ function Account() {
           <p className="text-sm font-black tracking-widest text-[#1F2937] uppercase">
             Mumbai Collection
           </p>
-          <p className="text-xs font-semibold text-[#4B5563] mt-1">
-            Vasai Store • Fast Local Delivery
-          </p>
         </div>
       </div>
     </div>

@@ -11,8 +11,6 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
     "out_for_delivery",
     "delivered",
     "on-hold",
-    "pending",
-    "refunded",
   ];
 
   // Helper reconciling function matching adminCustomerController logic
@@ -282,5 +280,38 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
     const searchByLocation = reconcileCustomerDirectory(mockUsers, [], "Nallasopara");
     assert.equal(searchByLocation.length, 1);
     assert.equal(searchByLocation[0].id, 202);
+  });
+
+  await t.test("8. Pending and refunded orders do NOT count towards customer LTV or order count", () => {
+    const mockUsers = [
+      {
+        id: 110,
+        email: "refund.test@example.com",
+        first_name: "Refund",
+        last_name: "Customer",
+        roles: ["customer"],
+      },
+    ];
+    const mockOrders = [
+      {
+        id: 801,
+        customer_id: 110,
+        billing: { email: "refund.test@example.com" },
+        total: "1200",
+        status: "pending",
+      },
+      {
+        id: 802,
+        customer_id: 110,
+        billing: { email: "refund.test@example.com" },
+        total: "3500",
+        status: "refunded",
+      },
+    ];
+
+    const list = reconcileCustomerDirectory(mockUsers, mockOrders);
+    assert.equal(list.length, 1);
+    assert.equal(list[0].ordersCount, 0);
+    assert.equal(list[0].lifetimeSpent, 0);
   });
 });

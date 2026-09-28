@@ -1,0 +1,291 @@
+{
+  "createOrder_suspended": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "code": "CUSTOMER_SUSPENDED",
+      "message": "Your account is currently suspended and you cannot place new orders."
+    }
+  },
+  "createOrder_store_closed": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "code": "STORE_CLOSED",
+      "message": "Store closed for the night",
+      "next_opening": "Tomorrow at 09:00 AM"
+    }
+  },
+  "createOrder_store_hours_unavailable": {
+    "statusCode": 503,
+    "body": {
+      "success": false,
+      "code": "STORE_HOURS_UNAVAILABLE",
+      "message": "Unable to verify store operating hours. Please try again in a few moments."
+    }
+  },
+  "createOrder_missing_addresses": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "message": "Billing and shipping addresses are required."
+    }
+  },
+  "createOrder_cart_fetch_failed": {
+    "statusCode": 502,
+    "body": {
+      "success": false,
+      "message": "Unable to load your cart. Please try again."
+    }
+  },
+  "createOrder_empty_cart": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "message": "Your cart is empty."
+    }
+  },
+  "createOrder_min_order_value": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "code": "MIN_ORDER_VALUE",
+      "message": "Minimum product order value of ₹500 is required. Please add ₹150 more."
+    }
+  },
+  "createOrder_invalid_total": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "message": "Invalid cart total calculated. Please review your cart and try again."
+    }
+  },
+  "createOrder_gateway_error": {
+    "statusCode": 502,
+    "body": {
+      "success": false,
+      "message": "Unable to initialize payment gateway. Please try again."
+    }
+  },
+  "createOrder_success": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "order_id": null,
+      "razorpay_order_id": "order_rzp_live_123",
+      "amount": 60000,
+      "currency": "INR",
+      "key_id": "rzp_test_mock123"
+    }
+  },
+  "verifyPayment_missing_params": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "message": "Missing required payment verification parameters."
+    }
+  },
+  "verifyPayment_signature_mismatch": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "status": 400,
+      "message": "Payment verification failed: invalid signature."
+    }
+  },
+  "verifyPayment_gateway_fetch_failed": {
+    "statusCode": 502,
+    "body": {
+      "success": false,
+      "status": 502,
+      "message": "Unable to verify payment status with gateway. Please retry in a moment."
+    }
+  },
+  "verifyPayment_order_id_mismatch": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "status": 400,
+      "message": "Payment verification failed: payment does not belong to this order."
+    }
+  },
+  "verifyPayment_not_captured": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "status": 400,
+      "message": "Payment is not yet confirmed (status: authorized). Please wait or retry."
+    }
+  },
+  "verifyPayment_currency_mismatch": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "status": 400,
+      "message": "Payment verification failed: currency mismatch."
+    }
+  },
+  "verifyPayment_lock_conflict": {
+    "statusCode": 409,
+    "body": {
+      "success": false,
+      "status": 409,
+      "message": "Payment finalization is currently in progress. Please wait a moment."
+    }
+  },
+  "verifyPayment_intent_not_found": {
+    "statusCode": 404,
+    "body": {
+      "success": false,
+      "status": 404,
+      "message": "Payment session expired or not found. If amount was debited, support will reconcile."
+    }
+  },
+  "verifyPayment_customer_mismatch": {
+    "statusCode": 403,
+    "body": {
+      "success": false,
+      "status": 403,
+      "message": "You are not authorized to verify this payment."
+    }
+  },
+  "verifyPayment_amount_mismatch": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "status": 400,
+      "message": "Payment verification failed: amount mismatch."
+    }
+  },
+  "verifyPayment_stock_depleted": {
+    "statusCode": 422,
+    "body": {
+      "success": false,
+      "status": 422,
+      "code": "ITEM_OUT_OF_STOCK",
+      "message": "An item in your order went out of stock during payment. Your payment has been refunded automatically.",
+      "refund_id": "rfnd_mock_123"
+    }
+  },
+  "verifyPayment_success": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "order_id": 7777,
+      "orderStatus": "processing",
+      "message": "Payment verified successfully."
+    }
+  },
+  "verifyPayment_idempotent": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "order_id": 8888,
+      "orderStatus": "processing",
+      "message": "Payment already verified.",
+      "_idempotent": true
+    }
+  },
+  "checkPaymentStatus_missing_order_id": {
+    "statusCode": 400,
+    "body": {
+      "success": false,
+      "message": "Missing razorpay_order_id."
+    }
+  },
+  "checkPaymentStatus_already_paid": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "order_id": 9991,
+      "orderStatus": "processing",
+      "status": "processing",
+      "already_paid": true
+    }
+  },
+  "checkPaymentStatus_gateway_error": {
+    "statusCode": 502,
+    "body": {
+      "success": false,
+      "message": "Failed to query payment status from gateway."
+    }
+  },
+  "checkPaymentStatus_unpaid": {
+    "statusCode": 200,
+    "body": {
+      "success": false,
+      "paid": false,
+      "message": "Payment not completed or still processing."
+    }
+  },
+  "checkPaymentStatus_captured": {
+    "statusCode": 200,
+    "body": {
+      "success": true,
+      "order_id": 8882,
+      "orderStatus": "processing",
+      "message": "Payment verified successfully."
+    }
+  },
+  "reconcile_not_found": {
+    "statusCode": 404,
+    "body": {
+      "success": false,
+      "message": "Order not found."
+    }
+  },
+  "reconcile_no_rzp_order_id": {
+    "statusCode": 200,
+    "body": {
+      "reconciled": true,
+      "action": "none",
+      "message": "Order does not have an associated Razorpay order ID.",
+      "order_status": "pending"
+    }
+  },
+  "reconcile_already_processing": {
+    "statusCode": 200,
+    "body": {
+      "reconciled": true,
+      "action": "none",
+      "message": "Order is already in a completed/processing state.",
+      "order_status": "processing"
+    }
+  },
+  "reconcile_gateway_error": {
+    "statusCode": 502,
+    "body": {
+      "success": false,
+      "message": "Failed to communicate with Razorpay."
+    }
+  },
+  "reconcile_amount_mismatch_409": {
+    "statusCode": 409,
+    "body": {
+      "reconciled": false,
+      "anomaly": "AMOUNT_MISMATCH",
+      "message": "Payment captured on Razorpay but amount does not match WooCommerce total.",
+      "expected_amount_paise": 60000,
+      "actual_amount_paise": 50000
+    }
+  },
+  "reconcile_updated_to_processing": {
+    "statusCode": 200,
+    "body": {
+      "reconciled": true,
+      "action": "updated_to_processing",
+      "payment_id": "pay_captured_ok",
+      "order_status": "processing"
+    }
+  },
+  "reconcile_no_captured_payment": {
+    "statusCode": 200,
+    "body": {
+      "reconciled": true,
+      "action": "none",
+      "message": "No un-reconciled captured payment found in Razorpay for this order.",
+      "order_status": "pending",
+      "payments_count": 1
+    }
+  }
+}

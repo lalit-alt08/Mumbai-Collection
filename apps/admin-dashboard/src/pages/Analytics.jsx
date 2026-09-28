@@ -12,7 +12,6 @@ import {
   Truck,
   AlertCircle,
   Boxes,
-  XCircle,
 } from "lucide-react";
 import { getAnalytics } from "../services/adminApi";
 
@@ -171,27 +170,6 @@ function Analytics() {
           </div>
           <p className="mt-1 text-[11px] text-gray-500">
             {customerMetrics.totalUniqueCustomers} unique store buyers
-          </p>
-        </div>
-      </div>
-
-      {/* Cancelled Orders Summary */}
-      <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-            <XCircle size={18} className="text-rose-500" /> Cancelled Orders Summary
-          </h3>
-          <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-600">
-            {orders.cancelled || 0} Total Cancelled
-          </span>
-        </div>
-
-        <div className="rounded-xl bg-gray-50/70 p-6 text-center border border-dashed border-gray-200">
-          <p className="text-sm font-bold text-gray-800">
-            {orders.cancelled || 0} orders cancelled ({orders.total > 0 ? ((orders.cancelled / orders.total) * 100).toFixed(1) : 0}% of total catalog orders)
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            Order fulfillment and dispatch pipeline operations are managed exclusively in the Employee Panel.
           </p>
         </div>
       </div>

@@ -16,10 +16,12 @@ const {
   handleWebhook,
   finalizePaymentAndCreateOrder,
   _resetPaymentStoreHoursFallbackForTesting,
+  _setFinalizeHandlerForTesting,
 } = await import("../src/controllers/paymentController.js");
 const { sendOtp } = await import("../src/controllers/authController.js");
 const { default: wp } = await import("../src/services/wordpress.js");
 const { getRazorpayInstance } = await import("../src/services/razorpayService.js");
+const { _setAnomalyHandlerForTesting } = await import("../src/services/alertService.js");
 const { default: axios } = await import("axios");
 
 test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", async (t) => {
@@ -502,5 +504,139 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
       "john9876543210@gmail.com",
       "Email with 10 digits must remain an email and not be normalized into phone digits"
     );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 6. Signature Mismatch Alerting
+  // ───────────────────────────────────────────────────────────────────────────
+
+  await t.test("6.1. alertStaffAnomaly is called exactly once with CLIENT_SIGNATURE_MISMATCH when signature verification fails", async () => {
+    const alerts = [];
+    _setAnomalyHandlerForTesting((alert) => {
+      alerts.push(alert);
+    });
+
+    try {
+      const res = await finalizePaymentAndCreateOrder({
+        rzpOrderId: "order_sig_fail_101",
+        rzpPaymentId: "pay_sig_fail_101",
+        rzpSignature: "invalid_tampered_signature_hex",
+        expectedCustomerId: 42,
+        source: "browser",
+      });
+
+      assert.equal(res.success, false);
+      assert.equal(res.status, 400);
+      assert.match(res.message, /invalid signature/i);
+      assert.equal(alerts.length, 1, "alertStaffAnomaly must be called exactly once");
+      assert.equal(alerts[0].type, "CLIENT_SIGNATURE_MISMATCH");
+      assert.equal(alerts[0].severity, "warning");
+      assert.equal(alerts[0].rzpOrderId, "order_sig_fail_101");
+      assert.equal(alerts[0].rzpPaymentId, "pay_sig_fail_101");
+    } finally {
+      _setAnomalyHandlerForTesting(null);
+    }
+  });
+
+  await t.test("6.2. alertStaffAnomaly is NOT called on successful signature verification", async () => {
+    const alerts = [];
+    _setAnomalyHandlerForTesting((alert) => {
+      alerts.push(alert);
+    });
+
+    const rzpOrderId = "order_sig_success_102";
+    const rzpPaymentId = "pay_sig_success_102";
+    const validSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${rzpOrderId}|${rzpPaymentId}`)
+      .digest("hex");
+
+    // Store payment intent
+    await paymentIntentService.storePaymentIntent(rzpOrderId, {
+      rzp_order_id: rzpOrderId,
+      customer_id: 42,
+      amount_in_paise: 50000,
+      checkout_payload: { line_items: [] },
+    });
+
+    const rzp = getRazorpayInstance();
+    const originalPaymentsFetch = rzp.payments.fetch;
+    rzp.payments.fetch = async () => ({
+      id: rzpPaymentId,
+      order_id: rzpOrderId,
+      status: "captured",
+      amount: 50000,
+      currency: "INR",
+    });
+
+    api.post = async () => ({ data: { id: 7777 } });
+    api.get = async () => ({ data: [] });
+
+    try {
+      const res = await finalizePaymentAndCreateOrder({
+        rzpOrderId,
+        rzpPaymentId,
+        rzpSignature: validSignature,
+        expectedCustomerId: 42,
+        source: "browser",
+      });
+
+      assert.equal(res.success, true);
+      assert.equal(res.order_id, 7777);
+      const signatureAlerts = alerts.filter((a) => a.type === "CLIENT_SIGNATURE_MISMATCH");
+      assert.equal(signatureAlerts.length, 0, "alertStaffAnomaly must NOT be called on success");
+    } finally {
+      rzp.payments.fetch = originalPaymentsFetch;
+      _setAnomalyHandlerForTesting(null);
+    }
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 7. VerifyPayment Status Code & String Status Resilience
+  // ───────────────────────────────────────────────────────────────────────────
+
+  await t.test("7.1. /verify endpoint returns HTTP 200 and does not crash when finalizePaymentAndCreateOrder returns { success: true, order_id: 1, status: 'processing' }", async () => {
+    _setFinalizeHandlerForTesting(async () => ({
+      success: true,
+      order_id: 1,
+      status: "processing", // string status that previously caused TypeError in res.status(...)
+      orderStatus: "processing",
+      message: "Payment verified successfully.",
+    }));
+
+    const req = {
+      wpUserId: 42,
+      body: {
+        razorpay_order_id: "order_test_str_status",
+        razorpay_payment_id: "pay_test_str_status",
+        razorpay_signature: "sig_test_str_status",
+      },
+    };
+
+    let statusCode = null;
+    let responseBody = null;
+    const res = {
+      status(code) {
+        if (typeof code !== "number" || code < 100 || code > 999) {
+          throw new TypeError(`Invalid status code: "${code}". Status code must be an integer.`);
+        }
+        statusCode = code;
+        return this;
+      },
+      json(body) {
+        responseBody = body;
+        return this;
+      },
+    };
+
+    try {
+      await verifyPayment(req, res);
+
+      assert.equal(statusCode, 200, "Must return HTTP 200, not crash or return 500");
+      assert.equal(responseBody?.success, true);
+      assert.equal(responseBody?.order_id, 1);
+    } finally {
+      _setFinalizeHandlerForTesting(null);
+    }
   });
 });

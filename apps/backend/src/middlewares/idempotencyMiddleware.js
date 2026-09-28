@@ -7,6 +7,8 @@
 
 const idempotencyStore = new Map();
 import { logger } from "../utils/logger.js";
+import paymentIntentService from "../services/paymentIntentService.js";
+
 const IDEMPOTENCY_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
 const MAX_IDEMPOTENCY_STORE_SIZE = 2000;
 const MAX_KEY_LENGTH = 128;
@@ -24,7 +26,7 @@ setInterval(() => {
   }
 }, 30 * 1000).unref();
 
-export const requireIdempotency = (req, res, next) => {
+export const requireIdempotency = async (req, res, next) => {
   const idempotencyKey =
     req.headers["x-idempotency-key"] ||
     req.headers["idempotency-key"] ||
@@ -61,11 +63,42 @@ export const requireIdempotency = (req, res, next) => {
 
   if (cached) {
     if (cached.status === "completed") {
-      logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning cached idempotent response");
-      return res.status(cached.statusCode).json({
-        ...cached.body,
-        _idempotent: true,
-      });
+      const cachedRzpOrderId = cached.body?.razorpay_order_id;
+      const isCreateOrderRoute =
+        (req.path && req.path.includes("create-order")) ||
+        (req.originalUrl && req.originalUrl.includes("create-order"));
+
+      if (cachedRzpOrderId && isCreateOrderRoute) {
+        let intent = null;
+        try {
+          intent = await paymentIntentService.getPaymentIntent(cachedRzpOrderId);
+        } catch (intentErr) {
+          logger.warn({ rzpOrderId: cachedRzpOrderId, err: intentErr.message }, "[Idempotency] Failed to load intent for cache hit");
+        }
+
+        // If intent is missing or status is anything but 'created' (paid, order_created, refund_pending, refunded, failed),
+        // discard the cached entry so a fresh Razorpay order is created.
+        if (!intent || intent.status !== "created") {
+          logger.info(
+            { rzpOrderId: cachedRzpOrderId, intentStatus: intent?.status },
+            "[Idempotency] Discarding stale create-order cache: intent is missing or no longer in 'created' status"
+          );
+          idempotencyStore.delete(key);
+          // Fall through to proceed with a fresh order creation!
+        } else {
+          logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning active cached idempotent response");
+          return res.status(cached.statusCode).json({
+            ...cached.body,
+            _idempotent: true,
+          });
+        }
+      } else {
+        logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning cached idempotent response");
+        return res.status(cached.statusCode).json({
+          ...cached.body,
+          _idempotent: true,
+        });
+      }
     }
 
     if (cached.status === "processing") {

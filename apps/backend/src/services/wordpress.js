@@ -4,12 +4,10 @@ import { httpsAgent } from "../config/httpAgent.js";
 const wp = axios.create({
   baseURL: process.env.WORDPRESS_URL,
   timeout: 8000,
-
-  auth: {
-    username: process.env.WP_USERNAME,
-    password: process.env.WP_APPLICATION_PASSWORD,
-  },
-
+  // NOTE: Do NOT add `auth` here. All mumbai-auth.php endpoints use
+  // mumbai_internal_server_permission which checks X-Mumbai-Internal-Key only.
+  // Adding Basic Auth causes WordPress Core to run wp_authenticate_application_password()
+  // BEFORE the route callback, which rejects anything that isn't a proper WP App Password.
   httpsAgent,
 });
 

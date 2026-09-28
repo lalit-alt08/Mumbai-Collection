@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import app from "../src/app.js";
-import { storeLimiter, checkoutLimiter } from "../src/middlewares/rateLimiter.js";
+import { storeLimiter, checkoutLimiter, statusCheckLimiter } from "../src/middlewares/rateLimiter.js";
 import { getProductReviews } from "../src/controllers/reviewController.js";
 import api from "../src/config/woocommerce.js";
 
@@ -33,11 +33,13 @@ test("Pre-Production Hardening Test Suite", async (t) => {
     }
   });
 
-  await t.test("2. Rate limiters storeLimiter and checkoutLimiter are properly instantiated and exported", () => {
+  await t.test("2. Rate limiters storeLimiter, checkoutLimiter, and statusCheckLimiter are properly instantiated and exported", () => {
     assert.ok(storeLimiter, "storeLimiter must be exported");
     assert.ok(checkoutLimiter, "checkoutLimiter must be exported");
+    assert.ok(statusCheckLimiter, "statusCheckLimiter must be exported");
     assert.equal(typeof storeLimiter, "function");
     assert.equal(typeof checkoutLimiter, "function");
+    assert.equal(typeof statusCheckLimiter, "function");
   });
 
   await t.test("3. Helmet CSP response headers are enabled and include Razorpay/Google directives", async () => {
@@ -203,6 +205,67 @@ test("Pre-Production Hardening Test Suite", async (t) => {
       assert.equal(res.status, 401);
       const jsonResponse = await res.json();
       assert.equal(jsonResponse.code, "AUTH_REQUIRED");
+    } finally {
+      server.close();
+    }
+  });
+
+  await t.test("9. statusCheckLimiter: 10 rapid calls from the same session do not trigger HTTP 429", async () => {
+    const statuses = [];
+    const fakeRes = () => ({
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(data) {
+        this.data = data;
+        return this;
+      },
+      set() {},
+    });
+
+    const req = {
+      ip: "127.0.0.1",
+      cookies: { mumbai_customer_auth: "sess_verify_rapid_test_123" },
+      headers: {},
+    };
+
+    for (let i = 0; i < 10; i++) {
+      let nextCalled = false;
+      const res = fakeRes();
+      statusCheckLimiter(req, res, () => {
+        nextCalled = true;
+      });
+      statuses.push({ nextCalled, statusCode: res.statusCode });
+    }
+
+    assert.equal(statuses.every((s) => s.nextCalled && s.statusCode === undefined), true, "All 10 rapid calls must pass through without 429");
+  });
+
+  await t.test("10. POST /api/payments/verify: 10 rapid calls from same session do not return 429", async () => {
+    const server = http.createServer(app);
+    await new Promise((resolve) => server.listen(0, resolve));
+    const port = server.address().port;
+
+    try {
+      const responses = [];
+      for (let i = 0; i < 10; i++) {
+        const res = await fetch(`http://127.0.0.1:${port}/api/payments/verify`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: "mumbai_customer_auth=sess_rapid_client_456",
+          },
+          body: JSON.stringify({
+            razorpay_order_id: "order_123",
+            razorpay_payment_id: "pay_123",
+            razorpay_signature: "sig_123",
+          }),
+        });
+        responses.push(res.status);
+      }
+
+      assert.equal(responses.includes(429), false, "None of the 10 rapid verify calls should return 429");
     } finally {
       server.close();
     }
