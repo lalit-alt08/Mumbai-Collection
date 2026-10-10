@@ -8,6 +8,7 @@ class MemoryCache {
     this.maxSize = maxSize;
     this.store = new Map();
     this.inFlight = new Map(); // Tracks concurrent in-flight Promises
+    this.generations = new Map(); // Tracks per-key generation to prevent stale writes
 
     // Periodic cleanup of expired entries every 30 seconds
     setInterval(() => {
@@ -48,6 +49,7 @@ class MemoryCache {
    * Request Coalescing (Single-Flight) Fetcher
    * If multiple concurrent requests ask for the same cold cache key,
    * only ONE executes fetchFn; all other requests await the same Promise.
+   * Discards stale writes if the key generation changed during the fetch.
    */
   async getOrFetch(key, fetchFn, ttlMs = this.defaultTtlMs) {
     const cached = this.get(key);
@@ -60,13 +62,21 @@ class MemoryCache {
       return this.inFlight.get(key);
     }
 
+    const currentGen = this.generations.get(key) || 0;
+
     const promise = (async () => {
       try {
         const result = await fetchFn();
-        this.set(key, result, ttlMs);
+        // Skip set() if the generation changed during the fetch (i.e. deleted/invalidated)
+        if ((this.generations.get(key) || 0) === currentGen) {
+          this.set(key, result, ttlMs);
+        }
         return result;
       } finally {
-        this.inFlight.delete(key);
+        // Remove the in-flight entry only if it is still the one this call created
+        if (this.inFlight.get(key) === promise) {
+          this.inFlight.delete(key);
+        }
       }
     })();
 
@@ -75,11 +85,18 @@ class MemoryCache {
   }
 
   delete(key) {
+    this.generations.set(key, (this.generations.get(key) || 0) + 1);
     this.inFlight.delete(key);
     return this.store.delete(key);
   }
 
   clear() {
+    for (const key of this.store.keys()) {
+      this.generations.set(key, (this.generations.get(key) || 0) + 1);
+    }
+    for (const key of this.inFlight.keys()) {
+      this.generations.set(key, (this.generations.get(key) || 0) + 1);
+    }
     this.inFlight.clear();
     this.store.clear();
   }
@@ -87,11 +104,13 @@ class MemoryCache {
   invalidatePrefix(prefix) {
     for (const key of this.store.keys()) {
       if (key.startsWith(prefix)) {
+        this.generations.set(key, (this.generations.get(key) || 0) + 1);
         this.store.delete(key);
       }
     }
     for (const key of this.inFlight.keys()) {
       if (key.startsWith(prefix)) {
+        this.generations.set(key, (this.generations.get(key) || 0) + 1);
         this.inFlight.delete(key);
       }
     }

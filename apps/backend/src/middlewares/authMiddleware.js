@@ -86,6 +86,7 @@ const executeAuth = async (context, req, res, next) => {
 
       req.user = {
         id: cached.userId,
+        name: cached.name || "",
         roles: cached.roles,
         email: cached.email || "",
         is_phone_verified: cached.isPhoneVerified === true,
@@ -110,6 +111,9 @@ const executeAuth = async (context, req, res, next) => {
     const userId = response.data?.current_user_id;
     const roles = Array.isArray(response.data?.roles) ? response.data.roles : [];
     const email = typeof response.data?.email === "string" ? response.data.email : "";
+    const name = typeof response.data?.name === "string" && response.data.name.trim()
+      ? response.data.name.trim()
+      : (typeof response.data?.display_name === "string" ? response.data.display_name.trim() : "");
     const isPhoneVerified = response.data?.is_phone_verified === true;
     const isSuspended = response.data?.is_suspended === true;
 
@@ -122,9 +126,10 @@ const executeAuth = async (context, req, res, next) => {
       });
     }
 
-    // 3. Cache validated session, roles, and email
+    // 3. Cache validated session, roles, email, and name
     setSessionCache(wpAuth, {
       userId,
+      name,
       roles,
       email,
       isPhoneVerified,
@@ -143,6 +148,7 @@ const executeAuth = async (context, req, res, next) => {
 
     req.user = {
       id: userId,
+      name,
       roles,
       email,
       is_phone_verified: isPhoneVerified,
@@ -152,6 +158,23 @@ const executeAuth = async (context, req, res, next) => {
     return next();
   } catch (error) {
     logError(req, error, `Auth middleware error [${context}]`);
+
+    const isNetworkOrTimeout =
+      error.code === "ECONNABORTED" ||
+      error.code === "ECONNREFUSED" ||
+      error.code === "ETIMEDOUT" ||
+      error.code === "ENOTFOUND" ||
+      error.message?.includes("timeout") ||
+      error.message?.includes("socket hang up");
+    const is5xx = error.response?.status >= 500;
+
+    if (isNetworkOrTimeout || is5xx) {
+      return res.status(503).json({
+        success: false,
+        code: "AUTH_SERVICE_UNAVAILABLE",
+        message: "Authentication service temporarily unavailable. Please retry shortly.",
+      });
+    }
 
     return res.status(401).json({
       success: false,
@@ -179,15 +202,7 @@ export const requireVerifiedPhone = (req, res, next) => {
     });
   }
 
-  const isVerified = req.isPhoneVerified ?? req.user?.is_phone_verified ?? false;
-  if (!isVerified) {
-    return res.status(403).json({
-      success: false,
-      code: "PHONE_NOT_VERIFIED",
-      message: "Please verify your mobile number with OTP before accessing this feature.",
-    });
-  }
-
+  // Phone verification requirement removed
   return next();
 };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Star, CheckCircle2, Trash2, Edit3, Loader2, MessageSquarePlus } from "lucide-react";
+import { Star, CheckCircle2, Trash2, Loader2, MessageSquarePlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -156,36 +156,34 @@ function ProductReviews({ productId }) {
         </div>
 
         {user ? (
-          <button
-            onClick={() => {
-              if (currentUserReview && !showForm) {
-                setRating(currentUserReview.rating);
-                setReviewText(currentUserReview.review);
-              }
-              setShowForm((prev) => !prev);
-              setFormError("");
-              setFormSuccess("");
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#7C3AED] px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[#6C35E8] transition active:scale-95 cursor-pointer shrink-0"
-          >
-            {showForm ? (
-              "Close"
-            ) : currentUserReview ? (
-              <>
-                <Edit3 size={13} /> Edit Review
-              </>
-            ) : (
-              <>
-                <MessageSquarePlus size={13} /> Write Review
-              </>
-            )}
-          </button>
+          currentUserReview ? (
+            <div className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-800 shrink-0">
+              <CheckCircle2 size={13} className="text-emerald-600" /> You reviewed this
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setShowForm((prev) => !prev);
+                setFormError("");
+                setFormSuccess("");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#7C3AED] px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[#6C35E8] transition active:scale-95 cursor-pointer shrink-0"
+            >
+              {showForm ? (
+                "Close"
+              ) : (
+                <>
+                  <MessageSquarePlus size={13} /> Write Review
+                </>
+              )}
+            </button>
+          )
         ) : (
           <button
             onClick={() => navigate("/login")}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#7C3AED] bg-white px-3 py-1.5 text-xs font-bold text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white transition active:scale-95 cursor-pointer shrink-0"
           >
-            Sign in
+            Sign in to Review
           </button>
         )}
       </div>
@@ -241,21 +239,20 @@ function ProductReviews({ productId }) {
       </div>
 
       {/* Review Submission Form */}
-      {showForm && (
+      {showForm && !currentUserReview && (
         <form
           onSubmit={handleSubmitReview}
           className="rounded-xl border border-[#7C3AED]/20 bg-[#FBF9FF] p-3.5 sm:p-4 space-y-3 animate-[fadeIn_0.3s_ease-out]"
         >
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold text-[#1F2937]">
-              {currentUserReview ? "Update Your Review" : "Write Your Review"}
+              Write Your Review
             </h3>
-            {currentUserReview && (
-              <span className="text-[10px] font-bold text-[#7C3AED] bg-[#7C3AED]/10 px-2 py-0.5 rounded-full">
-                Editing Previous Review
-              </span>
-            )}
           </div>
+
+          <p className="text-[11px] text-gray-500 font-medium">
+            Share your feedback and rating for this product.
+          </p>
 
           {formError && (
             <div className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-600 border border-red-200">
@@ -388,7 +385,9 @@ function ProductReviews({ productId }) {
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-[#1F2937]">
-                        {r.reviewer || "Customer"}
+                        {(isOwnReview && (user?.name || user?.full_name))
+                          ? (user.name || user.full_name)
+                          : (r.reviewer || "Customer")}
                       </span>
                       {r.verified && (
                         <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded-full border border-emerald-200">

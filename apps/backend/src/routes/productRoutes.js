@@ -16,6 +16,7 @@ import {
 
 import { requireAuth, optionalAuth } from "../middlewares/authMiddleware.js";
 import { schemas, validateRequest } from "../middlewares/requestValidation.js";
+import { reviewLimiter } from "../middlewares/rateLimiter.js";
 
 const router = express.Router();
 
@@ -28,6 +29,6 @@ router.get("/:id", validateRequest({ params: schemas.idParam }), getProductById)
 
 // Product Reviews
 router.get("/:productId/reviews", validateRequest({ params: schemas.productIdParam }), optionalAuth, getProductReviews);
-router.post("/:productId/reviews", validateRequest({ params: schemas.productIdParam, body: schemas.review }), requireAuth("customer"), createOrUpdateReview);
+router.post("/:productId/reviews", validateRequest({ params: schemas.productIdParam, body: schemas.review }), requireAuth("customer"), reviewLimiter, createOrUpdateReview);
 
 export default router;

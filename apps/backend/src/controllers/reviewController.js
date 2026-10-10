@@ -7,6 +7,28 @@ import { logError, logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 
 /**
+ * In-process promise mutex map for serializing review check + insert per user and product
+ */
+const reviewMutex = new Map();
+
+/**
+ * Decode HTML entities returned by WordPress / WooCommerce
+ */
+const decodeHtmlEntities = (str) => {
+  if (!str || typeof str !== "string") return "";
+  return str
+    .replace(/&#038;/g, "&")
+    .replace(/&amp;/g, "&")
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+};
+
+/**
  * Helper to sanitize customer reviewer display name, avoiding email/phone/system fallbacks
  */
 const sanitizeReviewerDisplayName = (rawName, fallback = "Customer") => {
@@ -44,8 +66,16 @@ const getCustomerDetails = async (req) => {
   let reviewerName = (req.user?.name || "").trim() || "Customer";
   let reviewerEmail = (req.user?.email || req.wpUserEmail || "").trim();
 
-  if (!reviewerEmail) {
+  if (!reviewerEmail && userId) {
     reviewerEmail = `customer_${userId}@mumbai-collection.local`;
+  }
+
+  // Check email-to-name cache first
+  if (reviewerName === "Customer" && reviewerEmail.includes("@")) {
+    const cachedName = serverCache.get(`customer:email_name:${reviewerEmail.toLowerCase()}`);
+    if (cachedName && cachedName !== "Customer") {
+      reviewerName = cachedName;
+    }
   }
 
   // If reviewer name is default/empty, attempt WordPress lookup (cached 5 min)
@@ -56,13 +86,12 @@ const getCustomerDetails = async (req) => {
       if (cached.reviewerName && reviewerName === "Customer") reviewerName = cached.reviewerName;
       if (cached.reviewerEmail && !reviewerEmail.includes("@")) reviewerEmail = cached.reviewerEmail;
     } else {
-      try {
-        const wpAuth = req.wpAuthCookie;
-        if (wpAuth) {
+      if (req.wpAuthCookie && process.env.WORDPRESS_URL) {
+        try {
           const meRes = await axios.get(
             `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
             {
-              headers: { Cookie: wpAuth },
+              headers: { Cookie: req.wpAuthCookie },
               httpsAgent,
               timeout: 4000,
             }
@@ -70,12 +99,20 @@ const getCustomerDetails = async (req) => {
           if (meRes.data?.email && !reviewerEmail.includes("@")) {
             reviewerEmail = meRes.data.email;
           }
-          if (meRes.data?.user?.display_name) {
-            reviewerName = meRes.data.user.display_name;
+          const possibleName = (
+            meRes.data?.name ||
+            meRes.data?.display_name ||
+            meRes.data?.user?.display_name ||
+            ""
+          ).trim();
+          if (possibleName && sanitizeReviewerDisplayName(possibleName, "") !== "") {
+            reviewerName = possibleName;
           }
-        }
+        } catch (_) {}
+      }
 
-        if (reviewerName === "Customer" && userId) {
+      if (reviewerName === "Customer" && userId && process.env.WORDPRESS_URL && process.env.MUMBAI_INTERNAL_API_KEY) {
+        try {
           const profRes = await axios.get(
             `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
             {
@@ -87,18 +124,42 @@ const getCustomerDetails = async (req) => {
               timeout: 4000,
             }
           );
-          if (profRes.data?.full_name && profRes.data.full_name.trim()) {
-            reviewerName = profRes.data.full_name.trim();
+          const fullName = (
+            profRes.data?.profile?.full_name ||
+            profRes.data?.full_name ||
+            ""
+          ).trim();
+          if (fullName && sanitizeReviewerDisplayName(fullName, "") !== "") {
+            reviewerName = fullName;
           }
-        }
+        } catch (_) {}
+      }
 
-        if (reviewerName !== "Customer" || (reviewerEmail && reviewerEmail.includes("@"))) {
-          serverCache.set(cacheKey, { reviewerName, reviewerEmail }, 300000);
-        }
-      } catch (err) {
-        logger.warn({ err: err.message }, "Customer profile detail fetch warning for review");
+      if (reviewerName === "Customer" && userId) {
+        try {
+          const custRes = await api.get(`customers/${userId}`);
+          const custData = custRes?.data;
+          if (custData) {
+            const nameFromCust = formatCustomerDisplayName(
+              custData.first_name,
+              custData.last_name,
+              custData.username || ""
+            );
+            if (nameFromCust && sanitizeReviewerDisplayName(nameFromCust, "") !== "") {
+              reviewerName = nameFromCust;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (reviewerName !== "Customer" || (reviewerEmail && reviewerEmail.includes("@"))) {
+        serverCache.set(cacheKey, { reviewerName, reviewerEmail }, 300000);
       }
     }
+  }
+
+  if (reviewerName !== "Customer" && reviewerEmail && reviewerEmail.includes("@")) {
+    serverCache.set(`customer:email_name:${reviewerEmail.toLowerCase()}`, reviewerName, 86400000);
   }
 
   return { userId, reviewerName, reviewerEmail };
@@ -117,100 +178,129 @@ export const getProductReviews = async (req, res) => {
       });
     }
 
-    // Resolve current authenticated customer's email if logged in
-    let currentCustomerEmail = "";
-    if (req.user?.email || req.wpUserEmail) {
-      currentCustomerEmail = (req.user?.email || req.wpUserEmail || "").toLowerCase().trim();
-    } else if (req.wpAuthCookie) {
-      try {
-        const details = await getCustomerDetails(req);
-        if (details.reviewerEmail) {
-          currentCustomerEmail = details.reviewerEmail.toLowerCase().trim();
+    // Resolve current authenticated customer's email and name directly from session (no slow WP calls on read)
+    const currentCustomerEmail = (req.user?.email || req.wpUserEmail || "").toLowerCase().trim();
+    const currentCustomerName = (req.user?.name || "").trim();
+
+    // High-performance public single-flight read-through cache (5-minute TTL)
+    const publicCacheKey = `reviews:product:${productId}`;
+    const publicReviewData = await serverCache.getOrFetch(
+      publicCacheKey,
+      async () => {
+        let allApprovedReviews = [];
+        let page = 1;
+        const MAX_REVIEWS_CAP = 500;
+
+        while (allApprovedReviews.length < MAX_REVIEWS_CAP) {
+          const pageRes = await api.get("products/reviews", {
+            product: [productId],
+            status: "approved",
+            per_page: 100,
+            page,
+            order: "desc",
+            orderby: "date",
+          });
+
+          const list = Array.isArray(pageRes?.data) ? pageRes.data : [];
+          if (list.length === 0) break;
+
+          allApprovedReviews.push(...list);
+
+          const totalPages = Number(pageRes.headers?.["x-wp-totalpages"]);
+          if (!isNaN(totalPages) && page >= totalPages) break;
+          if (list.length < 100) break;
+
+          page++;
         }
-      } catch (_) {}
-    }
 
-    const response = await api.get("products/reviews", {
-      product: [productId],
-      status: "approved",
-      per_page: 50,
-      order: "desc",
-      orderby: "date",
-    });
+        const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        let totalScore = 0;
 
-    const rawReviews = Array.isArray(response.data) ? response.data : [];
+        for (const r of allApprovedReviews) {
+          const ratingNum = Math.max(1, Math.min(5, Number(r.rating) || 5));
+          totalScore += ratingNum;
+          ratingDistribution[ratingNum] = (ratingDistribution[ratingNum] || 0) + 1;
+        }
 
-    const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-    let totalScore = 0;
+        const totalReviews = allApprovedReviews.length;
+        const averageRating =
+          totalReviews > 0 ? Number((totalScore / totalReviews).toFixed(1)) : 0;
 
-    const formattedReviews = rawReviews.map((r) => {
-      const ratingNum = Math.max(1, Math.min(5, Number(r.rating) || 5));
-      totalScore += ratingNum;
-      ratingDistribution[ratingNum] = (ratingDistribution[ratingNum] || 0) + 1;
+        // Slice latest 50 reviews for frontend display
+        const rawLatest50 = allApprovedReviews.slice(0, 50);
 
-      // Plain text sanitization to eliminate XSS
-      const cleanReview = String(r.review || "")
-        .replace(/<[^>]*>?/gm, "")
-        .trim();
+        const formattedReviews = rawLatest50.map((r) => {
+          const ratingNum = Math.max(1, Math.min(5, Number(r.rating) || 5));
 
+          // Strip HTML tags using safe regex while preserving text like "<3" and "a < b"
+          const cleanReview = decodeHtmlEntities(
+            String(r.review || "").replace(/<\/?[a-z][^>]*>/gi, "")
+          ).trim();
+
+          let reviewerDisplay = sanitizeReviewerDisplayName(r.reviewer, "Customer");
+          if (reviewerDisplay === "Customer" && r.reviewer_email) {
+            const cachedReviewer = serverCache.get(`customer:email_name:${r.reviewer_email.toLowerCase()}`);
+            if (cachedReviewer && cachedReviewer !== "Customer") {
+              reviewerDisplay = cachedReviewer;
+            }
+          }
+
+          return {
+            id: r.id,
+            productId: r.product_id,
+            rating: ratingNum,
+            reviewer: reviewerDisplay,
+            reviewerEmail: (r.reviewer_email || "").toLowerCase().trim(),
+            review: cleanReview,
+            verified: Boolean(r.verified),
+            dateCreated: r.date_created,
+          };
+        });
+
+        return {
+          productId,
+          averageRating,
+          totalReviews,
+          ratingDistribution,
+          reviews: formattedReviews,
+        };
+      },
+      300000 // 5-minute TTL
+    );
+
+    // Dynamic, user-specific mapping for current requester (prevents cross-user cache leakage)
+    const clientReviews = publicReviewData.reviews.map((r) => {
       const isOwner = Boolean(
         currentCustomerEmail &&
-        r.reviewer_email &&
-        r.reviewer_email.toLowerCase().trim() === currentCustomerEmail
+        r.reviewerEmail &&
+        r.reviewerEmail === currentCustomerEmail
       );
+
+      let reviewerDisplay = r.reviewer;
+      if (isOwner && reviewerDisplay === "Customer" && currentCustomerName && currentCustomerName !== "Customer") {
+        reviewerDisplay = currentCustomerName;
+      }
 
       return {
         id: r.id,
-        productId: r.product_id,
-        rating: ratingNum,
-        reviewer: sanitizeReviewerDisplayName(r.reviewer, "Customer"),
-        review: cleanReview,
-        verified: Boolean(r.verified),
-        dateCreated: r.date_created,
+        productId: r.productId,
+        rating: r.rating,
+        reviewer: reviewerDisplay,
+        review: r.review,
+        verified: r.verified,
+        dateCreated: r.dateCreated,
         isOwner,
       };
     });
 
-    // If authenticated user left a review that moved past the top 50, fetch and pin it
-    const wpTotal = Number(response.headers?.["x-wp-total"]);
-    const hasMoreReviews = !isNaN(wpTotal) && wpTotal > formattedReviews.length;
-
-    if (currentCustomerEmail && !formattedReviews.some((r) => r.isOwner) && hasMoreReviews) {
-      try {
-        const userReviewRes = await api.get("products/reviews", {
-          product: [productId],
-          reviewer_email: currentCustomerEmail,
-          per_page: 1,
-        });
-        const userReviewData = Array.isArray(userReviewRes.data) && userReviewRes.data[0];
-        if (userReviewData) {
-          formattedReviews.unshift({
-            id: userReviewData.id,
-            productId: userReviewData.product_id,
-            rating: Math.max(1, Math.min(5, Number(userReviewData.rating) || 5)),
-            reviewer: sanitizeReviewerDisplayName(userReviewData.reviewer, "Customer"),
-            review: String(userReviewData.review || "").replace(/<[^>]*>?/gm, "").trim(),
-            verified: Boolean(userReviewData.verified),
-            dateCreated: userReviewData.date_created,
-            isOwner: true,
-          });
-        }
-      } catch (_) {
-        // Non-blocking fallback
-      }
-    }
-
-    const totalReviews = !isNaN(wpTotal) && wpTotal > 0 ? Math.max(wpTotal, formattedReviews.length) : formattedReviews.length;
-    const averageRating =
-      formattedReviews.length > 0 ? Number((totalScore / formattedReviews.length).toFixed(1)) : 0;
-
+    res.set("Cache-Control", "private, no-cache");
     res.json({
       success: true,
-      productId,
-      averageRating,
-      totalReviews,
-      ratingDistribution,
-      reviews: formattedReviews,
+      productId: publicReviewData.productId,
+      averageRating: publicReviewData.averageRating,
+      totalReviews: publicReviewData.totalReviews,
+      ratingDistribution: publicReviewData.ratingDistribution,
+      reviews: clientReviews,
     });
   } catch (error) {
     logError(req, error, "Get product reviews error");
@@ -279,94 +369,103 @@ export const createOrUpdateReview = async (req, res) => {
       });
     }
 
-    const { userId, reviewerName, reviewerEmail } = await getCustomerDetails(req);
-
-    // Sanitize review text to plain text (Prevent XSS)
-    const cleanReview = review.replace(/<[^>]*>?/gm, "").trim();
-
-    // Parallelize purchase verification check & existing review lookup for performance
-    const [ordersResult, existingReviewsResult] = await Promise.allSettled([
-      api.get("orders", {
-        customer: userId,
-        per_page: 50,
-      }),
-      api.get("products/reviews", {
-        product: [productId],
-        reviewer_email: reviewerEmail,
-        per_page: 50,
-      }),
-    ]);
-
-    let isVerified = false;
-    if (ordersResult.status === "fulfilled") {
-      const orders = Array.isArray(ordersResult.value?.data) ? ordersResult.value.data : [];
-      isVerified = orders
-        .filter((order) => !["cancelled", "failed", "refunded"].includes(order.status))
-        .some((order) =>
-          order.line_items?.some((item) => Number(item.product_id) === productId)
-        );
-    } else {
-      logger.warn({ err: ordersResult.reason?.message }, "Order check for verified purchase warning");
+    const userId = req.user?.id || req.wpUserId;
+    const hasAuth = Boolean(userId || req.user?.email || req.wpUserEmail || req.wpAuthCookie);
+    if (!hasAuth) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in to submit a review.",
+      });
     }
 
-    const existingList =
-      existingReviewsResult.status === "fulfilled" && Array.isArray(existingReviewsResult.value?.data)
-        ? existingReviewsResult.value.data
-        : [];
+    let { reviewerName, reviewerEmail } = await getCustomerDetails(req);
 
-    const existingReview = existingList.find(
-      (r) =>
-        r.reviewer_email &&
-        r.reviewer_email.toLowerCase() === reviewerEmail.toLowerCase()
-    );
-
-    let resultReview = null;
-
-    if (existingReview) {
-      // Update existing review (One review per customer per product)
-      const updateRes = await api.put(`products/reviews/${existingReview.id}`, {
-        rating: ratingNum,
-        review: cleanReview,
-        verified: isVerified,
+    if (!reviewerEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "Please sign in to submit a review.",
       });
-      resultReview = updateRes.data;
-    } else {
+    }
+
+    // Sanitize review text: strip HTML tags but preserve text like "<3" and "5 > 4"
+    const cleanReview = review.replace(/<\/?[a-z][^>]*>/gi, "").trim();
+
+    // Acquire per-key in-process mutex to serialize check + insert per customer and product
+    const mutexKey = `${userId || reviewerEmail}:${productId}`;
+    while (reviewMutex.has(mutexKey)) {
+      try {
+        await reviewMutex.get(mutexKey);
+      } catch (_) {}
+    }
+
+    let releaseMutex;
+    const mutexPromise = new Promise((resolve) => {
+      releaseMutex = resolve;
+    });
+    reviewMutex.set(mutexKey, mutexPromise);
+
+    try {
+      // Check if customer already submitted review for this product (including held/spam statuses)
+      const existingReviewsRes = await api.get("products/reviews", {
+        product: [productId],
+        status: "all",
+        per_page: 100,
+      });
+
+      const existingList = Array.isArray(existingReviewsRes?.data) ? existingReviewsRes.data : [];
+      const existingReview = existingList.find(
+        (r) =>
+          r.reviewer_email &&
+          r.reviewer_email.toLowerCase() === reviewerEmail.toLowerCase()
+      );
+
+      if (existingReview) {
+        return res.status(409).json({
+          success: false,
+          code: "ALREADY_REVIEWED",
+          message: "You have already reviewed this product. Each customer can submit one review.",
+          reviewId: existingReview.id,
+        });
+      }
+
       // Create new review
+      const sanitizedReviewerName = sanitizeReviewerDisplayName(reviewerName, "Customer");
       const createRes = await api.post("products/reviews", {
         product_id: productId,
-        reviewer: reviewerName,
+        reviewer: sanitizedReviewerName,
         reviewer_email: reviewerEmail,
         rating: ratingNum,
         review: cleanReview,
-        verified: isVerified,
         status: "approved",
       });
-      resultReview = createRes.data;
+
+      const resultReview = createRes.data;
+
+      // Targeted cache invalidation: invalidate only this product's reviews and product card cache
+      serverCache.delete(`reviews:product:${productId}`);
+      serverCache.delete(`catalog:product:${productId}`);
+
+      return res.status(200).json({
+        success: true,
+        message: "Thank you! Your review has been submitted.",
+        review: {
+          id: resultReview.id,
+          productId: resultReview.product_id,
+          rating: resultReview.rating,
+          reviewer: sanitizeReviewerDisplayName(resultReview.reviewer || sanitizedReviewerName, "Customer"),
+          review: cleanReview,
+          verified: Boolean(resultReview.verified),
+          dateCreated: resultReview.date_created,
+          isOwner: true,
+        },
+      });
+    } finally {
+      reviewMutex.delete(mutexKey);
+      if (releaseMutex) releaseMutex();
     }
-
-    // Invalidate product catalog cache so fresh rating is immediately reflected
-    serverCache.delete(`catalog:product:${productId}`);
-    serverCache.delete("catalog:products:all");
-
-    res.status(200).json({
-      success: true,
-      message: existingReview
-        ? "Your review has been updated."
-        : "Thank you! Your review has been submitted.",
-      review: {
-        id: resultReview.id,
-        productId: resultReview.product_id,
-        rating: resultReview.rating,
-        reviewer: sanitizeReviewerDisplayName(resultReview.reviewer || reviewerName, "Customer"),
-        review: cleanReview,
-        verified: isVerified,
-        dateCreated: resultReview.date_created,
-        isOwner: true,
-      },
-    });
   } catch (error) {
     logError(req, error, "Submit review error");
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         error.response?.data?.message ||
@@ -392,17 +491,28 @@ export const deleteReview = async (req, res) => {
     const { reviewerEmail } = await getCustomerDetails(req);
 
     // Fetch review to verify customer ownership
-    const reviewRes = await api.get(`products/reviews/${reviewId}`);
-    const reviewData = reviewRes.data;
+    let reviewData;
+    try {
+      const reviewRes = await api.get(`products/reviews/${reviewId}`);
+      reviewData = reviewRes.data;
+    } catch (_) {
+      // Nonexistent review in WooCommerce -> generic 404 (prevents leaking 500 error)
+      return res.status(404).json({
+        success: false,
+        message: "Review not found.",
+      });
+    }
 
+    // Ownership check: If review does not exist or belongs to another user, return 404
+    // (Prevents IDOR resource enumeration and avoids leaking review existence via 403)
     if (
       !reviewData ||
       !reviewData.reviewer_email ||
-      reviewData.reviewer_email.toLowerCase() !== reviewerEmail.toLowerCase()
+      reviewData.reviewer_email.toLowerCase() !== (reviewerEmail || "").toLowerCase()
     ) {
-      return res.status(403).json({
+      return res.status(404).json({
         success: false,
-        message: "You can only delete your own reviews.",
+        message: "Review not found.",
       });
     }
 
@@ -410,19 +520,19 @@ export const deleteReview = async (req, res) => {
       force: true,
     });
 
-    // Invalidate product catalog cache so fresh rating is immediately reflected
+    // Note: Delete-then-re-post remains permitted by design. Rate limiting (reviewLimiter: 5/15m) bounds submissions.
     if (reviewData?.product_id) {
+      serverCache.delete(`reviews:product:${reviewData.product_id}`);
       serverCache.delete(`catalog:product:${reviewData.product_id}`);
-      serverCache.delete("catalog:products:all");
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: "Review deleted successfully.",
     });
   } catch (error) {
     logError(req, error, "Delete review error");
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to delete review.",
     });
