@@ -10,6 +10,7 @@ function CartSummary({
   canCheckout = true,
   shortfall = 0,
   minOrderValue = 500,
+  storeHours,
   onCheckout,
 }) {
   return (
@@ -59,19 +60,45 @@ function CartSummary({
       )}
 
       {/* Delivery Card */}
-      <div className="rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F1ECFF]">
-            <Truck size={22} className="text-[#7C3AED]" />
+      <div
+        className={`rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all ${
+          storeHours?.is_peak_hours
+            ? "border border-amber-300/80 bg-gradient-to-r from-amber-50/60 via-white to-orange-50/30"
+            : ""
+        }`}
+      >
+        <div className="flex items-center gap-3.5">
+          <div
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
+              storeHours?.is_peak_hours
+                ? "bg-amber-100 text-amber-700"
+                : "bg-[#F1ECFF] text-[#7C3AED]"
+            }`}
+          >
+            <Truck size={20} />
           </div>
-          <div>
-            <h3 className="text-[15px] font-bold text-[#1E1E1E]">
-              Delivery in 20-30 mins
-            </h3>
-            <p className="text-[13px] font-medium text-[#666666] mt-0.5">
-              Shipment of {cart.items_count} item
-              {cart.items_count !== 1 ? "s" : ""}
-            </p>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-[15px] font-bold text-[#1E1E1E] leading-tight">
+                {storeHours?.delivery_eta_text ||
+                  (storeHours?.is_peak_hours
+                    ? "Delivery in 2–3 hours"
+                    : "Delivery in 60–90 mins")}
+              </h3>
+              {storeHours?.is_peak_hours && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-black text-amber-900 border border-amber-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  ⚡ High Demand
+                </span>
+              )}
+            </div>
+            {storeHours?.is_peak_hours && (
+              <p className="mt-1 text-xs font-semibold text-amber-800 leading-snug">
+                {storeHours?.peak_notice ||
+                  storeHours?.peak_notice_message ||
+                  "High order volume in progress. Deliveries may take 2–3 hours today."}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -82,7 +109,7 @@ function CartSummary({
           Bill Details
         </h3>
 
-        <div className="space-y-3.5 text-[14px] text-[#666666]">
+        <div className="space-y-3.5 text-[14px] text-[#444444]">
           <div className="flex justify-between items-center">
             <span>Items Total</span>
             <span className="font-medium text-[#1E1E1E]">₹{itemsTotal}</span>
@@ -125,7 +152,7 @@ function CartSummary({
         <h3 className="mb-2 text-[14px] font-bold text-[#1E1E1E]">
           Cancellation Policy
         </h3>
-        <p className="text-[13px] text-[#666666] leading-relaxed">
+        <p className="text-[13px] text-[#444444] leading-relaxed">
           Orders cannot be cancelled once packed for delivery. In case of
           unexpected delays, a refund will be provided, if applicable.
         </p>
@@ -134,7 +161,7 @@ function CartSummary({
       {/* Floating Checkout Bar */}
       <div className="fixed bottom-[calc(18px+env(safe-area-inset-bottom,0px))] left-1/2 z-50 flex h-[78px] w-[calc(100%-32px)] max-w-[700px] -translate-x-1/2 items-center justify-between rounded-[30px] bg-white px-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[#ECECEC]">
         <div className="flex flex-col pl-1">
-          <span className="text-[11px] font-bold text-[#666666] tracking-wider mb-0.5">
+          <span className="text-[11px] font-bold text-[#444444] tracking-wider mb-0.5">
             TOTAL
           </span>
           <span className="text-[20px] font-bold text-[#1E1E1E] leading-none">

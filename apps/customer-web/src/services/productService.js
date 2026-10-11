@@ -3,8 +3,8 @@ import axios from "axios";
 import API_URL from "../config/api.js";
 
 const API = API_URL;
-export const getProducts = async () => {
-  const response = await axios.get(`${API}/products`);
+export const getProducts = async (params = {}) => {
+  const response = await axios.get(`${API}/products`, { params });
   return response.data;
 };
 

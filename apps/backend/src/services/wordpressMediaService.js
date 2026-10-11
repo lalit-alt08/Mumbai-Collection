@@ -21,15 +21,7 @@ export const uploadMedia = async (file, options = {}) => {
   const { originalname, buffer } = file;
 
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
-  const wpUrl = `${wpBaseUrl}/wp-json/wp/v2/media`;
-  const wpUser = process.env.WP_USERNAME || "mumbaicollection";
-  const wpPass = process.env.WP_APPLICATION_PASSWORD || "";
-
-  if (!wpPass) {
-    throw new Error("WordPress application password (WP_APPLICATION_PASSWORD) is not configured.");
-  }
-
-  const authHeader = Buffer.from(`${wpUser}:${wpPass}`).toString("base64");
+  const internalApiKey = process.env.MUMBAI_INTERNAL_API_KEY;
 
   // Process image: auto-rotate EXIF, strip metadata, max 1600px, WebP quality 82
   const processed = await processProductImage(buffer, options);
@@ -44,6 +36,48 @@ export const uploadMedia = async (file, options = {}) => {
 
   const cleanFilename = `${baseName || "upload"}_${Date.now()}.webp`;
   const cleanMimeType = "image/webp";
+
+  // Primary Method: Internal endpoint (bypasses Application Passwords and tracks pending in one shot)
+  if (internalApiKey) {
+    try {
+      const uploadUrl = `${wpBaseUrl}/wp-json/mumbai-auth/v1/media/upload?filename=${encodeURIComponent(cleanFilename)}&uploader_id=${encodeURIComponent(options.uploaderId || 0)}`;
+      const response = await axios.post(uploadUrl, uploadBuffer, {
+        headers: {
+          "Content-Type": cleanMimeType,
+          "X-Mumbai-Internal-Key": internalApiKey,
+        },
+        httpsAgent,
+        timeout: 25000,
+      });
+
+      const mediaData = response.data;
+      const mediaId = mediaData?.id;
+      const mediaUrl = mediaData?.source_url || mediaData?.url || "";
+
+      if (mediaId && mediaUrl) {
+        return {
+          id: Number(mediaId),
+          url: mediaUrl,
+        };
+      }
+    } catch (internalErr) {
+      logger.warn(
+        { err: internalErr.response?.data || internalErr.message },
+        "[wordpressMediaService] Internal media upload failed, attempting fallback to WP REST API"
+      );
+    }
+  }
+
+  // Fallback Method: Standard WordPress REST API
+  const wpUser = process.env.WP_USERNAME || "mumbaicollection";
+  const wpPass = process.env.WP_APPLICATION_PASSWORD || "";
+
+  if (!wpPass) {
+    throw new Error("WordPress media upload failed: Internal key and application password are both unavailable or rejected.");
+  }
+
+  const authHeader = Buffer.from(`${wpUser}:${wpPass}`).toString("base64");
+  const wpUrl = `${wpBaseUrl}/wp-json/wp/v2/media`;
 
   const response = await axios.post(wpUrl, uploadBuffer, {
     headers: {

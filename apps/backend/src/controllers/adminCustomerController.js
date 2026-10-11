@@ -104,6 +104,7 @@ async function buildAggregatedCustomerDirectory() {
       first_name: u.first_name || "",
       last_name: u.last_name || "",
       phone: u.phone || "",
+      secondary_phone: u.secondary_phone || "",
       location: u.location || "Vasai, Maharashtra",
       full_address: u.full_address || "Vasai, Maharashtra",
       registered_at: u.registered_at || null,

@@ -397,6 +397,7 @@ export const createOrder = async (req, res) => {
       expires_at: Date.now() + 3600 * 1000,
       checkout_payload: {
         customer_id: Number(userId),
+        secondary_phone: billing_address.secondary_phone || shipping_address.secondary_phone || null,
         billing: {
           first_name: billing_address.first_name || "",
           last_name: billing_address.last_name || "",
@@ -794,6 +795,12 @@ export const finalizePaymentAndCreateOrder = async ({
         { key: "_payment_verified_at", value: new Date().toISOString() },
         { key: "_payment_method_detail", value: rzpPayment.method || "online" },
         { key: "_cart_fingerprint", value: intent.cart_fingerprint || "" },
+        ...(intent.checkout_payload?.secondary_phone
+          ? [
+              { key: "_secondary_phone", value: intent.checkout_payload.secondary_phone },
+              { key: "Alternative Contact", value: `+91 ${intent.checkout_payload.secondary_phone}` },
+            ]
+          : []),
       ],
     };
 
@@ -1024,6 +1031,7 @@ export const checkPaymentStatus = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const handleWebhook = async (req, res) => {
+  let eventId = null;
   try {
     const signature = req.headers["x-razorpay-signature"];
     if (!signature) {
@@ -1045,7 +1053,7 @@ export const handleWebhook = async (req, res) => {
     }
 
     const event = req.body?.event;
-    const eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     const paymentEntity = req.body?.payload?.payment?.entity;
     const orderEntity = req.body?.payload?.order?.entity;
@@ -1100,56 +1108,60 @@ export const handleWebhook = async (req, res) => {
         });
       }
 
-      // Deferred order creation (no wc_order_id before payment)
-      const result = await finalizePaymentAndCreateOrder({
-        rzpOrderId,
-        rzpPaymentId,
-        source: "webhook",
-        req,
+      // Immediately acknowledge receipt to Razorpay with HTTP 200 (< 50ms)
+      // to satisfy Razorpay's 5-second webhook timeout and avoid duplicate retries
+      res.status(200).json({
+        success: true,
+        received: true,
+        message: "Webhook received and queued for processing.",
       });
 
-      if (result.success) {
-        await updateWebhookEventStatus({ eventId, status: "processed" });
-        logger.info({ rzpOrderId, wc_order_id: result.order_id }, "[Payment Webhook] Finalized order successfully via webhook");
-        return res.status(200).json({
-          success: true,
-          order_id: result.order_id,
-          message: "Webhook processed successfully.",
-        });
-      }
+      // Offload order fulfillment to background worker
+      setImmediate(async () => {
+        try {
+          const result = await finalizePaymentAndCreateOrder({
+            rzpOrderId,
+            rzpPaymentId,
+            source: "webhook",
+          });
 
-      if (result.status === 409 || result._idempotent) {
-        await updateWebhookEventStatus({ eventId, status: "processed" });
-        return res.status(200).json({
-          success: true,
-          message: "Order already finalized or in progress.",
-        });
-      }
+          if (result.success) {
+            await updateWebhookEventStatus({ eventId, status: "processed" });
+            logger.info({ rzpOrderId, wc_order_id: result.order_id }, "[Payment Webhook] Finalized order successfully via webhook background worker");
+            return;
+          }
 
-      // Unknown intent or unfinalized order: Record orphan record, alert, and return 200 (reconciler handles it)
-      logger.warn({ rzpOrderId, rzpPaymentId, result }, "[Payment Webhook] Webhook missing intent or failed order creation — recorded for reconciliation");
-      await updateWebhookEventStatus({ eventId, status: "orphan" });
-      await updatePaymentIntentStatus({
-        rzpOrderId,
-        toStatus: "orphan_payment",
-        rzpPaymentId,
-        errorReason: result?.message || "Missing intent on webhook capture",
+          if (result.status === 409 || result._idempotent) {
+            await updateWebhookEventStatus({ eventId, status: "processed" });
+            logger.info({ rzpOrderId }, "[Payment Webhook] Order already finalized or in progress");
+            return;
+          }
+
+          // Unknown intent or unfinalized order: Record orphan record, alert, reconciler handles it
+          logger.warn({ rzpOrderId, rzpPaymentId, result }, "[Payment Webhook] Webhook missing intent or failed order creation — recorded for reconciliation");
+          await updateWebhookEventStatus({ eventId, status: "orphan" });
+          await updatePaymentIntentStatus({
+            rzpOrderId,
+            toStatus: "orphan_payment",
+            rzpPaymentId,
+            errorReason: result?.message || "Missing intent on webhook capture",
+          });
+
+          await alertStaffAnomaly({
+            type: "ORPHAN_PAYMENT_WEBHOOK",
+            severity: "critical",
+            rzpOrderId,
+            rzpPaymentId,
+            message: "Payment captured on Razorpay webhook with unknown/missing intent; recorded for reconciliation",
+            details: { result },
+          });
+        } catch (bgError) {
+          logger.error({ err: bgError.message, eventId, rzpOrderId }, "[Payment Webhook] Unhandled error during background webhook processing");
+          await updateWebhookEventStatus({ eventId, status: "failed" });
+        }
       });
 
-      await alertStaffAnomaly({
-        type: "ORPHAN_PAYMENT_WEBHOOK",
-        severity: "critical",
-        rzpOrderId,
-        rzpPaymentId,
-        message: "Payment captured on Razorpay webhook with unknown/missing intent; recorded for reconciliation",
-        details: { result },
-      });
-
-      return res.status(200).json({
-        success: false,
-        message: result.message || "Webhook acknowledged and recorded for reconciliation.",
-        recorded_as_orphan: true,
-      });
+      return;
     }
 
     await updateWebhookEventStatus({ eventId, status: "processed" });

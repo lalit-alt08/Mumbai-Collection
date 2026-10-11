@@ -49,7 +49,12 @@ export const matchesEmployeeOrderSearch = (order, search) => {
   const email = normalizeOrderSearchValue(billing.email || shipping.email);
   const orderNumber = normalizeOrderSearchValue(order?.number || order?.id);
   const phoneQuery = query.replace(/\D/g, "");
-  const phones = [billing.phone, shipping.phone]
+  const altPhone =
+    order?.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value ||
+    order?.secondary_phone ||
+    billing?.secondary_phone ||
+    shipping?.secondary_phone;
+  const phones = [billing.phone, shipping.phone, altPhone]
     .filter(Boolean)
     .map((value) => String(value).replace(/\D/g, ""));
 
@@ -328,11 +333,22 @@ export const getEmployeeOrders = async (req, res) => {
         payment_method: o.payment_method_title || "Cash on Delivery",
         customer_name: formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, "Guest Customer"),
         phone: o.billing?.phone || o.shipping?.phone || "",
+        secondary_phone:
+          o.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value ||
+          o.billing?.secondary_phone ||
+          o.shipping?.secondary_phone ||
+          "",
+        meta_data: o.meta_data || [],
         customer: {
           id: o.customer_id,
           name: formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, "Guest Customer"),
           email: o.billing?.email || "",
           phone: o.billing?.phone || "",
+          secondary_phone:
+            o.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value ||
+            o.billing?.secondary_phone ||
+            o.shipping?.secondary_phone ||
+            "",
           address: addressParts.length > 0 ? addressParts.join(", ") : "Vasai, Maharashtra",
         },
         billing: o.billing || {},

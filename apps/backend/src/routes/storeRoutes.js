@@ -8,6 +8,7 @@ import { checkoutLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { logError, logger } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
+import api from "../config/woocommerce.js";
 
 const router = express.Router();
 
@@ -126,11 +127,9 @@ async function proxyStoreApi(req, res) {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
-        message: "Please verify your mobile number with OTP before placing an order.",
+        message: "Please verify your mobile number before placing an order.",
       });
     }
-
-    // 3. Authoritative Minimum Order Value Check (₹500 product items subtotal)
     try {
       const cartHeaders = { Cookie: customerAuth };
       if (req.headers["cart-token"]) {
@@ -307,7 +306,7 @@ const resolveCheckoutCustomer = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
-        message: "Please verify your mobile number with OTP before placing an order.",
+        message: "Please verify your mobile number before placing an order.",
       });
     }
 
@@ -316,10 +315,10 @@ const resolveCheckoutCustomer = async (req, res, next) => {
       id: sessionData.userId,
       roles: sessionData.roles || [],
       email: sessionData.email || "",
-      is_phone_verified: true,
+      is_phone_verified: sessionData.isPhoneVerified === true,
       is_suspended: false,
     };
-    req.isPhoneVerified = true;
+    req.isPhoneVerified = sessionData.isPhoneVerified === true;
     req.isSuspended = false;
     next();
   } catch (err) {
@@ -332,13 +331,92 @@ const resolveCheckoutCustomer = async (req, res, next) => {
   }
 };
 
-// Apply checkout customer resolution, rate limiting, and idempotency specifically to POST /checkout
+// Apply checkout customer resolution, idempotency, and rate limiting specifically to POST /checkout
 router.post(
   ["/checkout", "/checkout/"],
   resolveCheckoutCustomer,
-  checkoutLimiter,
-  requireIdempotency
+  requireIdempotency,
+  checkoutLimiter
 );
+
+// Dynamic Sitemap Generator (published products + categories + static policy pages)
+export const generateSitemapXml = async (req, res) => {
+  try {
+    const cachedXml = serverCache.get("seo:sitemap_xml");
+    if (cachedXml) {
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
+      return res.send(cachedXml);
+    }
+
+    const BASE_SITE_URL = process.env.CUSTOMER_ORIGIN || "https://mumbaicollection.in";
+
+    // 1. Static Core Pages
+    const staticUrls = [
+      { loc: `${BASE_SITE_URL}/`, priority: "1.0", changefreq: "daily" },
+      { loc: `${BASE_SITE_URL}/categories`, priority: "0.8", changefreq: "weekly" },
+      { loc: `${BASE_SITE_URL}/contact`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/privacy-policy`, priority: "0.5", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/terms`, priority: "0.5", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/return-policy`, priority: "0.5", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/shipping-policy`, priority: "0.5", changefreq: "monthly" },
+    ];
+
+    let products = [];
+    let categories = [];
+
+    try {
+      const prodRes = await api.get("products", {
+        status: "publish",
+        per_page: 100,
+      });
+      if (Array.isArray(prodRes?.data)) {
+        products = prodRes.data;
+      }
+    } catch (_) {}
+
+    try {
+      const catRes = await api.get("products/categories", {
+        per_page: 100,
+        hide_empty: true,
+      });
+      if (Array.isArray(catRes?.data)) {
+        categories = catRes.data;
+      }
+    } catch (_) {}
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+    for (const page of staticUrls) {
+      xml += `  <url>\n    <loc>${page.loc}</loc>\n    <changefreq>${page.changefreq}</changefreq>\n    <priority>${page.priority}</priority>\n  </url>\n`;
+    }
+
+    for (const cat of categories) {
+      const catSlug = cat.slug || cat.id;
+      xml += `  <url>\n    <loc>${BASE_SITE_URL}/category/${catSlug}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
+    }
+
+    for (const prod of products) {
+      const lastMod = prod.date_modified_gmt || prod.date_modified || prod.date_created;
+      const lastModTag = lastMod ? `\n    <lastmod>${new Date(lastMod).toISOString().split("T")[0]}</lastmod>` : "";
+      xml += `  <url>\n    <loc>${BASE_SITE_URL}/product/${prod.id}</loc>${lastModTag}\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+    }
+
+    xml += `</urlset>`;
+
+    serverCache.set("seo:sitemap_xml", xml, 6 * 60 * 60 * 1000); // 6 hours
+
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
+    return res.send(xml);
+  } catch (error) {
+    logger.warn({ err: error.message }, "[SEO] Failed generating dynamic sitemap, returning static fallback");
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://mumbaicollection.in/</loc><priority>1.0</priority></url>\n</urlset>`);
+  }
+};
+
+router.get("/sitemap.xml", generateSitemapXml);
 
 // Mount proxy middleware for all methods and paths under /api/store
 router.use(proxyStoreApi);

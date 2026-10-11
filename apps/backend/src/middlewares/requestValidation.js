@@ -98,6 +98,7 @@ export const schemas = {
       last_name: boundedString(100).optional(),
       email: email.optional(),
       phone: boundedString(20).optional(),
+      secondary_phone: boundedString(30).optional().nullable(),
       address_1: boundedString(200).optional(),
       address_2: boundedString(200).optional(),
       city: boundedString(100).optional(),
@@ -109,6 +110,7 @@ export const schemas = {
       first_name: boundedString(100).optional(),
       last_name: boundedString(100).optional(),
       phone: boundedString(20).optional(),
+      secondary_phone: boundedString(30).optional().nullable(),
       address_1: boundedString(200).optional(),
       address_2: boundedString(200).optional(),
       city: boundedString(100).optional(),
@@ -148,6 +150,7 @@ export const schemas = {
     name: boundedString(200).optional(),
     age: z.union([z.number().int().min(1).max(120), integerString(3)]).optional(),
     phone: boundedString(30).optional(),
+    secondary_phone: boundedString(30).optional().nullable(),
   }).passthrough(),
   idParam: z.object({ id: positiveId }).passthrough(),
   addressIdParam: z.object({

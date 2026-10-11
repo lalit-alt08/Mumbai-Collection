@@ -37,7 +37,7 @@ export const getProfile = async (req, res) => {
 
 export const saveProfile = async (req, res) => {
   try {
-    const { age, phone } = req.body;
+    const { age, phone, secondary_phone } = req.body;
     const { firstName, lastName } = parseFirstAndLastName(req.body);
 
     if (!firstName) {
@@ -64,6 +64,7 @@ export const saveProfile = async (req, res) => {
         full_name: cleanFullName,
         age,
         phone,
+        secondary_phone,
       },
       {
         headers: {
@@ -79,6 +80,9 @@ export const saveProfile = async (req, res) => {
     const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
     if (wpAuth) {
       invalidateSessionCache(wpAuth);
+    }
+    if (req.wpUserId) {
+      invalidateUserSessionCache(req.wpUserId);
     }
 
     res.json(response.data);

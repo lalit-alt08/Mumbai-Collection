@@ -131,6 +131,14 @@ export const updateStoreHours = async (data) => {
   return res.data;
 };
 
+export const togglePeakHours = async (is_peak_hours, extra = {}) => {
+  const res = await api.put("/store-hours/peak-toggle", {
+    is_peak_hours,
+    ...extra,
+  });
+  return res.data;
+};
+
 // Customer Suspension Management
 export const lookupCustomerSuspension = async (email) => {
   const res = await api.get("/customer-suspension/lookup", {

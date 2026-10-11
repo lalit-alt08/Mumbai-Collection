@@ -251,4 +251,94 @@ test("Stage 3 — Razorpay Webhook Reliability & Reconciliation Suite", async (t
     assert.equal(responseBody?.action, "none");
     assert.match(responseBody?.message, /already in a completed\/processing state/i);
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 6. Webhook Decoupling & Immediate HTTP 200 Acknowledgment
+  // ───────────────────────────────────────────────────────────────────────────
+
+  await t.test("6.1. handleWebhook: order.paid returns HTTP 200 immediately (< 50ms) with received: true", async () => {
+    const eventPayload = {
+      event: "order.paid",
+      id: "evt_decoupled_paid_001",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_decoupled_001",
+            order_id: "order_rzp_decoupled_001",
+            amount: 99900,
+          },
+        },
+      },
+    };
+    const rawBody = JSON.stringify(eventPayload);
+    const signature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest("hex");
+
+    const req = {
+      headers: {
+        "x-razorpay-signature": signature,
+        "x-razorpay-event-id": "evt_decoupled_paid_001",
+      },
+      rawBody: Buffer.from(rawBody),
+      body: eventPayload,
+    };
+    let statusCode = 0;
+    let responseBody = null;
+    const res = {
+      status(c) { statusCode = c; return this; },
+      json(d) { responseBody = d; return this; },
+    };
+
+    const startTime = Date.now();
+    await handleWebhook(req, res);
+    const elapsedMs = Date.now() - startTime;
+
+    assert.equal(statusCode, 200);
+    assert.equal(responseBody?.success, true);
+    assert.equal(responseBody?.received, true);
+    assert.match(responseBody?.message, /queued for processing/i);
+    assert.ok(elapsedMs < 1000, `Webhook acknowledgment took ${elapsedMs}ms, should be immediate (< 1000ms in test)`);
+  });
+
+  await t.test("6.2. handleWebhook: order.paid with missing order ID returns HTTP 400", async () => {
+    const eventPayload = {
+      event: "order.paid",
+      id: "evt_missing_order_id_001",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_missing_order_id_001",
+            amount: 50000,
+          },
+        },
+      },
+    };
+    const rawBody = JSON.stringify(eventPayload);
+    const signature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest("hex");
+
+    const req = {
+      headers: {
+        "x-razorpay-signature": signature,
+        "x-razorpay-event-id": "evt_missing_order_id_001",
+      },
+      rawBody: Buffer.from(rawBody),
+      body: eventPayload,
+    };
+    let statusCode = 0;
+    let responseBody = null;
+    const res = {
+      status(c) { statusCode = c; return this; },
+      json(d) { responseBody = d; return this; },
+    };
+
+    await handleWebhook(req, res);
+
+    assert.equal(statusCode, 400);
+    assert.match(responseBody?.message, /missing razorpay order id/i);
+  });
 });

@@ -16,6 +16,10 @@ export const DEFAULT_STORE_HOURS_CONFIG = {
   manual_override: "auto", // "auto" | "open" | "closed"
   timezone: "Asia/Kolkata",
   notice_message: "Our store is currently closed for new orders. We operate daily from 9:00 AM to 10:00 PM IST.",
+  is_peak_hours: false,
+  peak_delivery_text: "Delivery in 2–3 hours",
+  normal_delivery_text: "Delivery in 60–90 mins",
+  peak_notice_message: "High order volume in progress. Deliveries may take 2–3 hours today.",
   schedule: {
     monday:    { is_enabled: true, open: "09:00", close: "22:00" },
     tuesday:   { is_enabled: true, open: "09:00", close: "22:00" },
@@ -81,6 +85,27 @@ export const normalizeStoreHoursConfig = (raw) => {
       ? raw.notice_message.trim()
       : DEFAULT_STORE_HOURS_CONFIG.notice_message;
 
+  const is_peak_hours = Boolean(raw.is_peak_hours);
+
+  const peak_delivery_text =
+    typeof raw.peak_delivery_text === "string" && raw.peak_delivery_text.trim()
+      ? raw.peak_delivery_text.trim()
+      : DEFAULT_STORE_HOURS_CONFIG.peak_delivery_text;
+
+  const normal_delivery_text =
+    typeof raw.normal_delivery_text === "string" && raw.normal_delivery_text.trim()
+      ? raw.normal_delivery_text.trim()
+      : DEFAULT_STORE_HOURS_CONFIG.normal_delivery_text;
+
+  const peak_notice_message =
+    typeof raw.peak_notice_message === "string" && raw.peak_notice_message.trim()
+      ? raw.peak_notice_message.trim()
+      : typeof raw.peak_notice === "string" && raw.peak_notice.trim()
+      ? raw.peak_notice.trim()
+      : DEFAULT_STORE_HOURS_CONFIG.peak_notice_message;
+
+  const delivery_eta_text = is_peak_hours ? peak_delivery_text : normal_delivery_text;
+
   const rawSchedule = raw.schedule || {};
   const schedule = {};
 
@@ -102,6 +127,12 @@ export const normalizeStoreHoursConfig = (raw) => {
     timezone: "Asia/Kolkata",
     notice_message,
     closed_message: notice_message,
+    is_peak_hours,
+    peak_delivery_text,
+    normal_delivery_text,
+    peak_notice_message,
+    peak_notice: peak_notice_message,
+    delivery_eta_text,
     schedule,
   };
 };
@@ -162,18 +193,30 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
   const config = normalizeStoreHoursConfig(configInput);
   const ist = getISTTimeComponents(referenceDate);
 
+  const baseStatus = {
+    is_peak_hours: config.is_peak_hours,
+    delivery_eta_text: config.delivery_eta_text,
+    normal_delivery_text: config.normal_delivery_text,
+    peak_delivery_text: config.peak_delivery_text,
+    peak_notice: config.peak_notice_message,
+    peak_notice_message: config.peak_notice_message,
+    timezone: config.timezone,
+    current_day: ist.dayName,
+    current_time_ist: ist.formattedTime24,
+    current_ist_time: ist.formattedTime24,
+  };
+
   // 1. Manual Override takes highest precedence
   if (config.manual_override === "open") {
     return {
+      ...baseStatus,
       is_open: true,
       reason: "manual_override_open",
+      evaluation_reason: "manual_override_open",
       message: "Store is open (manual override active).",
-      current_day: ist.dayName,
-      current_time_ist: ist.formattedTime24,
       schedule_today: config.schedule[ist.dayName],
       next_opening: null,
       manual_override: "open",
-      timezone: config.timezone,
     };
   }
 
@@ -181,16 +224,15 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
     const nextOpening = calculateNextOpening(config, referenceDate);
     const msg = config.closed_message || config.notice_message || "Our store is currently closed for new orders.";
     return {
+      ...baseStatus,
       is_open: false,
       reason: "manual_override_closed",
+      evaluation_reason: "manual_override_closed",
       message: msg,
       closed_message: msg,
-      current_day: ist.dayName,
-      current_time_ist: ist.formattedTime24,
       schedule_today: config.schedule[ist.dayName],
       next_opening: nextOpening,
       manual_override: "closed",
-      timezone: config.timezone,
     };
   }
 
@@ -259,16 +301,15 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
 
   if (isOpen) {
     return {
+      ...baseStatus,
       is_open: true,
       reason: "schedule_open",
+      evaluation_reason: "schedule_open",
       message: "Store is open for orders.",
-      current_day: ist.dayName,
-      current_time_ist: ist.formattedTime24,
       schedule_today: todaySchedule,
       active_shift: activeShift,
       next_opening: null,
       manual_override: "auto",
-      timezone: config.timezone,
     };
   }
 
@@ -276,16 +317,15 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
   const nextOpening = calculateNextOpening(config, referenceDate);
   const msg = config.closed_message || config.notice_message || "Our store is currently closed for new orders.";
   return {
+    ...baseStatus,
     is_open: false,
     reason: "schedule_closed",
+    evaluation_reason: "schedule_closed",
     message: msg,
     closed_message: msg,
-    current_day: ist.dayName,
-    current_time_ist: ist.formattedTime24,
     schedule_today: todaySchedule,
     next_opening: nextOpening,
     manual_override: "auto",
-    timezone: config.timezone,
   };
 };
 
@@ -402,7 +442,18 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
  * Saves Store Hours Configuration to WordPress wp_options
  */
 export const saveStoreHoursConfig = async (newConfig) => {
-  const normalized = normalizeStoreHoursConfig(newConfig);
+  let existing = {};
+  try {
+    existing = await getStoreHoursConfig();
+  } catch (_) {
+    existing = DEFAULT_STORE_HOURS_CONFIG;
+  }
+
+  const merged = {
+    ...existing,
+    ...(newConfig && typeof newConfig === "object" ? newConfig : {}),
+  };
+  const normalized = normalizeStoreHoursConfig(merged);
 
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
   const endpoint = `${wpBaseUrl}/wp-json/mumbai-auth/v1/store-hours`;

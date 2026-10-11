@@ -82,3 +82,12 @@ img {
 ::-webkit-scrollbar-thumb:hover {
   background: #9CA3AF;
 }
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

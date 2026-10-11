@@ -277,17 +277,6 @@ function ProductInfo({ product }) {
           </div>
         </div>
       </div>
-
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translate(-50%, 10px); }
-          to { opacity: 1; transform: translate(-50%, 0); }
-        }
-      `,
-        }}
-      />
     </>
   );
 }

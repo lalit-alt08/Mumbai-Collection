@@ -363,7 +363,7 @@ function TrackOrder() {
                 {!isCancelled && !isDelivered && (
                   <div className="flex items-center gap-2 rounded-xl bg-[#F1ECFF] px-3.5 py-2 text-xs font-bold text-[#7C3AED] border border-[#C4B5FD]/40">
                     <Truck size={16} className="animate-pulse shrink-0" />
-                    <span>Est. Delivery: 20–30 Mins</span>
+                    <span>Est. Delivery: 60–90 Mins</span>
                   </div>
                 )}
                 {isDelivered && (

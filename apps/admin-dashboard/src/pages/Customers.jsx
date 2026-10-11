@@ -698,7 +698,7 @@ function Customers() {
                     <span className="font-bold text-gray-900 break-all">{selectedCustomer.email || "N/A"}</span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Phone Number</span>
+                    <span className="text-gray-400 block text-[10px] font-bold uppercase">Primary Mobile</span>
                     {selectedCustomer.phone ? (
                       <a href={`tel:${selectedCustomer.phone}`} className="font-bold text-[#FF8A00] hover:underline inline-flex items-center gap-1">
                         <Phone size={12} /> {selectedCustomer.phone}
@@ -707,6 +707,14 @@ function Customers() {
                       <span className="text-gray-400">Not provided</span>
                     )}
                   </div>
+                  {selectedCustomer.secondary_phone && (
+                    <div>
+                      <span className="text-gray-400 block text-[10px] font-bold uppercase">Backup Mobile</span>
+                      <a href={`tel:${selectedCustomer.secondary_phone}`} className="font-bold text-[#7C3AED] hover:underline inline-flex items-center gap-1">
+                        <Phone size={12} /> +91 {selectedCustomer.secondary_phone}
+                      </a>
+                    </div>
+                  )}
                   <div className="sm:col-span-2">
                     <span className="text-gray-400 block text-[10px] font-bold uppercase">Delivery Address</span>
                     <span className="font-medium text-gray-700 leading-relaxed block mt-0.5">

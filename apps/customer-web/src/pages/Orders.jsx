@@ -16,8 +16,10 @@ import {
 } from "lucide-react";
 import { getMyOrders } from "../services/orderService";
 import { useAuth } from "../context/AuthContext";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 function Orders() {
+  useNoIndex();
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -292,7 +294,7 @@ function Orders() {
                       <div className="mb-2 flex items-center justify-between text-xs font-bold">
                         <span className="flex items-center gap-1.5 text-[#7C3AED]">
                           <Truck size={15} className="animate-pulse" />
-                          Delivery in 20-30 mins (Vasai Store Dispatch)
+                          Delivery in 60–90 mins (Vasai Store Dispatch)
                         </span>
                         <span className="text-gray-500 font-medium">Stage {order.tracking_stage} of 4</span>
                       </div>

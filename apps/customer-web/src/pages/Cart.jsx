@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { updateCartItem, removeCartItem, addToCart, getStoreProductById } from "../services/storeApi";
+import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours } from "../services/storeApi";
 import { getProductById } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
@@ -9,13 +9,36 @@ import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import SharedCartModal from "../components/cart/SharedCartModal";
 import { buildCartShareUrl, parseSharedCartItems } from "../utils/cartShareUtils";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 function Cart() {
+  useNoIndex();
   const navigate = useNavigate();
   const location = useLocation();
   const { cart, loading, refreshCart, updateCart } = useCart();
   const { isAuthenticated } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
+  const [storeHours, setStoreHours] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    getStoreHours()
+      .then((data) => {
+        if (isMounted && data) setStoreHours(data);
+      })
+      .catch(() => {
+        if (isMounted) {
+          setStoreHours({
+            is_open: true,
+            is_peak_hours: false,
+            delivery_eta_text: "Delivery in 60–90 mins",
+          });
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const [shareFeedback, setShareFeedback] = useState(null);
   const shareTimerRef = useRef(null);
 
@@ -398,7 +421,7 @@ function Cart() {
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-[15px] font-medium text-[#666666]">Loading cart...</div>
+        <div className="text-[15px] font-medium text-[#444444]">Loading cart...</div>
       </div>
     );
   }
@@ -497,7 +520,7 @@ function Cart() {
           <h1 className="mb-4 text-[24px] font-bold text-[#1E1E1E]">
             Your Cart is Empty
           </h1>
-          <p className="mb-8 text-[#666666]">
+          <p className="mb-8 text-[#444444]">
             Looks like you haven&apos;t added anything to your cart yet.
           </p>
           <button
@@ -533,6 +556,7 @@ function Cart() {
             canCheckout={itemsTotal >= MIN_ORDER_VALUE}
             shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
             minOrderValue={MIN_ORDER_VALUE}
+            storeHours={storeHours}
             onCheckout={handleCheckout}
           />
         </div>

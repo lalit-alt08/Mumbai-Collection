@@ -30,6 +30,75 @@ function ProductDetails() {
     loadProduct();
   }, [id]);
 
+  // Dynamic SEO Title & Meta Description
+  useEffect(() => {
+    if (product?.name) {
+      document.title = `${product.name} | Mumbai Collection`;
+
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        const cleanDesc = product.short_description
+          ? product.short_description.replace(/<[^>]+>/g, "").trim().slice(0, 160)
+          : `Buy ${product.name} online at Mumbai Collection, Vasai. Best prices and fast delivery.`;
+        metaDesc.setAttribute("content", cleanDesc);
+      }
+    }
+    return () => {
+      document.title = "Mumbai Collection | Toys & Stationery Store";
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute(
+          "content",
+          "Shop toys, stationery, school supplies, and everyday essentials at Mumbai Collection in Vasai."
+        );
+      }
+    };
+  }, [product]);
+
+  // Product JSON-LD Structured Data Schema for Search Engines
+  useEffect(() => {
+    if (!product) return;
+
+    const scriptId = "product-jsonld";
+    let script = document.getElementById(scriptId);
+    if (!script) {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.type = "application/ld+json";
+      document.head.appendChild(script);
+    }
+
+    const schema = {
+      "@context": "https://schema.org/",
+      "@type": "Product",
+      name: product.name,
+      image: product.images?.[0]?.src || product.image || "",
+      description: product.short_description
+        ? product.short_description.replace(/<[^>]+>/g, "").trim()
+        : product.name,
+      sku: product.sku || String(product.id),
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "INR",
+        price: product.price || product.regular_price || "0",
+        availability:
+          product.in_stock !== false
+            ? "https://schema.org/InStock"
+            : "https://schema.org/OutOfStock",
+        seller: {
+          "@type": "Organization",
+          name: "Mumbai Collection",
+        },
+      },
+    };
+    script.textContent = JSON.stringify(schema);
+
+    return () => {
+      const el = document.getElementById(scriptId);
+      if (el) el.remove();
+    };
+  }, [product]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F7F8F5] pb-24">

@@ -194,6 +194,8 @@ export const requireAuth = (contextOrReq = "customer", maybeRes, maybeNext) => {
   return (req, res, next) => executeAuth(context, req, res, next);
 };
 
+
+
 export const requireVerifiedPhone = (req, res, next) => {
   if (!req.wpUserId || !req.user) {
     return res.status(401).json({
@@ -202,7 +204,14 @@ export const requireVerifiedPhone = (req, res, next) => {
     });
   }
 
-  // Phone verification requirement removed
+  if (req.user?.is_phone_verified !== true && req.isPhoneVerified !== true) {
+    return res.status(403).json({
+      success: false,
+      code: "PHONE_NOT_VERIFIED",
+      message: "Please verify your mobile number before placing an order.",
+    });
+  }
+
   return next();
 };
 
@@ -314,13 +323,15 @@ export const checkSessionPhoneVerified = async (wpAuth) => {
   return session.isPhoneVerified === true;
 };
 
-export const optionalAuth = async (req, res, next) => {
+const executeOptionalAuth = async (context, req, res, next) => {
   try {
+    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const wpAuth =
-      req.cookies?.mumbai_customer_auth ||
+      req.cookies?.[cookieConfig.auth] ||
+      (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined) ||
       req.cookies?.mumbai_admin_auth ||
-      req.cookies?.mumbai_employee_auth ||
-      req.cookies?.mumbai_wp_auth;
+      req.cookies?.mumbai_employee_auth;
+
     if (!wpAuth) {
       return next();
     }
@@ -384,4 +395,12 @@ export const optionalAuth = async (req, res, next) => {
     // Non-blocking for optional auth
   }
   return next();
+};
+
+export const optionalAuth = (contextOrReq = "customer", maybeRes, maybeNext) => {
+  if (maybeRes && typeof maybeNext === "function") {
+    return executeOptionalAuth("customer", contextOrReq, maybeRes, maybeNext);
+  }
+  const context = typeof contextOrReq === "string" ? contextOrReq : "customer";
+  return (req, res, next) => executeOptionalAuth(context, req, res, next);
 };

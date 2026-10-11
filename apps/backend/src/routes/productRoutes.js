@@ -7,6 +7,7 @@ import {
   searchAllProducts,
   getProductsByCategory,
   getAllCategories,
+  getProductSocialPreview,
 } from "../controllers/productController.js";
 
 import {
@@ -20,6 +21,7 @@ import { reviewLimiter } from "../middlewares/rateLimiter.js";
 
 const router = express.Router();
 
+router.get("/:id/social-preview", validateRequest({ params: schemas.idParam }), getProductSocialPreview);
 router.get("/", validateRequest({ query: schemas.pagination }), getAllProducts);
 router.get("/categories", validateRequest({ query: schemas.pagination }), getAllCategories);
 router.get("/search", validateRequest({ query: schemas.pagination }), searchAllProducts);

@@ -743,6 +743,32 @@ test("Security Batch 3 Regression Test Suite", async (suite) => {
 
     // 10D. Total fallback
     assert.equal(getClientIp({}), "unknown");
+
+    // 10E. Rejects invalid IP format in CF-Connecting-IP
+    const reqWithInvalidIp = {
+      headers: { "cf-connecting-ip": "not_an_ip_address_or_injection" },
+      ip: "198.51.100.99",
+    };
+    assert.equal(getClientIp(reqWithInvalidIp), "198.51.100.99");
+
+    // 10F. In production mode, rejects forged CF-Connecting-IP without CF-Ray header
+    const oldEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "production";
+      const reqForged = {
+        headers: { "cf-connecting-ip": "203.0.113.1" },
+        ip: "198.51.100.50",
+      };
+      assert.equal(getClientIp(reqForged), "198.51.100.50", "Forged header without CF-Ray must be ignored in production");
+
+      const reqVerifiedCf = {
+        headers: { "cf-connecting-ip": "203.0.113.1", "cf-ray": "8234abcd1234-BOM" },
+        ip: "198.51.100.50",
+      };
+      assert.equal(getClientIp(reqVerifiedCf), "203.0.113.1", "Verified Cloudflare request with CF-Ray must be accepted");
+    } finally {
+      process.env.NODE_ENV = oldEnv;
+    }
   });
 
   // ─────────────────────────────────────────────────────────────────────────────

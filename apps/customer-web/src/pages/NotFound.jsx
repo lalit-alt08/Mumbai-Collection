@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
 import { Home } from "lucide-react";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 function NotFound() {
+  useNoIndex();
   return (
     <div className="flex min-h-[70vh] flex-col items-center justify-center bg-[#F7F7FB] px-4 text-center">
       <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-[#F1ECFF] text-[#7C3AED] shadow-sm">
@@ -12,7 +14,7 @@ function NotFound() {
         Page Not Found
       </h1>
 
-      <p className="mt-2 max-w-md text-sm text-[#666666]">
+      <p className="mt-2 max-w-md text-sm text-[#444444]">
         Sorry, the page you are looking for doesn't exist or has been moved.
       </p>
 

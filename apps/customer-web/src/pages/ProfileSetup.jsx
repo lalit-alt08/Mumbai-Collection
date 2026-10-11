@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
-  ShieldCheck,
   Calendar,
 } from "lucide-react";
 import {
@@ -24,13 +23,16 @@ import {
   isValidDeliveryRegion,
   isValidIndianPhone,
 } from "../data/indianStates.js";
-import { sendOtp, verifyOtp, parseOtpRateLimitError } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 
 function ProfileSetup() {
   const navigate = useNavigate();
   const location = useLocation();
   const addressSectionRef = useRef(null);
+  const submittingRef = useRef(false);
+  const savingAddressRef = useRef(false);
+  const addressInFlightPromiseRef = useRef(null);
+  const addressesRef = useRef([]);
   const { user, refreshUser, handleSessionExpired } = useAuth();
 
   const [form, setForm] = useState({
@@ -39,16 +41,6 @@ function ProfileSetup() {
     age: "",
     phone: "",
   });
-
-  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
-  const [initialVerifiedPhone, setInitialVerifiedPhone] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState("");
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpError, setOtpError] = useState("");
-  const [otpSuccess, setOtpSuccess] = useState("");
-  const [maskedEmail, setMaskedEmail] = useState("");
-  const [cooldown, setCooldown] = useState(0);
 
   const [addresses, setAddresses] = useState([]);
 
@@ -68,17 +60,9 @@ function ProfileSetup() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingAddress, setSavingAddress] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
   const [addressError, setAddressError] = useState("");
-
-  // Cooldown timer for OTP resend
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setInterval(() => {
-      setCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [cooldown]);
 
   // Load existing profile & addresses on mount
   useEffect(() => {
@@ -93,8 +77,6 @@ function ProfileSetup() {
         });
 
         const profileData = response.data.profile || {};
-        const isVerified = response.data.is_phone_verified === true;
-        const verifiedPhone = response.data.verified_phone || user?.verified_phone || "";
         const loadedPhone = response.data.billing_phone || profileData.phone || user?.phone || "";
 
         const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
@@ -109,15 +91,6 @@ function ProfileSetup() {
             age: profileData.age || "",
             phone: loadedPhone,
           });
-
-          // Server-derived verification: only true if server says is_phone_verified AND loadedPhone matches verifiedPhone
-          if (isVerified && loadedPhone && verifiedPhone && loadedPhone === verifiedPhone) {
-            setIsPhoneVerified(true);
-            setInitialVerifiedPhone(loadedPhone);
-          } else {
-            setIsPhoneVerified(false);
-            setInitialVerifiedPhone("");
-          }
         }
 
         const addressRes = await axios.get(`${API_URL}/addresses`, {
@@ -162,107 +135,12 @@ function ProfileSetup() {
     let { name, value } = e.target;
     if (name === "phone") {
       value = value.replace(/\D/g, "").slice(0, 10);
-      if (initialVerifiedPhone && value === initialVerifiedPhone) {
-        setIsPhoneVerified(true);
-        setOtpSent(false);
-      } else {
-        setIsPhoneVerified(false);
-        if (value !== form.phone) {
-          setOtpSent(false);
-          setOtp("");
-          setOtpError("");
-          setOtpSuccess("");
-        }
-      }
     }
     setForm((prev) => ({
       ...prev,
       [name]: value,
     }));
     setMessage({ type: "", text: "" });
-  };
-
-  const handleSendOtp = async () => {
-    if (otpLoading) return;
-    setOtpError("");
-    setOtpSuccess("");
-
-    if (!isValidIndianPhone(form.phone)) {
-      setOtpError("Please enter a valid 10-digit Indian mobile number.");
-      return;
-    }
-
-    try {
-      setOtpLoading(true);
-      const res = await sendOtp(form.phone, "verify_phone");
-      setOtpSent(true);
-      if (res.masked_email) {
-        setMaskedEmail(res.masked_email);
-      }
-      setOtpSuccess(res.message || (res.masked_email ? `Verification code sent to ${res.masked_email}.` : "Verification code sent to your registered email."));
-      setCooldown(60);
-    } catch (err) {
-      if (err.response?.status === 401) {
-        if (handleSessionExpired) handleSessionExpired();
-        navigate("/login", { replace: true, state: { from: location.pathname } });
-        return;
-      }
-      const parsed = parseOtpRateLimitError(err);
-      if (parsed.isRateLimited) {
-        setOtpError(parsed.message);
-        setCooldown(parsed.retryAfter);
-      } else {
-        const errorData = err.response?.data;
-        if (
-          err.response?.status === 409 ||
-          errorData?.code === "phone_in_use" ||
-          (typeof errorData?.message === "string" && (
-            errorData.message.toLowerCase().includes("already registered") ||
-            errorData.message.toLowerCase().includes("already in use")
-          ))
-        ) {
-          setOtpError("This phone number is already registered to another account. Please use a different number.");
-        } else {
-          setOtpError(parsed.message);
-        }
-      }
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (otpLoading) return;
-    setOtpError("");
-    setOtpSuccess("");
-
-    const cleanOtp = String(otp || "").trim();
-    if (!cleanOtp || cleanOtp.length !== 6) {
-      setOtpError("Please enter the 6-digit verification code.");
-      return;
-    }
-
-    try {
-      setOtpLoading(true);
-      const res = await verifyOtp(form.phone, cleanOtp, "verify_phone");
-      if (res.success) {
-        const verifiedNum = res.verified_phone || res.phone || form.phone;
-        setIsPhoneVerified(true);
-        setInitialVerifiedPhone(verifiedNum);
-        setOtpSent(false);
-        setOtp("");
-        setOtpSuccess("Mobile number verified successfully!");
-        if (refreshUser) {
-          await refreshUser();
-        }
-      } else {
-        setOtpError(res.message || "Verification failed. Please try again.");
-      }
-    } catch (err) {
-      setOtpError(err.response?.data?.message || "Invalid or expired verification code.");
-    } finally {
-      setOtpLoading(false);
-    }
   };
 
   const handleAddressChange = (e) => {
@@ -313,62 +191,73 @@ function ProfileSetup() {
     setShowAddressForm(true);
   };
 
+  useEffect(() => {
+    addressesRef.current = addresses;
+  }, [addresses]);
+
   const handleAddressSubmit = async () => {
     setAddressError("");
 
-    if (!addressForm.first_name.trim()) {
+    const firstName = (addressForm.first_name || form.first_name || "").trim();
+    const lastName = (addressForm.last_name || form.last_name || "").trim();
+    const phone = (addressForm.phone || form.phone || "").trim();
+
+    if (!firstName) {
       setAddressError("First name is required.");
-      return;
+      return null;
     }
 
-    if (!addressForm.last_name.trim()) {
+    if (!lastName) {
       setAddressError("Last name is required.");
-      return;
+      return null;
     }
 
-    if (!isValidIndianPhone(addressForm.phone)) {
+    if (!isValidIndianPhone(phone)) {
       setAddressError(
         "Please enter a valid 10-digit mobile number for delivery."
       );
-      return;
+      return null;
     }
 
     if (!addressForm.address_line1.trim()) {
       setAddressError("Please enter street address / house number.");
-      return;
+      return null;
     }
 
     if (!addressForm.city.trim() || !isValidDeliveryRegion(addressForm.city)) {
       setAddressError(
         "Please select your delivery region (Vasai West, Vasai East, Nallasopara West, or Nallasopara East)."
       );
-      return;
+      return null;
     }
 
     try {
-      const cleanFirst = addressForm.first_name.trim();
-      const cleanLast = addressForm.last_name.trim();
+      setSavingAddress(true);
+      savingAddressRef.current = true;
+
       const payload = {
         ...addressForm,
-        first_name: cleanFirst,
-        last_name: cleanLast,
-        full_name: `${cleanFirst} ${cleanLast}`,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        full_name: `${firstName} ${lastName}`,
       };
 
-      let response;
-      if (editingAddressId) {
-        response = await axios.put(
-          `${API_URL}/addresses/${editingAddressId}`,
-          payload,
-          { withCredentials: true }
-        );
-      } else {
-        response = await axios.post(`${API_URL}/addresses`, payload, {
-          withCredentials: true,
-        });
-      }
+      const requestPromise = editingAddressId
+        ? axios.put(`${API_URL}/addresses/${editingAddressId}`, payload, {
+            withCredentials: true,
+          })
+        : axios.post(`${API_URL}/addresses`, payload, {
+            withCredentials: true,
+          });
 
-      setAddresses(response.data.addresses || []);
+      addressInFlightPromiseRef.current = requestPromise;
+
+      const response = await requestPromise;
+      const updatedAddresses = response.data.addresses || [];
+
+      addressesRef.current = updatedAddresses;
+      setAddresses(updatedAddresses);
       setShowAddressForm(false);
       setEditingAddressId(null);
       setMessage({
@@ -377,6 +266,8 @@ function ProfileSetup() {
           ? "Address updated successfully."
           : "Address added successfully.",
       });
+
+      return updatedAddresses;
     } catch (error) {
       if (error.response?.status === 401) {
         if (handleSessionExpired) {
@@ -386,12 +277,17 @@ function ProfileSetup() {
           replace: true,
           state: { from: location.pathname + location.search },
         });
-        return;
+        return null;
       }
 
       setAddressError(
         error.response?.data?.message || "Unable to save address."
       );
+      return null;
+    } finally {
+      setSavingAddress(false);
+      savingAddressRef.current = false;
+      addressInFlightPromiseRef.current = null;
     }
   };
 
@@ -426,7 +322,10 @@ function ProfileSetup() {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
+    if (submittingRef.current || saving) return;
     setMessage({ type: "", text: "" });
 
     // 1. Personal Details Validation
@@ -462,17 +361,34 @@ function ProfileSetup() {
       return;
     }
 
-    // 2. Strict Mobile Phone OTP Verification Check
-    if (!isPhoneVerified) {
-      setMessage({
-        type: "error",
-        text: "Please verify your mobile number with OTP before saving your profile. Click 'Verify' next to your mobile number to request a verification code.",
-      });
-      return;
+    // Await any in-flight address submission if user clicked Save Address and immediately clicked Save Information & Continue
+    if (addressInFlightPromiseRef.current) {
+      try {
+        await addressInFlightPromiseRef.current;
+      } catch {
+        return;
+      }
+    }
+
+    let currentAddresses = addressesRef.current.length > 0 ? addressesRef.current : addresses;
+
+    // If an address form is currently open (e.g. user entered address and directly clicked Save Information & Continue), auto-save it
+    if (showAddressForm) {
+      const savedList = await handleAddressSubmit();
+      if (!savedList) {
+        if (addressSectionRef.current) {
+          addressSectionRef.current.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
+        return;
+      }
+      currentAddresses = savedList;
     }
 
     // 3. Strict Address Requirement Check
-    if (addresses.length === 0) {
+    if (currentAddresses.length === 0) {
       setMessage({
         type: "error",
         text: "Delivery Address Required: Please add at least one Home or Office address to complete your profile.",
@@ -488,6 +404,7 @@ function ProfileSetup() {
     }
 
     try {
+      submittingRef.current = true;
       setSaving(true);
 
       const cleanFirst = form.first_name.trim();
@@ -516,9 +433,11 @@ function ProfileSetup() {
       });
 
       setTimeout(() => {
-        const destination = location.state?.from || "/";
-        navigate(destination, { replace: true });
-      }, 500);
+        navigate("/", {
+          replace: true,
+          state: { message: "Account logged in successfully" },
+        });
+      }, 300);
     } catch (error) {
       if (error.response?.status === 401) {
         if (handleSessionExpired) {
@@ -537,6 +456,7 @@ function ProfileSetup() {
       });
     } finally {
       setSaving(false);
+      submittingRef.current = false;
     }
   };
 
@@ -598,7 +518,7 @@ function ProfileSetup() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3.5 sm:space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3.5 sm:space-y-4">
           {/* Main 2-Column Responsive Layout for High Viewport Efficiency */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4 items-start">
             {/* ──────────────────────────────────────────────────────── */}
@@ -697,20 +617,9 @@ function ProfileSetup() {
 
                   {/* Mobile Number */}
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-bold text-gray-700">
-                        Mobile Number <span className="text-[#7C3AED]">*</span>
-                      </label>
-                      {isPhoneVerified ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
-                          <CheckCircle2 size={11} /> Verified
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 border border-amber-200">
-                          Unverified
-                        </span>
-                      )}
-                    </div>
+                    <label className="mb-1 block text-xs font-bold text-gray-700">
+                      Mobile Number <span className="text-[#7C3AED]">*</span>
+                    </label>
                     <div className="relative flex items-center w-full">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">
                         +91
@@ -722,113 +631,16 @@ function ProfileSetup() {
                         name="phone"
                         value={form.phone}
                         onChange={handleChange}
-                        placeholder=""
+                        placeholder="9876543210"
                         required
-                        className={`h-10 w-full rounded-xl border bg-gray-50/50 pl-11 pr-22 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:bg-white focus:ring-3 ${
-                          isPhoneVerified
-                            ? "border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/10"
-                            : !otpSent && otpError
-                            ? "border-red-300 focus:border-red-500 focus:ring-red-500/10"
-                            : "border-gray-200 focus:border-[#7C3AED] focus:ring-[#7C3AED]/10"
-                        }`}
+                        className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50/50 pl-11 pr-3 text-xs sm:text-sm font-semibold text-gray-900 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-3 focus:ring-[#7C3AED]/10"
                       />
-                      {!isPhoneVerified && (
-                        <button
-                          type="button"
-                          onClick={handleSendOtp}
-                          disabled={otpLoading || form.phone.length !== 10 || cooldown > 0}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-[58px] text-center whitespace-nowrap rounded-lg bg-[#7C3AED] px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {otpLoading ? "..." : (cooldown > 0 ? `${cooldown}s` : (otpSent ? "Resend" : "Verify"))}
-                        </button>
-                      )}
                     </div>
-                    {!isPhoneVerified && !otpSent && otpError && (
-                      <div className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 p-2 text-[11px] font-medium text-red-600 border border-red-200">
-                        <AlertCircle size={14} className="shrink-0 mt-0.5 text-red-600" />
-                        <span>{otpError}</span>
-                      </div>
-                    )}
-                    {!isPhoneVerified && (
-                      <p className="mt-1 text-[11px] text-gray-500 font-medium">
-                        A 6-digit verification code will be sent to your registered email address to verify this mobile number.
-                      </p>
-                    )}
+                    <p className="mt-1 text-[11px] text-gray-500 font-medium">
+                      Used for delivery updates and order notifications.
+                    </p>
                   </div>
                 </div>
-
-                {/* 6-Digit OTP Verification Box */}
-                {otpSent && !isPhoneVerified && (
-                  <div className="mt-2 rounded-xl border border-[#7C3AED]/25 bg-[#F5F3FF]/70 p-3 sm:p-3.5 space-y-2.5">
-                    <div className="flex flex-wrap items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#6D28D9] shrink-0">
-                        <ShieldCheck size={15} />
-                        <span>Enter 6-Digit Code</span>
-                      </div>
-                      <span className="text-[11px] text-gray-500 font-semibold truncate max-w-[180px] xs:max-w-none text-right">
-                        {maskedEmail
-                          ? `Sent to ${maskedEmail}`
-                          : user?.email
-                          ? `Sent to ${user.email.length > 4 ? `${user.email.slice(0, 2)}***@${user.email.split("@")[1] || ""}` : "your email"}`
-                          : "Sent to your registered email"}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={otp}
-                        onChange={(e) => {
-                          setOtp(e.target.value.replace(/\D/g, "").slice(0, 6));
-                          setOtpError("");
-                        }}
-                        placeholder="••••••"
-                        autoFocus
-                        className="h-10 flex-1 min-w-0 rounded-lg border border-gray-300 bg-white px-2.5 sm:px-3 text-center text-base font-extrabold tracking-[0.25em] sm:tracking-[0.3em] text-gray-900 outline-none transition focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyOtp}
-                        disabled={otpLoading || otp.length !== 6}
-                        className="h-10 shrink-0 whitespace-nowrap rounded-lg bg-[#7C3AED] px-3 sm:px-4 text-center text-xs font-bold text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {otpLoading ? "Verifying..." : "Verify Code"}
-                      </button>
-                    </div>
-
-                    {otpError && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-red-600">
-                        <AlertCircle size={13} className="shrink-0" />
-                        <span>{otpError}</span>
-                      </div>
-                    )}
-
-                    {otpSuccess && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600">
-                        <CheckCircle2 size={13} className="shrink-0" />
-                        <span>{otpSuccess}</span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-0.5 text-[11px]">
-                      <span className="text-gray-500">Didn't receive the email?</span>
-                      {cooldown > 0 ? (
-                        <span className="font-semibold text-gray-400">Resend in {cooldown}s</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleSendOtp}
-                          disabled={otpLoading}
-                          className="font-bold text-[#7C3AED] hover:underline"
-                        >
-                          Resend Code
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             </section>
 
@@ -1168,11 +980,21 @@ function ProfileSetup() {
                 </button>
                 <button
                   type="button"
+                  disabled={savingAddress}
                   onClick={handleAddressSubmit}
-                  className="flex items-center gap-1.5 rounded-xl bg-[#7C3AED] px-4 py-1.5 text-xs font-extrabold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-xl bg-[#7C3AED] px-4 py-1.5 text-xs font-extrabold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <CheckCircle2 size={14} />
-                  <span>{editingAddressId ? "Update Address" : "Save Address"}</span>
+                  {savingAddress ? (
+                    <>
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} />
+                      <span>{editingAddressId ? "Update Address" : "Save Address"}</span>
+                    </>
+                  )}
                 </button>
               </div>
             </section>
@@ -1184,11 +1006,25 @@ function ProfileSetup() {
           <div className="space-y-2 pt-1">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || savingAddress}
               className="flex h-11 sm:h-12 w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl bg-[#7C3AED] px-6 text-xs sm:text-sm font-extrabold text-white shadow-[0_6px_22px_rgba(124,58,237,0.28)] transition-all hover:bg-[#6C35E8] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
-              <span>{saving ? "Saving Information..." : "Save Information & Continue"}</span>
-              {!saving && <ArrowRight size={16} strokeWidth={2.4} />}
+              {saving ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <span>Saving Information...</span>
+                </>
+              ) : savingAddress ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <span>Saving Address...</span>
+                </>
+              ) : (
+                <>
+                  <span>Save Information & Continue</span>
+                  <ArrowRight size={16} strokeWidth={2.4} />
+                </>
+              )}
             </button>
 
             {/* Security reassurance */}

@@ -12,29 +12,54 @@ import { serverCache } from "../utils/memoryCache.js";
 
 export const getAllProducts = async (req, res) => {
   try {
-    const cacheKey = "catalog:products:all";
-    const products = await serverCache.getOrFetch(cacheKey, () => fetchProducts(), 60000);
+    const page = parseInt(req.query.page, 10) || 1;
+    const perPage = parseInt(req.query.per_page || req.query.limit, 10) || 50;
 
-    if (Array.isArray(products)) {
-      return res.json(transformMediaUrls(products, req));
+    const cacheKey = `catalog:products:p${page}:l${perPage}`;
+    const result = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchProducts(page, perPage),
+      60000
+    );
+
+    const prods = Array.isArray(result)
+      ? result
+      : Array.isArray(result?.products)
+      ? result.products
+      : [];
+    const total = typeof result?.total === "number" ? result.total : prods.length;
+    const totalPages =
+      typeof result?.totalPages === "number"
+        ? result.totalPages
+        : (prods.length > 0 ? 1 : 0);
+
+    // Set standard pagination response headers for proxies, CDNs and clients
+    res.setHeader("X-Total-Count", String(total));
+    res.setHeader("X-Total-Pages", String(totalPages));
+    res.setHeader("X-Current-Page", String(page));
+    res.setHeader("X-Per-Page", String(perPage));
+
+    // If caller explicitly requests paginated JSON envelope
+    if (req.query.format === "paginated" || req.query.paginated === "true") {
+      return res.json({
+        success: true,
+        page,
+        per_page: perPage,
+        total,
+        totalPages,
+        products: transformMediaUrls(prods, req),
+      });
     }
 
-    // If WooCommerce/service returns { products: [...] }
-    if (Array.isArray(products?.products)) {
-      return res.json(transformMediaUrls(products.products, req));
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Invalid products response.",
-      products: [],
-    });
+    // Default backward-compatible behavior: return array of products
+    return res.json(transformMediaUrls(prods, req));
   } catch (error) {
     logError(req, error, "Get all products error");
 
     return res.status(500).json({
       success: false,
       message: "Failed to fetch products",
+      products: [],
     });
   }
 };
@@ -164,5 +189,67 @@ export const getAllCategories = async (req, res) => {
       message: "Failed to fetch categories",
       categories: [],
     });
+  }
+};
+
+/**
+ * Lightweight dynamic HTML endpoint for social crawlers (WhatsApp, Facebook, Twitter, Instagram)
+ * Returns standard Open Graph meta tags and auto-redirects browsers to the React app.
+ */
+export const getProductSocialPreview = async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const cacheKey = `catalog:product:${productId}`;
+    const product = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchProductById(productId),
+      300000
+    );
+
+    if (!product || !product.id) {
+      return res.status(404).send("Product not found");
+    }
+
+    const title = String(product.name || "Product").replace(/["<>]/g, "");
+    const price = product.price ? `₹${product.price}` : "";
+    const cleanDesc = String(product.short_description || product.description || "Shop quality toys, stationery, and gifts at Mumbai Collection.")
+      .replace(/<[^>]*>/g, "")
+      .replace(/["\n\r]/g, " ")
+      .trim()
+      .slice(0, 160);
+    const imageUrl = product.images?.[0]?.src || "https://mumbaicollection.in/og-image.jpg";
+    const productUrl = `https://mumbaicollection.in/product/${product.id}`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${title} | Mumbai Collection</title>
+  <meta property="og:site_name" content="Mumbai Collection">
+  <meta property="og:type" content="product">
+  <meta property="og:url" content="${productUrl}">
+  <meta property="og:title" content="${title} ${price ? `— ${price}` : ""}">
+  <meta property="og:description" content="${cleanDesc}">
+  <meta property="og:image" content="${imageUrl}">
+  <meta property="og:image:alt" content="${title}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title} ${price ? `— ${price}` : ""}">
+  <meta name="twitter:description" content="${cleanDesc}">
+  <meta name="twitter:image" content="${imageUrl}">
+  <meta http-equiv="refresh" content="0;url=/product/${product.id}">
+</head>
+<body>
+  <h1>${title}</h1>
+  <p>${cleanDesc}</p>
+  <a href="/product/${product.id}">View in Store</a>
+</body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
+    return res.send(html);
+  } catch (error) {
+    logError(req, error, "Social preview error");
+    return res.status(404).send("Product not found");
   }
 };

@@ -1,3 +1,4 @@
+import { Minus, Plus } from "lucide-react";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 
 function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
@@ -54,18 +55,18 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           </div>
 
           {/* Quantity Controls */}
-          <div className="flex h-[36px] w-[86px] items-center justify-between rounded-full bg-[#7C3AED] px-1 text-white shadow-sm flex-shrink-0">
+          <div className="flex h-[36px] w-[88px] items-center justify-between rounded-full bg-[#7C3AED] px-1 text-white shadow-sm flex-shrink-0 select-none">
             <button
               type="button"
               disabled={isUpdating}
               onClick={() => onDecrease(item)}
               aria-label="Decrease quantity"
-              className="flex h-full w-8 items-center justify-center text-lg active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              −
+              <Minus size={15} strokeWidth={2.5} />
             </button>
 
-            <span className="text-[14px] font-bold">
+            <span className="flex-1 text-center text-[14px] font-bold leading-none tabular-nums">
               {item.quantity}
             </span>
 
@@ -75,9 +76,9 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               onClick={() => onIncrease(item)}
               aria-label="Increase quantity"
               title={isMaxReached ? `Only ${maxLimit} available in stock` : "Increase quantity"}
-              className="flex h-full w-8 items-center justify-center text-lg active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              +
+              <Plus size={15} strokeWidth={2.5} />
             </button>
           </div>
         </div>

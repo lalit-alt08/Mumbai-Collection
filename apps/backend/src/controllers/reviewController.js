@@ -293,7 +293,11 @@ export const getProductReviews = async (req, res) => {
       };
     });
 
-    res.set("Cache-Control", "private, no-cache");
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "private, no-cache");
+    } else if (typeof res.setHeader === "function") {
+      res.setHeader("Cache-Control", "private, no-cache");
+    }
     res.json({
       success: true,
       productId: publicReviewData.productId,

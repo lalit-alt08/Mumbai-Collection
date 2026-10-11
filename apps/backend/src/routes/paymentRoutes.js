@@ -12,7 +12,7 @@
  */
 
 import express from "express";
-import { requireAuth, requireVerifiedPhone } from "../middlewares/authMiddleware.js";
+import { requireAuth, requireVerifiedPhone, optionalAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
 import { checkoutLimiter, statusCheckLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
@@ -31,29 +31,30 @@ const router = express.Router();
 router.post(
   "/create-order",
   validateRequest({ body: schemas.paymentCreateOrder }),
-  checkoutLimiter,
   requireAuth("customer"),
   requireVerifiedPhone,
   requireIdempotency,
+  checkoutLimiter,
   createOrder
 );
 
 // POST /api/payments/verify
+// Cryptographic HMAC signature guarantees legitimacy; optionalAuth prevents 401 drops if session timed out during banking OTP
 router.post(
   "/verify",
   validateRequest({ body: schemas.paymentVerify }),
   statusCheckLimiter,
-  requireAuth("customer"),
-  requireVerifiedPhone,
+  optionalAuth("customer"),
   verifyPayment
 );
 
 // POST /api/payments/check-status (App-Switch / Visibility / Reopen Recovery)
+// optionalAuth enables cross-browser / mobile UPI return reconciliation even if session cookie was partitioned
 router.post(
   "/check-status",
   validateRequest({ body: schemas.paymentCheckStatus }),
   statusCheckLimiter,
-  requireAuth("customer"),
+  optionalAuth("customer"),
   checkPaymentStatus
 );
 

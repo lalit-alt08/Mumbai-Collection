@@ -95,8 +95,18 @@ export const createRateLimiter = ({
 
 export const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 20, // 20 attempts per 15 minutes
+  max: 20, // 20 attempts per 15 minutes per identifier/IP compound
   message: "Too many authentication attempts. Please try again in a few minutes.",
+  keyGenerator: (req) => {
+    const rawIdentifier =
+      req.body?.email ||
+      req.body?.phone ||
+      req.body?.credential?.slice(-32) ||
+      "anon";
+    const cleanIdentifier = String(rawIdentifier).trim().toLowerCase().slice(0, 64);
+    const ip = getClientIp(req);
+    return `auth:${cleanIdentifier}:${ip}`;
+  },
 });
 
 export const uploadLimiter = createRateLimiter({
@@ -127,7 +137,7 @@ export const catalogLimiter = createRateLimiter({
 
 export const checkoutLimiter = createRateLimiter({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 5,                  // 5 checkout attempts per 5 minutes per IP/user
+  max: 15,                 // 15 checkout attempts per 5 minutes per IP/user (allows retries on flaky 4G)
   message: "Too many checkout attempts. Please try again in a few minutes.",
   keyGenerator: (req) => {
     const userId = req.user?.id || req.wpUserId;

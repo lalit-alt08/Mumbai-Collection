@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { getCart, getCheckout, getStoreHours } from "../services/storeApi";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ShoppingBag, Clock, AlertTriangle, ShieldAlert } from "lucide-react";
+import { ArrowLeft, ShoppingBag, Clock, AlertTriangle, ShieldAlert, Zap } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import BillingForm from "../components/checkout/BillingForm";
 import { getCatalogImageUrl } from "../utils/imageUtils";
 import { checkPaymentStatus } from "../services/paymentService";
 import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey } from "../utils/checkoutIdempotency";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 function Checkout() {
+  useNoIndex();
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -76,7 +78,7 @@ function Checkout() {
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-[15px] font-medium text-[#666666]">
+        <div className="text-[15px] font-medium text-[#444444]">
           Loading secure checkout...
         </div>
       </div>
@@ -252,6 +254,39 @@ function Checkout() {
         </div>
       )}
 
+      {/* Peak Hours / High Demand Alert Banner */}
+      {storeHours && storeHours.is_open !== false && storeHours.is_peak_hours && (
+        <div className="mb-5 rounded-[18px] border border-amber-300 bg-gradient-to-r from-amber-50 via-amber-50/90 to-orange-50/80 p-4 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white font-bold shadow-xs">
+              <Zap size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-black text-amber-950">
+                  High Demand Notice
+                </h3>
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-200/90 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-900">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-600 animate-pulse" />
+                  Peak Hours Active
+                </span>
+              </div>
+              <p className="mt-1 text-xs font-semibold text-amber-900 leading-relaxed">
+                {storeHours.peak_notice ||
+                  storeHours.peak_notice_message ||
+                  "We are currently experiencing a surge in orders. Deliveries may take 2–3 hours."}
+              </p>
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-100/90 px-2.5 py-1 text-[11px] font-bold text-amber-900 border border-amber-300/60">
+                <span>Estimated Arrival:</span>
+                <span className="font-extrabold underline">
+                  {storeHours.delivery_eta_text || "Delivery in 2–3 hours"}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 
         Mobile:
         Order Summary → Checkout Form
@@ -294,7 +329,7 @@ function Checkout() {
                     <h3 className="text-[13px] font-semibold text-[#1E1E1E] truncate">
                       {item.name}
                     </h3>
-                    <p className="text-[11px] text-[#666666]">
+                    <p className="text-[11px] text-[#444444]">
                       Qty: {item.quantity}
                     </p>
                   </div>
@@ -312,7 +347,7 @@ function Checkout() {
 
             {/* Pricing Breakdown */}
             <div className="space-y-2 text-[13px]">
-              <div className="flex justify-between text-[#666666]">
+              <div className="flex justify-between text-[#444444]">
                 <span>Items Subtotal</span>
                 <span>₹{itemsTotal}</span>
               </div>
@@ -324,13 +359,13 @@ function Checkout() {
                 </div>
               )}
 
-              <div className="flex justify-between text-[#666666]">
+              <div className="flex justify-between text-[#444444]">
                 <span>Delivery</span>
                 <span>{delivery === 0 ? "Free" : `₹${delivery}`}</span>
               </div>
 
               {tax > 0 && (
-                <div className="flex justify-between text-[#666666]">
+                <div className="flex justify-between text-[#444444]">
                   <span>Tax</span>
                   <span>₹{tax}</span>
                 </div>

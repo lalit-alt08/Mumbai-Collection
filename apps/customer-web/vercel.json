@@ -1,6 +1,21 @@
 {
   "rewrites": [
     {
+      "source": "/product/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
+        }
+      ],
+      "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/api/products/:id/social-preview"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/sitemap.xml"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/api/:path*"
     },
