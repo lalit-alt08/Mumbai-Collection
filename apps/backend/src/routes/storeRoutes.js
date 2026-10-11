@@ -253,6 +253,54 @@ async function proxyStoreApi(req, res) {
       }
     }
 
+    // Live stock enrichment: WooCommerce Store API only reads cached session data on GET /cart.
+    // Attach authoritative live stock status to prevent stale out-of-stock items passing silently in cart.
+    if (
+      response.status === 200 &&
+      response.data &&
+      Array.isArray(response.data.items) &&
+      response.data.items.length > 0 &&
+      targetPath.includes("/cart")
+    ) {
+      await Promise.allSettled(
+        response.data.items.map(async (item) => {
+          try {
+            const productId = item.id;
+            let prod = serverCache.get(`catalog:product:${productId}`);
+            if (!prod) {
+              const prodRes = await api.get(`products/${productId}`);
+              prod = prodRes?.data;
+              if (prod) {
+                serverCache.set(`catalog:product:${productId}`, prod, 15000);
+              }
+            }
+
+            if (prod && typeof prod.manage_stock !== "undefined") {
+              const isShort =
+                (prod.manage_stock &&
+                  typeof prod.stock_quantity === "number" &&
+                  (prod.stock_quantity < item.quantity || prod.stock_quantity <= 0) &&
+                  !prod.backorders_allowed) ||
+                (prod.stock_status === "outofstock" && !prod.backorders_allowed);
+
+              item.is_in_stock = !isShort;
+              item.stock_status = isShort ? "outofstock" : "instock";
+              item.isOutOfStock = isShort;
+              if (isShort) {
+                if (!item.quantity_limits) item.quantity_limits = {};
+                item.quantity_limits.maximum =
+                  prod.manage_stock && typeof prod.stock_quantity === "number"
+                    ? Math.max(0, prod.stock_quantity)
+                    : 0;
+              }
+            }
+          } catch (enrichErr) {
+            // fail-safe, retain original item
+          }
+        })
+      );
+    }
+
     return res.status(response.status).json(transformMediaUrls(response.data, req));
   } catch (error) {
     logError(req, error, "Store API proxy error");

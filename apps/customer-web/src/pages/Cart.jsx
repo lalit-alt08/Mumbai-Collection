@@ -405,13 +405,73 @@ function Cart() {
 
   const MIN_ORDER_VALUE = 500;
 
-  const outOfStockItems = (cart?.items || []).filter(
-    (item) =>
+  const [stockCheckMap, setStockCheckMap] = useState({});
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!cart?.items || cart.items.length === 0) {
+      setStockCheckMap({});
+      return;
+    }
+
+    Promise.allSettled(
+      cart.items.map(async (item) => {
+        try {
+          const prod = await getProductById(item.id);
+          if (prod) {
+            const isOutOfStock =
+              prod.stock_status === "outofstock" ||
+              (prod.manage_stock &&
+                prod.stock_quantity !== null &&
+                (Number(prod.stock_quantity) < item.quantity || Number(prod.stock_quantity) <= 0));
+            const maxStock =
+              prod.manage_stock && prod.stock_quantity !== null
+                ? Math.max(0, Number(prod.stock_quantity))
+                : prod.stock_status === "outofstock"
+                ? 0
+                : 99;
+
+            return {
+              key: item.key,
+              id: item.id,
+              isOutOfStock,
+              maxStock,
+            };
+          }
+        } catch {
+          // ignore individual fetch errors
+        }
+        return null;
+      })
+    ).then((results) => {
+      if (!isMounted) return;
+      const nextMap = {};
+      for (const res of results) {
+        if (res.status === "fulfilled" && res.value) {
+          nextMap[res.value.key] = res.value;
+          nextMap[res.value.id] = res.value;
+        }
+      }
+      setStockCheckMap(nextMap);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [cart?.items]);
+
+  const outOfStockItems = (cart?.items || []).filter((item) => {
+    const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
+    if (liveStock && typeof liveStock.isOutOfStock === "boolean") {
+      return liveStock.isOutOfStock;
+    }
+    return (
       item.quantity_limits?.maximum === 0 ||
       item.stock_status === "outofstock" ||
       item.is_in_stock === false ||
       Boolean(item.isOutOfStock)
-  );
+    );
+  });
   const hasOutOfStockItems = outOfStockItems.length > 0;
 
   const handleRemoveAllOutOfStock = async () => {
@@ -583,15 +643,29 @@ function Cart() {
 
           {/* Product Items List */}
           <div className="space-y-4">
-            {cart.items.map((item) => (
-              <CartItem
-                key={item.key}
-                item={item}
-                updatingKey={updatingKey}
-                onDecrease={handleDecreaseQuantity}
-                onIncrease={handleIncreaseQuantity}
-              />
-            ))}
+            {cart.items.map((item) => {
+              const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
+              const isItemOutOfStock =
+                liveStock && typeof liveStock.isOutOfStock === "boolean"
+                  ? liveStock.isOutOfStock
+                  : (item.quantity_limits?.maximum === 0 ||
+                     item.stock_status === "outofstock" ||
+                     item.is_in_stock === false ||
+                     Boolean(item.isOutOfStock));
+
+              return (
+                <CartItem
+                  key={item.key}
+                  item={{
+                    ...item,
+                    isOutOfStock: isItemOutOfStock,
+                  }}
+                  updatingKey={updatingKey}
+                  onDecrease={handleDecreaseQuantity}
+                  onIncrease={handleIncreaseQuantity}
+                />
+              );
+            })}
           </div>
 
           {/* Bill Summary, Policies & Floating Bar */}
