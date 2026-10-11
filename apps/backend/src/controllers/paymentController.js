@@ -320,128 +320,173 @@ export const createOrder = async (req, res) => {
     }
 
     const cartFingerprint = computeCartFingerprint(cart);
+    const userCartIntentKey = `active_cart_intent:${userId}:${cartFingerprint}`;
+    const concurrencyLockKey = `create_order_lock:${userId}:${cartFingerprint}`;
 
-    // ── 7b. Check live stock for every cart line (Pre-Payment Guard) ────────
-    // Parallelize live stock checks with Promise.allSettled to eliminate N+1 waterfall latency
-    const stockResults = await Promise.allSettled(
-      (cart.items || []).map(async (item) => {
-        try {
-          const prodRes = await api.get(`products/${item.id}`);
-          const prod = prodRes?.data;
-          if (prod && typeof prod.manage_stock !== "undefined") {
-            const isShort =
-              (prod.manage_stock && typeof prod.stock_quantity === "number" && prod.stock_quantity < item.quantity && !prod.backorders_allowed) ||
-              (prod.stock_status === "outofstock" && !prod.backorders_allowed);
-            if (isShort) {
-              return { isShort: true, name: item.name || prod.name || `Product #${item.id}` };
-            }
-          }
-        } catch (stockErr) {
-          logger.warn({ product_id: item.id, err: stockErr.message }, "[Payment] Notice: Pre-checkout stock check upstream error");
-        }
-        return { isShort: false };
-      })
-    );
-
-    const stockShortages = [];
-    for (const r of stockResults) {
-      if (r.status === "fulfilled" && r.value?.isShort) {
-        stockShortages.push(r.value.name);
+    // Acquire brief in-memory mutex to serialize concurrent clicks for identical cart
+    const startWait = Date.now();
+    while (Date.now() - startWait < 3000) {
+      if (!serverCache.get(concurrencyLockKey)) {
+        serverCache.set(concurrencyLockKey, true, 4000); // 4-second safety lock
+        break;
       }
+      await new Promise((r) => setTimeout(r, 80));
     }
 
-    if (stockShortages.length > 0) {
-      logger.warn(
-        { customer_id: userId, stockShortages },
-        "[Payment] Order creation blocked: Item(s) out of stock in cart"
-      );
-      return res.status(422).json({
-        success: false,
-        code: "ITEM_OUT_OF_STOCK",
-        message: `The following item(s) are out of stock or have insufficient quantity: ${stockShortages.join(", ")}. Please update your cart.`,
-        out_of_stock_items: stockShortages,
-      });
-    }
-
-    // ── 8. Create Razorpay Order ONLY (No WooCommerce order created yet) ───
-    const receipt = `rcpt_${userId}_${Date.now()}`;
-    let rzpOrder;
     try {
-      rzpOrder = await createRazorpayOrder({
-        amountInPaise,
-        currency: "INR",
-        receipt,
-        notes: {
-          customer_id: String(userId),
-          cart_fingerprint: cartFingerprint,
-        },
-      });
-    } catch (rzpErr) {
-      logError(req, rzpErr, "[Payment] Razorpay order creation failed");
-      return res.status(502).json({
-        success: false,
-        message: "Unable to initialize payment gateway. Please try again.",
-      });
-    }
+      // 7a. Reuse existing active unpaid payment intent for identical cart & user
+      const existingRzpOrderId = serverCache.get(userCartIntentKey);
+      if (existingRzpOrderId) {
+        const existingIntent = await paymentIntentService.getPaymentIntent(existingRzpOrderId);
+        if (
+          existingIntent &&
+          existingIntent.status === "created" &&
+          Number(existingIntent.customer_id) === Number(userId) &&
+          existingIntent.cart_fingerprint === cartFingerprint &&
+          existingIntent.amount_in_paise === amountInPaise &&
+          Date.now() - (existingIntent.created_at || 0) < 15 * 60 * 1000
+        ) {
+          logger.info(
+            { customer_id: userId, razorpay_order_id: existingRzpOrderId, cart_fingerprint: cartFingerprint },
+            "[Payment] Reusing existing active unpaid payment intent for identical user & cart"
+          );
+          return res.status(200).json({
+            success: true,
+            order_id: null,
+            razorpay_order_id: existingRzpOrderId,
+            amount: existingIntent.amount_in_paise,
+            currency: existingIntent.currency || "INR",
+            key_id: getPublicKeyId(),
+            reused: true,
+          });
+        }
+      }
 
-    // ── 9. Store Payment Intent for Post-Payment Finalization ───────────────
-    const paymentIntent = {
-      rzp_order_id: rzpOrder.id,
-      customer_id: Number(userId),
-      customer_email: req.wpUserEmail || billing_address.email || "",
-      amount_in_paise: amountInPaise,
-      currency: "INR",
-      status: "created",
-      cart_fingerprint: cartFingerprint,
-      created_at: Date.now(),
-      expires_at: Date.now() + 3600 * 1000,
-      checkout_payload: {
+      // ── 7b. Check live stock for every cart line (Pre-Payment Guard) ────────
+      // Parallelize live stock checks with Promise.allSettled to eliminate N+1 waterfall latency
+      const stockResults = await Promise.allSettled(
+        (cart.items || []).map(async (item) => {
+          try {
+            const prodRes = await api.get(`products/${item.id}`);
+            const prod = prodRes?.data;
+            if (prod && typeof prod.manage_stock !== "undefined") {
+              const isShort =
+                (prod.manage_stock && typeof prod.stock_quantity === "number" && prod.stock_quantity < item.quantity && !prod.backorders_allowed) ||
+                (prod.stock_status === "outofstock" && !prod.backorders_allowed);
+              if (isShort) {
+                return { isShort: true, name: item.name || prod.name || `Product #${item.id}` };
+              }
+            }
+          } catch (stockErr) {
+            logger.warn({ product_id: item.id, err: stockErr.message }, "[Payment] Notice: Pre-checkout stock check upstream error");
+          }
+          return { isShort: false };
+        })
+      );
+
+      const stockShortages = [];
+      for (const r of stockResults) {
+        if (r.status === "fulfilled" && r.value?.isShort) {
+          stockShortages.push(r.value.name);
+        }
+      }
+
+      if (stockShortages.length > 0) {
+        logger.warn(
+          { customer_id: userId, stockShortages },
+          "[Payment] Order creation blocked: Item(s) out of stock in cart"
+        );
+        return res.status(422).json({
+          success: false,
+          code: "ITEM_OUT_OF_STOCK",
+          message: `The following item(s) are out of stock or have insufficient quantity: ${stockShortages.join(", ")}. Please update your cart.`,
+          out_of_stock_items: stockShortages,
+        });
+      }
+
+      // ── 8. Create Razorpay Order ONLY (No WooCommerce order created yet) ───
+      const receipt = `rcpt_${userId}_${Date.now()}`;
+      let rzpOrder;
+      try {
+        rzpOrder = await createRazorpayOrder({
+          amountInPaise,
+          currency: "INR",
+          receipt,
+          notes: {
+            customer_id: String(userId),
+            cart_fingerprint: cartFingerprint,
+          },
+        });
+      } catch (rzpErr) {
+        logError(req, rzpErr, "[Payment] Razorpay order creation failed");
+        return res.status(502).json({
+          success: false,
+          message: "Unable to initialize payment gateway. Please try again.",
+        });
+      }
+
+      // ── 9. Store Payment Intent for Post-Payment Finalization ───────────────
+      const paymentIntent = {
+        rzp_order_id: rzpOrder.id,
         customer_id: Number(userId),
-        secondary_phone: billing_address.secondary_phone || shipping_address.secondary_phone || null,
-        billing: {
-          first_name: billing_address.first_name || "",
-          last_name: billing_address.last_name || "",
-          email: billing_address.email || req.wpUserEmail || "",
-          phone: billing_address.phone || "",
-          address_1: billing_address.address_1 || "",
-          address_2: billing_address.address_2 || "",
-          city: billing_address.city || "",
-          state: billing_address.state || "",
-          postcode: billing_address.postcode || "",
-          country: billing_address.country || "IN",
+        customer_email: req.wpUserEmail || billing_address.email || "",
+        amount_in_paise: amountInPaise,
+        currency: "INR",
+        status: "created",
+        cart_fingerprint: cartFingerprint,
+        created_at: Date.now(),
+        expires_at: Date.now() + 3600 * 1000,
+        checkout_payload: {
+          customer_id: Number(userId),
+          secondary_phone: billing_address.secondary_phone || shipping_address.secondary_phone || null,
+          billing: {
+            first_name: billing_address.first_name || "",
+            last_name: billing_address.last_name || "",
+            email: billing_address.email || req.wpUserEmail || "",
+            phone: billing_address.phone || "",
+            address_1: billing_address.address_1 || "",
+            address_2: billing_address.address_2 || "",
+            city: billing_address.city || "",
+            state: billing_address.state || "",
+            postcode: billing_address.postcode || "",
+            country: billing_address.country || "IN",
+          },
+          shipping: {
+            first_name: shipping_address.first_name || "",
+            last_name: shipping_address.last_name || "",
+            phone: shipping_address.phone || "",
+            address_1: shipping_address.address_1 || "",
+            address_2: shipping_address.address_2 || "",
+            city: shipping_address.city || "",
+            state: shipping_address.state || "",
+            postcode: shipping_address.postcode || "",
+            country: shipping_address.country || "IN",
+          },
+          line_items: lineItems,
+          coupon_lines: couponLines,
+          shipping_lines: shippingLines,
         },
-        shipping: {
-          first_name: shipping_address.first_name || "",
-          last_name: shipping_address.last_name || "",
-          phone: shipping_address.phone || "",
-          address_1: shipping_address.address_1 || "",
-          address_2: shipping_address.address_2 || "",
-          city: shipping_address.city || "",
-          state: shipping_address.state || "",
-          postcode: shipping_address.postcode || "",
-          country: shipping_address.country || "IN",
-        },
-        line_items: lineItems,
-        coupon_lines: couponLines,
-        shipping_lines: shippingLines,
-      },
-    };
+      };
 
-    await paymentIntentService.storePaymentIntent(rzpOrder.id, paymentIntent);
+      await paymentIntentService.storePaymentIntent(rzpOrder.id, paymentIntent);
+      serverCache.set(userCartIntentKey, rzpOrder.id, 15 * 60 * 1000);
 
-    logger.info(
-      { customer_id: userId, razorpay_order_id: rzpOrder.id, amount: amountInPaise },
-      "[Payment] Razorpay order created and payment intent stored — 0 WooCommerce orders created before payment"
-    );
+      logger.info(
+        { customer_id: userId, razorpay_order_id: rzpOrder.id, amount: amountInPaise },
+        "[Payment] Razorpay order created and payment intent stored — 0 WooCommerce orders created before payment"
+      );
 
-    return res.status(200).json({
-      success: true,
-      order_id: null, // Explicitly null: WooCommerce order will be created upon verified payment capture
-      razorpay_order_id: rzpOrder.id,
-      amount: amountInPaise,
-      currency: "INR",
-      key_id: getPublicKeyId(),
-    });
+      return res.status(200).json({
+        success: true,
+        order_id: null, // Explicitly null: WooCommerce order will be created upon verified payment capture
+        razorpay_order_id: rzpOrder.id,
+        amount: amountInPaise,
+        currency: "INR",
+        key_id: getPublicKeyId(),
+      });
+    } finally {
+      serverCache.delete(concurrencyLockKey);
+    }
   } catch (error) {
     logError(req, error, "[Payment] Unhandled error during createOrder");
     return res.status(500).json({
@@ -877,6 +922,9 @@ export const finalizePaymentAndCreateOrder = async ({
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
     serverCache.delete("product_stock_counts");
+    if (intent?.customer_id && intent?.cart_fingerprint) {
+      serverCache.delete(`active_cart_intent:${intent.customer_id}:${intent.cart_fingerprint}`);
+    }
 
     if (Array.isArray(createdOrder.line_items)) {
       for (const item of createdOrder.line_items) {
