@@ -199,9 +199,9 @@ function OrderSuccess() {
 
   if (isResolvingRzp) {
     return (
-      <main className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-[#F7F7FB]">
+      <main className="relative min-h-screen w-full overflow-hidden bg-white">
         <div className="relative z-10 flex w-full justify-center px-4 py-16 sm:px-6 lg:items-center">
-          <div className="w-full max-w-[480px] rounded-[24px] border border-gray-100 bg-white p-7 sm:p-9 text-center shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
+          <div className="w-full max-w-[480px] rounded-2xl sm:rounded-[24px] sm:border sm:border-gray-100 bg-white p-7 sm:p-9 text-center sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-[#7C3AED]">
               <Loader2 size={30} className="animate-spin" />
             </div>
@@ -219,9 +219,9 @@ function OrderSuccess() {
 
   if (networkError) {
     return (
-      <main className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-[#F7F7FB]">
+      <main className="relative min-h-screen w-full overflow-hidden bg-white">
         <div className="relative z-10 flex w-full justify-center px-4 py-16 sm:px-6 lg:items-center">
-          <div className="w-full max-w-[480px] rounded-[24px] border border-gray-100 bg-white p-7 sm:p-9 text-center shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
+          <div className="w-full max-w-[480px] rounded-2xl sm:rounded-[24px] sm:border sm:border-gray-100 bg-white p-7 sm:p-9 text-center sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-[#7C3AED]">
               <Package size={30} className="animate-pulse" />
             </div>
@@ -254,9 +254,9 @@ function OrderSuccess() {
 
   if (fetchError) {
     return (
-      <main className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-[#F7F7FB]">
+      <main className="relative min-h-screen w-full overflow-hidden bg-white">
         <div className="relative z-10 flex w-full justify-center px-4 py-16 sm:px-6 lg:items-center">
-          <div className="w-full max-w-[480px] rounded-[24px] border border-gray-100 bg-white p-7 sm:p-9 text-center shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
+          <div className="w-full max-w-[480px] rounded-2xl sm:rounded-[24px] sm:border sm:border-gray-100 bg-white p-7 sm:p-9 text-center sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-600">
               <AlertCircle size={32} />
             </div>
@@ -287,17 +287,14 @@ function OrderSuccess() {
   }
 
   return (
-    <main className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-[#F7F7FB]">
-      {/* Background glow */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(124,58,237,0.08),transparent_45%)]" />
-
+    <div className="relative min-h-screen w-full overflow-hidden bg-white flex flex-col justify-start sm:justify-center">
       {/* Full-width content area */}
-      <div className="relative z-10 flex w-full justify-center px-3 py-6 sm:px-5 sm:py-8 lg:min-h-[calc(100vh-80px)] lg:items-center lg:px-8 lg:py-8">
+      <div className="relative z-10 flex w-full flex-1 justify-center px-0 py-2 sm:px-5 sm:py-8 lg:items-center lg:px-8 lg:py-8">
 
         <div className="w-full max-w-[960px] animate-[slideUp_0.3s_ease-out]">
 
           {/* MAIN CARD */}
-          <section className="overflow-hidden rounded-[24px] border border-gray-100 bg-white shadow-[0_12px_40px_rgba(31,41,55,0.06)] sm:rounded-[28px]">
+          <section className="overflow-hidden bg-white sm:rounded-[28px] sm:border sm:border-gray-100 sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
 
             <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
 
@@ -328,19 +325,10 @@ function OrderSuccess() {
                   Order Placed <span className="inline-block">Successfully! 🎉</span>
                 </h1>
 
-                <p className="mx-auto mt-2 max-w-[380px] text-[13px] leading-relaxed text-[#6B7280] sm:text-sm sm:leading-6 lg:mx-0">
+                <p className="mx-auto mt-2 max-w-[400px] text-[14px] font-medium leading-relaxed text-[#374151] sm:text-[15px] sm:leading-6 lg:mx-0">
                   Thank you for shopping with Mumbai Collection.
                   Your order is confirmed and is now being processed.
                 </p>
-
-                {/* Delivery Badge */}
-                <div className="mt-4 flex w-fit items-center gap-2 self-center rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-[11px] font-bold text-emerald-700 lg:self-start">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                  </span>
-                  Estimated delivery: 60–90 mins
-                </div>
               </div>
 
               {/* RIGHT SIDE */}
@@ -386,7 +374,7 @@ function OrderSuccess() {
                 </div>
 
                 {/* Short message */}
-                <p className="mt-3 text-center text-[11px] leading-4 text-gray-400">
+                <p className="mt-3.5 text-center text-[12px] font-medium leading-relaxed text-[#4B5563] sm:text-[13px]">
                   Our local team will begin packing and dispatching your order shortly.
                 </p>
 
@@ -420,7 +408,7 @@ function OrderSuccess() {
                 </div>
 
                 {/* Support */}
-                <p className="mt-3 text-center text-[10px] text-gray-400">
+                <p className="mt-3.5 text-center text-[11px] font-medium text-gray-500 sm:text-[12px]">
                   Need help?{" "}
                   <Link
                     to="/contact"
@@ -463,7 +451,7 @@ function OrderSuccess() {
           `,
         }}
       />
-    </main>
+    </div>
   );
 }
 
