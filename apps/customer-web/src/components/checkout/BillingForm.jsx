@@ -86,21 +86,34 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const isSubmittingRef = useRef(false);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
 
-  const verifyPendingOrder = useCallback(async () => {
+  const BACKOFF_SCHEDULE = [2000, 4000, 8000, 15000, 30000, 30000, 30000, 30000, 30000];
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const [isPersistentPending, setIsPersistentPending] = useState(false);
+  const [checkingPendingStatus, setCheckingPendingStatus] = useState(false);
+  const pollTimerRef = useRef(null);
+
+  const verifyPendingOrder = useCallback(async (isManualOrTrigger = false) => {
     const stored = getPendingPayment();
-    if (!stored || !stored.razorpay_order_id) return;
+    if (!stored || !stored.razorpay_order_id) {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      setIsPersistentPending(false);
+      return;
+    }
 
     const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
     if (Date.now() - (stored.timestamp || 0) > MAX_AGE_MS) {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       clearPendingPayment();
+      setIsPersistentPending(false);
       return;
     }
 
     // Query payment finalization state by Razorpay order ID FIRST
-    // (Prevents clearing pending payment if the server already created the order and cleared the cart)
     try {
+      setCheckingPendingStatus(true);
       const res = await checkPaymentStatus(stored.razorpay_order_id);
       if (res?.success && res?.order_id) {
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         clearPendingPayment();
         clearCheckoutIdempotencyKey();
         await refreshCart().catch(() => {});
@@ -111,20 +124,24 @@ function BillingForm({ storeHours, onStoreClosed }) {
         return;
       }
       if (res?.refunded || res?.terminal) {
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         clearPendingPayment();
         clearCheckoutIdempotencyKey();
         await refreshCart().catch(() => {});
         setError(res.message || "An item in your order went out of stock during checkout. Your payment was automatically refunded.");
+        setIsPersistentPending(false);
         return;
       }
     } catch (err) {
       if (err?.response?.status === 401) {
         // Session expired mid-payment: NEVER clear pendingPayment!
-        // Preserve state and prompt customer to sign in to resume order confirmation
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         setSessionExpiredPending(true);
         setError("Your session expired while confirming your payment. Please sign in to resume your order.");
         return;
       }
+    } finally {
+      setCheckingPendingStatus(false);
     }
 
     const currentFingerprint = computeCartFingerprint(cart);
@@ -134,9 +151,28 @@ function BillingForm({ storeHours, onStoreClosed }) {
       : stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint;
 
     if (itemsChanged) {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       clearPendingPayment();
+      setIsPersistentPending(false);
       return;
     }
+
+    // Schedule next backoff attempt: 2s, 4s, 8s, 15s, then every 30s (~3 min)
+    setPollAttempt((prev) => {
+      const nextAttempt = isManualOrTrigger ? 0 : prev + 1;
+      if (nextAttempt < BACKOFF_SCHEDULE.length) {
+        const delay = BACKOFF_SCHEDULE[nextAttempt];
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = setTimeout(() => {
+          verifyPendingOrder(false);
+        }, delay);
+        setIsPersistentPending(false);
+      } else {
+        // Transition to persistent pending state with manual check button and support contact
+        setIsPersistentPending(true);
+      }
+      return nextAttempt;
+    });
   }, [cart, navigate, refreshCart]);
 
   useEffect(() => {
@@ -153,19 +189,27 @@ function BillingForm({ storeHours, onStoreClosed }) {
     }
   }, [cart]);
 
-  // Check pending order status on mount (including hard refresh) and when returning from mobile UPI/banking app
+  // Check pending order status on mount (load), when tab becomes visible, and when network reconnects
   useEffect(() => {
-    verifyPendingOrder();
+    verifyPendingOrder(true);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        verifyPendingOrder();
+        verifyPendingOrder(true);
       }
     };
 
+    const handleOnline = () => {
+      verifyPendingOrder(true);
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+
     return () => {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
     };
   }, [verifyPendingOrder]);
 
@@ -876,17 +920,54 @@ function BillingForm({ storeHours, onStoreClosed }) {
                 </button>
               </div>
             )}
-            {hasActivePendingPayment && paymentMethod === "online" && !sessionExpiredPending && (
+            {isPersistentPending && !sessionExpiredPending && (
+              <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-900 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
+                    <Clock size={18} />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-extrabold text-amber-950 text-sm">
+                      Payment Pending Confirmation
+                    </h4>
+                    <p className="mt-1 leading-relaxed text-amber-800 text-[12px]">
+                      Your payment is currently being processed by your bank. If the amount was debited from your account, please do not pay again — your order will update as soon as the bank confirms.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => verifyPendingOrder(true)}
+                        disabled={checkingPendingStatus}
+                        className="rounded-xl bg-[#7C3AED] px-3.5 py-1.5 font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
+                      >
+                        {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
+                      </button>
+                      <a
+                        href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 font-bold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        WhatsApp Support (+91 87936 01567)
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {hasActivePendingPayment && paymentMethod === "online" && !isPersistentPending && !sessionExpiredPending && (
               <div className="mb-3 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 text-xs text-[#7C3AED]">
-                <span className="font-semibold">
-                  A payment is currently awaiting confirmation.
+                <span className="font-semibold flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin shrink-0" />
+                  Confirming payment with bank (attempt {pollAttempt + 1} of 9)...
                 </span>
                 <button
                   type="button"
-                  onClick={verifyPendingOrder}
-                  className="font-bold underline hover:text-[#6D28D9] cursor-pointer"
+                  onClick={() => verifyPendingOrder(true)}
+                  disabled={checkingPendingStatus}
+                  className="font-bold underline hover:text-[#6D28D9] cursor-pointer disabled:opacity-50"
                 >
-                  Check Status
+                  {checkingPendingStatus ? "Checking..." : "Check Status"}
                 </button>
               </div>
             )}

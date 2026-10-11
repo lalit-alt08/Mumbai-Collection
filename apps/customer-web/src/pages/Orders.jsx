@@ -15,6 +15,12 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { getMyOrders } from "../services/orderService";
+import { checkPaymentStatus } from "../services/paymentService";
+import {
+  getPendingPayment,
+  clearPendingPayment,
+  clearCheckoutIdempotencyKey,
+} from "../utils/checkoutIdempotency";
 import { useAuth } from "../context/AuthContext";
 import { useNoIndex } from "../hooks/useNoIndex";
 
@@ -28,6 +34,10 @@ function Orders() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState(null);
+
+  const [pendingPayment, setPendingPayment] = useState(null);
+  const [checkingPending, setCheckingPending] = useState(false);
+  const [pendingFeedback, setPendingFeedback] = useState("");
 
   const [page, setPage] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
@@ -88,6 +98,53 @@ function Orders() {
     fetchOrders(1, false);
   }, [userEmail]);
 
+  useEffect(() => {
+    const checkStoredPending = () => {
+      const stored = getPendingPayment();
+      if (stored?.razorpay_order_id && Date.now() - (stored.timestamp || 0) < 30 * 60 * 1000) {
+        setPendingPayment(stored);
+      } else {
+        setPendingPayment(null);
+      }
+    };
+
+    checkStoredPending();
+    window.addEventListener("focus", checkStoredPending);
+    return () => window.removeEventListener("focus", checkStoredPending);
+  }, []);
+
+  const handleCheckPending = async (rzpOrderId) => {
+    const idToCheck = rzpOrderId || pendingPayment?.razorpay_order_id;
+    if (!idToCheck) return;
+
+    try {
+      setCheckingPending(true);
+      setPendingFeedback("");
+      const res = await checkPaymentStatus(idToCheck);
+      if (res?.success && res?.order_id) {
+        clearPendingPayment();
+        clearCheckoutIdempotencyKey();
+        setPendingPayment(null);
+        navigate(`/order-success/${res.order_id}`, {
+          state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
+        });
+        return;
+      }
+      if (res?.refunded || res?.terminal) {
+        clearPendingPayment();
+        setPendingPayment(null);
+        setPendingFeedback(res.message || "Your payment was refunded.");
+        fetchOrders(1, false);
+        return;
+      }
+      setPendingFeedback("Payment is still being confirmed by your bank. Please try checking again in a moment.");
+    } catch (_) {
+      setPendingFeedback("Unable to reach payment gateway right now. Please check again in a few moments.");
+    } finally {
+      setCheckingPending(false);
+    }
+  };
+
   const handleLoadMore = () => {
     if (!loadingMore && hasMore) {
       fetchOrders(page + 1, true);
@@ -112,6 +169,14 @@ function Orders() {
           <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 border border-blue-200">
             <Package size={13} className="animate-pulse" />
             {displayStatus || "Preparing & Packing"}
+          </span>
+        );
+      case "pending":
+      case "on-hold":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-[#7C3AED] border border-purple-200">
+            <Clock size={13} className="animate-spin" />
+            {displayStatus || "Payment Pending"}
           </span>
         );
       case "packed":
@@ -190,6 +255,55 @@ function Orders() {
             </Link>
           </div>
         </div>
+
+        {/* Payment-Pending Active Order Banner */}
+        {pendingPayment && (
+          <div className="mb-6 rounded-[24px] border border-purple-200 bg-white p-5 sm:p-6 shadow-[0_8px_30px_rgba(124,58,237,0.06)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-[#7C3AED]">
+                  <Clock size={22} className="animate-spin" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-extrabold text-gray-900">
+                      Payment Pending Confirmation
+                    </h3>
+                    <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold text-[#7C3AED]">
+                      VERIFYING
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600 leading-relaxed">
+                    We&apos;re confirming your payment with your bank. If money was debited from your account, please do not pay again.
+                  </p>
+                  {pendingFeedback && (
+                    <p className="mt-1.5 text-xs font-semibold text-[#7C3AED]">
+                      {pendingFeedback}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleCheckPending(pendingPayment.razorpay_order_id)}
+                  disabled={checkingPending}
+                  className="rounded-xl bg-[#7C3AED] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {checkingPending ? "Checking..." : "Check payment"}
+                </button>
+                <a
+                  href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100"
+                >
+                  Help (+91 87936 01567)
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Loading Skeletons */}
         {loading && (
@@ -396,7 +510,19 @@ function Orders() {
                           {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>
 
-                        {!["cancelled", "failed", "refunded"].includes(order.status) && (
+                        {["pending", "on-hold"].includes(order.status) && (
+                          <button
+                            type="button"
+                            onClick={() => handleCheckPending(order.meta_data?.find((m) => m.key === "_razorpay_order_id")?.value || order.id)}
+                            disabled={checkingPending}
+                            className="flex items-center gap-1.5 rounded-xl bg-[#7C3AED] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
+                          >
+                            <Clock size={14} />
+                            {checkingPending ? "Checking..." : "Check payment"}
+                          </button>
+                        )}
+
+                        {!["cancelled", "failed", "refunded", "pending", "on-hold"].includes(order.status) && (
                           <Link
                             to={`/orders/${order.id}/track`}
                             className="flex items-center gap-1.5 rounded-xl bg-[#F1ECFF] px-4 py-2 text-xs font-bold text-[#7C3AED] transition hover:bg-[#E0D4FC]"
