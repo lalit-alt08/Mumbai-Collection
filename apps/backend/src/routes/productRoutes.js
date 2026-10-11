@@ -7,6 +7,7 @@ import {
   searchAllProducts,
   getProductsByCategory,
   getAllCategories,
+  getProductSocialPreview,
 } from "../controllers/productController.js";
 
 import {
@@ -16,9 +17,11 @@ import {
 
 import { requireAuth, optionalAuth } from "../middlewares/authMiddleware.js";
 import { schemas, validateRequest } from "../middlewares/requestValidation.js";
+import { reviewLimiter, catalogLimiter } from "../middlewares/rateLimiter.js";
 
 const router = express.Router();
 
+router.get("/:id/social-preview", catalogLimiter, validateRequest({ params: schemas.idParam }), getProductSocialPreview);
 router.get("/", validateRequest({ query: schemas.pagination }), getAllProducts);
 router.get("/categories", validateRequest({ query: schemas.pagination }), getAllCategories);
 router.get("/search", validateRequest({ query: schemas.pagination }), searchAllProducts);
@@ -28,6 +31,6 @@ router.get("/:id", validateRequest({ params: schemas.idParam }), getProductById)
 
 // Product Reviews
 router.get("/:productId/reviews", validateRequest({ params: schemas.productIdParam }), optionalAuth, getProductReviews);
-router.post("/:productId/reviews", validateRequest({ params: schemas.productIdParam, body: schemas.review }), requireAuth("customer"), createOrUpdateReview);
+router.post("/:productId/reviews", validateRequest({ params: schemas.productIdParam, body: schemas.review }), requireAuth("customer"), reviewLimiter, createOrUpdateReview);
 
 export default router;

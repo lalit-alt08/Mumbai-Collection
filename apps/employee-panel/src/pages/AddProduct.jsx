@@ -271,6 +271,13 @@ function AddProduct() {
       return;
     }
 
+    // Check if any images failed to upload
+    const hasFailedImages = images.some((img) => !img.uploaded && img.error);
+    if (hasFailedImages) {
+      setError("Some images failed to upload. Please remove failed images or retry before submitting.");
+      return;
+    }
+
     try {
       isSubmittingRef.current = true;
       setSubmitting(true);
@@ -281,10 +288,12 @@ function AddProduct() {
       // 3. Build Image list
       const uploadedImgs = images
         .filter((img) => img.uploaded && (img.mediaId || img.url))
-        .map((img) => ({
-          ...(img.mediaId ? { id: Number(img.mediaId) } : {}),
-          ...(img.url ? { src: img.url } : {}),
-        }));
+        .map((img) => {
+          if (img.mediaId) {
+            return { id: Number(img.mediaId) };
+          }
+          return { src: img.url };
+        });
 
       const payload = {
         name: formData.name.trim(),
@@ -294,8 +303,7 @@ function AddProduct() {
         sale_price: formData.sale_price ? String(formData.sale_price) : "",
         stock_quantity: stockQty,
         category_ids: categoryIds,
-        image_url: uploadedImgs.length > 0 ? uploadedImgs[0].src : "",
-        image_id: uploadedImgs.length > 0 ? uploadedImgs[0].id : undefined,
+        image_id: uploadedImgs.length > 0 && uploadedImgs[0].id ? uploadedImgs[0].id : undefined,
         images: uploadedImgs,
       };
 

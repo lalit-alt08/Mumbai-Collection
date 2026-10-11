@@ -72,10 +72,12 @@ export const verifyCsrf = (allowedOrigins = []) => {
   const allowedList = Array.isArray(allowedOrigins) ? allowedOrigins : [];
 
   return (req, res, next) => {
-    // 0. Exempt machine-to-machine payment webhooks from browser CSRF validation
+    // 0. Exempt machine-to-machine payment webhooks and payment callbacks from browser CSRF validation
     if (
       req.path === "/api/payments/webhook" ||
-      req.originalUrl?.startsWith("/api/payments/webhook")
+      req.originalUrl?.startsWith("/api/payments/webhook") ||
+      req.path === "/api/payments/callback" ||
+      req.originalUrl?.startsWith("/api/payments/callback")
     ) {
       return next();
     }

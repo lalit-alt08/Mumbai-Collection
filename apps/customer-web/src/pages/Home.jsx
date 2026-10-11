@@ -45,13 +45,27 @@ function Home() {
         ]);
 
         if (isMounted) {
-          if (productsData.status === "fulfilled" && Array.isArray(productsData.value)) {
-            setProducts(productsData.value);
-            cachedHomeData.products = productsData.value;
+          if (productsData.status === "fulfilled") {
+            const list = Array.isArray(productsData.value)
+              ? productsData.value
+              : Array.isArray(productsData.value?.products)
+              ? productsData.value.products
+              : [];
+            if (list.length > 0 || !cachedHomeData.products) {
+              setProducts(list);
+              cachedHomeData.products = list;
+            }
           }
-          if (categoriesData.status === "fulfilled" && Array.isArray(categoriesData.value)) {
-            setCategories(categoriesData.value);
-            cachedHomeData.categories = categoriesData.value;
+          if (categoriesData.status === "fulfilled") {
+            const catList = Array.isArray(categoriesData.value)
+              ? categoriesData.value
+              : Array.isArray(categoriesData.value?.categories)
+              ? categoriesData.value.categories
+              : [];
+            if (catList.length > 0 || !cachedHomeData.categories) {
+              setCategories(catList);
+              cachedHomeData.categories = catList;
+            }
           }
           cachedHomeData.timestamp = Date.now();
         }

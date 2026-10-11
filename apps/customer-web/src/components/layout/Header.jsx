@@ -35,7 +35,7 @@ function Header() {
 
           {/* Mobile Second Row: Search Bar + Cart beside it (Hidden on auth pages like Login) */}
           {!isAuthPage && (
-            <div className="flex w-full items-center gap-2">
+            <div className="relative flex w-full items-center gap-2">
               <div className="flex-1 min-w-0">
                 <SearchBar />
               </div>

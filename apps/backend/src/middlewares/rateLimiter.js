@@ -2,14 +2,25 @@
  * Lightweight, zero-dependency in-memory rate limiter
  * Protects auth and upload routes from brute-force and spam attacks.
  */
+import net from "net";
+
 /**
  * Extracts client IP with support for Cloudflare's CF-Connecting-IP header.
- * Falls back to Express req.ip or socket address.
+ * Validates IP format (IPv4/IPv6) and ensures request is routed via Cloudflare
+ * (or test environment), falling back safely to Express req.ip or socket address.
  */
 export const getClientIp = (req) => {
   const cfIp = req?.headers?.["cf-connecting-ip"];
-  if (typeof cfIp === "string" && cfIp.trim()) {
-    return cfIp.trim();
+  if (typeof cfIp === "string") {
+    const trimmed = cfIp.trim();
+    if (net.isIP(trimmed)) {
+      const cfRay = req?.headers?.["cf-ray"];
+      const isTestEnv = process.env.NODE_ENV === "test";
+      const isExplicitlyTrusted = process.env.TRUST_CLOUDFLARE_PROXY === "true";
+      if (cfRay || isTestEnv || isExplicitlyTrusted) {
+        return trimmed;
+      }
+    }
   }
   return req?.ip || req?.socket?.remoteAddress || "unknown";
 };
@@ -84,8 +95,18 @@ export const createRateLimiter = ({
 
 export const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 20, // 20 attempts per 15 minutes
+  max: 20, // 20 attempts per 15 minutes per identifier/IP compound
   message: "Too many authentication attempts. Please try again in a few minutes.",
+  keyGenerator: (req) => {
+    const rawIdentifier =
+      req.body?.email ||
+      req.body?.phone ||
+      req.body?.credential?.slice(-32) ||
+      "anon";
+    const cleanIdentifier = String(rawIdentifier).trim().toLowerCase().slice(0, 64);
+    const ip = getClientIp(req);
+    return `auth:${cleanIdentifier}:${ip}`;
+  },
 });
 
 export const uploadLimiter = createRateLimiter({
@@ -116,7 +137,7 @@ export const catalogLimiter = createRateLimiter({
 
 export const checkoutLimiter = createRateLimiter({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 5,                  // 5 checkout attempts per 5 minutes per IP/user
+  max: 15,                 // 15 checkout attempts per 5 minutes per IP/user (allows retries on flaky 4G)
   message: "Too many checkout attempts. Please try again in a few minutes.",
   keyGenerator: (req) => {
     const userId = req.user?.id || req.wpUserId;
@@ -155,6 +176,28 @@ export const statusCheckLimiter = createRateLimiter({
     }
     const clientIp = getClientIp(req);
     return `status_check:ip:${clientIp}`;
+  },
+});
+
+export const reviewLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,                  // max 5 review submissions per 15 minutes per user/IP
+  message: "Too many review submissions. Please wait a few minutes before submitting another review.",
+  keyGenerator: (req) => {
+    const userId = req.user?.id || req.wpUserId;
+    if (userId) {
+      return `review:user:${userId}`;
+    }
+    const customerAuth =
+      req.cookies?.mumbai_customer_auth ||
+      req.cookies?.mumbai_admin_auth ||
+      req.cookies?.mumbai_employee_auth ||
+      req.cookies?.mumbai_wp_auth;
+    if (customerAuth) {
+      return `review:cookie:${customerAuth.slice(-32)}`;
+    }
+    const clientIp = getClientIp(req);
+    return `review:ip:${clientIp}`;
   },
 });
 

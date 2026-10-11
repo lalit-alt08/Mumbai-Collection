@@ -12,7 +12,7 @@
  */
 
 import express from "express";
-import { requireAuth, requireVerifiedPhone } from "../middlewares/authMiddleware.js";
+import { requireAuth, requireVerifiedPhone, optionalAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
 import { checkoutLimiter, statusCheckLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
@@ -21,6 +21,7 @@ import {
   createOrder,
   verifyPayment,
   checkPaymentStatus,
+  handlePaymentCallback,
   handleWebhook,
   reconcileOrder,
 } from "../controllers/paymentController.js";
@@ -31,24 +32,33 @@ const router = express.Router();
 router.post(
   "/create-order",
   validateRequest({ body: schemas.paymentCreateOrder }),
-  checkoutLimiter,
   requireAuth("customer"),
   requireVerifiedPhone,
   requireIdempotency,
+  checkoutLimiter,
   createOrder
 );
 
 // POST /api/payments/verify
+// Cryptographic HMAC signature guarantees legitimacy; optionalAuth prevents 401 drops if session timed out during banking OTP
 router.post(
   "/verify",
   validateRequest({ body: schemas.paymentVerify }),
   statusCheckLimiter,
-  requireAuth("customer"),
-  requireVerifiedPhone,
+  optionalAuth("customer"),
   verifyPayment
 );
 
+// POST /api/payments/callback
+// Server-side redirect fallback for gateway POST form submissions or cross-browser returns
+router.post(
+  "/callback",
+  statusCheckLimiter,
+  handlePaymentCallback
+);
+
 // POST /api/payments/check-status (App-Switch / Visibility / Reopen Recovery)
+// Session required; returns 401 if unauthenticated so client preserves pendingPayment and prompts sign-in
 router.post(
   "/check-status",
   validateRequest({ body: schemas.paymentCheckStatus }),

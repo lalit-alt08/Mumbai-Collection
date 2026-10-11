@@ -17,6 +17,7 @@ import storeRoutes from "./routes/storeRoutes.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
 import storeHoursRoutes from "./routes/storeHoursRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+import { generateSitemapXml } from "./routes/storeRoutes.js";
 import { verifyCsrf, isOriginAllowed } from "./middlewares/csrfMiddleware.js";
 import { storeLimiter, catalogLimiter } from "./middlewares/rateLimiter.js";
 import pinoHttp from "pino-http";
@@ -144,6 +145,7 @@ app.use(
     },
   })
 );
+app.use(express.urlencoded({ extended: true }));
 
 // CSRF Protection for cookie-authenticated state-changing requests
 app.use(verifyCsrf(allowedOrigins));
@@ -166,6 +168,8 @@ app.use("/api/store-hours", storeHoursRoutes);
 app.get("/", (req, res) => {
   res.send("Backend is running");
 });
+
+app.get("/sitemap.xml", generateSitemapXml);
 
 // 404 Handler for undefined API routes (L13 fix)
 app.use("/api", (req, res) => {

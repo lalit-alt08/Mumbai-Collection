@@ -25,6 +25,13 @@ function Category() {
   const categoryName = categoryTitle || staticCategory?.name || "Category Products";
 
   useEffect(() => {
+    document.title = `${categoryName} | Mumbai Collection`;
+    return () => {
+      document.title = "Mumbai Collection | Toys & Stationery Store";
+    };
+  }, [categoryName]);
+
+  useEffect(() => {
     let isMounted = true;
     const loadInitialProducts = async () => {
       try {

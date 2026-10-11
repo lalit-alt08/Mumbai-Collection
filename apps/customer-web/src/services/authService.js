@@ -45,15 +45,6 @@ export const login = async (email, password) => {
   return data;
 };
 
-export const googleLogin = async (credential) => {
-  const { data } = await API.post("/google-login", {
-    credential,
-    context: "customer",
-  });
-
-  return data;
-};
-
 export const register = async (userData) => {
   const { data } = await API.post("/register", userData);
   return data;

@@ -4,7 +4,7 @@ Disallow: /account
 Disallow: /checkout
 Disallow: /cart
 Disallow: /orders
-Disallow: /track-order
+Disallow: /order-success
 Disallow: /api/
 
-Sitemap: https://yourdomain.com/sitemap.xml
+Sitemap: https://mumbaicollection.in/sitemap.xml

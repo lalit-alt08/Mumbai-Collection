@@ -30,7 +30,7 @@ class ErrorBoundary extends Component {
             Something went wrong
           </h1>
 
-          <p className="mb-8 max-w-md text-sm text-[#666666]">
+          <p className="mb-8 max-w-md text-sm text-[#444444]">
             We encountered an unexpected issue while loading this page. Please refresh or return to the home page.
           </p>
 

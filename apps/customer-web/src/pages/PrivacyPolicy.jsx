@@ -21,7 +21,7 @@ function PrivacyPolicy() {
           <h1 className="text-2xl font-extrabold text-[#1E1E1E] md:text-3xl">
             Privacy Policy
           </h1>
-          <p className="mt-2 text-sm text-[#666666]">
+          <p className="mt-2 text-sm text-[#444444]">
             Last updated: August 2026 • Mumbai Collection, Vasai, Maharashtra
           </p>
         </div>

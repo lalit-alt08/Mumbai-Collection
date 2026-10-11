@@ -1551,6 +1551,22 @@ function Orders() {
                     >
                       <Phone size={12} /> {selectedOrder.phone || selectedOrder.billing?.phone || "No Phone"}
                     </a>
+                    {(() => {
+                      const altPhone =
+                        selectedOrder.secondary_phone ||
+                        selectedOrder.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value;
+                      if (!altPhone) return null;
+                      const cleanAlt = String(altPhone).replace(/\D/g, "");
+                      return (
+                        <a
+                          href={`tel:${cleanAlt}`}
+                          className="inline-flex items-center gap-1 text-purple-600 font-bold hover:underline"
+                          title="Backup Mobile Number"
+                        >
+                          <Phone size={12} /> Alt: {String(altPhone).startsWith("+91") ? altPhone : `+91 ${altPhone}`}
+                        </a>
+                      );
+                    })()}
                     {selectedOrder.billing?.email && (
                       <a
                         href={`mailto:${selectedOrder.billing.email}`}

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useParams, Link, useLocation } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useParams, Link, useLocation, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
   Package,
@@ -8,101 +8,339 @@ import {
   Home,
   MapPin,
   ArrowRight,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { getOrderById } from "../services/orderService.js";
+import { verifyPayment, checkPaymentStatus } from "../services/paymentService.js";
+import {
+  getPendingPayment,
+  clearPendingPayment,
+  clearCheckoutIdempotencyKey,
+} from "../utils/checkoutIdempotency.js";
 
 function OrderSuccess() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const location = useLocation();
+
+  const queryOrderId = searchParams.get("order") || searchParams.get("order_id") || searchParams.get("id");
+  const rzpOrderId = searchParams.get("razorpay_order_id");
+  const rzpPaymentId = searchParams.get("razorpay_payment_id");
+  const rzpSignature = searchParams.get("razorpay_signature");
+
+  const [activeOrderId, setActiveOrderId] = useState(id || queryOrderId || null);
+  const [isResolvingRzp, setIsResolvingRzp] = useState(Boolean(!id && !queryOrderId && rzpOrderId));
+
+  const hasDirectCheckoutState = Boolean(
+    location.state?.paymentMethod || location.state?.status
+  );
   const [paymentMethodTitle, setPaymentMethodTitle] = useState(
-    location.state?.paymentMethod || "Cash on Delivery"
+    location.state?.paymentMethod || "Online Payment"
   );
   const [orderStatus, setOrderStatus] = useState(
     location.state?.status || "Processing"
   );
+  const [fetchError, setFetchError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [networkError, setNetworkError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [pollAttempt, setPollAttempt] = useState(0);
 
+  // Apply noindex, nofollow to keep order confirmation private from search engines
   useEffect(() => {
-    if (!id) return;
+    let metaTag = document.querySelector('meta[name="robots"]');
+    let created = false;
+    if (!metaTag) {
+      metaTag = document.createElement("meta");
+      metaTag.name = "robots";
+      document.head.appendChild(metaTag);
+      created = true;
+    }
+    const previousContent = metaTag.content;
+    metaTag.content = "noindex, nofollow";
+
+    return () => {
+      if (created && metaTag.parentNode) {
+        metaTag.parentNode.removeChild(metaTag);
+      } else if (metaTag) {
+        metaTag.content = previousContent || "index, follow";
+      }
+    };
+  }, []);
+
+  // Handle cross-browser / UPI external redirect return with Razorpay query parameters
+  useEffect(() => {
+    if (activeOrderId) return;
+
+    const resolvePayment = async () => {
+      if (rzpOrderId) {
+        setIsResolvingRzp(true);
+        try {
+          // If signature was provided in callback URL, verify it directly
+          if (rzpPaymentId && rzpSignature) {
+            const verifyRes = await verifyPayment({
+              razorpay_order_id: rzpOrderId,
+              razorpay_payment_id: rzpPaymentId,
+              razorpay_signature: rzpSignature,
+            });
+            if (verifyRes?.success && verifyRes?.order_id) {
+              clearPendingPayment();
+              clearCheckoutIdempotencyKey();
+              setActiveOrderId(String(verifyRes.order_id));
+              setPaymentMethodTitle("Online Payment");
+              setIsResolvingRzp(false);
+              return;
+            }
+          }
+
+          // Otherwise check status from server/gateway
+          const statusRes = await checkPaymentStatus(rzpOrderId);
+          if (statusRes?.success && statusRes?.order_id) {
+            clearPendingPayment();
+            clearCheckoutIdempotencyKey();
+            setActiveOrderId(String(statusRes.order_id));
+            setPaymentMethodTitle("Online Payment");
+            setIsResolvingRzp(false);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      // Check localStorage pendingPayment fallback
+      const storedPending = getPendingPayment();
+      if (storedPending?.razorpay_order_id) {
+        try {
+          const statusRes = await checkPaymentStatus(storedPending.razorpay_order_id);
+          if (statusRes?.success && statusRes?.order_id) {
+            clearPendingPayment();
+            clearCheckoutIdempotencyKey();
+            setActiveOrderId(String(statusRes.order_id));
+            setPaymentMethodTitle("Online Payment");
+            setIsResolvingRzp(false);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      setIsResolvingRzp(false);
+      setFetchError(true);
+      setErrorMessage("No order number provided.");
+    };
+
+    resolvePayment();
+  }, [activeOrderId, rzpOrderId, rzpPaymentId, rzpSignature]);
+
+  // Fetch Order Details with automatic 3-attempt polling backoff
+  useEffect(() => {
+    if (!activeOrderId) return;
+
     let isMounted = true;
-    getOrderById(id)
-      .then((data) => {
+    let pollTimeout = null;
+    setNetworkError(false);
+    setFetchError(false);
+
+    const loadOrder = async (attempt = 1) => {
+      try {
+        setPollAttempt(attempt);
+        const data = await getOrderById(activeOrderId);
         if (!isMounted) return;
+
+        clearPendingPayment();
+        clearCheckoutIdempotencyKey();
+
         if (data?.order?.payment_method_title) {
           setPaymentMethodTitle(data.order.payment_method_title);
         }
         if (data?.order?.display_status || data?.order?.status) {
           setOrderStatus(data.order.display_status || data.order.status);
         }
-      })
-      .catch(() => {
-        // Graceful fallback to initial location state or defaults
-      });
+      } catch (err) {
+        if (!isMounted) return;
+
+        // If the user arrived directly from checkout navigation, retain the optimistic state
+        if (hasDirectCheckoutState) {
+          return;
+        }
+
+        const status = err?.response?.status;
+        const isTerminalError = status === 404 || status === 403 || status === 401;
+
+        // Automatic retry loop: retry up to 3 times (2.5s apart) before marking terminal
+        if (attempt < 3) {
+          pollTimeout = setTimeout(() => {
+            if (isMounted) loadOrder(attempt + 1);
+          }, 2500);
+          return;
+        }
+
+        if (isTerminalError) {
+          setFetchError(true);
+          setNetworkError(false);
+          setErrorMessage(
+            err?.response?.data?.message ||
+              `We couldn't locate Order #${activeOrderId}, or you do not have permission to view it.`
+          );
+        } else {
+          // Network offline, timeout, or 5xx server glitch: do NOT claim "Order Not Found"
+          setNetworkError(true);
+          setFetchError(false);
+        }
+      }
+    };
+
+    loadOrder(1);
+
     return () => {
       isMounted = false;
+      if (pollTimeout) clearTimeout(pollTimeout);
     };
-  }, [id]);
+  }, [activeOrderId, hasDirectCheckoutState, retryCount]);
+
+  if (isResolvingRzp) {
+    return (
+      <main className="relative min-h-screen w-full overflow-hidden bg-white">
+        <div className="relative z-10 flex w-full justify-center px-4 py-16 sm:px-6 lg:items-center">
+          <div className="w-full max-w-[480px] rounded-2xl sm:rounded-[24px] sm:border sm:border-gray-100 bg-white p-7 sm:p-9 text-center sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-[#7C3AED]">
+              <Loader2 size={30} className="animate-spin" />
+            </div>
+            <h1 className="text-[20px] font-black tracking-[-0.02em] text-[#1F2937]">
+              Confirming Your Payment...
+            </h1>
+            <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[#6B7280]">
+              We are connecting with your bank to verify your payment status and finalize your order.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (networkError) {
+    return (
+      <main className="relative min-h-screen w-full overflow-hidden bg-white">
+        <div className="relative z-10 flex w-full justify-center px-4 py-16 sm:px-6 lg:items-center">
+          <div className="w-full max-w-[480px] rounded-2xl sm:rounded-[24px] sm:border sm:border-gray-100 bg-white p-7 sm:p-9 text-center sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-purple-50 text-[#7C3AED]">
+              <Package size={30} className="animate-pulse" />
+            </div>
+            <h1 className="text-[20px] font-black tracking-[-0.02em] text-[#1F2937]">
+              Checking Your Order Details...
+            </h1>
+            <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[#6B7280]">
+              Your order #{activeOrderId || id} is safe. We are reconnecting with the store server to retrieve your confirmation details.
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => setRetryCount((c) => c + 1)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#6D28D9] transition cursor-pointer"
+              >
+                Retry Now
+              </button>
+              <Link
+                to="/orders"
+                className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-xs font-bold text-[#4B5563] hover:bg-gray-50 transition"
+              >
+                View My Orders
+              </Link>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <main className="relative min-h-screen w-full overflow-hidden bg-white">
+        <div className="relative z-10 flex w-full justify-center px-4 py-16 sm:px-6 lg:items-center">
+          <div className="w-full max-w-[480px] rounded-2xl sm:rounded-[24px] sm:border sm:border-gray-100 bg-white p-7 sm:p-9 text-center sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+              <AlertCircle size={32} />
+            </div>
+            <h1 className="text-[22px] font-black tracking-[-0.02em] text-[#1F2937]">
+              Order Not Found
+            </h1>
+            <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[#6B7280]">
+              {errorMessage || `We couldn't locate Order #${id}, or you do not have permission to view it.`}
+            </p>
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                to="/orders"
+                className="inline-flex items-center justify-center rounded-xl bg-[#7C3AED] px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#6D28D9] transition"
+              >
+                View My Orders
+              </Link>
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-xs font-bold text-[#4B5563] hover:bg-gray-50 transition"
+              >
+                Return to Shop
+              </Link>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-[#F7F7FB]">
-      {/* Background glow */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(124,58,237,0.08),transparent_45%)]" />
-
+    <div className="relative min-h-screen w-full overflow-hidden bg-white flex flex-col justify-start sm:justify-center">
       {/* Full-width content area */}
-      <div className="relative z-10 flex w-full justify-center px-3 py-6 sm:px-5 sm:py-8 lg:min-h-[calc(100vh-80px)] lg:items-center lg:px-8 lg:py-8">
+      <div className="relative z-10 flex w-full flex-1 justify-center px-0 py-2 sm:px-5 sm:py-8 lg:items-center lg:px-8 lg:py-8">
 
         <div className="w-full max-w-[960px] animate-[slideUp_0.3s_ease-out]">
 
           {/* MAIN CARD */}
-          <section className="overflow-hidden rounded-[24px] border border-gray-100 bg-white shadow-[0_12px_40px_rgba(31,41,55,0.06)] sm:rounded-[28px]">
+          <section className="overflow-hidden bg-white sm:rounded-[28px] sm:border sm:border-gray-100 sm:shadow-[0_12px_40px_rgba(31,41,55,0.06)]">
 
             <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
 
               {/* LEFT SIDE */}
-              <div className="flex flex-col justify-center px-5 py-7 text-center sm:px-8 sm:py-8 lg:border-r lg:border-gray-100 lg:px-10 lg:py-10 lg:text-left">
+              <div className="flex flex-col justify-center px-5 pt-7 pb-5 text-center sm:px-8 sm:py-8 lg:border-r lg:border-gray-100 lg:px-10 lg:py-10 lg:text-left">
 
                 {/* Success Icon */}
-                <div className="mb-4 flex justify-center lg:justify-start">
-                  <div className="relative flex h-[62px] w-[62px] items-center justify-center rounded-full bg-[#F1ECFF] sm:h-[66px] sm:w-[66px]">
-                    <CheckCircle2
-                      size={34}
-                      className="text-[#7C3AED]"
-                      strokeWidth={2.3}
-                    />
+                <div className="mb-3.5 flex justify-center lg:justify-start">
+                  <div className="relative flex h-[64px] w-[64px] items-center justify-center rounded-full bg-[#F1ECFF] sm:h-[68px] sm:w-[68px]">
+                    <span className="absolute inset-0 rounded-full bg-[#7C3AED]/35 animate-ping opacity-75" />
+                    <span className="absolute -inset-1.5 rounded-full bg-[#7C3AED]/20 animate-pulse" />
+                    <div className="relative z-10 flex h-full w-full items-center justify-center rounded-full bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.18)]">
+                      <CheckCircle2
+                        size={36}
+                        className="text-[#7C3AED]"
+                        style={{ animation: "checkBlink 1.8s ease-in-out infinite" }}
+                        strokeWidth={2.4}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7C3AED]">
-                  Order #{id}
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7C3AED]">
+                  Order #{activeOrderId || id}
                 </p>
 
-                <h1 className="text-[25px] font-black leading-tight tracking-[-0.02em] text-[#1F2937] sm:text-[29px]">
-                  Order placed
-                  <br className="hidden lg:block" />
-                  successfully! 🎉
+                <h1 className="text-[23px] font-black leading-snug tracking-[-0.02em] text-[#1F2937] sm:text-[28px] lg:text-[29px]">
+                  Order Placed <span className="inline-block">Successfully! 🎉</span>
                 </h1>
 
-                <p className="mx-auto mt-2.5 max-w-[380px] text-[13px] leading-5 text-[#6B7280] sm:text-sm sm:leading-6 lg:mx-0">
+                <p className="mx-auto mt-2 max-w-[400px] text-[14px] font-medium leading-relaxed text-[#374151] sm:text-[15px] sm:leading-6 lg:mx-0">
                   Thank you for shopping with Mumbai Collection.
                   Your order is confirmed and is now being processed.
                 </p>
-
-                {/* Delivery Badge */}
-                <div className="mt-5 flex w-fit items-center gap-2 self-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold text-emerald-700 lg:self-start">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  Estimated delivery: 20–30 mins
-                </div>
               </div>
 
               {/* RIGHT SIDE */}
-              <div className="px-4 py-5 sm:px-7 sm:py-7 lg:px-9 lg:py-9">
+              <div className="px-4 pt-1 pb-6 sm:px-7 sm:py-7 lg:px-9 lg:py-9">
 
                 {/* Order Summary */}
-                <div className="rounded-2xl border border-gray-100 bg-[#FAFAFC] px-4">
+                <div className="rounded-2xl border border-gray-100 bg-[#FAFAFC] px-4 py-0.5">
 
                   <SummaryRow
                     icon={<Package size={17} />}
                     label="Order Number"
-                    value={`#${id}`}
+                    value={`#${activeOrderId || id}`}
                   />
 
                   <SummaryRow
@@ -128,7 +366,7 @@ function OrderSuccess() {
                     label="Est. Delivery"
                     value={
                       <span className="font-extrabold text-emerald-600">
-                        20–30 mins
+                        60–90 mins
                       </span>
                     }
                     last
@@ -136,12 +374,12 @@ function OrderSuccess() {
                 </div>
 
                 {/* Short message */}
-                <p className="mt-3 text-center text-[11px] leading-4 text-gray-400">
+                <p className="mt-3.5 text-center text-[12px] font-medium leading-relaxed text-[#4B5563] sm:text-[13px]">
                   Our local team will begin packing and dispatching your order shortly.
                 </p>
 
                 {/* Buttons */}
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 space-y-2.5">
 
                   {/* Track */}
                   <Link
@@ -170,7 +408,7 @@ function OrderSuccess() {
                 </div>
 
                 {/* Support */}
-                <p className="mt-3 text-center text-[10px] text-gray-400">
+                <p className="mt-3.5 text-center text-[11px] font-medium text-gray-500 sm:text-[12px]">
                   Need help?{" "}
                   <Link
                     to="/contact"
@@ -198,10 +436,22 @@ function OrderSuccess() {
                 transform: translateY(0);
               }
             }
+            @keyframes checkBlink {
+              0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+                filter: drop-shadow(0 0 0px rgba(124, 58, 237, 0));
+              }
+              50% {
+                transform: scale(1.08);
+                opacity: 0.65;
+                filter: drop-shadow(0 0 8px rgba(124, 58, 237, 0.4));
+              }
+            }
           `,
         }}
       />
-    </main>
+    </div>
   );
 }
 

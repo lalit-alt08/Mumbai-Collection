@@ -15,8 +15,10 @@ import {
   Pencil,
   Package,
 } from "lucide-react";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 function Account() {
+  useNoIndex();
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
 

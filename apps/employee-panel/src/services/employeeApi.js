@@ -37,7 +37,9 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
-      if (typeof window !== "undefined" && window.location?.pathname !== "/login") {
+      const requestUrl = originalRequest?.url || "";
+      const isUploadRequest = requestUrl.includes("/upload") || requestUrl.includes("/media");
+      if (!isUploadRequest && typeof window !== "undefined" && window.location?.pathname !== "/login") {
         window.location.href = "/login";
       }
     }

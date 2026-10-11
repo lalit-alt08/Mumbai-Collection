@@ -38,6 +38,7 @@ function MainLayout() {
   const isFooterVisible = path === "/";
 
   const fullWidthPages = [
+    "/order-success",
     "/account",
     "/track-order",
     "/orders",
@@ -59,12 +60,12 @@ function MainLayout() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F8F9FD]">
+    <div className={`min-h-screen flex flex-col ${path.startsWith("/order-success") ? "bg-white" : "bg-[#F8F9FD]"}`}>
       <NetworkBanner />
       {!isHeaderHidden && <Header />}
 
       <main
-        className={`w-full ${
+        className={`w-full flex-1 ${
           isFullWidth
             ? ""
             : path.startsWith("/product")

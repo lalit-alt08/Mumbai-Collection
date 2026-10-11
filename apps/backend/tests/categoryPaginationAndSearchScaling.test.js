@@ -7,9 +7,11 @@ import {
   filterAndPaginateEmployeeOrders,
 } from "../src/controllers/employeeController.js";
 import {
+  fetchProducts,
   fetchProductsByCategory,
 } from "../src/services/productService.js";
 import {
+  getAllProducts,
   getProductsByCategory,
 } from "../src/controllers/productController.js";
 
@@ -162,6 +164,138 @@ test("Fix 3 - Category Products: getProductsByCategory controller returns pagina
       responseData.products[0].images[0].src,
       "http://localhost:5000/api/media/uploads/a.jpg"
     );
+  } finally {
+    api.get = originalApiGet;
+    serverCache.clear();
+  }
+});
+
+test("Fix 4 - Catalog Products: fetchProducts queries WooCommerce with page and per_page", async () => {
+  const originalApiGet = api.get;
+  const capturedParams = [];
+
+  api.get = async (endpoint, params) => {
+    capturedParams.push({ endpoint, params });
+    return {
+      data: [
+        { id: 101, name: "Catalog Product 101" },
+        { id: 102, name: "Catalog Product 102" },
+      ],
+      headers: {
+        "x-wp-total": "120",
+        "x-wp-totalpages": "6",
+      },
+    };
+  };
+
+  try {
+    const res = await fetchProducts(2, 20);
+    assert.equal(capturedParams[0].endpoint, "products");
+    assert.equal(capturedParams[0].params.page, 2);
+    assert.equal(capturedParams[0].params.per_page, 20);
+
+    assert.equal(res.total, 120);
+    assert.equal(res.totalPages, 6);
+    assert.equal(res.page, 2);
+    assert.equal(res.per_page, 20);
+    assert.equal(res.products.length, 2);
+  } finally {
+    api.get = originalApiGet;
+  }
+});
+
+test("Fix 4 - Catalog Products: getAllProducts returns backwards-compatible array with pagination headers", async () => {
+  const originalApiGet = api.get;
+  serverCache.clear();
+
+  api.get = async (_endpoint, params) => {
+    return {
+      data: [
+        { id: 301, name: "Saree 301", images: [{ src: "http://example.com/wp-content/uploads/saree.jpg" }] },
+      ],
+      headers: {
+        "x-wp-total": "80",
+        "x-wp-totalpages": "4",
+      },
+    };
+  };
+
+  try {
+    let responseData;
+    const responseHeaders = {};
+    const req = {
+      query: { page: "2", per_page: "20" },
+      headers: { host: "localhost:5000" },
+      protocol: "http",
+    };
+    const res = {
+      setHeader: (name, value) => {
+        responseHeaders[name] = value;
+      },
+      json: (data) => {
+        responseData = data;
+      },
+      status: () => res,
+    };
+
+    await getAllProducts(req, res);
+
+    assert.equal(Array.isArray(responseData), true, "Must return an array for storefront backwards compatibility");
+    assert.equal(responseData.length, 1);
+    assert.equal(responseData[0].id, 301);
+    assert.equal(responseHeaders["X-Total-Count"], "80");
+    assert.equal(responseHeaders["X-Total-Pages"], "4");
+    assert.equal(responseHeaders["X-Current-Page"], "2");
+    assert.equal(responseHeaders["X-Per-Page"], "20");
+  } finally {
+    api.get = originalApiGet;
+    serverCache.clear();
+  }
+});
+
+test("Fix 4 - Catalog Products: getAllProducts returns enveloped JSON when format=paginated", async () => {
+  const originalApiGet = api.get;
+  serverCache.clear();
+
+  api.get = async (_endpoint, params) => {
+    return {
+      data: [
+        { id: 401, name: "Kurti 401", images: [{ src: "http://example.com/wp-content/uploads/kurti.jpg" }] },
+      ],
+      headers: {
+        "x-wp-total": "40",
+        "x-wp-totalpages": "2",
+      },
+    };
+  };
+
+  try {
+    let responseData;
+    const responseHeaders = {};
+    const req = {
+      query: { page: "1", per_page: "20", format: "paginated" },
+      headers: { host: "localhost:5000" },
+      protocol: "http",
+    };
+    const res = {
+      setHeader: (name, value) => {
+        responseHeaders[name] = value;
+      },
+      json: (data) => {
+        responseData = data;
+      },
+      status: () => res,
+    };
+
+    await getAllProducts(req, res);
+
+    assert.equal(responseData.success, true);
+    assert.equal(responseData.page, 1);
+    assert.equal(responseData.per_page, 20);
+    assert.equal(responseData.total, 40);
+    assert.equal(responseData.totalPages, 2);
+    assert.equal(Array.isArray(responseData.products), true);
+    assert.equal(responseData.products[0].id, 401);
   } finally {
     api.get = originalApiGet;
     serverCache.clear();

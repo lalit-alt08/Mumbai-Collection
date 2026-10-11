@@ -66,3 +66,43 @@ export const updateAdminStoreHours = async (req, res) => {
     });
   }
 };
+
+/**
+ * Admin endpoint: PUT /api/admin/store-hours/peak-toggle
+ * 1-click toggle for Peak Hours delivery mode
+ */
+export const toggleAdminPeakHours = async (req, res) => {
+  try {
+    const currentConfig = await storeHoursService.getStoreHoursConfig();
+    const isPeak =
+      typeof req.body?.is_peak_hours === "boolean"
+        ? req.body.is_peak_hours
+        : !currentConfig.is_peak_hours;
+
+    const savedConfig = await storeHoursService.saveStoreHoursConfig({
+      ...currentConfig,
+      is_peak_hours: isPeak,
+      ...(typeof req.body?.peak_delivery_text === "string" ? { peak_delivery_text: req.body.peak_delivery_text } : {}),
+      ...(typeof req.body?.peak_notice_message === "string" ? { peak_notice_message: req.body.peak_notice_message } : {}),
+      ...(typeof req.body?.normal_delivery_text === "string" ? { normal_delivery_text: req.body.normal_delivery_text } : {}),
+    });
+    const currentStatus = storeHoursService.evaluateStoreStatus(savedConfig);
+
+    return res.json({
+      success: true,
+      message: `Peak hours ${isPeak ? "activated" : "deactivated"} successfully.`,
+      is_peak_hours: isPeak,
+      delivery_eta_text: currentStatus.delivery_eta_text,
+      config: savedConfig,
+      status: currentStatus,
+      ...savedConfig,
+      ...currentStatus,
+    });
+  } catch (error) {
+    logError(req, error, "[AdminStoreHours] Error toggling peak hours");
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to toggle peak hours.",
+    });
+  }
+};

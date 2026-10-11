@@ -19,7 +19,7 @@ function ShippingPolicy() {
           <h1 className="text-2xl font-extrabold text-[#1E1E1E] md:text-3xl">
             Shipping & Delivery Policy
           </h1>
-          <p className="mt-2 text-sm text-[#666666]">
+          <p className="mt-2 text-sm text-[#444444]">
             Delivering from our Vasai Store directly to your home
           </p>
         </div>

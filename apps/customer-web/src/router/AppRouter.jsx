@@ -40,7 +40,6 @@ const PrivacyPolicy = lazy(() => import("../pages/PrivacyPolicy"));
 const Categories = lazy(() => import("../pages/Categories"));
 const Favorites = lazy(() => import("../pages/Favorites"));
 
-import GlobalGoogleLogin from "../components/auth/GlobalGoogleLogin";
 import { CartRouteManager } from "../context/CartContext";
 
 function RouteLoadingFallback() {
@@ -58,7 +57,6 @@ function AppRouter() {
   return (
     <BrowserRouter>
       <ScrollToTop />
-      <GlobalGoogleLogin />
       <CartRouteManager />
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
@@ -78,12 +76,14 @@ function AppRouter() {
               <Route path="/account/orders" element={<Orders />} />
               <Route path="/account/addresses" element={<Addresses />} />
               <Route path="/account/profile" element={<Profile />} />
+              <Route path="/profile" element={<Navigate to="/account/profile" replace />} />
               <Route path="/account/favorites" element={<Favorites />} />
             </Route>
 
             <Route path="/product/:id" element={<ProductDetails />} />
             <Route path="/category/:categoryId" element={<Category />} />
             <Route path="/order-success/:id" element={<OrderSuccess />} />
+            <Route path="/order-success" element={<OrderSuccess />} />
 
             {/* Customer & Policy Pages */}
             <Route path="/orders/:orderId/track" element={<TrackOrder />} />
@@ -94,7 +94,12 @@ function AppRouter() {
             <Route path="/support" element={<Contact />} />
             <Route path="/shipping-policy" element={<ShippingPolicy />} />
             <Route path="/return-policy" element={<ReturnPolicy />} />
+            <Route path="/refund-policy" element={<Navigate to="/return-policy" replace />} />
+            <Route path="/refunds" element={<Navigate to="/return-policy" replace />} />
+            <Route path="/returns" element={<Navigate to="/return-policy" replace />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/terms-and-conditions" element={<Navigate to="/terms" replace />} />
+            <Route path="/terms-of-service" element={<Navigate to="/terms" replace />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
             <Route path="/login" element={<Login />} />

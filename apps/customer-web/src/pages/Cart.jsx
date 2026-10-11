@@ -1,21 +1,44 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { updateCartItem, removeCartItem, addToCart, getStoreProductById } from "../services/storeApi";
+import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours } from "../services/storeApi";
 import { getProductById } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { ArrowLeft, Share, Check, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "lucide-react";
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import SharedCartModal from "../components/cart/SharedCartModal";
 import { buildCartShareUrl, parseSharedCartItems } from "../utils/cartShareUtils";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 function Cart() {
+  useNoIndex();
   const navigate = useNavigate();
   const location = useLocation();
   const { cart, loading, refreshCart, updateCart } = useCart();
   const { isAuthenticated } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
+  const [storeHours, setStoreHours] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    getStoreHours()
+      .then((data) => {
+        if (isMounted && data) setStoreHours(data);
+      })
+      .catch(() => {
+        if (isMounted) {
+          setStoreHours({
+            is_open: true,
+            is_peak_hours: false,
+            delivery_eta_text: "Delivery in 60–90 mins",
+          });
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const [shareFeedback, setShareFeedback] = useState(null);
   const shareTimerRef = useRef(null);
 
@@ -382,7 +405,89 @@ function Cart() {
 
   const MIN_ORDER_VALUE = 500;
 
+  const [stockCheckMap, setStockCheckMap] = useState({});
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!cart?.items || cart.items.length === 0) {
+      setStockCheckMap({});
+      return;
+    }
+
+    Promise.allSettled(
+      cart.items.map(async (item) => {
+        try {
+          const prod = await getProductById(item.id);
+          if (prod) {
+            const isOutOfStock =
+              prod.stock_status === "outofstock" ||
+              (prod.manage_stock &&
+                prod.stock_quantity !== null &&
+                (Number(prod.stock_quantity) < item.quantity || Number(prod.stock_quantity) <= 0));
+            const maxStock =
+              prod.manage_stock && prod.stock_quantity !== null
+                ? Math.max(0, Number(prod.stock_quantity))
+                : prod.stock_status === "outofstock"
+                ? 0
+                : 99;
+
+            return {
+              key: item.key,
+              id: item.id,
+              isOutOfStock,
+              maxStock,
+            };
+          }
+        } catch {
+          // ignore individual fetch errors
+        }
+        return null;
+      })
+    ).then((results) => {
+      if (!isMounted) return;
+      const nextMap = {};
+      for (const res of results) {
+        if (res.status === "fulfilled" && res.value) {
+          nextMap[res.value.key] = res.value;
+          nextMap[res.value.id] = res.value;
+        }
+      }
+      setStockCheckMap(nextMap);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [cart?.items]);
+
+  const outOfStockItems = (cart?.items || []).filter((item) => {
+    const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
+    if (liveStock && typeof liveStock.isOutOfStock === "boolean") {
+      return liveStock.isOutOfStock;
+    }
+    return (
+      item.quantity_limits?.maximum === 0 ||
+      item.stock_status === "outofstock" ||
+      item.is_in_stock === false ||
+      Boolean(item.isOutOfStock)
+    );
+  });
+  const hasOutOfStockItems = outOfStockItems.length > 0;
+
+  const handleRemoveAllOutOfStock = async () => {
+    if (outOfStockItems.length === 0) return;
+    for (const item of outOfStockItems) {
+      try {
+        await removeCartItem(item.key);
+      } catch {
+        // continue
+      }
+    }
+    await refreshCart().catch(() => {});
+  };
+
   const handleCheckout = () => {
+    if (hasOutOfStockItems) return;
     if (itemsTotal < MIN_ORDER_VALUE) return;
     if (!isAuthenticated) {
       navigate("/login", { state: { from: "/checkout" } });
@@ -398,7 +503,7 @@ function Cart() {
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-[15px] font-medium text-[#666666]">Loading cart...</div>
+        <div className="text-[15px] font-medium text-[#444444]">Loading cart...</div>
       </div>
     );
   }
@@ -497,7 +602,7 @@ function Cart() {
           <h1 className="mb-4 text-[24px] font-bold text-[#1E1E1E]">
             Your Cart is Empty
           </h1>
-          <p className="mb-8 text-[#666666]">
+          <p className="mb-8 text-[#444444]">
             Looks like you haven&apos;t added anything to your cart yet.
           </p>
           <button
@@ -509,17 +614,58 @@ function Cart() {
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Out of Stock Notice Banner */}
+          {hasOutOfStockItems && (
+            <div className="rounded-[22px] bg-rose-50 border border-rose-200/90 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+                  <AlertTriangle size={20} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-[13px] font-bold text-rose-900 leading-snug">
+                    {outOfStockItems.length} item{outOfStockItems.length > 1 ? "s" : ""} sold out in your cart
+                  </p>
+                  <p className="text-[11px] text-rose-700 leading-tight">
+                    Please remove unavailable items to proceed to checkout.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRemoveAllOutOfStock}
+                className="flex items-center gap-1.5 rounded-xl bg-white border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 shadow-xs hover:bg-rose-100 transition active:scale-95 cursor-pointer flex-shrink-0"
+              >
+                <Trash2 size={13} />
+                Remove All
+              </button>
+            </div>
+          )}
+
           {/* Product Items List */}
           <div className="space-y-4">
-            {cart.items.map((item) => (
-              <CartItem
-                key={item.key}
-                item={item}
-                updatingKey={updatingKey}
-                onDecrease={handleDecreaseQuantity}
-                onIncrease={handleIncreaseQuantity}
-              />
-            ))}
+            {cart.items.map((item) => {
+              const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
+              const isItemOutOfStock =
+                liveStock && typeof liveStock.isOutOfStock === "boolean"
+                  ? liveStock.isOutOfStock
+                  : (item.quantity_limits?.maximum === 0 ||
+                     item.stock_status === "outofstock" ||
+                     item.is_in_stock === false ||
+                     Boolean(item.isOutOfStock));
+
+              return (
+                <CartItem
+                  key={item.key}
+                  item={{
+                    ...item,
+                    isOutOfStock: isItemOutOfStock,
+                  }}
+                  updatingKey={updatingKey}
+                  onDecrease={handleDecreaseQuantity}
+                  onIncrease={handleIncreaseQuantity}
+                />
+              );
+            })}
           </div>
 
           {/* Bill Summary, Policies & Floating Bar */}
@@ -530,9 +676,11 @@ function Cart() {
             delivery={delivery}
             tax={tax}
             total={total}
-            canCheckout={itemsTotal >= MIN_ORDER_VALUE}
+            canCheckout={itemsTotal >= MIN_ORDER_VALUE && !hasOutOfStockItems}
+            hasOutOfStock={hasOutOfStockItems}
             shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
             minOrderValue={MIN_ORDER_VALUE}
+            storeHours={storeHours}
             onCheckout={handleCheckout}
           />
         </div>

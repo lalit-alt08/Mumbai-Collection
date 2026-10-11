@@ -55,6 +55,20 @@ if (defined('WP_DEBUG') && WP_DEBUG) {
     });
 }
 
+// Production Hardening: Disable XML-RPC pingbacks and brute-force vector
+add_filter('xmlrpc_enabled', '__return_false');
+
+// Production Hardening: Restrict default WordPress REST user enumeration to administrators
+add_filter('rest_endpoints', function ($endpoints) {
+    if (isset($endpoints['/wp/v2/users']) && (!function_exists('current_user_can') || !current_user_can('manage_options'))) {
+        unset($endpoints['/wp/v2/users']);
+    }
+    if (isset($endpoints['/wp/v2/users/(?P<id>[\d]+)']) && (!function_exists('current_user_can') || !current_user_can('manage_options'))) {
+        unset($endpoints['/wp/v2/users/(?P<id>[\d]+)']);
+    }
+    return $endpoints;
+});
+
 // WooCommerce High-Performance Order Storage (HPOS) Compatibility Declaration
 add_action('before_woocommerce_init', function () {
     if (class_exists(\Automattic\WooCommerce\Utilities\FeaturesUtil::class)) {
@@ -461,6 +475,11 @@ add_action('rest_api_init', function () {
     ]);
 
     // Media Orphan Cleanup & Lifecycle Management endpoints (Internal Node.js only)
+    register_rest_route('mumbai-auth/v1', '/media/upload', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_upload_media_attachment',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
     register_rest_route('mumbai-auth/v1', '/media/track-pending', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_track_pending_media',
@@ -1175,23 +1194,15 @@ function mumbai_is_user_phone_verified($user_id) {
     if (!$user_id) {
         return false;
     }
-    $flag = get_user_meta($user_id, '_mumbai_is_phone_verified', true);
-    if (!($flag === '1' || $flag === 1 || $flag === true)) {
-        return false;
-    }
-    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
-    if (empty($verified_phone)) {
-        return false;
-    }
     $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
-    if (empty($billing_phone)) {
-        return false;
+    if (!empty($billing_phone)) {
+        return true;
     }
-
-    $clean_verified = mumbai_normalize_phone($verified_phone);
-    $clean_billing = mumbai_normalize_phone($billing_phone);
-
-    return (!empty($clean_verified) && $clean_verified === $clean_billing);
+    $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
+    if (is_array($profile) && !empty($profile['phone'])) {
+        return true;
+    }
+    return false;
 }
 
 function mumbai_me()
@@ -1227,17 +1238,29 @@ function mumbai_me()
     $is_suspended = false;
     $phone = '';
     $verified_phone = '';
+    $display_name = '';
     if ($user) {
         $is_phone_verified = mumbai_is_user_phone_verified($user->ID);
         $is_suspended = function_exists('mumbai_is_customer_suspended') ? mumbai_is_customer_suspended($user->ID) : false;
         $verified_phone = (string) get_user_meta($user->ID, '_mumbai_verified_phone', true);
         $phone = (string) get_user_meta($user->ID, 'billing_phone', true);
-        if (empty($phone)) {
-            $prof = get_user_meta($user->ID, '_mumbai_user_profile', true);
-            if (is_array($prof) && !empty($prof['phone'])) {
-                $phone = (string) $prof['phone'];
-            }
+        $prof = get_user_meta($user->ID, '_mumbai_user_profile', true);
+        if (empty($phone) && is_array($prof) && !empty($prof['phone'])) {
+            $phone = (string) $prof['phone'];
         }
+        if (is_array($prof) && !empty($prof['full_name'])) {
+            $display_name = trim((string) $prof['full_name']);
+        }
+        if (empty($display_name)) {
+            $first_name = (string) get_user_meta($user->ID, 'first_name', true);
+            $last_name = (string) get_user_meta($user->ID, 'last_name', true);
+            $billing_first = (string) get_user_meta($user->ID, 'billing_first_name', true);
+            $billing_last = (string) get_user_meta($user->ID, 'billing_last_name', true);
+            $full = trim("{$first_name} {$last_name}");
+            $billing_full = trim("{$billing_first} {$billing_last}");
+            $display_name = $full ?: ($billing_full ?: trim((string) $user->display_name));
+        }
+        $secondary_phone = (string) get_user_meta($user->ID, '_mumbai_secondary_phone', true);
     }
 
     return [
@@ -1245,9 +1268,12 @@ function mumbai_me()
         'current_user_id'    => $validated_user_id,
         'email'              => $user ? (string) $user->user_email : '',
         'roles'              => $user ? array_values($user->roles) : [],
+        'name'               => $display_name,
+        'display_name'       => $display_name,
         'is_phone_verified'  => $is_phone_verified,
         'is_suspended'       => $is_suspended,
         'phone'              => $phone,
+        'secondary_phone'    => isset($secondary_phone) ? $secondary_phone : '',
         'verified_phone'     => $verified_phone,
     ];
 }
@@ -1637,21 +1663,36 @@ function mumbai_get_profile(WP_REST_Request $request)
         );
     }
     $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
+    $secondary_phone = (string) get_user_meta($user_id, '_mumbai_secondary_phone', true);
     $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
     $is_phone_verified = mumbai_is_user_phone_verified($user_id);
 
     $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
     if (!is_array($profile)) {
         $profile = [
-            'full_name' => '',
-            'age'       => '',
-            'phone'     => '',
+            'full_name'       => '',
+            'age'             => '',
+            'phone'           => '',
+            'secondary_phone' => '',
         ];
     }
-    // billing_phone is the canonical phone; sync it to profile
+    if (empty($profile['full_name'])) {
+        $u = get_user_by('id', $user_id);
+        if ($u) {
+            $first_name = (string) get_user_meta($user_id, 'first_name', true);
+            $last_name = (string) get_user_meta($user_id, 'last_name', true);
+            $billing_first = (string) get_user_meta($user_id, 'billing_first_name', true);
+            $billing_last = (string) get_user_meta($user_id, 'billing_last_name', true);
+            $full = trim("{$first_name} {$last_name}");
+            $billing_full = trim("{$billing_first} {$billing_last}");
+            $profile['full_name'] = $full ?: ($billing_full ?: trim((string) $u->display_name));
+        }
+    }
+    // billing_phone is the canonical primary phone; sync it to profile
     if (!empty($billing_phone)) {
         $profile['phone'] = $billing_phone;
     }
+    $profile['secondary_phone'] = $secondary_phone;
 
     return [
         'success'           => true,
@@ -1659,6 +1700,7 @@ function mumbai_get_profile(WP_REST_Request $request)
         'is_phone_verified' => $is_phone_verified,
         'verified_phone'    => $verified_phone,
         'billing_phone'     => $billing_phone,
+        'secondary_phone'   => $secondary_phone,
     ];
 }
 /*
@@ -1676,11 +1718,12 @@ function mumbai_save_profile(WP_REST_Request $request)
             ['status' => 401]
         );
     }
-    $first_name = sanitize_text_field($request->get_param('first_name'));
-    $last_name  = sanitize_text_field($request->get_param('last_name'));
-    $full_name  = sanitize_text_field($request->get_param('full_name'));
-    $age        = absint($request->get_param('age'));
-    $phone      = sanitize_text_field($request->get_param('phone'));
+    $first_name      = sanitize_text_field($request->get_param('first_name'));
+    $last_name       = sanitize_text_field($request->get_param('last_name'));
+    $full_name       = sanitize_text_field($request->get_param('full_name'));
+    $age             = absint($request->get_param('age'));
+    $phone           = sanitize_text_field($request->get_param('phone'));
+    $secondary_phone = sanitize_text_field($request->get_param('secondary_phone'));
 
     if (empty($first_name) || empty($last_name)) {
         if (!empty($full_name)) {
@@ -1712,10 +1755,31 @@ function mumbai_save_profile(WP_REST_Request $request)
 
     $clean_full_name = trim("{$first_name} {$last_name}");
 
-    if (!$age || !$phone) {
+    $old_billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
+    $clean_old_billing = mumbai_normalize_phone($old_billing_phone);
+
+    // Primary Phone Rule: If already set, it cannot be changed (locked).
+    // If not set yet, require it and save it once.
+    if (!empty($clean_old_billing)) {
+        $clean_phone = $clean_old_billing;
+    } else {
+        $clean_phone = mumbai_normalize_phone($phone);
+        if (!$clean_phone) {
+            return new WP_Error(
+                'missing_phone',
+                'A valid 10-digit primary mobile number is required.',
+                ['status' => 400]
+            );
+        }
+        update_user_meta($user_id, 'billing_phone', $clean_phone);
+        update_user_meta($user_id, '_mumbai_verified_phone', $clean_phone);
+        update_user_meta($user_id, '_mumbai_is_phone_verified', 1);
+    }
+
+    if (!$age) {
         return new WP_Error(
             'missing_fields',
-            'Full name, age and phone are required.',
+            'Age is required.',
             ['status' => 400]
         );
     }
@@ -1727,23 +1791,26 @@ function mumbai_save_profile(WP_REST_Request $request)
         );
     }
 
-    $old_billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
-    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
-
-    $clean_phone = mumbai_normalize_phone($phone);
-    $clean_old_billing = mumbai_normalize_phone($old_billing_phone);
-    $clean_verified = mumbai_normalize_phone($verified_phone);
-
-    // Business rule: Verified phone numbers cannot be changed via standard profile update; phone change requires OTP verification
-    if (!empty($verified_phone)) {
-        $clean_phone = $clean_verified;
-    } else {
-        if ($clean_phone !== $clean_old_billing) {
-            update_user_meta($user_id, 'billing_phone', $clean_phone);
-            update_user_meta($user_id, '_mumbai_is_phone_verified', 0);
-            delete_user_meta($user_id, '_mumbai_verified_phone');
+    // Optional Secondary / Alternate Phone processing
+    $clean_secondary = '';
+    if (!empty($secondary_phone)) {
+        $clean_secondary = mumbai_normalize_phone($secondary_phone);
+        if (!$clean_secondary) {
+            return new WP_Error(
+                'invalid_secondary_phone',
+                'Please enter a valid 10-digit alternative mobile number.',
+                ['status' => 400]
+            );
+        }
+        if ($clean_secondary === $clean_phone) {
+            return new WP_Error(
+                'duplicate_phone',
+                'Alternative mobile number cannot be the same as your primary mobile number.',
+                ['status' => 400]
+            );
         }
     }
+    update_user_meta($user_id, '_mumbai_secondary_phone', $clean_secondary);
 
     wp_update_user([
         'ID'           => $user_id,
@@ -1757,11 +1824,12 @@ function mumbai_save_profile(WP_REST_Request $request)
     update_user_meta($user_id, 'shipping_last_name', $last_name);
 
     $profile = [
-        'first_name' => $first_name,
-        'last_name'  => $last_name,
-        'full_name'  => $clean_full_name,
-        'age'        => $age,
-        'phone'      => $clean_phone,
+        'first_name'      => $first_name,
+        'last_name'       => $last_name,
+        'full_name'       => $clean_full_name,
+        'age'             => $age,
+        'phone'           => $clean_phone,
+        'secondary_phone' => $clean_secondary,
     ];
     update_user_meta($user_id, '_mumbai_user_profile', $profile);
 
@@ -1775,6 +1843,7 @@ function mumbai_save_profile(WP_REST_Request $request)
         'is_phone_verified' => $is_phone_verified,
         'verified_phone'    => $current_verified_phone,
         'billing_phone'     => (string) get_user_meta($user_id, 'billing_phone', true),
+        'secondary_phone'   => $clean_secondary,
     ];
 }
 /*
@@ -1806,8 +1875,7 @@ function mumbai_check_profile_complete(WP_REST_Request $request)
     $profile_complete =
         !empty($profile['full_name']) &&
         !empty($profile['age']) &&
-        !empty($profile['phone']) &&
-        $is_phone_verified;
+        !empty($profile['phone']);
     $has_address = false;
     foreach ($addresses as $address) {
         if (
@@ -2110,7 +2178,7 @@ add_action('woocommerce_store_api_checkout_update_order_from_request', function 
         if (!mumbai_is_user_phone_verified($customer_id)) {
             throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
                 'woocommerce_rest_phone_unverified',
-                'Please verify your mobile number with OTP before placing an order.',
+                'Please enter your mobile number in your profile before placing an order.',
                 403
             );
         }
@@ -2195,19 +2263,7 @@ add_filter('woocommerce_email_classes', function ($emails) {
 add_action('updated_user_meta', 'mumbai_reset_phone_verification', 10, 4);
 add_action('added_user_meta', 'mumbai_reset_phone_verification', 10, 4);
 function mumbai_reset_phone_verification($meta_id, $user_id, $meta_key, $meta_value) {
-    if ($meta_key === 'billing_phone') {
-        $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
-        $clean_new = mumbai_normalize_phone((string) $meta_value);
-        $clean_verified = mumbai_normalize_phone($verified_phone);
-
-        if (empty($clean_verified) || $clean_new !== $clean_verified) {
-            $current = get_user_meta($user_id, '_mumbai_is_phone_verified', true);
-            if ($current !== '0' && $current !== 0) {
-                update_user_meta($user_id, '_mumbai_is_phone_verified', 0);
-            }
-            delete_user_meta($user_id, '_mumbai_verified_phone');
-        }
-    }
+    // Phone verification requirement removed - no reset required
 }
 
 function mumbai_get_user_by_phone($phone) {
@@ -2603,6 +2659,74 @@ function mumbai_is_media_referenced($media_id) {
     }
 
     return false;
+}
+
+/**
+ * Direct Media Upload endpoint for Node.js backend.
+ * Authenticated via X-Mumbai-Internal-Key.
+ */
+function mumbai_upload_media_attachment(WP_REST_Request $request) {
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+    require_once ABSPATH . 'wp-admin/includes/media.php';
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+
+    $uploader_id = absint($request->get_param('uploader_id'));
+    $filename = sanitize_file_name($request->get_param('filename') ?: ('upload_' . time() . '.webp'));
+
+    $files = $request->get_file_params();
+    $file = !empty($files['file']) ? $files['file'] : (!empty($files['image']) ? $files['image'] : null);
+
+    $attachment_id = 0;
+
+    if ($file && !empty($file['tmp_name'])) {
+        $attachment_id = media_handle_sideload($file, 0);
+        if (is_wp_error($attachment_id)) {
+            return new WP_Error('upload_failed', $attachment_id->get_error_message(), ['status' => 500]);
+        }
+    } else {
+        $body = $request->get_body();
+        if (empty($body)) {
+            return new WP_Error('empty_file', 'No image content provided.', ['status' => 400]);
+        }
+
+        $upload = wp_upload_bits($filename, null, $body);
+        if (!empty($upload['error'])) {
+            return new WP_Error('upload_failed', $upload['error'], ['status' => 500]);
+        }
+
+        $file_path = $upload['file'];
+        $file_type = wp_check_filetype($filename, null);
+
+        $attachment = [
+            'post_mime_type' => $file_type['type'] ?: 'image/webp',
+            'post_title'     => preg_replace('/\.[^.]+$/', '', $filename),
+            'post_content'   => '',
+            'post_status'    => 'inherit',
+        ];
+
+        $attachment_id = wp_insert_attachment($attachment, $file_path);
+        if (!$attachment_id || is_wp_error($attachment_id)) {
+            return new WP_Error('attachment_creation_failed', 'Failed to insert attachment into database.', ['status' => 500]);
+        }
+
+        $attach_data = wp_generate_attachment_metadata($attachment_id, $file_path);
+        wp_update_attachment_metadata($attachment_id, $attach_data);
+    }
+
+    update_post_meta($attachment_id, '_mumbai_upload_status', 'pending');
+    update_post_meta($attachment_id, '_mumbai_upload_time', time());
+    if ($uploader_id > 0) {
+        update_post_meta($attachment_id, '_mumbai_uploader_id', $uploader_id);
+    }
+
+    $url = wp_get_attachment_url($attachment_id);
+
+    return [
+        'success'    => true,
+        'id'         => $attachment_id,
+        'url'        => $url,
+        'source_url' => $url,
+    ];
 }
 
 /**
@@ -3506,8 +3630,9 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
             'name'          => $display_name,
             'first_name'    => $first_name,
             'last_name'     => $last_name,
-            'phone'         => $phone,
-            'location'      => "{$city}, {$state}",
+            'phone'           => $phone,
+            'secondary_phone' => (string) get_user_meta($user_id, '_mumbai_secondary_phone', true),
+            'location'        => "{$city}, {$state}",
             'full_address'  => $full_address,
             'registered_at' => $u->user_registered ? date('c', strtotime($u->user_registered)) : null,
             'roles'         => $roles,

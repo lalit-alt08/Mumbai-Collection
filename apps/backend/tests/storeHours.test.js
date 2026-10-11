@@ -255,4 +255,97 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
       storeHoursService.saveStoreHoursConfig = originalSave;
     }
   });
+
+  await t.test("9. Peak Hours & Dynamic Delivery ETA Evaluation", () => {
+    // Normal / default configuration
+    const normalConfig = {
+      manual_override: "open",
+      is_peak_hours: false,
+    };
+    const normalStatus = evaluateStoreStatus(normalConfig);
+    assert.equal(normalStatus.is_peak_hours, false);
+    assert.equal(normalStatus.delivery_eta_text, "Delivery in 60–90 mins");
+    assert.equal(normalStatus.normal_delivery_text, "Delivery in 60–90 mins");
+    assert.equal(normalStatus.peak_delivery_text, "Delivery in 2–3 hours");
+
+    // Peak hours active with default peak message
+    const peakConfig = {
+      manual_override: "open",
+      is_peak_hours: true,
+    };
+    const peakStatus = evaluateStoreStatus(peakConfig);
+    assert.equal(peakStatus.is_peak_hours, true);
+    assert.equal(peakStatus.delivery_eta_text, "Delivery in 2–3 hours");
+    assert.equal(
+      peakStatus.peak_notice,
+      "High order volume in progress. Deliveries may take 2–3 hours today."
+    );
+
+    // Custom peak hours configuration
+    const customPeakConfig = {
+      manual_override: "open",
+      is_peak_hours: true,
+      peak_delivery_text: "Delivery in 3–4 hours (Monsoon Rush)",
+      peak_notice_message: "Heavy rain across Mumbai. Deliveries may take up to 4 hours.",
+    };
+    const customStatus = evaluateStoreStatus(customPeakConfig);
+    assert.equal(customStatus.is_peak_hours, true);
+    assert.equal(customStatus.delivery_eta_text, "Delivery in 3–4 hours (Monsoon Rush)");
+    assert.equal(
+      customStatus.peak_notice,
+      "Heavy rain across Mumbai. Deliveries may take up to 4 hours."
+    );
+  });
+
+  await t.test("10. Admin 1-Click Peak Hours Toggle Controller", async () => {
+    const { toggleAdminPeakHours } = await import(
+      "../src/controllers/adminStoreHoursController.js"
+    );
+    const storeHoursService = (await import("../src/services/storeHoursService.js")).default;
+
+    const originalGet = storeHoursService.getStoreHoursConfig;
+    const originalSave = storeHoursService.saveStoreHoursConfig;
+
+    let storedState = {
+      manual_override: "open",
+      is_peak_hours: false,
+      peak_delivery_text: "Delivery in 2–3 hours",
+      normal_delivery_text: "Delivery in 60–90 mins",
+      peak_notice_message: "High order volume in progress. Deliveries may take 2–3 hours today.",
+    };
+
+    storeHoursService.getStoreHoursConfig = async () => storedState;
+    storeHoursService.saveStoreHoursConfig = async (cfg) => {
+      storedState = { ...storedState, ...cfg };
+      return storedState;
+    };
+
+    try {
+      let jsonResult = null;
+      const mockRes = {
+        json(data) {
+          jsonResult = data;
+          return this;
+        },
+        status() {
+          return this;
+        },
+      };
+
+      // Toggle ON
+      await toggleAdminPeakHours({ body: { is_peak_hours: true } }, mockRes);
+      assert.equal(jsonResult.success, true);
+      assert.equal(jsonResult.is_peak_hours, true);
+      assert.equal(jsonResult.delivery_eta_text, "Delivery in 2–3 hours");
+
+      // Toggle OFF
+      await toggleAdminPeakHours({ body: { is_peak_hours: false } }, mockRes);
+      assert.equal(jsonResult.success, true);
+      assert.equal(jsonResult.is_peak_hours, false);
+      assert.equal(jsonResult.delivery_eta_text, "Delivery in 60–90 mins");
+    } finally {
+      storeHoursService.getStoreHoursConfig = originalGet;
+      storeHoursService.saveStoreHoursConfig = originalSave;
+    }
+  });
 });

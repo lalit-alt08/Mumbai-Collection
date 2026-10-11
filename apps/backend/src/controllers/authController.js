@@ -334,6 +334,7 @@ export const me = async (req, res) => {
     if (!userDetails.phone && response.data?.phone) {
       userDetails.phone = response.data.phone;
     }
+    userDetails.secondary_phone = response.data?.secondary_phone || "";
     userDetails.is_phone_verified = response.data?.is_phone_verified === true;
     userDetails.verified_phone = response.data?.verified_phone || "";
 
@@ -343,6 +344,7 @@ export const me = async (req, res) => {
       current_user_id: userId,
       roles,
       user: userDetails,
+      secondary_phone: response.data?.secondary_phone || "",
       is_phone_verified: response.data?.is_phone_verified === true,
       verified_phone: response.data?.verified_phone || "",
     });

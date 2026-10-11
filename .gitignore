@@ -29,6 +29,8 @@ pnpm-debug.log*
 # Temporary / Scratch scripts with local testing data
 apps/backend/scratch/
 scratch/
+test-results/
+playwright-report/
 
 # OS & IDE files
 .DS_Store

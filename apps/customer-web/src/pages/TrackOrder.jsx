@@ -15,7 +15,6 @@ import {
   Check,
   ChevronRight,
   HelpCircle,
-  Store,
 } from "lucide-react";
 import { getOrderById } from "../services/orderService";
 
@@ -355,7 +354,7 @@ function TrackOrder() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500 font-medium">
-                    Placed on {formatDateTime(order.date_created)} • {order.item_count} {order.item_count === 1 ? "item" : "items"} (₹{order.total})
+                    Placed on {formatDateTime(order.date_created)}
                   </p>
                 </div>
 
@@ -363,13 +362,7 @@ function TrackOrder() {
                 {!isCancelled && !isDelivered && (
                   <div className="flex items-center gap-2 rounded-xl bg-[#F1ECFF] px-3.5 py-2 text-xs font-bold text-[#7C3AED] border border-[#C4B5FD]/40">
                     <Truck size={16} className="animate-pulse shrink-0" />
-                    <span>Est. Delivery: 20–30 Mins</span>
-                  </div>
-                )}
-                {isDelivered && (
-                  <div className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200">
-                    <CheckCircle2 size={16} className="shrink-0" />
-                    <span>Delivered</span>
+                    <span>Est. Delivery: 60–90 Mins</span>
                   </div>
                 )}
               </div>
@@ -517,30 +510,7 @@ function TrackOrder() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
               {/* LEFT COLUMN: LIVE STAGE DETAILS & ORDER ITEMS */}
               <div className="lg:col-span-7 space-y-4">
-                {/* Live Dispatch State Box */}
-                {!isCancelled && (
-                  <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-[#FAF8FF] to-white p-4 sm:p-5 shadow-sm">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#F1ECFF] text-[#7C3AED]">
-                        <Store size={18} />
-                      </div>
-                      <div>
-                        <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#7C3AED]">
-                          Fulfillment Hub
-                        </h3>
-                        <p className="text-xs font-bold text-gray-900 mt-0.5">
-                          Mumbai Collection Store — Vasai West
-                        </p>
-                        <p className="text-[11px] text-gray-500 font-medium leading-relaxed mt-0.5">
-                          {order.tracking_stage === 1 && "Order received. Our staff will begin processing and packing shortly."}
-                          {order.tracking_stage === 2 && "Items are currently being packed and double-checked for quality."}
-                          {order.tracking_stage === 3 && "Delivery rider has picked up your package and is on the way to your address."}
-                          {order.tracking_stage >= 4 && "Order has been successfully delivered. Thank you for shopping with us!"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
+
 
                 {/* Ordered Items Preview */}
                 <div className="rounded-2xl border border-gray-200/80 bg-white p-4 sm:p-5 shadow-sm">

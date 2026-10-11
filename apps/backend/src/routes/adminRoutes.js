@@ -36,6 +36,7 @@ import {
 import {
   getAdminStoreHours,
   updateAdminStoreHours,
+  toggleAdminPeakHours,
 } from "../controllers/adminStoreHoursController.js";
 
 import {
@@ -281,6 +282,13 @@ router.put(
   requireRole(["administrator"]),
   requireIdempotency,
   updateAdminStoreHours
+);
+
+router.put(
+  "/store-hours/peak-toggle",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  toggleAdminPeakHours
 );
 
 // Customer Suspension Management

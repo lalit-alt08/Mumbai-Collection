@@ -265,7 +265,7 @@ export const updateProduct = async (req, res) => {
       const stockNum = Number(stock_quantity);
       updatePayload.manage_stock = true;
       updatePayload.stock_quantity = stockNum;
-      updatePayload.stock_status = stockNum <= 0 ? "outofstock" : stockNum <= 5 ? "lowstock" : "instock";
+      updatePayload.stock_status = stockNum <= 0 ? "outofstock" : "instock";
     } else if (stock_status !== undefined) {
       updatePayload.stock_status = stock_status;
     }
@@ -453,7 +453,13 @@ export const createProduct = async (req, res) => {
       : [];
 
     const imgList = Array.isArray(images) && images.length > 0
-      ? images.map((img) => (typeof img === "string" ? { src: img } : img))
+      ? images.map((img) => {
+          if (typeof img === "number") return { id: img };
+          if (typeof img === "string") return { src: img };
+          if (img && (img.id || img.mediaId)) return { id: Number(img.id || img.mediaId) };
+          if (img && (img.src || img.url)) return { src: img.src || img.url };
+          return img;
+        })
       : image_url
       ? [{ src: image_url }]
       : [];
@@ -467,7 +473,7 @@ export const createProduct = async (req, res) => {
       short_description: short_description || "",
       manage_stock: true,
       stock_quantity: finalStock,
-      stock_status: finalStock <= 0 ? "outofstock" : finalStock <= 5 ? "lowstock" : "instock",
+      stock_status: finalStock <= 0 ? "outofstock" : "instock",
       categories: catList.map((id) => (typeof id === "object" ? id : { id: Number(id) })),
       images: imgList,
     };

@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
-import { updateCheckout } from "../../services/storeApi";
+import { updateCheckout, removeCartItem } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment, checkPaymentStatus } from "../../services/paymentService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
 import safeStorage from "../../utils/safeStorage.js";
+import StockNotificationModal from "./StockNotificationModal";
 import {
   MapPin,
   CreditCard,
@@ -79,27 +80,84 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const [paymentMethod, setPaymentMethod] = useState("cod"); // "cod" | "online"
   const [paymentStep, setPaymentStep] = useState(""); // "" | "preparing" | "opening_gateway" | "verifying"
 
+  const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [stockAlertOpen, setStockAlertOpen] = useState(false);
+  const [stockAlertItems, setStockAlertItems] = useState([]);
+  const [removingStockItems, setRemovingStockItems] = useState(false);
   const isSubmittingRef = useRef(false);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
 
-  const verifyPendingOrder = useCallback(async () => {
+  const handleRemoveUnavailableAndContinue = async () => {
+    if (removingStockItems) return;
+    try {
+      setRemovingStockItems(true);
+      if (Array.isArray(stockAlertItems) && stockAlertItems.length > 0) {
+        for (const item of stockAlertItems) {
+          let targetKey = item.key;
+          if (!targetKey && cart?.items) {
+            const matched = cart.items.find(
+              (c) =>
+                (item.id && Number(c.id) === Number(item.id)) ||
+                c.name === item.name
+            );
+            if (matched) targetKey = matched.key;
+          }
+          if (targetKey) {
+            try {
+              await removeCartItem(targetKey);
+            } catch {
+              // continue with remaining
+            }
+          }
+        }
+      }
+      await refreshCart().catch(() => {});
+      setStockAlertOpen(false);
+      setStockAlertItems([]);
+      setError("");
+    } catch {
+      setError("Failed to update cart. Please return to your cart.");
+    } finally {
+      setRemovingStockItems(false);
+    }
+  };
+
+  const handleReturnToCart = () => {
+    setStockAlertOpen(false);
+    navigate("/cart");
+  };
+
+  const BACKOFF_SCHEDULE = [2000, 4000, 8000, 15000, 30000, 30000, 30000, 30000, 30000];
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const [isPersistentPending, setIsPersistentPending] = useState(false);
+  const [checkingPendingStatus, setCheckingPendingStatus] = useState(false);
+  const pollTimerRef = useRef(null);
+
+  const verifyPendingOrder = useCallback(async (isManualOrTrigger = false) => {
     const stored = getPendingPayment();
-    if (!stored || !stored.razorpay_order_id) return;
+    if (!stored || !stored.razorpay_order_id) {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      setIsPersistentPending(false);
+      return;
+    }
 
     const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
     if (Date.now() - (stored.timestamp || 0) > MAX_AGE_MS) {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       clearPendingPayment();
+      setIsPersistentPending(false);
       return;
     }
 
     // Query payment finalization state by Razorpay order ID FIRST
-    // (Prevents clearing pending payment if the server already created the order and cleared the cart)
     try {
+      setCheckingPendingStatus(true);
       const res = await checkPaymentStatus(stored.razorpay_order_id);
       if (res?.success && res?.order_id) {
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         clearPendingPayment();
         clearCheckoutIdempotencyKey();
         await refreshCart().catch(() => {});
@@ -110,13 +168,25 @@ function BillingForm({ storeHours, onStoreClosed }) {
         return;
       }
       if (res?.refunded || res?.terminal) {
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         clearPendingPayment();
         clearCheckoutIdempotencyKey();
         await refreshCart().catch(() => {});
         setError(res.message || "An item in your order went out of stock during checkout. Your payment was automatically refunded.");
+        setIsPersistentPending(false);
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        // Session expired mid-payment: NEVER clear pendingPayment!
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        setSessionExpiredPending(true);
+        setError("Your session expired while confirming your payment. Please sign in to resume your order.");
+        return;
+      }
+    } finally {
+      setCheckingPendingStatus(false);
+    }
 
     const currentFingerprint = computeCartFingerprint(cart);
     const currentItemsFingerprint = computeCartItemsFingerprint(cart);
@@ -125,9 +195,28 @@ function BillingForm({ storeHours, onStoreClosed }) {
       : stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint;
 
     if (itemsChanged) {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       clearPendingPayment();
+      setIsPersistentPending(false);
       return;
     }
+
+    // Schedule next backoff attempt: 2s, 4s, 8s, 15s, then every 30s (~3 min)
+    setPollAttempt((prev) => {
+      const nextAttempt = isManualOrTrigger ? 0 : prev + 1;
+      if (nextAttempt < BACKOFF_SCHEDULE.length) {
+        const delay = BACKOFF_SCHEDULE[nextAttempt];
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = setTimeout(() => {
+          verifyPendingOrder(false);
+        }, delay);
+        setIsPersistentPending(false);
+      } else {
+        // Transition to persistent pending state with manual check button and support contact
+        setIsPersistentPending(true);
+      }
+      return nextAttempt;
+    });
   }, [cart, navigate, refreshCart]);
 
   useEffect(() => {
@@ -144,19 +233,27 @@ function BillingForm({ storeHours, onStoreClosed }) {
     }
   }, [cart]);
 
-  // Check pending order status on mount (including hard refresh) and when returning from mobile UPI/banking app
+  // Check pending order status on mount (load), when tab becomes visible, and when network reconnects
   useEffect(() => {
-    verifyPendingOrder();
+    verifyPendingOrder(true);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        verifyPendingOrder();
+        verifyPendingOrder(true);
       }
     };
 
+    const handleOnline = () => {
+      verifyPendingOrder(true);
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+
     return () => {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
     };
   }, [verifyPendingOrder]);
 
@@ -262,16 +359,24 @@ function BillingForm({ storeHours, onStoreClosed }) {
         return;
       }
 
-      const userPhone =
-        (selectedAddress.phone || "").replace(/\D/g, "") || "9999999999";
+      const rawPhone = (selectedAddress.phone || user?.phone || "").replace(/\D/g, "");
+      const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith("91") ? rawPhone.slice(2) : rawPhone;
+      if (!cleanPhone || cleanPhone.length < 10) {
+        setError("Please enter a valid 10-digit mobile number on your delivery address so our courier can deliver your order.");
+        return;
+      }
+      const userPhone = cleanPhone;
       const cleanPincode =
         (selectedAddress.pincode || "").replace(/\D/g, "") || "";
+
+      const secondaryPhone = (selectedAddress.secondary_phone || user?.secondary_phone || "").replace(/\D/g, "").slice(0, 10);
 
       const billingAddress = {
         first_name: firstName,
         last_name: lastName,
         email: userEmail,
         phone: userPhone,
+        secondary_phone: secondaryPhone || undefined,
         address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
         city: selectedAddress.city || "Vasai West",
@@ -284,6 +389,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
         first_name: firstName,
         last_name: lastName,
         phone: userPhone,
+        secondary_phone: secondaryPhone || undefined,
         address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
         city: selectedAddress.city || "Vasai West",
@@ -439,20 +545,83 @@ function BillingForm({ storeHours, onStoreClosed }) {
               navigate(`/order-success/${verifyRes.order_id}`, {
                 state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing" },
               });
-            } else {
+              return;
+            }
+
+            if (verifyRes.refunded || verifyRes.terminal) {
               clearCheckoutIdempotencyKey();
               clearPendingPayment();
               await refreshCart().catch(() => {});
-              setError(verifyRes.message || "Payment verification failed. Please contact support.");
+              setError(
+                verifyRes.message ||
+                "An item in your order went out of stock during payment. Your payment was automatically refunded."
+              );
+              return;
             }
+
+            // Non-terminal response: retain pending payment and let polling loop verify
+            throw new Error(verifyRes.message || "Payment verification incomplete");
           } catch (verifyErr) {
-            clearCheckoutIdempotencyKey();
-            clearPendingPayment();
-            await refreshCart().catch(() => {});
-            setError(
-              verifyErr.response?.data?.message ||
-              "Payment verification could not be completed. Please check your order history or contact support."
-            );
+            const errCode = verifyErr.response?.data?.code;
+            const errMsg = String(verifyErr.response?.data?.message || verifyErr.message || "");
+            const isExplicitSignatureFailure =
+              errCode === "INVALID_SIGNATURE" ||
+              errMsg.toLowerCase().includes("invalid signature") ||
+              errMsg.toLowerCase().includes("signature mismatch");
+
+            if (isExplicitSignatureFailure) {
+              // Definitive invalid signature: clear storage and allow fresh retry
+              clearCheckoutIdempotencyKey();
+              clearPendingPayment();
+              await refreshCart().catch(() => {});
+              setError(
+                verifyErr.response?.data?.message ||
+                "Payment verification failed: invalid signature. Please try again or contact support."
+              );
+              return;
+            }
+
+            // For ALL other outcomes (401 session expired, 403 CSRF/phone, 404, 409, 5xx, or network drops):
+            // The customer's funds were ALREADY debited on Razorpay!
+            // Do NOT clear pendingPayment. Run an active backoff polling loop.
+            let pollSucceeded = false;
+            for (let attempt = 1; attempt <= 5; attempt++) {
+              setPaymentStep(`confirming (${attempt}/5)`);
+              await new Promise((resolve) => setTimeout(resolve, 2500));
+              try {
+                const checkRes = await checkPaymentStatus(paymentResponse.razorpay_order_id);
+                if (checkRes?.success && checkRes?.order_id) {
+                  pollSucceeded = true;
+                  clearCheckoutIdempotencyKey();
+                  clearPendingPayment();
+                  await refreshCart().catch(() => {});
+                  navigate(`/order-success/${checkRes.order_id}`, {
+                    state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
+                  });
+                  return;
+                }
+                if (checkRes?.refunded || checkRes?.terminal) {
+                  pollSucceeded = true;
+                  clearCheckoutIdempotencyKey();
+                  clearPendingPayment();
+                  await refreshCart().catch(() => {});
+                  setError(
+                    checkRes.message ||
+                    "An item in your order went out of stock. Your payment has been refunded automatically."
+                  );
+                  return;
+                }
+              } catch (_) {
+                // Continue to next polling attempt
+              }
+            }
+
+            if (!pollSucceeded) {
+              // Retain pendingPayment in safeStorage so auto-recovery works upon refresh or reopening the app
+              setError(
+                "Payment was received by the bank, but order confirmation is taking longer than usual. Please do not pay again — refresh this page shortly or check 'My Orders'."
+              );
+            }
           } finally {
             isSubmittingRef.current = false;
             setLoading(false);
@@ -492,16 +661,23 @@ function BillingForm({ storeHours, onStoreClosed }) {
           onStoreClosed();
         }
       } else if (
+        errData?.code === "ITEM_OUT_OF_STOCK" ||
         errData?.code === "INSUFFICIENT_STOCK" ||
         errData?.code === "woocommerce_rest_cart_item_out_of_stock"
       ) {
         clearCheckoutIdempotencyKey();
         idempotencyKeyRef.current = generateUUID();
         await refreshCart().catch(() => {});
-        setError(
-          errData?.message ||
-            "Some items in your cart are no longer available in the requested quantity.",
-        );
+        const shortageDetails =
+          Array.isArray(errData?.out_of_stock_details) && errData.out_of_stock_details.length > 0
+            ? errData.out_of_stock_details
+            : Array.isArray(errData?.out_of_stock_items) && errData.out_of_stock_items.length > 0
+            ? errData.out_of_stock_items.map((name) => ({ name }))
+            : [{ name: "An item in your cart" }];
+
+        setStockAlertItems(shortageDetails);
+        setStockAlertOpen(true);
+        setError("");
       } else if (errData?.code === "woocommerce_rest_checkout_total_mismatch") {
         clearCheckoutIdempotencyKey();
         idempotencyKeyRef.current = generateUUID();
@@ -546,7 +722,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
   if (loadingAddresses) {
     return (
       <div className="flex min-h-[240px] items-center justify-center rounded-[20px] border border-[#ECECEC] bg-white">
-        <div className="flex items-center gap-2 text-[14px] font-medium text-[#666666]">
+        <div className="flex items-center gap-2 text-[14px] font-medium text-[#444444]">
           <Loader2 size={19} className="animate-spin text-[#7C3AED]" />
           Loading your saved addresses...
         </div>
@@ -560,7 +736,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
       <div className="mb-5">
         <h2 className="text-[25px] font-bold text-[#1E1E1E]">Checkout</h2>
 
-        <p className="mt-1.5 text-[14px] text-[#666666]">
+        <p className="mt-1.5 text-[14px] text-[#444444]">
           Select your delivery address and payment method.
         </p>
       </div>
@@ -602,7 +778,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
               No saved addresses
             </h4>
 
-            <p className="mt-1 text-[13px] text-[#666666]">
+            <p className="mt-1 text-[13px] text-[#444444]">
               Please add a delivery address before placing your order.
             </p>
 
@@ -642,7 +818,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
                       className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
                         isSelected
                           ? "bg-[#7C3AED] text-white"
-                          : "bg-[#F5F5F5] text-[#666666]"
+                          : "bg-[#F5F5F5] text-[#444444]"
                       }`}
                     >
                       {isHome ? <Home size={18} /> : <Building2 size={18} />}
@@ -659,7 +835,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
                         </span>
                       </div>
 
-                      <div className="mt-1 text-[13px] text-[#666666]">
+                      <div className="mt-1 text-[13px] text-[#444444]">
                         {address.address_line1 || ""},{" "}
                         {address.address_line2
                           ? `${address.address_line2}, `
@@ -721,7 +897,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
               <div className="text-[14px] font-bold text-[#1E1E1E]">
                 Cash on Delivery (COD)
               </div>
-              <div className="mt-0.5 text-[12px] text-[#666666]">
+              <div className="mt-0.5 text-[12px] text-[#444444]">
                 Pay with cash upon delivery.
               </div>
             </div>
@@ -753,13 +929,10 @@ function BillingForm({ storeHours, onStoreClosed }) {
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 text-[14px] font-bold text-[#1E1E1E]">
-                <span>Pay Online</span>
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-extrabold text-emerald-700">
-                  FAST
-                </span>
+              <div className="text-[14px] font-bold text-[#1E1E1E]">
+                Pay Online
               </div>
-              <div className="mt-0.5 text-[12px] text-[#666666]">
+              <div className="mt-0.5 text-[12px] text-[#444444]">
                 UPI, Cards, NetBanking, Wallets
               </div>
             </div>
@@ -770,42 +943,180 @@ function BillingForm({ storeHours, onStoreClosed }) {
       {/* Place Order / Pay */}
       {(() => {
         const isStoreClosed = storeHours && storeHours.is_open === false;
-        const isDisabled = loading || addresses.length === 0 || !selectedAddress || isStoreClosed;
+        const pending = getPendingPayment();
+        const hasActivePendingPayment = Boolean(
+          pending?.razorpay_order_id &&
+          Date.now() - (pending.timestamp || 0) < 30 * 60 * 1000
+        );
+        const isDisabled =
+          loading ||
+          addresses.length === 0 ||
+          !selectedAddress ||
+          isStoreClosed ||
+          (paymentMethod === "online" && hasActivePendingPayment);
 
         return (
-          <button
-            type="button"
-            onClick={handlePlaceOrder}
-            disabled={isDisabled}
-            className={`flex h-[54px] w-full shrink-0 items-center justify-center gap-2 rounded-[17px] text-[15px] font-bold whitespace-nowrap transition-colors ${
-              isStoreClosed
-                ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
-                : "bg-[#7C3AED] text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-            }`}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="animate-spin shrink-0" size={19} />
-                <span>
-                  {paymentStep === "preparing"
-                    ? "Preparing payment..."
-                    : paymentStep === "opening_gateway"
-                    ? "Opening payment gateway..."
-                    : paymentStep === "verifying"
-                    ? "Verifying payment..."
-                    : "Processing..."}
+          <>
+            {sessionExpiredPending && (
+              <div className="mb-3 flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
+                <span className="font-semibold">
+                  Your session expired while confirming payment. Sign in to resume your order.
                 </span>
-              </>
-            ) : isStoreClosed ? (
-              "Store is Currently Closed for Orders"
-            ) : paymentMethod === "online" ? (
-              "Pay Online securely →"
-            ) : (
-              "Place Order securely →"
+                <button
+                  type="button"
+                  onClick={() => navigate("/login?redirect=/checkout")}
+                  className="rounded-lg bg-[#7C3AED] px-3 py-1 font-bold text-white hover:bg-[#6C35E8] cursor-pointer"
+                >
+                  Sign In
+                </button>
+              </div>
             )}
-          </button>
+            {isPersistentPending && !sessionExpiredPending && (
+              <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-900 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
+                    <Clock size={18} />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-extrabold text-amber-950 text-sm">
+                      Payment Pending Confirmation
+                    </h4>
+                    <p className="mt-1 leading-relaxed text-amber-800 text-[12px]">
+                      Your payment is currently being processed by your bank. If the amount was debited from your account, please do not pay again — your order will update as soon as the bank confirms.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => verifyPendingOrder(true)}
+                        disabled={checkingPendingStatus}
+                        className="rounded-xl bg-[#7C3AED] px-3.5 py-1.5 font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
+                      >
+                        {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
+                      </button>
+                      <a
+                        href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 font-bold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        WhatsApp Support (+91 87936 01567)
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {hasActivePendingPayment && paymentMethod === "online" && !isPersistentPending && !sessionExpiredPending && (
+              <div className="mb-3 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 text-xs text-[#7C3AED]">
+                <span className="font-semibold flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin shrink-0" />
+                  Confirming payment with bank (attempt {pollAttempt + 1} of 9)...
+                </span>
+                <button
+                  type="button"
+                  onClick={() => verifyPendingOrder(true)}
+                  disabled={checkingPendingStatus}
+                  className="font-bold underline hover:text-[#6D28D9] cursor-pointer disabled:opacity-50"
+                >
+                  {checkingPendingStatus ? "Checking..." : "Check Status"}
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handlePlaceOrder}
+              disabled={isDisabled}
+              className={`flex h-[54px] w-full shrink-0 items-center justify-center gap-2 rounded-[17px] text-[15px] font-bold whitespace-nowrap transition-colors ${
+                isStoreClosed
+                  ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
+                  : hasActivePendingPayment && paymentMethod === "online"
+                  ? "bg-purple-100 text-[#7C3AED] border border-[#7C3AED]/30 cursor-wait opacity-90"
+                  : "bg-[#7C3AED] text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              }`}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin shrink-0" size={19} />
+                  <span>
+                    {paymentStep === "preparing"
+                      ? "Preparing payment..."
+                      : paymentStep === "opening_gateway"
+                      ? "Opening payment gateway..."
+                      : paymentStep.startsWith("confirming")
+                      ? `Confirming with bank ${paymentStep.replace("confirming", "")}...`
+                      : paymentStep === "verifying"
+                      ? "Verifying payment..."
+                      : "Processing..."}
+                  </span>
+                </>
+              ) : hasActivePendingPayment && paymentMethod === "online" ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="animate-spin shrink-0" size={18} />
+                  Confirming existing payment...
+                </span>
+              ) : isStoreClosed ? (
+                "Store is Currently Closed for Orders"
+              ) : paymentMethod === "online" ? (
+                "Pay Online securely →"
+              ) : (
+                "Place Order securely →"
+              )}
+            </button>
+          </>
         );
       })()}
+
+      {/* Compliance & Policy Links */}
+      <p className="mt-3.5 text-center text-[11px] leading-relaxed text-[#6B7280]">
+        By placing your order, you agree to Mumbai Collection&apos;s{" "}
+        <a
+          href="/terms"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[#7C3AED] hover:underline"
+        >
+          Terms
+        </a>
+        ,{" "}
+        <a
+          href="/privacy-policy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[#7C3AED] hover:underline"
+        >
+          Privacy Policy
+        </a>
+        ,{" "}
+        <a
+          href="/shipping-policy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[#7C3AED] hover:underline"
+        >
+          Shipping
+        </a>
+        , and{" "}
+        <a
+          href="/return-policy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[#7C3AED] hover:underline"
+        >
+          Returns &amp; Refund Policy
+        </a>
+        .
+      </p>
+
+      {/* Out-of-Stock Notification Modal */}
+      <StockNotificationModal
+        isOpen={stockAlertOpen}
+        onClose={() => setStockAlertOpen(false)}
+        items={stockAlertItems}
+        cartItems={cart?.items || []}
+        onRemoveAndContinue={handleRemoveUnavailableAndContinue}
+        onReturnToCart={handleReturnToCart}
+        removing={removingStockItems}
+      />
     </div>
   );
 }

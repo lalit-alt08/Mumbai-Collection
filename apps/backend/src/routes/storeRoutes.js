@@ -8,6 +8,7 @@ import { checkoutLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { logError, logger } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
+import api from "../config/woocommerce.js";
 
 const router = express.Router();
 
@@ -126,11 +127,9 @@ async function proxyStoreApi(req, res) {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
-        message: "Please verify your mobile number with OTP before placing an order.",
+        message: "Please verify your mobile number before placing an order.",
       });
     }
-
-    // 3. Authoritative Minimum Order Value Check (₹500 product items subtotal)
     try {
       const cartHeaders = { Cookie: customerAuth };
       if (req.headers["cart-token"]) {
@@ -254,6 +253,54 @@ async function proxyStoreApi(req, res) {
       }
     }
 
+    // Live stock enrichment: WooCommerce Store API only reads cached session data on GET /cart.
+    // Attach authoritative live stock status to prevent stale out-of-stock items passing silently in cart.
+    if (
+      response.status === 200 &&
+      response.data &&
+      Array.isArray(response.data.items) &&
+      response.data.items.length > 0 &&
+      targetPath.includes("/cart")
+    ) {
+      await Promise.allSettled(
+        response.data.items.map(async (item) => {
+          try {
+            const productId = item.id;
+            let prod = serverCache.get(`catalog:product:${productId}`);
+            if (!prod) {
+              const prodRes = await api.get(`products/${productId}`);
+              prod = prodRes?.data;
+              if (prod) {
+                serverCache.set(`catalog:product:${productId}`, prod, 15000);
+              }
+            }
+
+            if (prod && typeof prod.manage_stock !== "undefined") {
+              const isShort =
+                (prod.manage_stock &&
+                  typeof prod.stock_quantity === "number" &&
+                  (prod.stock_quantity < item.quantity || prod.stock_quantity <= 0) &&
+                  !prod.backorders_allowed) ||
+                (prod.stock_status === "outofstock" && !prod.backorders_allowed);
+
+              item.is_in_stock = !isShort;
+              item.stock_status = isShort ? "outofstock" : "instock";
+              item.isOutOfStock = isShort;
+              if (isShort) {
+                if (!item.quantity_limits) item.quantity_limits = {};
+                item.quantity_limits.maximum =
+                  prod.manage_stock && typeof prod.stock_quantity === "number"
+                    ? Math.max(0, prod.stock_quantity)
+                    : 0;
+              }
+            }
+          } catch (enrichErr) {
+            // fail-safe, retain original item
+          }
+        })
+      );
+    }
+
     return res.status(response.status).json(transformMediaUrls(response.data, req));
   } catch (error) {
     logError(req, error, "Store API proxy error");
@@ -307,7 +354,7 @@ const resolveCheckoutCustomer = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
-        message: "Please verify your mobile number with OTP before placing an order.",
+        message: "Please verify your mobile number before placing an order.",
       });
     }
 
@@ -316,10 +363,10 @@ const resolveCheckoutCustomer = async (req, res, next) => {
       id: sessionData.userId,
       roles: sessionData.roles || [],
       email: sessionData.email || "",
-      is_phone_verified: true,
+      is_phone_verified: sessionData.isPhoneVerified === true,
       is_suspended: false,
     };
-    req.isPhoneVerified = true;
+    req.isPhoneVerified = sessionData.isPhoneVerified === true;
     req.isSuspended = false;
     next();
   } catch (err) {
@@ -332,13 +379,139 @@ const resolveCheckoutCustomer = async (req, res, next) => {
   }
 };
 
-// Apply checkout customer resolution, rate limiting, and idempotency specifically to POST /checkout
+// Apply checkout customer resolution, idempotency, and rate limiting specifically to POST /checkout
 router.post(
   ["/checkout", "/checkout/"],
   resolveCheckoutCustomer,
-  checkoutLimiter,
-  requireIdempotency
+  requireIdempotency,
+  checkoutLimiter
 );
+
+let sitemapCatalogProviderForTesting = null;
+export const _setSitemapCatalogProviderForTesting = (fn) => {
+  sitemapCatalogProviderForTesting = fn;
+};
+
+const escapeXml = (str) => {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Dynamic Sitemap Generator (published products + categories + static policy pages)
+export const generateSitemapXml = async (req, res) => {
+  try {
+    const cachedXml = serverCache.get("seo:sitemap_xml");
+    if (cachedXml && !sitemapCatalogProviderForTesting) {
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
+      return res.send(cachedXml);
+    }
+
+    const BASE_SITE_URL = (
+      process.env.CUSTOMER_ORIGIN ||
+      process.env.CLIENT_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      "https://mumbaicollection.in"
+    ).replace(/\/+$/, "");
+
+    // 1. Static Core Pages
+    const staticUrls = [
+      { loc: `${BASE_SITE_URL}/`, priority: "1.0", changefreq: "daily" },
+      { loc: `${BASE_SITE_URL}/categories`, priority: "0.8", changefreq: "weekly" },
+      { loc: `${BASE_SITE_URL}/contact`, priority: "0.6", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/privacy-policy`, priority: "0.5", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/terms`, priority: "0.5", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/return-policy`, priority: "0.5", changefreq: "monthly" },
+      { loc: `${BASE_SITE_URL}/shipping-policy`, priority: "0.5", changefreq: "monthly" },
+    ];
+
+    let rawProducts = [];
+    let rawCategories = [];
+
+    if (sitemapCatalogProviderForTesting) {
+      const data = await sitemapCatalogProviderForTesting();
+      rawProducts = data.products || [];
+      rawCategories = data.categories || [];
+    } else {
+      try {
+        const prodRes = await api.get("products", {
+          status: "publish",
+          per_page: 100,
+        });
+        if (Array.isArray(prodRes?.data)) {
+          rawProducts = prodRes.data;
+        }
+      } catch (_) {}
+
+      try {
+        const catRes = await api.get("products/categories", {
+          per_page: 100,
+          hide_empty: true,
+        });
+        if (Array.isArray(catRes?.data)) {
+          rawCategories = catRes.data;
+        }
+      } catch (_) {}
+    }
+
+    // Exclude drafts, private, pending, and out-of-catalog/hidden visibility products
+    const validProducts = rawProducts.filter(
+      (prod) =>
+        prod &&
+        prod.id &&
+        prod.status === "publish" &&
+        prod.catalog_visibility !== "hidden"
+    );
+
+    const validCategories = rawCategories.filter(
+      (cat) => cat && (cat.slug || cat.id)
+    );
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+    for (const page of staticUrls) {
+      xml += `  <url>\n    <loc>${escapeXml(page.loc)}</loc>\n    <changefreq>${escapeXml(page.changefreq)}</changefreq>\n    <priority>${escapeXml(page.priority)}</priority>\n  </url>\n`;
+    }
+
+    for (const cat of validCategories) {
+      const catSlug = cat.slug || cat.id;
+      xml += `  <url>\n    <loc>${escapeXml(`${BASE_SITE_URL}/category/${catSlug}`)}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
+    }
+
+    for (const prod of validProducts) {
+      const lastMod = prod.date_modified_gmt || prod.date_modified || prod.date_created;
+      let lastModTag = "";
+      if (lastMod) {
+        try {
+          const dateStr = new Date(lastMod).toISOString().split("T")[0];
+          lastModTag = `\n    <lastmod>${escapeXml(dateStr)}</lastmod>`;
+        } catch (_) {}
+      }
+      xml += `  <url>\n    <loc>${escapeXml(`${BASE_SITE_URL}/product/${prod.id}`)}</loc>${lastModTag}\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+    }
+
+    xml += `</urlset>`;
+
+    if (!sitemapCatalogProviderForTesting) {
+      serverCache.set("seo:sitemap_xml", xml, 6 * 60 * 60 * 1000); // 6 hours
+    }
+
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
+    return res.send(xml);
+  } catch (error) {
+    logger.warn({ err: error.message }, "[SEO] Failed generating dynamic sitemap, returning static fallback");
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://mumbaicollection.in/</loc><priority>1.0</priority></url>\n</urlset>`);
+  }
+};
+
+router.get("/sitemap.xml", generateSitemapXml);
 
 // Mount proxy middleware for all methods and paths under /api/store
 router.use(proxyStoreApi);

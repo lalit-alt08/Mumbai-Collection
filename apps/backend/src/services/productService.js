@@ -1,9 +1,12 @@
 import api from "../config/woocommerce.js";
 import { logger } from "../utils/logger.js";
 
-export const fetchProducts = async (per_page = 50) => {
+export const fetchProducts = async (page = 1, per_page = 50) => {
+  const pageNum = Math.max(1, Number(page) || 1);
+  const perPageNum = Math.min(100, Math.max(1, Number(per_page) || 50));
   const response = await api.get("products", {
-    per_page: Math.min(100, Math.max(1, Number(per_page) || 50)),
+    page: pageNum,
+    per_page: perPageNum,
   });
 
   if (!Array.isArray(response.data)) {
@@ -12,7 +15,18 @@ export const fetchProducts = async (per_page = 50) => {
     throw new Error("Invalid WooCommerce products response");
   }
 
-  return response.data;
+  const total = parseInt(response.headers?.["x-wp-total"], 10) || response.data.length;
+  const totalPages =
+    parseInt(response.headers?.["x-wp-totalpages"], 10) ||
+    (response.data.length > 0 ? 1 : 0);
+
+  return {
+    products: response.data,
+    total,
+    totalPages,
+    page: pageNum,
+    per_page: perPageNum,
+  };
 };
 
 export const fetchProductById = async (id) => {
