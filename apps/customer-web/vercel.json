@@ -9,15 +9,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://vacations-arising-bus-governor.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/sitemap.xml"
+      "destination": "https://vacations-arising-bus-governor.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/api/:path*"
+      "destination": "https://vacations-arising-bus-governor.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

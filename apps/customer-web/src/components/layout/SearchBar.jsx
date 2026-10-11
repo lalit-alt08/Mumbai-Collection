@@ -2,6 +2,7 @@ import { Search, Loader2, ShoppingCart } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { searchProducts } from "../../services/productService";
+import { cleanProductTitle } from "../../utils/productUtils";
 
 function SearchBar() {
   const [query, setQuery] = useState("");
@@ -64,7 +65,7 @@ function SearchBar() {
   }, [query]);
 
   return (
-    <div ref={searchRef} className="relative w-full">
+    <div ref={searchRef} className="md:relative w-full">
       <div className="relative flex items-center w-full">
         {/* Compact Lavender Outline Search Icon */}
         <Search
@@ -151,8 +152,8 @@ function SearchBar() {
 
                       {/* Info */}
                       <div className="flex flex-col justify-center min-w-0">
-                        <h3 className="line-clamp-1 text-xs sm:text-sm font-bold text-[#111827]">
-                          {product.name}
+                        <h3 className="line-clamp-2 text-xs sm:text-sm font-bold leading-snug text-[#111827]">
+                          {cleanProductTitle(product.name)}
                         </h3>
 
                         {categoryName && (

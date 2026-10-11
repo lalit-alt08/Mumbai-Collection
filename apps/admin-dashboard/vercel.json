@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://keyboards-picks-liable-ticket.trycloudflare.com/api/:path*"
+      "destination": "https://vacations-arising-bus-governor.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",
