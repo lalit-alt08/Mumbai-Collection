@@ -10,6 +10,7 @@ function CartSummary({
   canCheckout = true,
   shortfall = 0,
   minOrderValue = 500,
+  hasOutOfStock = false,
   storeHours,
   onCheckout,
 }) {
@@ -175,6 +176,21 @@ function CartSummary({
             className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#7C3AED] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#6C35E8] hover:shadow-[0_4px_20px_rgba(124,58,237,0.25)] active:scale-95 cursor-pointer"
           >
             Checkout &rarr;
+          </button>
+        ) : hasOutOfStock ? (
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            title="Please remove out-of-stock items to proceed"
+            className="flex h-[52px] w-[55%] flex-col items-center justify-center rounded-[20px] bg-rose-50 text-rose-700 font-bold border border-rose-200 cursor-not-allowed opacity-95 transition-all duration-200"
+          >
+            <span className="text-[12px] font-black text-rose-700 leading-tight">
+              Item Sold Out
+            </span>
+            <span className="text-[10px] font-semibold text-rose-600 leading-tight">
+              Remove to continue
+            </span>
           </button>
         ) : (
           <button

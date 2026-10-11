@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
-import { updateCheckout } from "../../services/storeApi";
+import { updateCheckout, removeCartItem } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment, checkPaymentStatus } from "../../services/paymentService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
 import safeStorage from "../../utils/safeStorage.js";
+import StockNotificationModal from "./StockNotificationModal";
 import {
   MapPin,
   CreditCard,
@@ -83,8 +84,51 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [stockAlertOpen, setStockAlertOpen] = useState(false);
+  const [stockAlertItems, setStockAlertItems] = useState([]);
+  const [removingStockItems, setRemovingStockItems] = useState(false);
   const isSubmittingRef = useRef(false);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
+
+  const handleRemoveUnavailableAndContinue = async () => {
+    if (removingStockItems) return;
+    try {
+      setRemovingStockItems(true);
+      if (Array.isArray(stockAlertItems) && stockAlertItems.length > 0) {
+        for (const item of stockAlertItems) {
+          let targetKey = item.key;
+          if (!targetKey && cart?.items) {
+            const matched = cart.items.find(
+              (c) =>
+                (item.id && Number(c.id) === Number(item.id)) ||
+                c.name === item.name
+            );
+            if (matched) targetKey = matched.key;
+          }
+          if (targetKey) {
+            try {
+              await removeCartItem(targetKey);
+            } catch {
+              // continue with remaining
+            }
+          }
+        }
+      }
+      await refreshCart().catch(() => {});
+      setStockAlertOpen(false);
+      setStockAlertItems([]);
+      setError("");
+    } catch {
+      setError("Failed to update cart. Please return to your cart.");
+    } finally {
+      setRemovingStockItems(false);
+    }
+  };
+
+  const handleReturnToCart = () => {
+    setStockAlertOpen(false);
+    navigate("/cart");
+  };
 
   const BACKOFF_SCHEDULE = [2000, 4000, 8000, 15000, 30000, 30000, 30000, 30000, 30000];
   const [pollAttempt, setPollAttempt] = useState(0);
@@ -617,16 +661,23 @@ function BillingForm({ storeHours, onStoreClosed }) {
           onStoreClosed();
         }
       } else if (
+        errData?.code === "ITEM_OUT_OF_STOCK" ||
         errData?.code === "INSUFFICIENT_STOCK" ||
         errData?.code === "woocommerce_rest_cart_item_out_of_stock"
       ) {
         clearCheckoutIdempotencyKey();
         idempotencyKeyRef.current = generateUUID();
         await refreshCart().catch(() => {});
-        setError(
-          errData?.message ||
-            "Some items in your cart are no longer available in the requested quantity.",
-        );
+        const shortageDetails =
+          Array.isArray(errData?.out_of_stock_details) && errData.out_of_stock_details.length > 0
+            ? errData.out_of_stock_details
+            : Array.isArray(errData?.out_of_stock_items) && errData.out_of_stock_items.length > 0
+            ? errData.out_of_stock_items.map((name) => ({ name }))
+            : [{ name: "An item in your cart" }];
+
+        setStockAlertItems(shortageDetails);
+        setStockAlertOpen(true);
+        setError("");
       } else if (errData?.code === "woocommerce_rest_checkout_total_mismatch") {
         clearCheckoutIdempotencyKey();
         idempotencyKeyRef.current = generateUUID();
@@ -1055,6 +1106,17 @@ function BillingForm({ storeHours, onStoreClosed }) {
         </a>
         .
       </p>
+
+      {/* Out-of-Stock Notification Modal */}
+      <StockNotificationModal
+        isOpen={stockAlertOpen}
+        onClose={() => setStockAlertOpen(false)}
+        items={stockAlertItems}
+        cartItems={cart?.items || []}
+        onRemoveAndContinue={handleRemoveUnavailableAndContinue}
+        onReturnToCart={handleReturnToCart}
+        removing={removingStockItems}
+      />
     </div>
   );
 }

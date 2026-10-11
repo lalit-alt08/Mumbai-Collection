@@ -374,7 +374,17 @@ export const createOrder = async (req, res) => {
                 (prod.manage_stock && typeof prod.stock_quantity === "number" && prod.stock_quantity < item.quantity && !prod.backorders_allowed) ||
                 (prod.stock_status === "outofstock" && !prod.backorders_allowed);
               if (isShort) {
-                return { isShort: true, name: item.name || prod.name || `Product #${item.id}` };
+                return {
+                  isShort: true,
+                  id: item.id,
+                  key: item.key,
+                  name: item.name || prod.name || `Product #${item.id}`,
+                  requested: item.quantity,
+                  available:
+                    prod.manage_stock && typeof prod.stock_quantity === "number"
+                      ? Math.max(0, prod.stock_quantity)
+                      : 0,
+                };
               }
             }
           } catch (stockErr) {
@@ -385,9 +395,17 @@ export const createOrder = async (req, res) => {
       );
 
       const stockShortages = [];
+      const stockShortageDetails = [];
       for (const r of stockResults) {
         if (r.status === "fulfilled" && r.value?.isShort) {
           stockShortages.push(r.value.name);
+          stockShortageDetails.push({
+            id: r.value.id,
+            key: r.value.key,
+            name: r.value.name,
+            requested: r.value.requested,
+            available: r.value.available,
+          });
         }
       }
 
@@ -401,6 +419,7 @@ export const createOrder = async (req, res) => {
           code: "ITEM_OUT_OF_STOCK",
           message: `The following item(s) are out of stock or have insufficient quantity: ${stockShortages.join(", ")}. Please update your cart.`,
           out_of_stock_items: stockShortages,
+          out_of_stock_details: stockShortageDetails,
         });
       }
 

@@ -8,6 +8,7 @@ import { useCart } from "../../context/CartContext";
 import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
+import { cleanProductTitle } from "../../utils/productUtils";
 
 function ProductInfo({ product }) {
   const navigate = useNavigate();
@@ -85,7 +86,7 @@ function ProductInfo({ product }) {
       <div className="rounded-[24px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] md:p-6 space-y-4">
         <div>
           <h1 className="text-[22px] font-bold leading-snug text-[#1F2937] md:text-[26px]">
-            {product.name}
+            {cleanProductTitle(product.name)}
           </h1>
 
           {/* Star Rating & Review Link */}
@@ -169,13 +170,32 @@ function ProductInfo({ product }) {
 
           {/* Desktop Add to Cart Button */}
           <div className="hidden lg:flex flex-col items-end">
-            {!cartItem ? (
+            {isOutOfStock ? (
+              cartItem ? (
+                <button
+                  type="button"
+                  onClick={() => handleUpdateQuantity(0)}
+                  disabled={loading}
+                  className="flex h-[40px] px-5 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-[13px] font-bold text-rose-600 shadow-xs transition-all hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                >
+                  Sold Out — Remove
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-gray-100 text-[14px] font-bold text-gray-400 cursor-not-allowed border border-gray-200 select-none"
+                >
+                  Out of Stock
+                </button>
+              )
+            ) : !cartItem ? (
               <button
                 onClick={handleAddToCart}
-                disabled={loading || isOutOfStock}
-                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#7C3AED] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(124,58,237,0.2)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading}
+                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#7C3AED] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(124,58,237,0.2)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isOutOfStock ? "Out of Stock" : "ADD"}
+                ADD
               </button>
             ) : (
               <div className="flex flex-col items-end gap-1">
@@ -236,7 +256,9 @@ function ProductInfo({ product }) {
             <span className="mb-0.5 text-[22px] font-black leading-none tracking-tight text-[#1F2937]">
               ₹{product.price}
             </span>
-            {isMaxReached ? (
+            {isOutOfStock ? (
+              <span className="text-[10px] font-bold text-rose-600">Out of stock</span>
+            ) : isMaxReached ? (
               <span className="text-[10px] font-bold text-amber-700">Max stock ({maxStock})</span>
             ) : (
               <span className="text-[10px] font-medium leading-none text-[#7C3AED]">
@@ -246,13 +268,32 @@ function ProductInfo({ product }) {
           </div>
 
           <div className="flex w-[65%] gap-3 md:w-[45%] lg:w-[35%]">
-            {!cartItem ? (
+            {isOutOfStock ? (
+              cartItem ? (
+                <button
+                  type="button"
+                  onClick={() => handleUpdateQuantity(0)}
+                  disabled={loading}
+                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50 text-[14px] font-bold text-rose-600 transition-all hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
+                >
+                  Sold Out — Remove
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-gray-100 text-[15px] font-bold text-gray-400 cursor-not-allowed border border-gray-200 select-none"
+                >
+                  Out of Stock
+                </button>
+              )
+            ) : !cartItem ? (
               <button
                 onClick={handleAddToCart}
-                disabled={loading || isOutOfStock}
+                disabled={loading}
                 className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#7C3AED] text-[15px] font-bold text-white transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isOutOfStock ? "Out of Stock" : "Add to Cart"}
+                Add to Cart
               </button>
             ) : (
               <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#7C3AED] px-1.5 text-white shadow-sm">

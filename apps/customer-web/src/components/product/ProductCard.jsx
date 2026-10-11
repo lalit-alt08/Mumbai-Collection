@@ -9,6 +9,7 @@ import {
 import { useCart } from "../../context/CartContext";
 import { useFavorites } from "../../context/FavoritesContext";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
+import { cleanProductTitle } from "../../utils/productUtils";
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
@@ -118,7 +119,7 @@ function ProductCard({ product }) {
 
         {/* Product Title with Locked 2-Line Height */}
         <h2 className="mt-2 line-clamp-2 h-[34px] sm:h-[38px] text-[12px] sm:text-[13px] font-bold leading-tight text-[#111827]">
-          {product.name}
+          {cleanProductTitle(product.name)}
         </h2>
       </div>
 
@@ -147,11 +148,45 @@ function ProductCard({ product }) {
           </div>
 
           <div className="flex items-center justify-end flex-shrink-0">
-            {!cartItem ? (
+            {isOutOfStock ? (
+              cartItem ? (
+                <button
+                  type="button"
+                  disabled={updatingCart}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (updatingCart) return;
+                    try {
+                      setUpdatingCart(true);
+                      const updatedCart = await removeCartItem(cartItem.key);
+                      if (updatedCart) {
+                        updateCart(updatedCart);
+                      }
+                    } catch {
+                      await refreshCart().catch(() => {});
+                    } finally {
+                      setUpdatingCart(false);
+                    }
+                  }}
+                  title="Item is sold out. Tap to remove from cart."
+                  className="h-[30px] sm:h-[32px] rounded-full border border-rose-200 bg-rose-50 px-2 sm:px-2.5 text-[11px] font-bold text-rose-600 transition-all hover:bg-rose-100 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
+                >
+                  Sold Out <span className="text-[11px] font-black leading-none">✕</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-gray-200 bg-gray-100 px-2.5 sm:px-3 text-xs font-bold text-gray-400 cursor-not-allowed select-none"
+                >
+                  Sold Out
+                </button>
+              )
+            ) : !cartItem ? (
               <button
-                disabled={updatingCart || isOutOfStock}
+                disabled={updatingCart}
                 onClick={async () => {
-                  if (updatingCart || isOutOfStock) return;
+                  if (updatingCart) return;
                   try {
                     setUpdatingCart(true);
                     const updatedCart = await addToWooCart(product.id);
@@ -166,7 +201,7 @@ function ProductCard({ product }) {
                 }}
                 className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#7C3AED] bg-white px-2.5 sm:px-3 text-xs font-bold text-[#7C3AED] transition-all duration-200 hover:bg-[#7C3AED] hover:text-white hover:shadow-[0_4px_14px_rgba(124,58,237,0.2)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isOutOfStock ? "Sold Out" : "ADD"}
+                ADD
               </button>
             ) : (
               <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#7C3AED] text-white shadow-[0_4px_14px_rgba(124,58,237,0.2)]">

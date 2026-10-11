@@ -1,5 +1,6 @@
 import { Minus, Plus } from "lucide-react";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
+import { cleanProductTitle } from "../../utils/productUtils";
 
 function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
   const price = Number(item.prices?.price) / 100;
@@ -8,11 +9,20 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
     : price;
 
   const isUpdating = updatingKey === item.key;
-  const maxLimit = item.quantity_limits?.maximum || 99;
-  const isMaxReached = item.quantity >= maxLimit;
+  const maxLimit = typeof item.quantity_limits?.maximum === "number" ? item.quantity_limits.maximum : 99;
+  const isOutOfStock =
+    maxLimit === 0 ||
+    item.stock_status === "outofstock" ||
+    item.is_in_stock === false ||
+    Boolean(item.isOutOfStock);
+  const isMaxReached = item.quantity >= maxLimit && maxLimit > 0;
 
   return (
-    <div className="flex items-center gap-4 rounded-[22px] bg-white p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all duration-300 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-0.5">
+    <div
+      className={`flex items-center gap-4 rounded-[22px] p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all duration-300 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 ${
+        isOutOfStock ? "bg-rose-50/20 border border-rose-200" : "bg-white"
+      }`}
+    >
       {/* Product Image */}
       <div className="flex h-[90px] w-[90px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-[#ECECEC] bg-white p-1.5">
         <img
@@ -32,13 +42,17 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
       <div className="flex flex-1 flex-col justify-between py-0.5 min-h-[90px] gap-1.5">
         <div>
           <h2 className="line-clamp-2 text-[14px] font-semibold leading-snug text-[#1E1E1E]">
-            {item.name}
+            {cleanProductTitle(item.name)}
           </h2>
-          {isMaxReached && (
+          {isOutOfStock ? (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200">
+              ● Out of Stock
+            </span>
+          ) : isMaxReached ? (
             <span className="text-[10px] font-bold text-amber-700">
               Max available stock reached
             </span>
-          )}
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -55,13 +69,18 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           </div>
 
           {/* Quantity Controls */}
-          <div className="flex h-[36px] w-[88px] items-center justify-between rounded-full bg-[#7C3AED] px-1 text-white shadow-sm flex-shrink-0 select-none">
+          <div
+            className={`flex h-[36px] w-[88px] items-center justify-between rounded-full px-1 text-white shadow-sm flex-shrink-0 select-none transition-colors ${
+              isOutOfStock ? "bg-rose-600/90" : "bg-[#7C3AED]"
+            }`}
+          >
             <button
               type="button"
               disabled={isUpdating}
               onClick={() => onDecrease(item)}
               aria-label="Decrease quantity"
-              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <Minus size={15} strokeWidth={2.5} />
             </button>
@@ -72,11 +91,17 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
             <button
               type="button"
-              disabled={isUpdating || isMaxReached}
+              disabled={isUpdating || isMaxReached || isOutOfStock}
               onClick={() => onIncrease(item)}
               aria-label="Increase quantity"
-              title={isMaxReached ? `Only ${maxLimit} available in stock` : "Increase quantity"}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                isOutOfStock
+                  ? "Item is out of stock"
+                  : isMaxReached
+                  ? `Only ${maxLimit} available in stock`
+                  : "Increase quantity"
+              }
+              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <Plus size={15} strokeWidth={2.5} />
             </button>

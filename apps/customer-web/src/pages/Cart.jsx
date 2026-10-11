@@ -4,7 +4,7 @@ import { getProductById } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { ArrowLeft, Share, Check, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "lucide-react";
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import SharedCartModal from "../components/cart/SharedCartModal";
@@ -405,7 +405,29 @@ function Cart() {
 
   const MIN_ORDER_VALUE = 500;
 
+  const outOfStockItems = (cart?.items || []).filter(
+    (item) =>
+      item.quantity_limits?.maximum === 0 ||
+      item.stock_status === "outofstock" ||
+      item.is_in_stock === false ||
+      Boolean(item.isOutOfStock)
+  );
+  const hasOutOfStockItems = outOfStockItems.length > 0;
+
+  const handleRemoveAllOutOfStock = async () => {
+    if (outOfStockItems.length === 0) return;
+    for (const item of outOfStockItems) {
+      try {
+        await removeCartItem(item.key);
+      } catch {
+        // continue
+      }
+    }
+    await refreshCart().catch(() => {});
+  };
+
   const handleCheckout = () => {
+    if (hasOutOfStockItems) return;
     if (itemsTotal < MIN_ORDER_VALUE) return;
     if (!isAuthenticated) {
       navigate("/login", { state: { from: "/checkout" } });
@@ -532,6 +554,33 @@ function Cart() {
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Out of Stock Notice Banner */}
+          {hasOutOfStockItems && (
+            <div className="rounded-[22px] bg-rose-50 border border-rose-200/90 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+                  <AlertTriangle size={20} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-[13px] font-bold text-rose-900 leading-snug">
+                    {outOfStockItems.length} item{outOfStockItems.length > 1 ? "s" : ""} sold out in your cart
+                  </p>
+                  <p className="text-[11px] text-rose-700 leading-tight">
+                    Please remove unavailable items to proceed to checkout.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRemoveAllOutOfStock}
+                className="flex items-center gap-1.5 rounded-xl bg-white border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 shadow-xs hover:bg-rose-100 transition active:scale-95 cursor-pointer flex-shrink-0"
+              >
+                <Trash2 size={13} />
+                Remove All
+              </button>
+            </div>
+          )}
+
           {/* Product Items List */}
           <div className="space-y-4">
             {cart.items.map((item) => (
@@ -553,7 +602,8 @@ function Cart() {
             delivery={delivery}
             tax={tax}
             total={total}
-            canCheckout={itemsTotal >= MIN_ORDER_VALUE}
+            canCheckout={itemsTotal >= MIN_ORDER_VALUE && !hasOutOfStockItems}
+            hasOutOfStock={hasOutOfStockItems}
             shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
             minOrderValue={MIN_ORDER_VALUE}
             storeHours={storeHours}
