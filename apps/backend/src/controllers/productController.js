@@ -192,14 +192,48 @@ export const getAllCategories = async (req, res) => {
   }
 };
 
+const SOCIAL_CRAWLERS_REGEX = /(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot|Instagram|Pinterest|Discordbot)/i;
+
+const escapeHtml = (str) => {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
 /**
  * Lightweight dynamic HTML endpoint for social crawlers (WhatsApp, Facebook, Twitter, Instagram)
  * Returns standard Open Graph meta tags and auto-redirects browsers to the React app.
  */
 export const getProductSocialPreview = async (req, res) => {
   try {
-    const productId = req.params.id;
-    const cacheKey = `catalog:product:${productId}`;
+    const rawId = String(req.params.id || "").trim();
+    const productId = parseInt(rawId, 10);
+
+    // Numeric ID validation only
+    if (!productId || !Number.isInteger(productId) || productId <= 0 || String(productId) !== rawId) {
+      return res.status(400).send("Invalid product ID: numeric ID required.");
+    }
+
+    const frontendOrigin = (
+      process.env.CUSTOMER_ORIGIN ||
+      process.env.CLIENT_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      "https://mumbaicollection.in"
+    ).replace(/\/$/, "");
+
+    const userAgent = req.headers["user-agent"] || "";
+    const isSocialCrawler = SOCIAL_CRAWLERS_REGEX.test(userAgent);
+
+    // If Googlebot or normal human browser, redirect to the SPA on own origin
+    if (!isSocialCrawler) {
+      return res.redirect(302, `${frontendOrigin}/product/${productId}`);
+    }
+
+    const cacheKey = `social_preview:${productId}`;
     const product = await serverCache.getOrFetch(
       cacheKey,
       () => fetchProductById(productId),
@@ -210,38 +244,48 @@ export const getProductSocialPreview = async (req, res) => {
       return res.status(404).send("Product not found");
     }
 
-    const title = String(product.name || "Product").replace(/["<>]/g, "");
-    const price = product.price ? `₹${product.price}` : "";
-    const cleanDesc = String(product.short_description || product.description || "Shop quality toys, stationery, and gifts at Mumbai Collection.")
+    const rawTitle = String(product.name || "Product").trim();
+    const rawPrice = product.price ? `₹${product.price}` : "";
+    const rawDesc = String(product.short_description || product.description || "Shop quality toys, stationery, and gifts at Mumbai Collection.")
       .replace(/<[^>]*>/g, "")
-      .replace(/["\n\r]/g, " ")
+      .replace(/[\n\r]+/g, " ")
       .trim()
       .slice(0, 160);
-    const imageUrl = product.images?.[0]?.src || "https://mumbaicollection.in/og-image.jpg";
-    const productUrl = `https://mumbaicollection.in/product/${product.id}`;
+    const rawImageUrl = product.images?.[0]?.src || `${frontendOrigin}/og-image.jpg`;
+    const canonicalProductUrl = `${frontendOrigin}/product/${product.id}`;
+    const relativeUrl = `/product/${product.id}`;
+
+    // HTML-escape every field for strict XSS prevention
+    const safeTitle = escapeHtml(rawTitle);
+    const safePrice = escapeHtml(rawPrice);
+    const safeDesc = escapeHtml(rawDesc);
+    const safeImageUrl = escapeHtml(rawImageUrl);
+    const safeUrl = escapeHtml(canonicalProductUrl);
+    const safeRelativeUrl = escapeHtml(relativeUrl);
+    const safeTitleWithPrice = safePrice ? `${safeTitle} — ${safePrice}` : safeTitle;
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>${title} | Mumbai Collection</title>
+  <title>${safeTitle} | Mumbai Collection</title>
   <meta property="og:site_name" content="Mumbai Collection">
   <meta property="og:type" content="product">
-  <meta property="og:url" content="${productUrl}">
-  <meta property="og:title" content="${title} ${price ? `— ${price}` : ""}">
-  <meta property="og:description" content="${cleanDesc}">
-  <meta property="og:image" content="${imageUrl}">
-  <meta property="og:image:alt" content="${title}">
+  <meta property="og:url" content="${safeUrl}">
+  <meta property="og:title" content="${safeTitleWithPrice}">
+  <meta property="og:description" content="${safeDesc}">
+  <meta property="og:image" content="${safeImageUrl}">
+  <meta property="og:image:alt" content="${safeTitle}">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${title} ${price ? `— ${price}` : ""}">
-  <meta name="twitter:description" content="${cleanDesc}">
-  <meta name="twitter:image" content="${imageUrl}">
-  <meta http-equiv="refresh" content="0;url=/product/${product.id}">
+  <meta name="twitter:title" content="${safeTitleWithPrice}">
+  <meta name="twitter:description" content="${safeDesc}">
+  <meta name="twitter:image" content="${safeImageUrl}">
+  <meta http-equiv="refresh" content="0;url=${safeRelativeUrl}">
 </head>
 <body>
-  <h1>${title}</h1>
-  <p>${cleanDesc}</p>
-  <a href="/product/${product.id}">View in Store</a>
+  <h1>${safeTitle}</h1>
+  <p>${safeDesc}</p>
+  <a href="${safeRelativeUrl}">View in Store</a>
 </body>
 </html>`;
 
