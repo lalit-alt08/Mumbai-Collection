@@ -339,17 +339,37 @@ router.post(
   checkoutLimiter
 );
 
+let sitemapCatalogProviderForTesting = null;
+export const _setSitemapCatalogProviderForTesting = (fn) => {
+  sitemapCatalogProviderForTesting = fn;
+};
+
+const escapeXml = (str) => {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
 // Dynamic Sitemap Generator (published products + categories + static policy pages)
 export const generateSitemapXml = async (req, res) => {
   try {
     const cachedXml = serverCache.get("seo:sitemap_xml");
-    if (cachedXml) {
+    if (cachedXml && !sitemapCatalogProviderForTesting) {
       res.setHeader("Content-Type", "application/xml; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
       return res.send(cachedXml);
     }
 
-    const BASE_SITE_URL = process.env.CUSTOMER_ORIGIN || "https://mumbaicollection.in";
+    const BASE_SITE_URL = (
+      process.env.CUSTOMER_ORIGIN ||
+      process.env.CLIENT_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      "https://mumbaicollection.in"
+    ).replace(/\/+$/, "");
 
     // 1. Static Core Pages
     const staticUrls = [
@@ -362,49 +382,76 @@ export const generateSitemapXml = async (req, res) => {
       { loc: `${BASE_SITE_URL}/shipping-policy`, priority: "0.5", changefreq: "monthly" },
     ];
 
-    let products = [];
-    let categories = [];
+    let rawProducts = [];
+    let rawCategories = [];
 
-    try {
-      const prodRes = await api.get("products", {
-        status: "publish",
-        per_page: 100,
-      });
-      if (Array.isArray(prodRes?.data)) {
-        products = prodRes.data;
-      }
-    } catch (_) {}
+    if (sitemapCatalogProviderForTesting) {
+      const data = await sitemapCatalogProviderForTesting();
+      rawProducts = data.products || [];
+      rawCategories = data.categories || [];
+    } else {
+      try {
+        const prodRes = await api.get("products", {
+          status: "publish",
+          per_page: 100,
+        });
+        if (Array.isArray(prodRes?.data)) {
+          rawProducts = prodRes.data;
+        }
+      } catch (_) {}
 
-    try {
-      const catRes = await api.get("products/categories", {
-        per_page: 100,
-        hide_empty: true,
-      });
-      if (Array.isArray(catRes?.data)) {
-        categories = catRes.data;
-      }
-    } catch (_) {}
+      try {
+        const catRes = await api.get("products/categories", {
+          per_page: 100,
+          hide_empty: true,
+        });
+        if (Array.isArray(catRes?.data)) {
+          rawCategories = catRes.data;
+        }
+      } catch (_) {}
+    }
+
+    // Exclude drafts, private, pending, and out-of-catalog/hidden visibility products
+    const validProducts = rawProducts.filter(
+      (prod) =>
+        prod &&
+        prod.id &&
+        prod.status === "publish" &&
+        prod.catalog_visibility !== "hidden"
+    );
+
+    const validCategories = rawCategories.filter(
+      (cat) => cat && (cat.slug || cat.id)
+    );
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
     for (const page of staticUrls) {
-      xml += `  <url>\n    <loc>${page.loc}</loc>\n    <changefreq>${page.changefreq}</changefreq>\n    <priority>${page.priority}</priority>\n  </url>\n`;
+      xml += `  <url>\n    <loc>${escapeXml(page.loc)}</loc>\n    <changefreq>${escapeXml(page.changefreq)}</changefreq>\n    <priority>${escapeXml(page.priority)}</priority>\n  </url>\n`;
     }
 
-    for (const cat of categories) {
+    for (const cat of validCategories) {
       const catSlug = cat.slug || cat.id;
-      xml += `  <url>\n    <loc>${BASE_SITE_URL}/category/${catSlug}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
+      xml += `  <url>\n    <loc>${escapeXml(`${BASE_SITE_URL}/category/${catSlug}`)}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
     }
 
-    for (const prod of products) {
+    for (const prod of validProducts) {
       const lastMod = prod.date_modified_gmt || prod.date_modified || prod.date_created;
-      const lastModTag = lastMod ? `\n    <lastmod>${new Date(lastMod).toISOString().split("T")[0]}</lastmod>` : "";
-      xml += `  <url>\n    <loc>${BASE_SITE_URL}/product/${prod.id}</loc>${lastModTag}\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+      let lastModTag = "";
+      if (lastMod) {
+        try {
+          const dateStr = new Date(lastMod).toISOString().split("T")[0];
+          lastModTag = `\n    <lastmod>${escapeXml(dateStr)}</lastmod>`;
+        } catch (_) {}
+      }
+      xml += `  <url>\n    <loc>${escapeXml(`${BASE_SITE_URL}/product/${prod.id}`)}</loc>${lastModTag}\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
     }
 
     xml += `</urlset>`;
 
-    serverCache.set("seo:sitemap_xml", xml, 6 * 60 * 60 * 1000); // 6 hours
+    if (!sitemapCatalogProviderForTesting) {
+      serverCache.set("seo:sitemap_xml", xml, 6 * 60 * 60 * 1000); // 6 hours
+    }
 
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
