@@ -302,46 +302,52 @@ function OrderSuccess() {
             <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
 
               {/* LEFT SIDE */}
-              <div className="flex flex-col justify-center px-5 py-7 text-center sm:px-8 sm:py-8 lg:border-r lg:border-gray-100 lg:px-10 lg:py-10 lg:text-left">
+              <div className="flex flex-col justify-center px-5 pt-7 pb-5 text-center sm:px-8 sm:py-8 lg:border-r lg:border-gray-100 lg:px-10 lg:py-10 lg:text-left">
 
                 {/* Success Icon */}
-                <div className="mb-4 flex justify-center lg:justify-start">
-                  <div className="relative flex h-[62px] w-[62px] items-center justify-center rounded-full bg-[#F1ECFF] sm:h-[66px] sm:w-[66px]">
-                    <CheckCircle2
-                      size={34}
-                      className="text-[#7C3AED]"
-                      strokeWidth={2.3}
-                    />
+                <div className="mb-3.5 flex justify-center lg:justify-start">
+                  <div className="relative flex h-[64px] w-[64px] items-center justify-center rounded-full bg-[#F1ECFF] sm:h-[68px] sm:w-[68px]">
+                    <span className="absolute inset-0 rounded-full bg-[#7C3AED]/35 animate-ping opacity-75" />
+                    <span className="absolute -inset-1.5 rounded-full bg-[#7C3AED]/20 animate-pulse" />
+                    <div className="relative z-10 flex h-full w-full items-center justify-center rounded-full bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.18)]">
+                      <CheckCircle2
+                        size={36}
+                        className="text-[#7C3AED]"
+                        style={{ animation: "checkBlink 1.8s ease-in-out infinite" }}
+                        strokeWidth={2.4}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7C3AED]">
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#7C3AED]">
                   Order #{activeOrderId || id}
                 </p>
 
-                <h1 className="text-[25px] font-black leading-tight tracking-[-0.02em] text-[#1F2937] sm:text-[29px]">
-                  Order placed
-                  <br className="hidden lg:block" />
-                  successfully! 🎉
+                <h1 className="text-[23px] font-black leading-snug tracking-[-0.02em] text-[#1F2937] sm:text-[28px] lg:text-[29px]">
+                  Order Placed <span className="inline-block">Successfully! 🎉</span>
                 </h1>
 
-                <p className="mx-auto mt-2.5 max-w-[380px] text-[13px] leading-5 text-[#6B7280] sm:text-sm sm:leading-6 lg:mx-0">
+                <p className="mx-auto mt-2 max-w-[380px] text-[13px] leading-relaxed text-[#6B7280] sm:text-sm sm:leading-6 lg:mx-0">
                   Thank you for shopping with Mumbai Collection.
                   Your order is confirmed and is now being processed.
                 </p>
 
                 {/* Delivery Badge */}
-                <div className="mt-5 flex w-fit items-center gap-2 self-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold text-emerald-700 lg:self-start">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <div className="mt-4 flex w-fit items-center gap-2 self-center rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-[11px] font-bold text-emerald-700 lg:self-start">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
                   Estimated delivery: 60–90 mins
                 </div>
               </div>
 
               {/* RIGHT SIDE */}
-              <div className="px-4 py-5 sm:px-7 sm:py-7 lg:px-9 lg:py-9">
+              <div className="px-4 pt-1 pb-6 sm:px-7 sm:py-7 lg:px-9 lg:py-9">
 
                 {/* Order Summary */}
-                <div className="rounded-2xl border border-gray-100 bg-[#FAFAFC] px-4">
+                <div className="rounded-2xl border border-gray-100 bg-[#FAFAFC] px-4 py-0.5">
 
                   <SummaryRow
                     icon={<Package size={17} />}
@@ -385,7 +391,7 @@ function OrderSuccess() {
                 </p>
 
                 {/* Buttons */}
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 space-y-2.5">
 
                   {/* Track */}
                   <Link
@@ -440,6 +446,18 @@ function OrderSuccess() {
               to {
                 opacity: 1;
                 transform: translateY(0);
+              }
+            }
+            @keyframes checkBlink {
+              0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+                filter: drop-shadow(0 0 0px rgba(124, 58, 237, 0));
+              }
+              50% {
+                transform: scale(1.08);
+                opacity: 0.65;
+                filter: drop-shadow(0 0 8px rgba(124, 58, 237, 0.4));
               }
             }
           `,
