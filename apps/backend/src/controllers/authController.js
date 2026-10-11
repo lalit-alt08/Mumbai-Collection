@@ -3,7 +3,7 @@ import axios from "axios";
 import wp from "../services/wordpress.js";
 import wcApi from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
-import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache } from "../middlewares/authMiddleware.js";
+import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache, setSessionCache } from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
 import { maskEmail } from "../utils/auditLogger.js";
@@ -94,11 +94,24 @@ export const login = async (req, res) => {
     }
 
     if (data.success && data.session && data.cookie_name) {
+      const fullCookieVal = `${data.cookie_name}=${data.session}`;
       res.cookie(
         cookieConfig.auth,
-        `${data.cookie_name}=${data.session}`,
+        fullCookieVal,
         cookieOptions
       );
+
+      if (data.user?.id) {
+        setSessionCache(fullCookieVal, {
+          userId: data.user.id,
+          name: data.user.name || "",
+          roles: Array.isArray(data.user.roles) ? data.user.roles : [],
+          email: data.user.email || "",
+          isPhoneVerified: data.user.is_phone_verified === true,
+          isSuspended: data.user.is_suspended === true,
+          timestamp: Date.now(),
+        });
+      }
     }
 
     if (data.rest_nonce) {

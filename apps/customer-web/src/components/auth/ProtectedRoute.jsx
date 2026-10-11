@@ -8,7 +8,8 @@ function ProtectedRoute() {
   const { isAuthenticated, loading, handleSessionExpired } = useAuth();
   const location = useLocation();
 
-  const [checkingProfile, setCheckingProfile] = useState(true);
+  const isProfileSetupRoute = location.pathname === "/profile-setup";
+  const [checkingProfile, setCheckingProfile] = useState(!isProfileSetupRoute);
   const [profileComplete, setProfileComplete] = useState(false);
 
   useEffect(() => {
@@ -24,11 +25,18 @@ function ProtectedRoute() {
         return;
       }
 
+      // If already on Profile Setup page, allow immediate access without blocking
+      if (location.pathname === "/profile-setup") {
+        setCheckingProfile(false);
+        return;
+      }
+
       try {
         const response = await axios.get(
           `${API_URL}/profile/complete`,
           {
             withCredentials: true,
+            timeout: 8000,
           }
         );
 

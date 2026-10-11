@@ -108,7 +108,12 @@ function Register() {
 
       loginUser(loginResponse.user);
 
-      navigate("/profile-setup");
+      navigate("/profile-setup", {
+        state: {
+          first_name: cleanFirst,
+          last_name: cleanLast,
+        },
+      });
     } catch (err) {
       const backendMessage =
         typeof err.response?.data?.message === "string"

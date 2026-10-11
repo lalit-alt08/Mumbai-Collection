@@ -22,7 +22,7 @@ const sessionCache = new Map();
 const SESSION_CACHE_TTL = 60 * 1000; // 60 seconds
 const SESSION_CACHE_MAX_SIZE = 5000; // Hard memory cap to prevent unbounded growth
 
-const setSessionCache = (cookie, data) => {
+export const setSessionCache = (cookie, data) => {
   if (sessionCache.size >= SESSION_CACHE_MAX_SIZE) {
     const oldestKey = sessionCache.keys().next().value;
     if (oldestKey) {

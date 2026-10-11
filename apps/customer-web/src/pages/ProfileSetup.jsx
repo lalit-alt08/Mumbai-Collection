@@ -35,11 +35,16 @@ function ProfileSetup() {
   const addressesRef = useRef([]);
   const { user, refreshUser, handleSessionExpired } = useAuth();
 
+  const passedFirst = location.state?.first_name || "";
+  const passedLast = location.state?.last_name || "";
+  const initialName = user?.name || user?.full_name || "";
+  const nameTokens = initialName.trim().split(/\s+/);
+
   const [form, setForm] = useState({
-    first_name: "",
-    last_name: "",
+    first_name: passedFirst || user?.first_name || nameTokens[0] || "",
+    last_name: passedLast || user?.last_name || (nameTokens.length > 1 ? nameTokens.slice(1).join(" ") : ""),
     age: "",
-    phone: "",
+    phone: user?.phone || user?.billing_phone || "",
   });
 
   const [addresses, setAddresses] = useState([]);
@@ -64,7 +69,7 @@ function ProfileSetup() {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [addressError, setAddressError] = useState("");
 
-  // Load existing profile & addresses on mount
+  // Load existing profile & addresses on mount concurrently
   useEffect(() => {
     let isMounted = true;
 
@@ -72,36 +77,55 @@ function ProfileSetup() {
       try {
         setLoading(true);
 
-        const response = await axios.get(`${API_URL}/profile`, {
-          withCredentials: true,
-        });
+        const [profileResult, addressResult] = await Promise.allSettled([
+          axios.get(`${API_URL}/profile`, {
+            withCredentials: true,
+            headers: { "X-Mumbai-Panel": "customer" },
+            timeout: 8000,
+          }),
+          axios.get(`${API_URL}/addresses`, {
+            withCredentials: true,
+            headers: { "X-Mumbai-Panel": "customer" },
+            timeout: 8000,
+          }),
+        ]);
 
-        const profileData = response.data.profile || {};
-        const loadedPhone = response.data.billing_phone || profileData.phone || user?.phone || "";
+        if (profileResult.status === "fulfilled") {
+          const profileData = profileResult.value.data?.profile || {};
+          const loadedPhone =
+            profileResult.value.data?.billing_phone ||
+            profileData.phone ||
+            user?.phone ||
+            "";
 
-        const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
-        const nameTokens = rawFullName.trim().split(/\s+/);
-        const initialFirst = profileData.first_name || user?.first_name || nameTokens[0] || "";
-        const initialLast = profileData.last_name || user?.last_name || (nameTokens.length > 1 ? nameTokens.slice(1).join(" ") : "");
+          const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
+          const tokens = rawFullName.trim().split(/\s+/);
+          const initialFirst = profileData.first_name || passedFirst || user?.first_name || tokens[0] || "";
+          const initialLast = profileData.last_name || passedLast || user?.last_name || (tokens.length > 1 ? tokens.slice(1).join(" ") : "");
 
-        if (isMounted) {
-          setForm({
-            first_name: initialFirst,
-            last_name: initialLast,
-            age: profileData.age || "",
-            phone: loadedPhone,
-          });
+          if (isMounted) {
+            setForm((prev) => ({
+              first_name: prev.first_name || initialFirst,
+              last_name: prev.last_name || initialLast,
+              age: profileData.age || prev.age || "",
+              phone: loadedPhone || prev.phone || "",
+            }));
+          }
         }
 
-        const addressRes = await axios.get(`${API_URL}/addresses`, {
-          withCredentials: true,
-        });
-
-        if (isMounted) {
-          setAddresses(addressRes.data.addresses || []);
+        if (addressResult.status === "fulfilled") {
+          if (isMounted) {
+            setAddresses(addressResult.value.data?.addresses || []);
+          }
         }
-      } catch (error) {
-        if (error.response?.status === 401) {
+
+        // Only redirect to login if session was explicitly invalidated (both rejected with 401)
+        if (
+          profileResult.status === "rejected" &&
+          profileResult.reason?.response?.status === 401 &&
+          addressResult.status === "rejected" &&
+          addressResult.reason?.response?.status === 401
+        ) {
           if (handleSessionExpired) {
             handleSessionExpired();
           }
@@ -111,7 +135,7 @@ function ProfileSetup() {
           });
           return;
         }
-
+      } catch (error) {
         if (isMounted) {
           setMessage({
             type: "error",
