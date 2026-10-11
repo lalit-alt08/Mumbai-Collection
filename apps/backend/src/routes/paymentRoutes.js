@@ -58,12 +58,12 @@ router.post(
 );
 
 // POST /api/payments/check-status (App-Switch / Visibility / Reopen Recovery)
-// optionalAuth enables cross-browser / mobile UPI return reconciliation even if session cookie was partitioned
+// Session required; returns 401 if unauthenticated so client preserves pendingPayment and prompts sign-in
 router.post(
   "/check-status",
   validateRequest({ body: schemas.paymentCheckStatus }),
   statusCheckLimiter,
-  optionalAuth("customer"),
+  requireAuth("customer"),
   checkPaymentStatus
 );
 

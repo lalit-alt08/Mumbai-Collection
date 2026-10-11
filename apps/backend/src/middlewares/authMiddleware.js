@@ -58,6 +58,10 @@ export const invalidateUserSessionCache = (userId) => {
   }
 };
 
+export const _setSessionCacheForTesting = (cookie, data) => {
+  sessionCache.set(cookie, data);
+};
+
 const executeAuth = async (context, req, res, next) => {
   try {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;

@@ -79,6 +79,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const [paymentMethod, setPaymentMethod] = useState("cod"); // "cod" | "online"
   const [paymentStep, setPaymentStep] = useState(""); // "" | "preparing" | "opening_gateway" | "verifying"
 
+  const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -116,7 +117,15 @@ function BillingForm({ storeHours, onStoreClosed }) {
         setError(res.message || "An item in your order went out of stock during checkout. Your payment was automatically refunded.");
         return;
       }
-    } catch (_) {}
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        // Session expired mid-payment: NEVER clear pendingPayment!
+        // Preserve state and prompt customer to sign in to resume order confirmation
+        setSessionExpiredPending(true);
+        setError("Your session expired while confirming your payment. Please sign in to resume your order.");
+        return;
+      }
+    }
 
     const currentFingerprint = computeCartFingerprint(cart);
     const currentItemsFingerprint = computeCartItemsFingerprint(cart);
@@ -853,7 +862,21 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
         return (
           <>
-            {hasActivePendingPayment && paymentMethod === "online" && (
+            {sessionExpiredPending && (
+              <div className="mb-3 flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
+                <span className="font-semibold">
+                  Your session expired while confirming payment. Sign in to resume your order.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigate("/login?redirect=/checkout")}
+                  className="rounded-lg bg-[#7C3AED] px-3 py-1 font-bold text-white hover:bg-[#6C35E8] cursor-pointer"
+                >
+                  Sign In
+                </button>
+              </div>
+            )}
+            {hasActivePendingPayment && paymentMethod === "online" && !sessionExpiredPending && (
               <div className="mb-3 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 text-xs text-[#7C3AED]">
                 <span className="font-semibold">
                   A payment is currently awaiting confirmation.

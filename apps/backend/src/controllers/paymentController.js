@@ -571,6 +571,7 @@ export const finalizePaymentAndCreateOrder = async ({
       return {
         success: true,
         order_id: existingOrder.id,
+        order_number: existingOrder.number || existingOrder.id,
         orderStatus: existingOrder.status || "processing",
         message: "Payment already verified.",
         _idempotent: true,
@@ -587,6 +588,7 @@ export const finalizePaymentAndCreateOrder = async ({
       return {
         success: true,
         order_id: Number(intent.wc_order_id),
+        order_number: intent.wc_order_id,
         orderStatus: "processing",
         message: "Payment already verified.",
         _idempotent: true,
@@ -892,6 +894,7 @@ export const finalizePaymentAndCreateOrder = async ({
     return {
       success: true,
       order_id: createdOrder.id,
+      order_number: createdOrder.number || createdOrder.id,
       orderStatus: "processing",
       message: "Payment verified successfully.",
     };
