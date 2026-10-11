@@ -24,7 +24,7 @@ function OrderSuccess() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
 
-  const queryOrderId = searchParams.get("order_id") || searchParams.get("id");
+  const queryOrderId = searchParams.get("order") || searchParams.get("order_id") || searchParams.get("id");
   const rzpOrderId = searchParams.get("razorpay_order_id");
   const rzpPaymentId = searchParams.get("razorpay_payment_id");
   const rzpSignature = searchParams.get("razorpay_signature");

@@ -145,6 +145,7 @@ app.use(
     },
   })
 );
+app.use(express.urlencoded({ extended: true }));
 
 // CSRF Protection for cookie-authenticated state-changing requests
 app.use(verifyCsrf(allowedOrigins));

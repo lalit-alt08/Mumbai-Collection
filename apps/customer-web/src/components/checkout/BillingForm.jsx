@@ -388,8 +388,6 @@ function BillingForm({ storeHours, onStoreClosed }) {
         name: "Mumbai Collection",
         description: "Mumbai Collection Online Payment",
         order_id: orderRes.razorpay_order_id,
-        callback_url: typeof window !== "undefined" ? `${window.location.origin}/order-success` : undefined,
-        redirect: false,
         prefill: {
           name: `${firstName} ${lastName}`.trim(),
           email: userEmail,

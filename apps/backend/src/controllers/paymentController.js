@@ -943,6 +943,57 @@ export const verifyPayment = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/payments/callback (Server-Side Razorpay Form / App Redirect Callback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const handlePaymentCallback = async (req, res) => {
+  try {
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = req.body || {};
+
+    const frontendOrigin =
+      process.env.CUSTOMER_ORIGIN ||
+      process.env.CLIENT_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      "http://localhost:5173";
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      logger.warn({ body: req.body }, "[Payment Callback] Missing parameters in callback request");
+      return res.redirect(303, `${frontendOrigin}/cart?payment_error=missing_parameters`);
+    }
+
+    const finalizeFn = _finalizePaymentOverrideForTesting || finalizePaymentAndCreateOrder;
+    const result = await finalizeFn({
+      rzpOrderId: razorpay_order_id,
+      rzpPaymentId: razorpay_payment_id,
+      rzpSignature: razorpay_signature,
+      expectedCustomerId: null,
+      source: "callback",
+      req,
+    });
+
+    if (result.success && result.order_id) {
+      // 303 See Other redirect to success page without signature or payment ID in URL
+      return res.redirect(303, `${frontendOrigin}/order-success?order=${result.order_id}`);
+    }
+
+    logger.warn({ result }, "[Payment Callback] Finalization unsuccessful in callback");
+    return res.redirect(303, `${frontendOrigin}/cart?payment_error=verification_failed`);
+  } catch (error) {
+    logError(req, error, "[Payment Callback] Unexpected error during payment callback");
+    const frontendOrigin =
+      process.env.CUSTOMER_ORIGIN ||
+      process.env.CLIENT_ORIGIN ||
+      process.env.FRONTEND_URL ||
+      "http://localhost:5173";
+    return res.redirect(303, `${frontendOrigin}/cart?payment_error=server_error`);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/payments/check-status (Browser Reload / App-Switch Recovery)
 // ─────────────────────────────────────────────────────────────────────────────
 

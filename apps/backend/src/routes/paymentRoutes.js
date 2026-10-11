@@ -21,6 +21,7 @@ import {
   createOrder,
   verifyPayment,
   checkPaymentStatus,
+  handlePaymentCallback,
   handleWebhook,
   reconcileOrder,
 } from "../controllers/paymentController.js";
@@ -46,6 +47,14 @@ router.post(
   statusCheckLimiter,
   optionalAuth("customer"),
   verifyPayment
+);
+
+// POST /api/payments/callback
+// Server-side redirect fallback for gateway POST form submissions or cross-browser returns
+router.post(
+  "/callback",
+  statusCheckLimiter,
+  handlePaymentCallback
 );
 
 // POST /api/payments/check-status (App-Switch / Visibility / Reopen Recovery)
