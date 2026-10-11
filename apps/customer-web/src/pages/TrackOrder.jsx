@@ -355,7 +355,7 @@ function TrackOrder() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500 font-medium">
-                    Placed on {formatDateTime(order.date_created)} • {order.item_count} {order.item_count === 1 ? "item" : "items"} (₹{order.total})
+                    Placed on {formatDateTime(order.date_created)}
                   </p>
                 </div>
 
