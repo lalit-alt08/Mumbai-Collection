@@ -45,6 +45,7 @@ server.headersTimeout = 66000;
 // Reconciler Background Worker (Runs every 10 minutes, plus initial run on boot)
 const RECONCILIATION_INTERVAL_MS = 10 * 60 * 1000;
 const DAILY_ALERT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let initialBootTimer = null;
 let reconcilerTimer = null;
 let dailyAlertTimer = null;
 
@@ -90,11 +91,12 @@ export const createDailyAlertCallback = (alertFn = sendDailyHealthAlert) => {
   };
 };
 
-const startBackgroundWorkers = () => {
+export const startBackgroundWorkers = () => {
   logger.info("[Workers] Background reconciliation & health alert workers registered");
 
   // Initial cycle after boot
-  setTimeout(createReconcilerTimeoutCallback(), 5000);
+  initialBootTimer = setTimeout(createReconcilerTimeoutCallback(), 5000);
+  if (initialBootTimer.unref) initialBootTimer.unref();
 
   // Periodic reconciler
   reconcilerTimer = setInterval(createReconcilerIntervalCallback(), RECONCILIATION_INTERVAL_MS);
@@ -105,13 +107,34 @@ const startBackgroundWorkers = () => {
   if (dailyAlertTimer.unref) dailyAlertTimer.unref();
 };
 
-startBackgroundWorkers();
+export const stopBackgroundWorkers = () => {
+  if (initialBootTimer) {
+    clearTimeout(initialBootTimer);
+    initialBootTimer = null;
+  }
+  if (reconcilerTimer) {
+    clearInterval(reconcilerTimer);
+    reconcilerTimer = null;
+  }
+  if (dailyAlertTimer) {
+    clearInterval(dailyAlertTimer);
+    dailyAlertTimer = null;
+  }
+};
+
+const isTestEnv =
+  process.env.NODE_ENV === "test" ||
+  process.argv.some((arg) => arg.includes("--test") || arg.includes(".test.")) ||
+  process.execArgv.some((arg) => arg.includes("--test"));
+
+if (!isTestEnv) {
+  startBackgroundWorkers();
+}
 
 // Graceful shutdown
 const gracefulShutdown = () => {
   logger.info("Received shutdown signal. Closing HTTP server");
-  if (reconcilerTimer) clearInterval(reconcilerTimer);
-  if (dailyAlertTimer) clearInterval(dailyAlertTimer);
+  stopBackgroundWorkers();
   server.close(() => {
     logger.info("HTTP server closed. Exiting process");
     process.exit(0);
@@ -120,4 +143,5 @@ const gracefulShutdown = () => {
 
 process.on("SIGTERM", gracefulShutdown);
 process.on("SIGINT", gracefulShutdown);
+
 

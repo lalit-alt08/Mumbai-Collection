@@ -13,8 +13,13 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
     const parsed = new URL(origin);
     const host = parsed.hostname.toLowerCase();
 
+    const isProduction = process.env.NODE_ENV === "production";
+
     // 1. Localhost / Local IP development (any port, HTTP & HTTPS)
+    // In production, localhost is disabled unless explicitly enabled via ALLOW_LOCAL_ORIGINS="true"
+    const allowLocalOrigins = !isProduction || process.env.ALLOW_LOCAL_ORIGINS === "true";
     if (
+      allowLocalOrigins &&
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
       (host === "localhost" || host === "127.0.0.1" || host === "::1")
     ) {
@@ -34,7 +39,6 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
     // 3. Vercel deployments (development/testing and preview builds)
     // In production, wildcards are disabled by default to prevent arbitrary multi-tenant subdomains from accessing production APIs.
     // Set ALLOW_PREVIEW_ORIGINS="true" in .env only if preview/testing wildcards are needed in production.
-    const isProduction = process.env.NODE_ENV === "production";
     const allowPreviewOrigins = !isProduction || process.env.ALLOW_PREVIEW_ORIGINS === "true";
 
     if (
@@ -45,10 +49,18 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
       return true;
     }
 
-    // 4. Production custom domains (mumbaicollection.in and all subdomains)
+    // 4. Production custom domains (mumbaicollection.in and designated panel subdomains)
+    const ALLOWED_STORE_SUBDOMAINS = new Set([
+      "mumbaicollection.in",
+      "www.mumbaicollection.in",
+      "admin.mumbaicollection.in",
+      "employee.mumbaicollection.in",
+      "api.mumbaicollection.in",
+    ]);
+
     if (
       parsed.protocol === "https:" &&
-      (host === "mumbaicollection.in" || host.endsWith(".mumbaicollection.in"))
+      ALLOWED_STORE_SUBDOMAINS.has(host)
     ) {
       return true;
     }

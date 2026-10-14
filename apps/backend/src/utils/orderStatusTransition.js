@@ -8,12 +8,10 @@ export const ALLOWED_ORDER_STATUSES = [
   "pending",
   "processing",
   "packed",
-  "on-hold",
   "out-for-delivery",
   "dispatched",
   "completed",
   "cancelled",
-  "refunded",
   "failed",
 ];
 
@@ -97,6 +95,115 @@ export const isOrderStatusLocked = (order, nowMs = Date.now()) => {
 
   const SEVENTY_TWO_HOURS_MS = 72 * 60 * 60 * 1000; // 259,200,000 ms (3 days)
   return (nowMs - deliveredAt) >= SEVENTY_TWO_HOURS_MS;
+};
+
+/**
+ * Checks whether an order is Cash on Delivery (COD).
+ */
+export const isCodOrder = (order) => {
+  if (!order) return false;
+  const method = String(order.payment_method || "").trim().toLowerCase();
+  const title = String(order.payment_method_title || "").trim().toLowerCase();
+  return method === "cod" || title.includes("cash on delivery") || title.includes("cod");
+};
+
+/**
+ * Determines whether an order is an online order that has not yet received payment.
+ * COD orders are never unpaid in this context (collected on delivery).
+ * Online orders with captured payments (date_paid, transaction_id, or razorpay payment meta) are paid.
+ * Online orders in pending/failed/on-hold status with no payment proof are unpaid.
+ */
+export const isOnlineOrderUnpaid = (order) => {
+  if (!order) return false;
+  if (isCodOrder(order)) return false;
+
+  const status = String(order.status || "").toLowerCase();
+
+  // If order has captured payment indicators, it is paid
+  if (order.date_paid) return false;
+  if (order.transaction_id && String(order.transaction_id).trim().length > 0) return false;
+  if (
+    Array.isArray(order.meta_data) &&
+    order.meta_data.some(
+      (m) =>
+        (m.key === "_razorpay_payment_id" || m.key === "_payment_method_detail") &&
+        Boolean(m.value)
+    )
+  ) {
+    return false;
+  }
+
+  // Active fulfillment or completed orders are not considered unpaid pending orders
+  if (status === "processing" || status === "completed") {
+    return false;
+  }
+
+  // Pending, failed, or on-hold without payment confirmation are unpaid
+  if (status === "pending" || status === "failed" || status === "on-hold") {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Validates whether an order status transition is allowed.
+ * Enforces:
+ * 1. Target status must be in ALLOWED_ORDER_STATUSES.
+ * 2. 72-hour delivery lock on completed orders.
+ * 3. Cancelled/refunded orders cannot transition to active fulfillment states.
+ * 4. Unpaid online orders cannot transition to active fulfillment or completed states.
+ */
+export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs = Date.now()) => {
+  if (targetStatus === "refunded") {
+    return {
+      valid: false,
+      message: "Orders cannot be marked refunded through status mutation. Please issue refunds through the payment gateway or WooCommerce refund workflow.",
+    };
+  }
+
+  if (targetStatus === "on-hold") {
+    return {
+      valid: false,
+      message: "The on-hold status is disabled and cannot be selected.",
+    };
+  }
+
+  if (!targetStatus || !ALLOWED_ORDER_STATUSES.includes(targetStatus)) {
+    return {
+      valid: false,
+      message: `Invalid status "${targetStatus}". Allowed: ${ALLOWED_ORDER_STATUSES.join(", ")}`,
+    };
+  }
+
+  // 1. 72-hour delivery lock
+  if (isOrderStatusLocked(currentOrder, nowMs)) {
+    return {
+      valid: false,
+      message: "Status changes are locked after 72 hours (3 days) of delivery.",
+    };
+  }
+
+  const fulfillmentStatuses = ["processing", "packed", "out-for-delivery", "dispatched", "completed"];
+  const currentStatus = String(currentOrder?.status || "").toLowerCase();
+
+  // 2. Terminal statuses cannot transition to active fulfillment
+  if ((currentStatus === "cancelled" || currentStatus === "refunded") && fulfillmentStatuses.includes(targetStatus)) {
+    return {
+      valid: false,
+      message: `Cannot transition a ${currentStatus} order to ${targetStatus}.`,
+    };
+  }
+
+  // 3. Unpaid online order guard: cannot advance to fulfillment or completed
+  if (isOnlineOrderUnpaid(currentOrder) && fulfillmentStatuses.includes(targetStatus)) {
+    return {
+      valid: false,
+      message: "Cannot fulfill order: online payment has not been received.",
+    };
+  }
+
+  return { valid: true };
 };
 
 /**

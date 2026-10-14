@@ -1,7 +1,9 @@
 import api from "../config/woocommerce.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError, logger } from "../utils/logger.js";
+import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 
 /**
  * Get Product Categories from WooCommerce
@@ -69,7 +71,10 @@ export const createCategory = async (req, res) => {
       });
     }
 
-    if (!image_id && !image_url) {
+    const hasImageId = image_id !== undefined && image_id !== null && image_id !== "";
+    const hasImageUrl = image_url !== undefined && image_url !== null && image_url !== "";
+
+    if (!hasImageId && !hasImageUrl) {
       return res.status(400).json({
         success: false,
         message: "Category image is required.",
@@ -84,9 +89,23 @@ export const createCategory = async (req, res) => {
       payload.description = description.trim();
     }
 
-    if (image_id) {
-      payload.image = { id: Number(image_id) };
-    } else if (image_url) {
+    if (hasImageId) {
+      const numId = Number(image_id);
+      if (!Number.isInteger(numId) || numId <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "A valid positive numeric image ID is required.",
+        });
+      }
+      payload.image = { id: numId };
+    } else if (hasImageUrl) {
+      const isSafe = await isSafeExternalImageUrl(image_url);
+      if (!isSafe) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or restricted category image URL. Localhost and private network addresses are blocked.",
+        });
+      }
       payload.image = { src: image_url };
     }
 
@@ -95,6 +114,14 @@ export const createCategory = async (req, res) => {
 
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
+
+    logAuditEvent({
+      req,
+      action: "CATEGORY_CREATE",
+      targetType: "category",
+      targetId: cat.id,
+      details: { name: cat.name, slug: cat.slug },
+    });
 
     res.status(201).json({
       success: true,
@@ -167,8 +194,22 @@ export const updateCategory = async (req, res) => {
     }
 
     if (image_id !== undefined && image_id !== null && image_id !== "") {
-      payload.image = { id: Number(image_id) };
+      const numId = Number(image_id);
+      if (!Number.isInteger(numId) || numId <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "A valid positive numeric image ID is required.",
+        });
+      }
+      payload.image = { id: numId };
     } else if (image_url) {
+      const isSafe = await isSafeExternalImageUrl(image_url);
+      if (!isSafe) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or restricted category image URL. Localhost and private network addresses are blocked.",
+        });
+      }
       payload.image = { src: image_url };
     }
 
@@ -185,6 +226,14 @@ export const updateCategory = async (req, res) => {
 
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
+
+    logAuditEvent({
+      req,
+      action: "CATEGORY_UPDATE",
+      targetType: "category",
+      targetId: numericId,
+      details: { name: cat.name, updatedFields: Object.keys(payload) },
+    });
 
     res.json({
       success: true,
@@ -238,48 +287,104 @@ export const reorderCategories = async (req, res) => {
       });
     }
 
-    const validIds = category_ids
-      .map((id) => parseInt(id, 10))
-      .filter((id) => !isNaN(id) && id > 0);
+    const parsedIds = [];
+    for (const id of category_ids) {
+      const parsed = Number(id);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid category ID: ${id}. All elements must be positive integers.`,
+        });
+      }
+      parsedIds.push(parsed);
+    }
 
-    if (validIds.length === 0) {
+    const uniqueSet = new Set(parsedIds);
+    if (uniqueSet.size !== parsedIds.length) {
       return res.status(400).json({
         success: false,
-        message: "No valid numeric category IDs provided.",
+        message: "Duplicate category IDs are not allowed in reorder list.",
       });
     }
 
     // Try WooCommerce Batch Update API
-    const updateBatch = validIds.map((id, index) => ({
+    const updateBatch = parsedIds.map((id, index) => ({
       id,
       menu_order: index + 1,
     }));
 
+    let batchSucceeded = false;
+    let failedIds = [];
+
     try {
-      await api.post("products/categories/batch", {
+      const batchRes = await api.post("products/categories/batch", {
         update: updateBatch,
       });
+
+      const updates = Array.isArray(batchRes.data?.update) ? batchRes.data.update : [];
+      const failedItems = updates.filter((item) => item.error || !item.id);
+      if (failedItems.length > 0) {
+        failedIds = failedItems.map((item) => item.id || "unknown");
+        logger.error({ failedIds }, "[reorderCategories] WooCommerce batch returned per-category errors");
+      } else if (updates.length < updateBatch.length) {
+        const returnedIds = new Set(updates.map((item) => item.id));
+        failedIds = parsedIds.filter((id) => !returnedIds.has(id));
+      } else {
+        batchSucceeded = true;
+      }
     } catch (batchErr) {
-      logger.warn({ err: batchErr.message }, "Batch reorder fallback to parallel updates");
-      // Fallback: update each category's menu_order
-      await Promise.all(
-        validIds.map((id, index) =>
+      logger.warn({ err: batchErr.message }, "Batch reorder API failed, falling back to parallel updates");
+    }
+
+    // If batch update failed or had item-level errors, execute fallback with strict per-item verification
+    if (!batchSucceeded) {
+      const results = await Promise.allSettled(
+        parsedIds.map((id, index) =>
           api.put(`products/categories/${id}`, {
             menu_order: index + 1,
-          }).catch((err) => {
-            logger.error({ id, err: err.message }, "Failed to update menu_order for category");
           })
         )
       );
+
+      const rejected = [];
+      results.forEach((r, idx) => {
+        if (r.status === "rejected" || r.value?.data?.error) {
+          rejected.push(parsedIds[idx]);
+          const errMsg = r.status === "rejected" ? r.reason?.message : r.value?.data?.error?.message;
+          logger.error({ id: parsedIds[idx], err: errMsg }, "Failed to update menu_order for category");
+        }
+      });
+
+      if (rejected.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Failed to update category order for ${rejected.length} category(ies): ${rejected.join(", ")}.`,
+          failed_ids: rejected,
+        });
+      }
+    } else if (failedIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Failed to update category order for ${failedIds.length} category(ies): ${failedIds.join(", ")}.`,
+        failed_ids: failedIds,
+      });
     }
 
     // Invalidate catalog cache so public categories immediately reflect new merchandising order
     serverCache.invalidatePrefix("catalog:");
 
+    logAuditEvent({
+      req,
+      action: "CATEGORY_REORDER",
+      targetType: "category",
+      targetId: "batch",
+      details: { count: parsedIds.length, ordered_ids: parsedIds },
+    });
+
     res.json({
       success: true,
       message: "Category merchandising order updated successfully.",
-      ordered_ids: validIds,
+      ordered_ids: parsedIds,
     });
   } catch (error) {
     logError(req, error, "Reorder categories error");

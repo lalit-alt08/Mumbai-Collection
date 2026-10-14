@@ -109,7 +109,7 @@ test("Phase 1: orderController Snapshot Diff and Error Code Coverage", async (t)
     assert.equal(current.body.code, "ORDER_NOT_FOUND", "Added code field must be ORDER_NOT_FOUND");
   });
 
-  await t.test("6. getOrderById: Forbidden matches baseline snapshot", async () => {
+  await t.test("6. getOrderById: Forbidden returns ORDER_NOT_FOUND to prevent enumeration", async () => {
     api.get = async (endpoint) => {
       if (endpoint.startsWith("orders/")) {
         return { data: { id: 202, customer_id: 99, billing: { email: "other@example.com" } } };
@@ -123,10 +123,10 @@ test("Phase 1: orderController Snapshot Diff and Error Code Coverage", async (t)
     const current = await capture(getOrderById, { wpUserId: 10, params: { id: "202" } });
     const baseline = baselineSnapshots.getOrderById_forbidden;
 
-    assert.equal(current.statusCode, baseline.statusCode, "HTTP status code must match exactly (403)");
+    assert.equal(current.statusCode, baseline.statusCode, "HTTP status code must match exactly (404)");
     assert.equal(current.body.success, baseline.body.success);
     assert.equal(current.body.message, baseline.body.message);
-    assert.equal(current.body.code, "FORBIDDEN_ORDER_ACCESS", "Added code field must be FORBIDDEN_ORDER_ACCESS");
+    assert.equal(current.body.code, "ORDER_NOT_FOUND", "Added code field must be ORDER_NOT_FOUND");
   });
 
   await t.test("7. getOrderById: Success matches baseline snapshot exactly", async () => {

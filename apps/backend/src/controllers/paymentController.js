@@ -55,6 +55,7 @@ import {
 } from "../services/razorpayService.js";
 import { sendRefundEmail } from "../services/brevoService.js";
 import { alertStaffAnomaly } from "../services/alertService.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 const MIN_ORDER_VALUE_INR = 500;
@@ -144,6 +145,7 @@ export const findOrderByRazorpayOrderId = async (rzpOrderId) => {
       return {
         id: Number(intent.wc_order_id),
         status: intent.status === "order_created" ? "processing" : intent.status,
+        customer_id: Number(intent.customer_id || intent.user_id || 0),
       };
     }
 
@@ -153,6 +155,7 @@ export const findOrderByRazorpayOrderId = async (rzpOrderId) => {
       return {
         id: Number(hposOrder.id),
         status: hposOrder.status,
+        customer_id: Number(hposOrder.customer_id || 0),
       };
     }
 
@@ -162,7 +165,14 @@ export const findOrderByRazorpayOrderId = async (rzpOrderId) => {
       per_page: 5,
     });
     const orders = Array.isArray(res.data) ? res.data : [];
-    return orders.find((o) => getExistingRazorpayOrderId(o) === rzpOrderId) || null;
+    const match = orders.find((o) => getExistingRazorpayOrderId(o) === rzpOrderId);
+    if (match) {
+      return {
+        ...match,
+        customer_id: Number(match.customer_id || 0),
+      };
+    }
+    return null;
   } catch (err) {
     logger.warn({ rzpOrderId, err: err.message }, "[Payment] Notice: Lookup for order by Razorpay order ID error");
     return null;
@@ -324,13 +334,23 @@ export const createOrder = async (req, res) => {
     const concurrencyLockKey = `create_order_lock:${userId}:${cartFingerprint}`;
 
     // Acquire brief in-memory mutex to serialize concurrent clicks for identical cart
+    let lockAcquired = false;
     const startWait = Date.now();
     while (Date.now() - startWait < 3000) {
       if (!serverCache.get(concurrencyLockKey)) {
         serverCache.set(concurrencyLockKey, true, 4000); // 4-second safety lock
+        lockAcquired = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 80));
+    }
+
+    if (!lockAcquired) {
+      return res.status(409).json({
+        success: false,
+        code: "CHECKOUT_IN_PROGRESS",
+        message: "A checkout request is already being processed for this cart. Please wait a moment.",
+      });
     }
 
     try {
@@ -487,7 +507,14 @@ export const createOrder = async (req, res) => {
         },
       };
 
-      await paymentIntentService.storePaymentIntent(rzpOrder.id, paymentIntent);
+      const storedDurable = await paymentIntentService.storePaymentIntent(rzpOrder.id, paymentIntent);
+      if (!storedDurable && process.env.NODE_ENV === "production") {
+        logError(req, new Error("Failed to persist payment intent to database"), "[Payment] Payment session persistence failure");
+        return res.status(503).json({
+          success: false,
+          message: "Unable to initialize payment session. Please try again in a moment.",
+        });
+      }
       serverCache.set(userCartIntentKey, rzpOrder.id, 15 * 60 * 1000);
 
       logger.info(
@@ -967,7 +994,7 @@ export const finalizePaymentAndCreateOrder = async ({
     };
   } finally {
     // 11. Guarantee Distributed Lock Release
-    await paymentIntentService.releaseLock(rzpOrderId);
+    await paymentIntentService.releaseLock(rzpOrderId, workerId);
   }
 };
 
@@ -1069,7 +1096,7 @@ export const handlePaymentCallback = async (req, res) => {
 
 export const checkPaymentStatus = async (req, res) => {
   try {
-    const userId = req.wpUserId;
+    const userId = Number(req.wpUserId || req.user?.id || 0);
     const { razorpay_order_id } = req.body;
 
     if (!razorpay_order_id) {
@@ -1079,9 +1106,28 @@ export const checkPaymentStatus = async (req, res) => {
       });
     }
 
+    // 0. Authorization check on stored payment intent (if present)
+    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id);
+    if (intent) {
+      const intentCustomerId = Number(intent.customer_id || intent.user_id || 0);
+      if (userId && intentCustomerId && intentCustomerId !== userId) {
+        return res.status(404).json({
+          success: false,
+          message: "Payment order not found.",
+        });
+      }
+    }
+
     // 1. Check if order was already created
     const existing = await findOrderByRazorpayOrderId(razorpay_order_id);
     if (existing) {
+      const existingCustomerId = Number(existing.customer_id || 0);
+      if (userId && existingCustomerId && existingCustomerId !== userId) {
+        return res.status(404).json({
+          success: false,
+          message: "Payment order not found.",
+        });
+      }
       return res.json({
         success: true,
         order_id: existing.id,
@@ -1092,7 +1138,6 @@ export const checkPaymentStatus = async (req, res) => {
     }
 
     // 1b. Check if payment intent reached a terminal refunded status
-    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id);
     if (intent && (intent.status === "refunded" || intent.status === "refund_pending")) {
       return res.json({
         success: false,
@@ -1182,13 +1227,24 @@ export const handleWebhook = async (req, res) => {
     const rzpPaymentId = paymentEntity?.id;
 
     // 1. Store raw webhook event durably FIRST in WordPress MySQL
-    await storeWebhookEvent({
+    const eventStored = await storeWebhookEvent({
       eventId,
       eventType: event || "unknown",
       rzpOrderId,
       rzpPaymentId,
       rawPayload: req.body,
     });
+
+    if (!eventStored) {
+      logger.error(
+        { eventId, event },
+        "[Payment Webhook] Failed to durably store webhook event — returning 500 for gateway retry"
+      );
+      return res.status(500).json({
+        success: false,
+        message: "Failed to persist webhook event durably. Please retry.",
+      });
+    }
 
     if (eventId) {
       const cacheKey = `webhook:event:${eventId}`;
@@ -1390,6 +1446,19 @@ export const reconcileOrder = async (req, res) => {
         { orderId, payment_id: capturedPayment.id },
         "[Payment Reconcile] Order reconciled and updated to processing"
       );
+
+      logAuditEvent({
+        req,
+        action: "PAYMENT_RECONCILED",
+        targetType: "order",
+        targetId: wcOrder.id,
+        details: {
+          previousStatus: wcOrder.status,
+          newStatus: "processing",
+          razorpay_payment_id: capturedPayment.id,
+          amount_paise: capturedPayment.amount,
+        },
+      });
 
       return res.json({
         reconciled: true,

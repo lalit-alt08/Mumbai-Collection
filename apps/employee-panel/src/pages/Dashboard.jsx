@@ -20,6 +20,10 @@ import {
   Send,
 } from "lucide-react";
 import { getOverview, updateOrderStatus } from "../services/employeeApi.js";
+import {
+  triggerNewOrderNotification,
+  requestNotificationPermission,
+} from "../utils/orderNotification.js";
 
 function Dashboard() {
   const [data, setData] = useState(null);
@@ -37,6 +41,7 @@ function Dashboard() {
 
   const isFetchingRef = useRef(false);
   const pollTimerRef = useRef(null);
+  const prevToPackCountRef = useRef(null);
 
   // Authenticated Overview Fetcher
   const fetchOverview = async (isBackground = false) => {
@@ -50,7 +55,17 @@ function Dashboard() {
       }
       const res = await getOverview();
       if (res && res.success) {
-        setData(res.data || res);
+        const payload = res.data || res;
+        const currentToPack = payload.summary?.ordersToPack ?? payload.ordersToPack;
+        if (typeof currentToPack === "number" && prevToPackCountRef.current !== null) {
+          if (currentToPack > prevToPackCountRef.current) {
+            triggerNewOrderNotification({ count: currentToPack - prevToPackCountRef.current });
+          }
+        }
+        if (typeof currentToPack === "number") {
+          prevToPackCountRef.current = currentToPack;
+        }
+        setData(payload);
         setError(null);
       } else if (!isBackground) {
         setError(res?.message || "Failed to load operations dashboard.");
@@ -67,16 +82,19 @@ function Dashboard() {
     }
   };
 
-  // Initial load + 30s visibility-aware polling
+  // Request browser notification permissions on mount
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
+  // Initial load + 30s background polling
   useEffect(() => {
     fetchOverview(false);
 
     const startPolling = () => {
-      if (!pollTimerRef.current && !document.hidden) {
+      if (!pollTimerRef.current) {
         pollTimerRef.current = setInterval(() => {
-          if (!document.hidden) {
-            fetchOverview(true);
-          }
+          fetchOverview(true);
         }, 30000);
       }
     };
@@ -89,12 +107,8 @@ function Dashboard() {
     };
 
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
-        // Tab became visible again: refresh immediately and resume polling
+      if (!document.hidden) {
         fetchOverview(true);
-        startPolling();
       }
     };
 
@@ -332,7 +346,7 @@ function Dashboard() {
               <h2 className="text-base sm:text-lg font-black tracking-tight text-gray-900 flex items-center gap-2">
                 Orders Needing Action
                 <span className="rounded-full bg-[#7C3AED]/10 px-2.5 py-0.5 text-xs font-bold text-[#7C3AED]">
-                  {ordersNeedingAction.filter(o => ["processing", "packed", "out-for-delivery", "dispatched"].includes(o.status)).length} Active
+                  {ordersNeedingAction.filter(o => !o.is_unpaid && ["processing", "packed", "out-for-delivery", "dispatched"].includes(o.status)).length} Active
                 </span>
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
@@ -362,9 +376,10 @@ function Dashboard() {
             <div className="divide-y divide-gray-100 space-y-2 overflow-y-auto max-h-[600px] pr-1">
               {ordersNeedingAction.map((order) => {
                 const status = order.status;
-                const isProcessing = status === "processing" || status === "pending" || status === "on-hold";
-                const isPacked = status === "packed";
-                const isOutForDelivery = status === "out-for-delivery" || status === "dispatched";
+                const isUnpaid = Boolean(order.is_unpaid);
+                const isProcessing = (status === "processing" || status === "pending" || status === "on-hold") && !isUnpaid;
+                const isPacked = status === "packed" && !isUnpaid;
+                const isOutForDelivery = (status === "out-for-delivery" || status === "dispatched") && !isUnpaid;
                 const isUpdating = updatingId === order.id;
 
                 return (
@@ -385,7 +400,9 @@ function Dashboard() {
                           </p>
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold capitalize ${
-                              status === "completed"
+                              isUnpaid
+                                ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                : status === "completed"
                                 ? "bg-emerald-100 text-emerald-800"
                                 : status === "processing" || status === "pending"
                                 ? "bg-amber-100 text-amber-800"
@@ -396,7 +413,9 @@ function Dashboard() {
                                 : "bg-gray-100 text-gray-700"
                             }`}
                           >
-                            {status === "processing"
+                            {isUnpaid
+                              ? "Awaiting Payment"
+                              : status === "processing"
                               ? "To Pack"
                               : status === "packed"
                               ? "Packed"
@@ -422,6 +441,13 @@ function Dashboard() {
 
                     {/* PROMINENT OPERATIONAL 1-CLICK ACTION BUTTONS (42-46px height) */}
                     <div className="flex items-center gap-2 self-stretch sm:self-center shrink-0">
+                      {isUnpaid && (
+                        <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-bold text-amber-800 shadow-2xs">
+                          <AlertCircle size={14} className="text-amber-600 shrink-0" />
+                          <span>Awaiting Payment</span>
+                        </span>
+                      )}
+
                       {isProcessing && (
                         <button
                           onClick={() => handleQuickStatusUpdate(order.id, "packed")}

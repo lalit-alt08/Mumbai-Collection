@@ -281,6 +281,7 @@ router.put(
   requireAuth("admin"),
   requireRole(["administrator"]),
   requireIdempotency,
+  validateRequest({ body: schemas.storeHoursUpdate }),
   updateAdminStoreHours
 );
 
@@ -288,6 +289,7 @@ router.put(
   "/store-hours/peak-toggle",
   requireAuth("admin"),
   requireRole(["administrator"]),
+  validateRequest({ body: schemas.storeHoursPeakToggle }),
   toggleAdminPeakHours
 );
 

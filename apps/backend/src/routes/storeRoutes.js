@@ -54,11 +54,18 @@ async function proxyStoreApi(req, res) {
         throw new Error("Invalid store status payload");
       }
 
-      // Record last known valid store status
-      lastKnownStoreStatus = {
-        status: storeStatus,
-        timestamp: Date.now(),
-      };
+      // Fail closed if store status configuration is stale (> 5 minutes without fresh WP read)
+      if (storeStatus.is_stale) {
+        throw new Error("Store status configuration is stale (> 5 minutes)");
+      }
+
+      // Record last known valid store status ONLY on live/fresh reads, never on stale fallbacks
+      if (!storeStatus.is_fallback) {
+        lastKnownStoreStatus = {
+          status: storeStatus,
+          timestamp: Date.now(),
+        };
+      }
 
       if (!storeStatus.is_open) {
         return res.status(403).json({
@@ -240,6 +247,7 @@ async function proxyStoreApi(req, res) {
       serverCache.invalidatePrefix("admin:analytics");
       serverCache.invalidatePrefix("admin:customers");
       serverCache.delete("product_stock_counts");
+      serverCache.invalidatePrefix("catalog:products:");
 
       // Selectively invalidate detail caches for ordered products without wiping browse catalog
       const orderItems = response.data?.items || response.data?.line_items || [];

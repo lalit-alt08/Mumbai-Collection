@@ -42,13 +42,31 @@ const sanitizeProductIds = (metaValue) => {
   return Array.from(unique);
 };
 
+// In-memory per-user mutex lock Map to serialize concurrent add/remove mutations
+const userMutationLocks = new Map();
+
+const acquireUserLock = async (uId) => {
+  while (userMutationLocks.has(uId)) {
+    try {
+      await userMutationLocks.get(uId);
+    } catch (_) {}
+  }
+  let release;
+  const lockPromise = new Promise((resolve) => {
+    release = resolve;
+  });
+  userMutationLocks.set(uId, lockPromise);
+  return release;
+};
+
 /**
  * Fetch favorite product IDs directly from WooCommerce customer meta
  * @param {number} userId
  * @param {boolean} forceFresh
+ * @param {boolean} throwOnError If true or forceFresh, throws on read failure to prevent data corruption during mutations
  * @returns {Promise<number[]>}
  */
-export const getFavoriteProductIds = async (userId, forceFresh = false) => {
+export const getFavoriteProductIds = async (userId, forceFresh = false, throwOnError = false) => {
   const uId = Number(userId);
   if (!uId || isNaN(uId) || uId <= 0) return [];
 
@@ -73,6 +91,10 @@ export const getFavoriteProductIds = async (userId, forceFresh = false) => {
     return productIds;
   } catch (error) {
     logger.warn({ uId, err: error.message }, "[FavoritesService] Error fetching favorites for customer");
+    // Fail closed: During mutations or when fresh data is explicitly required, throw rather than wiping out wishlist
+    if (throwOnError || forceFresh) {
+      throw error;
+    }
     if (cached) {
       return Array.from(cached.ids);
     }
@@ -93,17 +115,19 @@ export const addFavorite = async (userId, productId) => {
     return { success: false, productIds: [], isFavorited: false };
   }
 
-  const currentIds = await getFavoriteProductIds(uId, true);
-  const idSet = new Set(currentIds);
-
-  if (idSet.has(pId)) {
-    return { success: true, productIds: Array.from(idSet), isFavorited: true };
-  }
-
-  idSet.add(pId);
-  const updatedList = Array.from(idSet);
-
+  const release = await acquireUserLock(uId);
   try {
+    // Authoritative read from WooCommerce: throws on failure to prevent wiping out existing favorites
+    const currentIds = await getFavoriteProductIds(uId, true, true);
+    const idSet = new Set(currentIds);
+
+    if (idSet.has(pId)) {
+      return { success: true, productIds: Array.from(idSet), isFavorited: true };
+    }
+
+    idSet.add(pId);
+    const updatedList = Array.from(idSet);
+
     await api.put(`customers/${uId}`, {
       meta_data: [
         {
@@ -123,6 +147,9 @@ export const addFavorite = async (userId, productId) => {
   } catch (error) {
     logger.error({ uId, pId, err: error.message }, "[FavoritesService] Error adding favorite product for customer");
     throw error;
+  } finally {
+    userMutationLocks.delete(uId);
+    release();
   }
 };
 
@@ -139,17 +166,19 @@ export const removeFavorite = async (userId, productId) => {
     return { success: false, productIds: [], isFavorited: false };
   }
 
-  const currentIds = await getFavoriteProductIds(uId, true);
-  const idSet = new Set(currentIds);
-
-  if (!idSet.has(pId)) {
-    return { success: true, productIds: Array.from(idSet), isFavorited: false };
-  }
-
-  idSet.delete(pId);
-  const updatedList = Array.from(idSet);
-
+  const release = await acquireUserLock(uId);
   try {
+    // Authoritative read from WooCommerce: throws on failure to prevent wiping out existing favorites
+    const currentIds = await getFavoriteProductIds(uId, true, true);
+    const idSet = new Set(currentIds);
+
+    if (!idSet.has(pId)) {
+      return { success: true, productIds: Array.from(idSet), isFavorited: false };
+    }
+
+    idSet.delete(pId);
+    const updatedList = Array.from(idSet);
+
     await api.put(`customers/${uId}`, {
       meta_data: [
         {
@@ -169,6 +198,9 @@ export const removeFavorite = async (userId, productId) => {
   } catch (error) {
     logger.error({ uId, pId, err: error.message }, "[FavoritesService] Error removing favorite product for customer");
     throw error;
+  } finally {
+    userMutationLocks.delete(uId);
+    release();
   }
 };
 

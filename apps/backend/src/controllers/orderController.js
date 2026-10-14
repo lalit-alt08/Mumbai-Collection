@@ -224,6 +224,10 @@ export const getCustomerOrders = async (req, res) => {
     // Sort formatted orders consistently by date, newest first
     formattedOrders.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
+
     return sendResult(res, {
       success: true,
       page,
@@ -304,9 +308,13 @@ export const getOrderById = async (req, res) => {
     if (!isOwner) {
       return sendResult(res, {
         success: false,
-        errorCode: "FORBIDDEN_ORDER_ACCESS",
-        message: "You are not authorized to view this order.",
+        errorCode: "ORDER_NOT_FOUND",
+        message: "Order not found.",
       });
+    }
+
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     }
 
     return sendResult(res, {

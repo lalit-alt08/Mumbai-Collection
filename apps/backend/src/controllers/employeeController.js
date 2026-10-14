@@ -11,6 +11,9 @@ import { fetchStockCounts } from "./adminProductController.js";
 import {
   getOrderDeliveredTimestamp,
   isOrderStatusLocked,
+  isCodOrder,
+  isOnlineOrderUnpaid,
+  validateOrderStatusTransition,
   buildOrderStatusPayload,
   ALLOWED_ORDER_STATUSES,
 } from "../utils/orderStatusTransition.js";
@@ -18,6 +21,9 @@ import {
 export {
   getOrderDeliveredTimestamp,
   isOrderStatusLocked,
+  isCodOrder,
+  isOnlineOrderUnpaid,
+  validateOrderStatusTransition,
   buildOrderStatusPayload,
   ALLOWED_ORDER_STATUSES,
 };
@@ -327,6 +333,7 @@ export const getEmployeeOrders = async (req, res) => {
         date_completed_gmt: o.date_completed_gmt || null,
         delivery_completed_at: deliveryCompletedAt,
         is_status_locked: isOrderStatusLocked(o),
+        is_unpaid: isOnlineOrderUnpaid(o),
         total: o.total,
         shipping_total: o.shipping_total || "0.00",
         discount_total: o.discount_total || "0.00",
@@ -377,6 +384,9 @@ export const getEmployeeOrders = async (req, res) => {
       };
     });
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
     res.json({
       success: true,
       page: pageNum,
@@ -424,11 +434,12 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // Reject status change if order is completed and 72 hours (3 days) have elapsed
-    if (isOrderStatusLocked(currentOrder)) {
+    // Enforce status transition rules (72-hour delivery lock, unpaid online orders, terminal statuses)
+    const transitionValidation = validateOrderStatusTransition(currentOrder, status);
+    if (!transitionValidation.valid) {
       return res.status(400).json({
         success: false,
-        message: "Status changes are locked after 72 hours (3 days) of delivery.",
+        message: transitionValidation.message,
       });
     }
 
@@ -469,6 +480,11 @@ const formatOverviewOrderItem = (order, effectiveStatus) => ({
   id: order.id,
   order_number: order.number || String(order.id),
   status: effectiveStatus,
+  is_unpaid: isOnlineOrderUnpaid(order),
+  payment_method:
+    order.payment_method_title ||
+    order.payment_method ||
+    (isCodOrder(order) ? "Cash on Delivery" : "Online Payment"),
   customer_name: formatCustomerDisplayName(
     order.billing?.first_name,
     order.billing?.last_name,
@@ -507,6 +523,9 @@ export const getEmployeeOverview = async (req, res) => {
   try {
     const cachedData = serverCache.get("employee:overview");
     if (cachedData) {
+      if (typeof res.set === "function") {
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      }
       return res.json(cachedData);
     }
 
@@ -667,6 +686,9 @@ export const getEmployeeOverview = async (req, res) => {
 
     serverCache.set("employee:overview", responsePayload, 60000);
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
     res.json(responsePayload);
   } catch (error) {
     logError(req, error, "Employee overview error");

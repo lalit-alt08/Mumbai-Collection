@@ -29,6 +29,10 @@ import {
 } from "lucide-react";
 import { getOrders, updateOrderStatus } from "../services/employeeApi.js";
 import {
+  triggerNewOrderNotification,
+  requestNotificationPermission,
+} from "../utils/orderNotification.js";
+import {
   resolveTabFromStatusParam,
   getOrderDateIST,
   getOrderTimestampDate,
@@ -47,9 +51,15 @@ const STATUS_OPTIONS = [
   { value: "packed", label: "Packed (Ready for Dispatch)", shortLabel: "Packed", dot: "bg-purple-500" },
   { value: "out-for-delivery", label: "Out for Delivery (Rider)", shortLabel: "Out for Delivery", dot: "bg-blue-500" },
   { value: "completed", label: "Delivered (Completed)", shortLabel: "Delivered", dot: "bg-emerald-500" },
-  { value: "on-hold", label: "On Hold", shortLabel: "On Hold", dot: "bg-orange-400" },
   { value: "cancelled", label: "Cancelled", shortLabel: "Cancelled", dot: "bg-rose-500" },
+];
+
+const ALL_STATUS_BADGES = [
+  ...STATUS_OPTIONS,
+  { value: "on-hold", label: "On Hold", shortLabel: "On Hold", dot: "bg-orange-400" },
   { value: "refunded", label: "Refunded", shortLabel: "Refunded", dot: "bg-gray-400" },
+  { value: "failed", label: "Failed", shortLabel: "Failed", dot: "bg-red-400" },
+  { value: "pending", label: "Pending", shortLabel: "Pending", dot: "bg-yellow-400" },
 ];
 
 const DATE_FILTERS = [
@@ -138,8 +148,8 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
   }
 
   if (timestamp) {
-    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-    return (now - timestamp) >= TWENTY_FOUR_HOURS_MS;
+    const SEVENTY_TWO_HOURS_MS = 72 * 60 * 60 * 1000;
+    return (now - timestamp) >= SEVENTY_TWO_HOURS_MS;
   }
 
   // Fail closed: completed order with no usable timestamps is locked
@@ -168,6 +178,7 @@ function Orders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const requestIdRef = useRef(0);
   const pollTimerRef = useRef(null);
+  const knownOrderIdsRef = useRef(null);
   const [updatingIds, setUpdatingIds] = useState(() => new Set());
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef(null);
@@ -244,8 +255,19 @@ function Orders() {
       });
       if (res.success) {
         if (requestId !== requestIdRef.current) return;
-        setOrders(res.orders || []);
-        setTotalOrders(res.total || res.orders?.length || 0);
+        const incomingOrders = res.orders || [];
+        if (knownOrderIdsRef.current !== null) {
+          const hasNewIncoming = incomingOrders.some(
+            (o) => !knownOrderIdsRef.current.has(o.id)
+          );
+          if (hasNewIncoming) {
+            const newest = incomingOrders.find((o) => !knownOrderIdsRef.current.has(o.id));
+            triggerNewOrderNotification({ orderId: newest?.id });
+          }
+        }
+        knownOrderIdsRef.current = new Set(incomingOrders.map((o) => o.id));
+        setOrders(incomingOrders);
+        setTotalOrders(res.total || incomingOrders.length || 0);
         setTotalPages(res.totalPages || Math.ceil((res.total || 1) / perPage) || 1);
         if (!isBackground) setError("");
       }
@@ -261,15 +283,18 @@ function Orders() {
     }
   };
 
+  // Request browser notification permissions on mount
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
   useEffect(() => {
     fetchOrderList(false);
 
     const startPolling = () => {
-      if (!pollTimerRef.current && !document.hidden) {
+      if (!pollTimerRef.current) {
         pollTimerRef.current = setInterval(() => {
-          if (!document.hidden) {
-            fetchOrderList(true);
-          }
+          fetchOrderList(true);
         }, 25000);
       }
     };
@@ -282,11 +307,8 @@ function Orders() {
     };
 
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
+      if (!document.hidden) {
         fetchOrderList(true);
-        startPolling();
       }
     };
 
@@ -485,7 +507,16 @@ function Orders() {
     }
   };
 
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status, isUnpaid = false) => {
+    if (isUnpaid) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 border border-amber-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+          Awaiting Payment
+        </span>
+      );
+    }
+
     switch (status) {
       case "completed":
         return (
@@ -601,6 +632,19 @@ function Orders() {
 
   const renderPrimaryAction = (order, isMobile = false) => {
     const isUpdating = updatingIds.has(order.id);
+
+    if (order.is_unpaid) {
+      return (
+        <span
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 font-bold text-amber-700 shadow-2xs ${
+            isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
+          }`}
+        >
+          <AlertCircle size={13} className="shrink-0 text-amber-600" />
+          <span>Awaiting Payment</span>
+        </span>
+      );
+    }
 
     if (order.status === "processing") {
       return (
@@ -944,7 +988,7 @@ function Orders() {
                           {formattedDate} {formattedTime && `• ${formattedTime}`}
                         </span>
                       </div>
-                      <div>{getStatusBadge(order.status)}</div>
+                      <div>{getStatusBadge(order.status, order.is_unpaid)}</div>
                     </div>
 
                     {/* Card Body: Customer Details & Financials */}
@@ -1081,13 +1125,13 @@ function Orders() {
                         </td>
 
                         {/* Status Badge */}
-                        <td className="px-5 py-3.5">{getStatusBadge(order.status)}</td>
+                        <td className="px-5 py-3.5">{getStatusBadge(order.status, order.is_unpaid)}</td>
 
                         {/* Next Action Column */}
                         <td className="px-5 py-3.5 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {renderPrimaryAction(order, false)}
-                            {order.status === "processing" && (
+                            {order.status === "processing" && !order.is_unpaid && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1432,7 +1476,7 @@ function Orders() {
                   <span className="text-[11px] sm:text-xs font-bold text-gray-700 uppercase tracking-wider">
                     Current Fulfillment Status
                   </span>
-                  {getStatusBadge(selectedOrder.status)}
+                  {getStatusBadge(selectedOrder.status, selectedOrder.is_unpaid)}
                 </div>
 
                 {isOrderDeliveredLocked(selectedOrder) ? (
@@ -1446,6 +1490,16 @@ function Orders() {
                       <span>Status changes are locked after 72 hours (3 days).</span>
                     </p>
                   </div>
+                ) : selectedOrder.is_unpaid ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-xs space-y-1.5 shadow-2xs">
+                    <div className="flex items-center gap-2 font-bold text-amber-900">
+                      <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                      <span>Awaiting Online Payment</span>
+                    </div>
+                    <p className="text-[11px] font-medium text-amber-700">
+                      Online payment has not been received. Orders cannot be packed or delivered until payment is captured.
+                    </p>
+                  </div>
                 ) : (
                   <div className="relative w-full" ref={statusDropdownRef}>
                     <button
@@ -1457,11 +1511,11 @@ function Orders() {
                       <div className="flex items-center gap-2 min-w-0">
                         <span
                           className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                            STATUS_OPTIONS.find((o) => o.value === selectedOrder.status)?.dot || "bg-gray-400"
+                            ALL_STATUS_BADGES.find((o) => o.value === selectedOrder.status)?.dot || "bg-gray-400"
                           }`}
                         />
                         <span className="truncate">
-                          {STATUS_OPTIONS.find((o) => o.value === selectedOrder.status)?.label || selectedOrder.status}
+                          {ALL_STATUS_BADGES.find((o) => o.value === selectedOrder.status)?.label || selectedOrder.status}
                         </span>
                       </div>
                       <ChevronDown
@@ -1641,7 +1695,7 @@ function Orders() {
               </button>
 
               {/* Cancellation button where permitted */}
-              {["processing", "packed", "on-hold"].includes(selectedOrder.status) && (
+              {["processing", "packed"].includes(selectedOrder.status) && (
                 <button
                   onClick={() => {
                     if (window.confirm("Are you sure you want to cancel this order?")) {

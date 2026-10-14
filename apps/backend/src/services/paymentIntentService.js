@@ -10,7 +10,7 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: process.env.NODE_ENV === "production",
 });
 
-const wpClient = axios.create({
+let wpClient = axios.create({
   baseURL: WP_BASE_URL,
   headers: {
     "X-Mumbai-Internal-Key": INTERNAL_KEY,
@@ -19,6 +19,12 @@ const wpClient = axios.create({
   httpsAgent,
   timeout: 8000,
 });
+
+const defaultWpClient = wpClient;
+
+export const _setWpClientForTesting = (client) => {
+  wpClient = client || defaultWpClient;
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,12 +38,17 @@ export const storePaymentIntent = async (rzpOrderId, intent, expiresInSeconds = 
   serverCache.set(cacheKey, intent, expiresInSeconds * 1000);
 
   try {
-    await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/store", {
+    const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/store", {
       rzp_order_id: rzpOrderId,
-      payload: intent,
+      payload: {
+        ...intent,
+        user_id: intent.customer_id || intent.user_id,
+        amount: intent.amount_in_paise || intent.amount,
+        amount_paise: intent.amount_in_paise || intent.amount,
+      },
       expires_in: expiresInSeconds,
     });
-    return true;
+    return res?.data?.success === true;
   } catch (err) {
     logger.warn(
       { rzpOrderId, err: err.message },
@@ -138,12 +149,13 @@ export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
 /**
  * Releases the distributed atomic lock.
  */
-export const releaseLock = async (rzpOrderId) => {
+export const releaseLock = async (rzpOrderId, workerId = null) => {
   if (!rzpOrderId) return false;
 
   try {
     await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/unlock", {
       rzp_order_id: rzpOrderId,
+      ...(workerId ? { worker_id: workerId } : {}),
     });
     return true;
   } catch (err) {
@@ -192,22 +204,6 @@ export const updatePaymentIntentStatus = async ({
   if (!rzpOrderId || !toStatus) return false;
 
   const cacheKey = `payment_intent:${rzpOrderId}`;
-  const inMemory = serverCache.get(cacheKey);
-  if (inMemory) {
-    serverCache.set(
-      cacheKey,
-      {
-        ...inMemory,
-        status: toStatus,
-        ...(rzpPaymentId && { rzp_payment_id: rzpPaymentId }),
-        ...(wcOrderId && { wc_order_id: wcOrderId }),
-        ...(refundId && { refund_id: refundId }),
-        error_reason: toStatus === "order_created" ? null : (errorReason ?? inMemory.error_reason),
-        ...(capturedAmountPaise && { captured_amount_paise: capturedAmountPaise }),
-      },
-      3600 * 1000
-    );
-  }
 
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/update-status", {
@@ -221,12 +217,63 @@ export const updatePaymentIntentStatus = async ({
       captured_amount_paise: capturedAmountPaise,
       increment_attempts: incrementAttempts,
     });
-    return res.data?.updated === true;
+
+    const isUpdated = res.data?.updated === true;
+
+    if (isUpdated || !fromStatus || wcOrderId) {
+      // Confirmed transition OR unconditional update (no CAS fromStatus condition) OR post-order creation:
+      // safely update in-memory cache
+      const inMemory = serverCache.get(cacheKey);
+      if (inMemory) {
+        serverCache.set(
+          cacheKey,
+          {
+            ...inMemory,
+            status: toStatus,
+            ...(rzpPaymentId && { rzp_payment_id: rzpPaymentId }),
+            ...(wcOrderId && { wc_order_id: wcOrderId }),
+            ...(refundId && { refund_id: refundId }),
+            error_reason: toStatus === "order_created" ? null : (errorReason ?? inMemory.error_reason),
+            ...(capturedAmountPaise && { captured_amount_paise: capturedAmountPaise }),
+          },
+          3600 * 1000
+        );
+      }
+    } else {
+      // Compare-and-set failed in DB (fromStatus mismatch or race condition).
+      // Invalidate cache immediately so subsequent reads fetch true durable DB state.
+      serverCache.delete(cacheKey);
+    }
+
+    return isUpdated;
   } catch (err) {
     logger.warn(
       { rzpOrderId, fromStatus, toStatus, err: err.message },
       "[PaymentIntentService] Failed to update payment intent status"
     );
+
+    // If a WooCommerce order was already created or unconditional update, preserve cache
+    // so duplicate orders are not created even if WordPress transient sync glitched
+    if (wcOrderId || !fromStatus) {
+      const inMemory = serverCache.get(cacheKey);
+      if (inMemory) {
+        serverCache.set(
+          cacheKey,
+          {
+            ...inMemory,
+            status: toStatus,
+            ...(wcOrderId && { wc_order_id: wcOrderId }),
+            ...(rzpPaymentId && { rzp_payment_id: rzpPaymentId }),
+            ...(capturedAmountPaise && { captured_amount_paise: capturedAmountPaise }),
+          },
+          3600 * 1000
+        );
+      }
+    } else {
+      // CAS condition could not be verified due to upstream network failure
+      serverCache.delete(cacheKey);
+    }
+
     return false;
   }
 };

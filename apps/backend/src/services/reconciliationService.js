@@ -33,6 +33,70 @@ const parseUtcDate = (dateStr) => {
 };
 
 /**
+ * Normalizes persisted intent checkout payload whether stored at root or nested under checkout_payload.
+ */
+export const extractCheckoutDetails = (intentRow) => {
+  if (!intentRow?.checkout_payload) return null;
+  let parsed = null;
+  try {
+    parsed = typeof intentRow.checkout_payload === "string"
+      ? JSON.parse(intentRow.checkout_payload)
+      : intentRow.checkout_payload;
+  } catch (_) {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+
+  // Support both nested production payload (paymentIntent.checkout_payload) and flat mock payload
+  const checkout = (parsed.checkout_payload && typeof parsed.checkout_payload === "object")
+    ? parsed.checkout_payload
+    : parsed;
+
+  const customerId = Number(
+    checkout.customer_id ||
+    checkout.user_id ||
+    parsed.customer_id ||
+    parsed.user_id ||
+    intentRow.user_id
+  ) || 0;
+
+  const billing = (checkout.billing && typeof checkout.billing === "object")
+    ? checkout.billing
+    : (parsed.billing && typeof parsed.billing === "object" ? parsed.billing : {});
+
+  const shipping = (checkout.shipping && typeof checkout.shipping === "object")
+    ? checkout.shipping
+    : (parsed.shipping && typeof parsed.shipping === "object" ? parsed.shipping : {});
+
+  const lineItems = Array.isArray(checkout.line_items)
+    ? checkout.line_items
+    : (Array.isArray(parsed.line_items) ? parsed.line_items : []);
+
+  const couponLines = Array.isArray(checkout.coupon_lines)
+    ? checkout.coupon_lines
+    : (Array.isArray(parsed.coupon_lines) ? parsed.coupon_lines : []);
+
+  const shippingLines = Array.isArray(checkout.shipping_lines)
+    ? checkout.shipping_lines
+    : (Array.isArray(parsed.shipping_lines) ? parsed.shipping_lines : []);
+
+  const customerEmail = billing.email || parsed.customer_email || intentRow.customer_email || "";
+  const customerName = `${billing.first_name || ""} ${billing.last_name || ""}`.trim() || parsed.customer_name || "Customer";
+
+  return {
+    customerId,
+    customerEmail,
+    customerName,
+    billing,
+    shipping,
+    lineItems,
+    couponLines,
+    shippingLines,
+    raw: parsed,
+  };
+};
+
+/**
  * Runs a single reconciliation cycle with concurrency guard, persistent watermark, and pagination.
  */
 export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) => {
@@ -109,9 +173,9 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
           );
 
           try {
-            const parsedPayload = intentRow.checkout_payload ? JSON.parse(intentRow.checkout_payload) : null;
-            if (!parsedPayload) {
-              throw new Error("Missing checkout_payload in intent");
+            const checkoutDetails = extractCheckoutDetails(intentRow);
+            if (!checkoutDetails || !Array.isArray(checkoutDetails.lineItems) || checkoutDetails.lineItems.length === 0) {
+              throw new Error("Invalid or empty checkout_payload in intent — line_items required");
             }
 
             // Create WooCommerce order
@@ -120,10 +184,12 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               payment_method_title: "Razorpay (Online Payment - Reconciled)",
               set_paid: true,
               transaction_id: rzpPaymentId,
-              customer_id: Number(parsedPayload.user_id) || 0,
-              billing: parsedPayload.billing || {},
-              shipping: parsedPayload.shipping || {},
-              line_items: parsedPayload.line_items || [],
+              customer_id: checkoutDetails.customerId,
+              billing: checkoutDetails.billing,
+              shipping: checkoutDetails.shipping,
+              line_items: checkoutDetails.lineItems,
+              ...(checkoutDetails.couponLines.length > 0 ? { coupon_lines: checkoutDetails.couponLines } : {}),
+              ...(checkoutDetails.shippingLines.length > 0 ? { shipping_lines: checkoutDetails.shippingLines } : {}),
               meta_data: [
                 { key: "_razorpay_order_id", value: rzpOrderId },
                 { key: "_razorpay_payment_id", value: rzpPaymentId },
@@ -145,7 +211,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 toStatus: "order_created",
                 wcOrderId: existingOrder.id,
               });
-              await _clearCart(parsedPayload.user_id);
+              await _clearCart(checkoutDetails.customerId);
               results.healedOrders++;
               continue;
             }
@@ -161,7 +227,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 wcOrderId,
               });
 
-              await _clearCart(parsedPayload.user_id);
+              await _clearCart(checkoutDetails.customerId);
 
               logger.info(
                 { rzpOrderId, wcOrderId, rzpPaymentId },
@@ -224,9 +290,9 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               });
 
               // Notify customer by email
-              const parsedPayload = intentRow.checkout_payload ? JSON.parse(intentRow.checkout_payload) : {};
-              const customerEmail = parsedPayload.billing?.email;
-              const customerName = `${parsedPayload.billing?.first_name || ""} ${parsedPayload.billing?.last_name || ""}`.trim();
+              const checkoutDetails = extractCheckoutDetails(intentRow);
+              const customerEmail = checkoutDetails?.customerEmail;
+              const customerName = checkoutDetails?.customerName || "Customer";
 
               if (customerEmail) {
                 await sendRefundEmail({
@@ -334,43 +400,91 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 "[Reconciler] Discovered captured payment for stuck created intent — reconciling"
               );
 
+              // Verify captured payment amount and currency match the persisted payment intent
+              const expectedAmount = Number(intentRow.amount_paise);
+              const capturedAmount = Number(captured.amount || 0);
+              const capturedCurrency = String(captured.currency || "INR").toUpperCase();
+
+              if (capturedAmount !== expectedAmount || capturedCurrency !== "INR") {
+                logger.error(
+                  {
+                    rzpOrderId,
+                    rzpPaymentId,
+                    expectedAmount,
+                    capturedAmount,
+                    capturedCurrency,
+                  },
+                  "[Reconciler] Amount or currency mismatch on captured payment for created intent — quarantining"
+                );
+
+                await alertStaffAnomaly({
+                  type: "RECONCILER_AMOUNT_MISMATCH",
+                  severity: "critical",
+                  rzpOrderId,
+                  rzpPaymentId,
+                  message: `Reconciler detected amount/currency mismatch: expected ₹${(expectedAmount / 100).toFixed(2)} INR, got ${capturedCurrency} ₹${(capturedAmount / 100).toFixed(2)}`,
+                  details: {
+                    expected_amount_paise: expectedAmount,
+                    captured_amount_paise: capturedAmount,
+                    captured_currency: capturedCurrency,
+                  },
+                });
+
+                await _updateStatus({
+                  rzpOrderId,
+                  fromStatus: "created",
+                  toStatus: "failed",
+                  rzpPaymentId,
+                  capturedAmountPaise: capturedAmount,
+                  errorReason: `AMOUNT_MISMATCH: expected ${expectedAmount} paise INR, got ${capturedAmount} ${capturedCurrency}`,
+                });
+
+                results.errors.push({
+                  rzpOrderId,
+                  error: `Payment amount or currency mismatch: expected ${expectedAmount} paise INR, got ${capturedAmount} ${capturedCurrency}`,
+                });
+                continue;
+              }
+
               await _updateStatus({
                 rzpOrderId,
                 fromStatus: "created",
                 toStatus: "paid",
                 rzpPaymentId,
-                capturedAmountPaise: Number(captured.amount || intentRow.amount_paise),
+                capturedAmountPaise: capturedAmount,
               });
 
               // Check stock for line items
-              const parsedPayload = intentRow.checkout_payload ? JSON.parse(intentRow.checkout_payload) : null;
+              const checkoutDetails = extractCheckoutDetails(intentRow);
+              if (!checkoutDetails || !Array.isArray(checkoutDetails.lineItems) || checkoutDetails.lineItems.length === 0) {
+                logger.error({ rzpOrderId }, "[Reconciler] Persisted checkout payload has 0 line items — cannot heal order");
+                continue;
+              }
+
               let stockValid = true;
-
-              if (parsedPayload?.line_items && Array.isArray(parsedPayload.line_items) && parsedPayload.line_items.length > 0) {
-                const stockResults = await Promise.allSettled(
-                  parsedPayload.line_items.map(async (item) => {
-                    try {
-                      const prodRes = await api.get(`products/${item.product_id}`);
-                      const prod = prodRes?.data;
-                      if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
-                        if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
-                          logger.error(
-                            { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
-                            "[Reconciler] Stock depleted during reconciler discovery"
-                          );
-                          return false;
-                        }
+              const stockResults = await Promise.allSettled(
+                checkoutDetails.lineItems.map(async (item) => {
+                  try {
+                    const prodRes = await api.get(`products/${item.product_id}`);
+                    const prod = prodRes?.data;
+                    if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
+                      if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
+                        logger.error(
+                          { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
+                          "[Reconciler] Stock depleted during reconciler discovery"
+                        );
+                        return false;
                       }
-                    } catch (_) {}
-                    return true;
-                  })
-                );
+                    }
+                  } catch (_) {}
+                  return true;
+                })
+              );
 
-                for (const r of stockResults) {
-                  if (r.status === "fulfilled" && r.value === false) {
-                    stockValid = false;
-                    break;
-                  }
+              for (const r of stockResults) {
+                if (r.status === "fulfilled" && r.value === false) {
+                  stockValid = false;
+                  break;
                 }
               }
 
@@ -405,10 +519,10 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     refundId: refund.id,
                   });
 
-                  if (parsedPayload?.billing?.email) {
+                  if (checkoutDetails.customerEmail) {
                     await sendRefundEmail({
-                      toEmail: parsedPayload.billing.email,
-                      toName: `${parsedPayload.billing.first_name || ""} ${parsedPayload.billing.last_name || ""}`.trim(),
+                      toEmail: checkoutDetails.customerEmail,
+                      toName: checkoutDetails.customerName,
                       amountInInr: (capturedPaise / 100).toFixed(2),
                       rzpOrderId,
                       refundId: refund.id,
@@ -427,7 +541,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
 
                   results.refundsExecuted++;
                 }
-              } else if (parsedPayload) {
+              } else {
                 // Stock available: HPOS-safe check before order creation
                 const existingOrder = await _findOrderByRzp(rzpOrderId);
                 if (existingOrder) {
@@ -438,7 +552,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     toStatus: "order_created",
                     wcOrderId: existingOrder.id,
                   });
-                  await _clearCart(parsedPayload.user_id);
+                  await _clearCart(checkoutDetails.customerId);
                   results.healedOrders++;
                 } else {
                   const orderPayload = {
@@ -446,10 +560,12 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     payment_method_title: "Razorpay (Online Payment - Reconciled)",
                     set_paid: true,
                     transaction_id: rzpPaymentId,
-                    customer_id: Number(parsedPayload.user_id) || 0,
-                    billing: parsedPayload.billing || {},
-                    shipping: parsedPayload.shipping || {},
-                    line_items: parsedPayload.line_items || [],
+                    customer_id: checkoutDetails.customerId,
+                    billing: checkoutDetails.billing,
+                    shipping: checkoutDetails.shipping,
+                    line_items: checkoutDetails.lineItems,
+                    ...(checkoutDetails.couponLines.length > 0 ? { coupon_lines: checkoutDetails.couponLines } : {}),
+                    ...(checkoutDetails.shippingLines.length > 0 ? { shipping_lines: checkoutDetails.shippingLines } : {}),
                     meta_data: [
                       { key: "_razorpay_order_id", value: rzpOrderId },
                       { key: "_razorpay_payment_id", value: rzpPaymentId },
@@ -469,7 +585,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                       wcOrderId,
                     });
 
-                    await _clearCart(parsedPayload.user_id);
+                    await _clearCart(checkoutDetails.customerId);
 
                     logger.info(
                       { rzpOrderId, wcOrderId, rzpPaymentId },

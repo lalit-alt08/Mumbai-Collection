@@ -13,6 +13,7 @@ const {
 const { default: api } = await import("../src/config/woocommerce.js");
 const { handleWebhook, reconcileOrder } = await import("../src/controllers/paymentController.js");
 const { serverCache } = await import("../src/utils/memoryCache.js");
+const { _setWpClientForTesting } = await import("../src/services/paymentIntentService.js");
 
 test("Stage 3 — Razorpay Webhook Reliability & Reconciliation Suite", async (t) => {
   const originalApiGet = api.get;
@@ -21,11 +22,16 @@ test("Stage 3 — Razorpay Webhook Reliability & Reconciliation Suite", async (t
   t.beforeEach(() => {
     serverCache.clear();
     process.env.RAZORPAY_WEBHOOK_SECRET = "mock_webhook_secret_789";
+    _setWpClientForTesting({
+      post: async () => ({ data: { success: true } }),
+      get: async () => ({ data: { order: null } }),
+    });
   });
 
   t.afterEach(() => {
     api.get = originalApiGet;
     api.put = originalApiPut;
+    _setWpClientForTesting(null);
     serverCache.clear();
   });
 
@@ -340,5 +346,55 @@ test("Stage 3 — Razorpay Webhook Reliability & Reconciliation Suite", async (t
 
     assert.equal(statusCode, 400);
     assert.match(responseBody?.message, /missing razorpay order id/i);
+  });
+
+  await t.test("6.3. handleWebhook: returns HTTP 500 when webhook event persistence fails in database (signals gateway retry)", async () => {
+    _setWpClientForTesting({
+      post: async () => {
+        const err = new Error("Database connection lost");
+        err.response = { status: 500, data: { code: "db_insert_failed" } };
+        throw err;
+      },
+    });
+
+    const eventPayload = {
+      event: "payment.captured",
+      id: "evt_persist_fail_001",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_persist_fail_001",
+            order_id: "order_persist_fail_001",
+            amount: 50000,
+          },
+        },
+      },
+    };
+    const rawBody = JSON.stringify(eventPayload);
+    const signature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest("hex");
+
+    const req = {
+      headers: {
+        "x-razorpay-signature": signature,
+        "x-razorpay-event-id": "evt_persist_fail_001",
+      },
+      rawBody: Buffer.from(rawBody),
+      body: eventPayload,
+    };
+    let statusCode = 0;
+    let responseBody = null;
+    const res = {
+      status(c) { statusCode = c; return this; },
+      json(d) { responseBody = d; return this; },
+    };
+
+    await handleWebhook(req, res);
+
+    assert.equal(statusCode, 500);
+    assert.equal(responseBody?.success, false);
+    assert.match(responseBody?.message, /failed to persist webhook event durably/i);
   });
 });

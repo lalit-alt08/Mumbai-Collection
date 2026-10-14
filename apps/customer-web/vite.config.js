@@ -5,6 +5,20 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
 
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "react-router-dom",
+      "axios",
+      "swiper/react",
+      "swiper/modules",
+      "dompurify",
+      "lucide-react",
+    ],
+  },
+
   server: {
     proxy: {
       "/api/store": {
@@ -47,6 +61,11 @@ export default defineConfig({
               parts.join(", ");
           });
         },
+      },
+      "/api": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+        secure: false,
       },
     },
   },

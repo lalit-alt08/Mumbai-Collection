@@ -5,6 +5,7 @@ export const fetchProducts = async (page = 1, per_page = 50) => {
   const pageNum = Math.max(1, Number(page) || 1);
   const perPageNum = Math.min(100, Math.max(1, Number(per_page) || 50));
   const response = await api.get("products", {
+    status: "publish",
     page: pageNum,
     per_page: perPageNum,
   });
@@ -36,7 +37,18 @@ export const fetchProductById = async (id) => {
     throw new Error("Invalid WooCommerce product response");
   }
 
-  return response.data;
+  const product = response.data;
+  if (
+    (product.status && product.status !== "publish") ||
+    product.catalog_visibility === "hidden"
+  ) {
+    const error = new Error("Product not found");
+    error.status = 404;
+    error.code = "PRODUCT_NOT_FOUND";
+    throw error;
+  }
+
+  return product;
 };
 
 export const fetchRelatedProducts = async (
@@ -44,9 +56,10 @@ export const fetchRelatedProducts = async (
   currentProductId
 ) => {
   const response = await api.get("products", {
+    status: "publish",
     category: categoryId,
     exclude: currentProductId,
-    per_page: 4,
+    per_page: 10,
   });
 
   if (!Array.isArray(response.data)) {
@@ -58,6 +71,7 @@ export const fetchRelatedProducts = async (
 
 export const searchProducts = async (search) => {
   const response = await api.get("products", {
+    status: "publish",
     search,
     per_page: 20,
   });
@@ -89,6 +103,7 @@ export const fetchProductsByCategory = async (
   }
 
   const response = await api.get("products", {
+    status: "publish",
     category: targetCategory,
     page: Number(page) || 1,
     per_page: Number(per_page) || 20,

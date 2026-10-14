@@ -1,15 +1,21 @@
 import { useEffect, useState } from "react";
 import { getRelatedProducts } from "../../services/productService";
+import { filterAndShuffleRelatedProducts } from "../../utils/productUtils";
 import ProductCard from "./ProductCard";
 
 function RelatedProducts({ product }) {
   const [products, setProducts] = useState([]);
 
   const productId = product?.id;
-  const primaryCategoryId = product?.categories?.[0]?.id;
+  const primaryCategoryId =
+    typeof product?.categories?.[0] === "object"
+      ? product?.categories?.[0]?.id
+      : product?.categories?.[0];
 
   useEffect(() => {
     let isMounted = true;
+    setProducts([]);
+
     const loadRelatedProducts = async () => {
       if (!primaryCategoryId || !productId) return;
 
@@ -19,7 +25,7 @@ function RelatedProducts({ product }) {
           productId
         );
         if (isMounted) {
-          setProducts(Array.isArray(data) ? data : []);
+          setProducts(filterAndShuffleRelatedProducts(data));
         }
       } catch {
         if (isMounted) setProducts([]);

@@ -22,6 +22,11 @@ export const getProfile = async (req, res) => {
       }
     );
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.set("Pragma", "no-cache");
+    }
+
     res.json(response.data);
   } catch (error) {
     logError(req, error, "Get profile error");
@@ -85,6 +90,11 @@ export const saveProfile = async (req, res) => {
       invalidateUserSessionCache(req.wpUserId);
     }
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.set("Pragma", "no-cache");
+    }
+
     res.json(response.data);
   } catch (error) {
     logError(req, error, "Save profile error");
@@ -111,6 +121,11 @@ export const checkProfileComplete = async (req, res) => {
         timeout: 8000,
       },
     );
+
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.set("Pragma", "no-cache");
+    }
 
     res.json(response.data);
   } catch (error) {

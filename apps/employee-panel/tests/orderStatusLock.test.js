@@ -60,22 +60,22 @@ const isOrderDeliveredLocked = (order, now = Date.now()) => {
   }
 
   if (timestamp) {
-    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-    return (now - timestamp) >= TWENTY_FOUR_HOURS_MS;
+    const SEVENTY_TWO_HOURS_MS = 72 * 60 * 60 * 1000;
+    return (now - timestamp) >= SEVENTY_TWO_HOURS_MS;
   }
 
   // Fail closed: completed order with no usable timestamps is locked
   return true;
 };
 
-test("Order Fulfillment Status Lock: 24-Hour Rule Test Suite (Frontend UI Logic)", async (t) => {
+test("Order Fulfillment Status Lock: 72-Hour (3-Day) Rule Test Suite (Frontend UI Logic)", async (t) => {
   const BASE_TIME = new Date("2026-09-06T12:00:00.000Z").getTime();
   const ONE_MINUTE_MS = 60 * 1000;
   const ONE_HOUR_MS = 60 * 60 * 1000;
-  const TWENTY_FOUR_HOURS_MS = 24 * ONE_HOUR_MS;
+  const SEVENTY_TWO_HOURS_MS = 72 * ONE_HOUR_MS;
 
-  await t.test("1. Completed 23h59m ago => editable (lock is false)", () => {
-    const deliveredAt = new Date(BASE_TIME - (TWENTY_FOUR_HOURS_MS - ONE_MINUTE_MS)).toISOString();
+  await t.test("1. Completed 71h59m ago => editable (lock is false)", () => {
+    const deliveredAt = new Date(BASE_TIME - (SEVENTY_TWO_HOURS_MS - ONE_MINUTE_MS)).toISOString();
     const order = {
       id: 101,
       status: "completed",
@@ -83,11 +83,11 @@ test("Order Fulfillment Status Lock: 24-Hour Rule Test Suite (Frontend UI Logic)
     };
 
     const isLocked = isOrderDeliveredLocked(order, BASE_TIME);
-    assert.equal(isLocked, false, "Order delivered 23h59m ago must remain editable");
+    assert.equal(isLocked, false, "Order delivered 71h59m ago must remain editable");
   });
 
-  await t.test("2. Completed exactly 24h ago => locked (lock is true)", () => {
-    const deliveredAt = new Date(BASE_TIME - TWENTY_FOUR_HOURS_MS).toISOString();
+  await t.test("2. Completed exactly 72h ago => locked (lock is true)", () => {
+    const deliveredAt = new Date(BASE_TIME - SEVENTY_TWO_HOURS_MS).toISOString();
     const order = {
       id: 102,
       status: "completed",
@@ -95,25 +95,25 @@ test("Order Fulfillment Status Lock: 24-Hour Rule Test Suite (Frontend UI Logic)
     };
 
     const isLocked = isOrderDeliveredLocked(order, BASE_TIME);
-    assert.equal(isLocked, true, "Order delivered exactly 24h ago must be locked");
+    assert.equal(isLocked, true, "Order delivered exactly 72h ago must be locked");
   });
 
-  await t.test("3. Completed 25h+ ago => locked (lock is true)", () => {
-    const delivered25hAgo = new Date(BASE_TIME - 25 * ONE_HOUR_MS).toISOString();
-    const order25h = {
+  await t.test("3. Completed 73h+ ago => locked (lock is true)", () => {
+    const delivered73hAgo = new Date(BASE_TIME - 73 * ONE_HOUR_MS).toISOString();
+    const order73h = {
       id: 103,
       status: "completed",
-      delivery_completed_at: delivered25hAgo,
+      delivery_completed_at: delivered73hAgo,
     };
-    assert.equal(isOrderDeliveredLocked(order25h, BASE_TIME), true, "Order delivered 25h ago must be locked");
+    assert.equal(isOrderDeliveredLocked(order73h, BASE_TIME), true, "Order delivered 73h ago must be locked");
 
-    const delivered48hAgo = new Date(BASE_TIME - 48 * ONE_HOUR_MS).toISOString();
-    const order48h = {
+    const delivered96hAgo = new Date(BASE_TIME - 96 * ONE_HOUR_MS).toISOString();
+    const order96h = {
       id: 104,
       status: "completed",
-      date_completed_gmt: delivered48hAgo,
+      date_completed_gmt: delivered96hAgo,
     };
-    assert.equal(isOrderDeliveredLocked(order48h, BASE_TIME), true, "Order delivered 48h ago must be locked");
+    assert.equal(isOrderDeliveredLocked(order96h, BASE_TIME), true, "Order delivered 96h ago must be locked");
   });
 
   await t.test("4. Completed with no completion timestamp but old date_created => locked", () => {

@@ -34,7 +34,15 @@ export const DEFAULT_STORE_HOURS_CONFIG = {
 // In-memory cache: { data: Object, timestamp: number }
 let storeHoursCache = null;
 let lastKnownGoodConfig = null;
+let lastSuccessfulFetchTime = 0;
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds TTL
+export const MAX_FALLBACK_CONFIG_AGE_MS = 5 * 60 * 1000; // 5 minutes fallback window
+
+export const _resetStoreHoursCacheForTesting = () => {
+  storeHoursCache = null;
+  lastKnownGoodConfig = null;
+  lastSuccessfulFetchTime = 0;
+};
 
 /**
  * Validates HH:MM format in 24h format (00:00 to 23:59)
@@ -394,7 +402,15 @@ function capitalizeFirstLetter(string) {
  */
 export const getStoreHoursConfig = async (forceFresh = false) => {
   if (!forceFresh && storeHoursCache && Date.now() - storeHoursCache.timestamp < CACHE_TTL_MS) {
-    return storeHoursCache.data;
+    return {
+      ...storeHoursCache.data,
+      _metadata: {
+        source: "cache",
+        age_ms: Date.now() - (lastSuccessfulFetchTime || storeHoursCache.timestamp),
+        is_fallback: false,
+        is_stale: false,
+      },
+    };
   }
 
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
@@ -413,12 +429,22 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
 
     if (wpConfig && typeof wpConfig === "object" && wpConfig.schedule) {
       const normalized = normalizeStoreHoursConfig(wpConfig);
+      const now = Date.now();
       storeHoursCache = {
         data: normalized,
-        timestamp: Date.now(),
+        timestamp: now,
       };
       lastKnownGoodConfig = normalized;
-      return normalized;
+      lastSuccessfulFetchTime = now;
+      return {
+        ...normalized,
+        _metadata: {
+          source: "wordpress",
+          age_ms: 0,
+          is_fallback: false,
+          is_stale: false,
+        },
+      };
     }
   } catch (error) {
     logger.warn(
@@ -429,13 +455,30 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
 
   // Fallback 1: Return last known good config if available
   if (lastKnownGoodConfig) {
-    return lastKnownGoodConfig;
+    const ageMs = lastSuccessfulFetchTime ? (Date.now() - lastSuccessfulFetchTime) : Infinity;
+    return {
+      ...lastKnownGoodConfig,
+      _metadata: {
+        source: "fallback",
+        age_ms: ageMs,
+        is_fallback: true,
+        is_stale: ageMs > MAX_FALLBACK_CONFIG_AGE_MS,
+      },
+    };
   }
 
   // Fallback 2: Default static configuration
   const defaultConfig = JSON.parse(JSON.stringify(DEFAULT_STORE_HOURS_CONFIG));
   lastKnownGoodConfig = defaultConfig;
-  return defaultConfig;
+  return {
+    ...defaultConfig,
+    _metadata: {
+      source: "default",
+      age_ms: Infinity,
+      is_fallback: true,
+      is_stale: true,
+    },
+  };
 };
 
 /**
@@ -473,11 +516,13 @@ export const saveStoreHoursConfig = async (newConfig) => {
   const saved = response.data?.store_hours ? normalizeStoreHoursConfig(response.data.store_hours) : normalized;
 
   // Invalidate in-memory cache immediately
+  const now = Date.now();
   storeHoursCache = {
     data: saved,
-    timestamp: Date.now(),
+    timestamp: now,
   };
   lastKnownGoodConfig = saved;
+  lastSuccessfulFetchTime = now;
 
   return saved;
 };
@@ -487,7 +532,13 @@ export const saveStoreHoursConfig = async (newConfig) => {
  */
 export const getStoreStatus = async (referenceDate = new Date()) => {
   const config = await getStoreHoursConfig();
-  return evaluateStoreStatus(config, referenceDate);
+  const status = evaluateStoreStatus(config, referenceDate);
+  if (config._metadata) {
+    status._metadata = config._metadata;
+    status.is_fallback = Boolean(config._metadata.is_fallback);
+    status.is_stale = Boolean(config._metadata.is_stale);
+  }
+  return status;
 };
 
 /**
@@ -501,6 +552,8 @@ export const isStoreOpen = async (referenceDate = new Date()) => {
 export default {
   DAYS_OF_WEEK,
   DEFAULT_STORE_HOURS_CONFIG,
+  MAX_FALLBACK_CONFIG_AGE_MS,
+  _resetStoreHoursCacheForTesting,
   isValidTimeFormat,
   timeToMinutes,
   format12HourTime,

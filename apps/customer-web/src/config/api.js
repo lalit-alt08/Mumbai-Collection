@@ -1,4 +1,19 @@
-const API_URL =
-  import.meta.env?.VITE_API_URL || "http://localhost:5000/api";
+let resolvedApiUrl = import.meta.env?.VITE_API_URL;
+
+if (typeof window !== "undefined" && window.location) {
+  const hostname = window.location.hostname;
+  const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+  if (!isLocal) {
+    if (!resolvedApiUrl || resolvedApiUrl.includes("localhost") || resolvedApiUrl.includes("127.0.0.1")) {
+      resolvedApiUrl = "/api";
+    }
+  }
+}
+
+if (!resolvedApiUrl) {
+  resolvedApiUrl = import.meta.env?.PROD ? "/api" : "http://localhost:5000/api";
+}
+
+const API_URL = resolvedApiUrl;
 
 export default API_URL;

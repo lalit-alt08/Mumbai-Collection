@@ -33,6 +33,11 @@ function AddProduct() {
   const galleryInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const isSubmittingRef = useRef(false);
+  const generateIdempotencyKey = () =>
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const idempotencyKeyRef = useRef(generateIdempotencyKey());
 
   // Form State
   const [formData, setFormData] = useState({
@@ -307,11 +312,8 @@ function AddProduct() {
         images: uploadedImgs,
       };
 
-      // 4. Generate unique idempotency key for this submission attempt
-      const idempotencyKey =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      // 4. Use stable form-level idempotency key (preserved across retry clicks / timeouts)
+      const idempotencyKey = idempotencyKeyRef.current;
 
       // 5. Call createProduct API with idempotency key
       const res = await createProduct(payload, {
@@ -319,6 +321,8 @@ function AddProduct() {
       });
 
       if (res.success && res.product) {
+        // Form submitted successfully: rotate idempotency key for next product
+        idempotencyKeyRef.current = generateIdempotencyKey();
         setCreatedProduct(res.product);
         showToast("Product created successfully!");
       } else {
@@ -335,6 +339,7 @@ function AddProduct() {
   };
 
   const handleResetForm = () => {
+    idempotencyKeyRef.current = generateIdempotencyKey();
     setFormData({
       name: "",
       description: "",

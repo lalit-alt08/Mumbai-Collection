@@ -62,15 +62,15 @@ function CartSummary({
 
       {/* Delivery Card */}
       <div
-        className={`rounded-[22px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all ${
+        className={`rounded-[18px] bg-white p-4 shadow-[0_6px_22px_rgba(0,0,0,0.045)] transition-all ${
           storeHours?.is_peak_hours
             ? "border border-amber-300/80 bg-gradient-to-r from-amber-50/60 via-white to-orange-50/30"
             : ""
         }`}
       >
-        <div className="flex items-center gap-3.5">
+        <div className="flex items-center gap-3">
           <div
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
               storeHours?.is_peak_hours
                 ? "bg-amber-100 text-amber-700"
                 : "bg-[#F1ECFF] text-[#7C3AED]"
@@ -80,7 +80,7 @@ function CartSummary({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-[15px] font-bold text-[#1E1E1E] leading-tight">
+              <h3 className="text-[14px] font-bold text-[#1E1E1E] leading-tight">
                 {storeHours?.delivery_eta_text ||
                   (storeHours?.is_peak_hours
                     ? "Delivery in 2–3 hours"
@@ -153,61 +153,10 @@ function CartSummary({
         <h3 className="mb-2 text-[14px] font-bold text-[#1E1E1E]">
           Cancellation Policy
         </h3>
-        <p className="text-[13px] text-[#444444] leading-relaxed">
+        <p className="text-[14px] font-medium text-[#30323A] leading-relaxed">
           Orders cannot be cancelled once packed for delivery. In case of
           unexpected delays, a refund will be provided, if applicable.
         </p>
-      </div>
-
-      {/* Floating Checkout Bar */}
-      <div className="fixed bottom-[calc(18px+env(safe-area-inset-bottom,0px))] left-1/2 z-50 flex h-[78px] w-[calc(100%-32px)] max-w-[700px] -translate-x-1/2 items-center justify-between rounded-[30px] bg-white px-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[#ECECEC]">
-        <div className="flex flex-col pl-1">
-          <span className="text-[11px] font-bold text-[#444444] tracking-wider mb-0.5">
-            TOTAL
-          </span>
-          <span className="text-[20px] font-bold text-[#1E1E1E] leading-none">
-            ₹{total}
-          </span>
-        </div>
-
-        {canCheckout ? (
-          <button
-            onClick={onCheckout}
-            className="flex h-[52px] w-[55%] items-center justify-center rounded-[20px] bg-[#7C3AED] text-[15px] font-bold text-white transition-all duration-300 hover:bg-[#6C35E8] hover:shadow-[0_4px_20px_rgba(124,58,237,0.25)] active:scale-95 cursor-pointer"
-          >
-            Checkout &rarr;
-          </button>
-        ) : hasOutOfStock ? (
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            title="Please remove out-of-stock items to proceed"
-            className="flex h-[52px] w-[55%] flex-col items-center justify-center rounded-[20px] bg-rose-50 text-rose-700 font-bold border border-rose-200 cursor-not-allowed opacity-95 transition-all duration-200"
-          >
-            <span className="text-[12px] font-black text-rose-700 leading-tight">
-              Item Sold Out
-            </span>
-            <span className="text-[10px] font-semibold text-rose-600 leading-tight">
-              Remove to continue
-            </span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            title={`Add ₹${shortfall} more to reach minimum order value of ₹500`}
-            className="flex h-[52px] w-[55%] flex-col items-center justify-center rounded-[20px] bg-gray-100 text-gray-400 font-bold border border-gray-200 cursor-not-allowed opacity-90 transition-all duration-200"
-          >
-            <span className="text-[12px] font-black text-gray-600 leading-tight">
-              Min. Order ₹500
-            </span>
-            <span className="text-[10px] font-bold text-amber-700 leading-tight">
-              Add ₹{shortfall} more
-            </span>
-          </button>
-        )}
       </div>
     </div>
   );

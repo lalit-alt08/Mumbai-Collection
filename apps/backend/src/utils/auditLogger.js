@@ -151,7 +151,7 @@ export const logAuditEvent = ({
     action,
     target: {
       type: targetType,
-      id: targetId,
+      id: typeof targetId === "string" && targetId.includes("@") ? maskEmail(targetId) : targetId,
     },
     actor,
     details: redactSensitive(details),

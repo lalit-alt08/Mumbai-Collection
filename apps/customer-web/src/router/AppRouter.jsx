@@ -16,9 +16,13 @@ function TrackOrderRedirect() {
   return <TrackOrder />;
 }
 
+function ProductRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/product/${id}`} replace />;
+}
+
 const Cart = lazy(() => import("../pages/Cart"));
 const NotFound = lazy(() => import("../pages/NotFound"));
-const Checkout = lazy(() => import("../pages/Checkout"));
 const ProductDetails = lazy(() => import("../pages/ProductDetails"));
 const Category = lazy(() => import("../pages/Category"));
 const OrderSuccess = lazy(() => import("../pages/OrderSuccess"));
@@ -45,10 +49,7 @@ import { CartRouteManager } from "../context/CartContext";
 function RouteLoadingFallback() {
   return (
     <div className="flex min-h-[50vh] w-full items-center justify-center">
-      <div className="flex flex-col items-center gap-2">
-        <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
-        <span className="text-[11px] font-medium text-gray-400">Loading...</span>
-      </div>
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
     </div>
   );
 }
@@ -63,13 +64,13 @@ function AppRouter() {
           <Route element={<MainLayout />}>
             <Route path="/" element={<Home />} />
             <Route path="/cart" element={<Cart />} />
+            <Route path="/checkout" element={<Navigate to="/cart" replace />} />
             <Route path="/favorites" element={<Favorites />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/category" element={<Navigate to="/categories" replace />} />
 
             {/* Protected Routes */}
             <Route element={<ProtectedRoute />}>
-              <Route path="/checkout" element={<Checkout />} />
               <Route path="/profile-setup" element={<ProfileSetup />} />
               <Route path="/account" element={<Account />} />
               <Route path="/orders" element={<Orders />} />
@@ -81,6 +82,7 @@ function AppRouter() {
             </Route>
 
             <Route path="/product/:id" element={<ProductDetails />} />
+            <Route path="/products/:id" element={<ProductRedirect />} />
             <Route path="/category/:categoryId" element={<Category />} />
             <Route path="/order-success/:id" element={<OrderSuccess />} />
             <Route path="/order-success" element={<OrderSuccess />} />

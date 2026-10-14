@@ -5,6 +5,7 @@ import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
 import { getProducts, getCategories } from "../services/productService";
 import { CheckCircle2, X, ChevronRight } from "lucide-react";
+import { reshuffleCategoryProducts } from "../utils/productUtils";
 
 // In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
 let cachedHomeData = {
@@ -20,6 +21,8 @@ function Home() {
   // Instant hydration: If cached data exists in memory, skip initial loading skeleton
   const [loading, setLoading] = useState(() => !cachedHomeData.products);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
+  // Unique shuffle seed per visit/mount: stable during user interaction, fresh on every refresh
+  const [shuffleSeed] = useState(() => Math.random());
 
   useEffect(() => {
     if (location.state?.message) {
@@ -121,8 +124,12 @@ function Home() {
       });
     }
 
-    return activeSections;
-  }, [products, categories]);
+    // Dynamically reshuffle products in each category on refresh so every product gets exposure
+    return activeSections.map((section) => ({
+      ...section,
+      products: reshuffleCategoryProducts(section.products),
+    }));
+  }, [products, categories, shuffleSeed]);
 
   return (
     <div className="space-y-5 sm:space-y-6 md:space-y-8">
