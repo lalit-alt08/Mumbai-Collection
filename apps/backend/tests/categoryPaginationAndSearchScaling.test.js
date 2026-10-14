@@ -12,6 +12,7 @@ import {
 } from "../src/services/productService.js";
 import {
   getAllProducts,
+  getProductById,
   getProductsByCategory,
 } from "../src/controllers/productController.js";
 
@@ -164,6 +165,58 @@ test("Fix 3 - Category Products: getProductsByCategory controller returns pagina
       responseData.products[0].images[0].src,
       "http://localhost:5000/api/media/uploads/a.jpg"
     );
+  } finally {
+    api.get = originalApiGet;
+    serverCache.clear();
+  }
+});
+
+test("Product stock refresh bypasses stale product-detail cache and refreshes it", async () => {
+  const originalApiGet = api.get;
+  serverCache.clear();
+  serverCache.set("catalog:product:321", {
+    id: 321,
+    name: "Camel Oil Pastels",
+    manage_stock: true,
+    stock_quantity: 2,
+    stock_status: "instock",
+  }, 120000);
+
+  let upstreamCalls = 0;
+  api.get = async (endpoint) => {
+    upstreamCalls += 1;
+    assert.equal(endpoint, "products/321");
+    return {
+      data: {
+        id: 321,
+        name: "Camel Oil Pastels",
+        status: "publish",
+        catalog_visibility: "visible",
+        manage_stock: true,
+        stock_quantity: 0,
+        stock_status: "outofstock",
+      },
+    };
+  };
+
+  try {
+    let body;
+    const req = {
+      params: { id: "321" },
+      query: { refresh: "1" },
+      protocol: "http",
+      headers: { host: "localhost:5000" },
+    };
+    const res = {
+      status() { return this; },
+      json(data) { body = data; return this; },
+    };
+
+    await getProductById(req, res);
+    assert.equal(upstreamCalls, 1, "refresh request must fetch live WooCommerce product data");
+    assert.equal(body.stock_quantity, 0);
+    assert.equal(body.stock_status, "outofstock");
+    assert.equal(serverCache.get("catalog:product:321").stock_quantity, 0);
   } finally {
     api.get = originalApiGet;
     serverCache.clear();

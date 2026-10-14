@@ -390,6 +390,7 @@ function Products() {
         );
         showToast("Product updated successfully!");
         handleCloseQuickAdjust();
+        fetchProductList();
       } else {
         showToast(res.message || "Failed to update product.", "error");
       }
@@ -413,24 +414,7 @@ function Products() {
       if (res.success) {
         showToast(`Product "${product.name}" deleted successfully.`);
         setDeleteConfirmProduct(null);
-
-        // 1. Update product list and handle empty page edge case
-        setProducts((prev) => {
-          const updated = prev.filter((p) => p.id !== product.id);
-          // If the page is now empty and we are beyond page 1, navigate back one page
-          if (updated.length === 0 && page > 1) {
-            setPage((p) => Math.max(1, p - 1));
-          }
-          return updated;
-        });
-
-        // 2. Decrement totalProducts and recalculate totalPages so pagination stays valid
-        setTotalProducts((t) => {
-          const newTotal = Math.max(0, t - 1);
-          const newTotalPages = Math.ceil(newTotal / perPage) || 1;
-          setTotalPages(newTotalPages);
-          return newTotal;
-        });
+        fetchProductList();
       } else {
         showToast(res.message || "Failed to delete product.", "error");
       }

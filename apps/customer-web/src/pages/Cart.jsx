@@ -8,6 +8,9 @@ import { ArrowLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "luc
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import SharedCartModal from "../components/cart/SharedCartModal";
+import BillingForm from "../components/checkout/BillingForm";
+import { checkPaymentStatus } from "../services/paymentService";
+import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey } from "../utils/checkoutIdempotency";
 import { buildCartShareUrl, parseSharedCartItems } from "../utils/cartShareUtils";
 import { useNoIndex } from "../hooks/useNoIndex";
 
@@ -39,6 +42,26 @@ function Cart() {
       isMounted = false;
     };
   }, []);
+
+  // Check if a completed pending payment exists before declaring cart empty on hard refresh
+  useEffect(() => {
+    const stored = getPendingPayment();
+    if (stored?.razorpay_order_id) {
+      checkPaymentStatus(stored.razorpay_order_id)
+        .then((res) => {
+          if (res?.success && res?.order_id) {
+            clearPendingPayment();
+            clearCheckoutIdempotencyKey();
+            navigate(`/order-success/${res.order_id}`, {
+              state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
+              replace: true,
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [navigate]);
+
   const [shareFeedback, setShareFeedback] = useState(null);
   const shareTimerRef = useRef(null);
 
@@ -490,10 +513,9 @@ function Cart() {
     if (hasOutOfStockItems) return;
     if (itemsTotal < MIN_ORDER_VALUE) return;
     if (!isAuthenticated) {
-      navigate("/login", { state: { from: "/checkout" } });
+      navigate("/login", { state: { from: "/cart" } });
       return;
     }
-    navigate("/checkout");
   };
 
   const hasSharedBanner = Boolean(
@@ -502,8 +524,8 @@ function Cart() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-[15px] font-medium text-[#444444]">Loading cart...</div>
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
       </div>
     );
   }
@@ -532,7 +554,7 @@ function Cart() {
       ) / 100;
 
   return (
-    <div className="mx-auto w-full max-w-[700px] pb-[120px] md:pt-4">
+    <div className={`mx-auto w-full max-w-[700px] ${isCartEmpty ? "pb-6" : "pb-56"} lg:pb-20 md:pt-4`}>
       {/* Header */}
       <div className="mb-4 flex items-center justify-between rounded-[22px] bg-white px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:mb-6">
         <button
@@ -668,7 +690,7 @@ function Cart() {
             })}
           </div>
 
-          {/* Bill Summary, Policies & Floating Bar */}
+          {/* Bill Summary, Policies */}
           <CartSummary
             cart={cart}
             itemsTotal={itemsTotal}
@@ -682,6 +704,16 @@ function Cart() {
             minOrderValue={MIN_ORDER_VALUE}
             storeHours={storeHours}
             onCheckout={handleCheckout}
+          />
+
+          {/* Unified Checkout Form & Action Bar */}
+          <BillingForm
+            storeHours={storeHours}
+            totalAmount={total}
+            standaloneBar={true}
+            hasOutOfStock={hasOutOfStockItems}
+            shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
+            onStoreClosed={() => setStoreHours((prev) => ({ ...(prev || {}), is_open: false }))}
           />
         </div>
       )}

@@ -95,7 +95,7 @@ function Register() {
       const cleanLast = lastName.trim();
       const cleanFullName = `${cleanFirst} ${cleanLast}`;
 
-      await register({
+      const regResponse = await register({
         first_name: cleanFirst,
         last_name: cleanLast,
         name: cleanFullName,
@@ -104,14 +104,18 @@ function Register() {
       });
 
       // Automatically authenticate and issue fresh session cookies for the new user
-      const loginResponse = await loginApi(email.trim(), password);
-
-      loginUser(loginResponse.user);
+      if (regResponse?.user) {
+        loginUser(regResponse.user);
+      } else {
+        const loginResponse = await loginApi(email.trim(), password);
+        loginUser(loginResponse.user);
+      }
 
       navigate("/profile-setup", {
         state: {
           first_name: cleanFirst,
           last_name: cleanLast,
+          fromRegister: true,
         },
       });
     } catch (err) {

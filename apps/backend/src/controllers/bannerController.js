@@ -3,6 +3,7 @@ import {
   saveBanners,
 } from "../services/bannerService.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError } from "../utils/logger.js";
 
 /**
@@ -75,6 +76,17 @@ export const updateEmployeeBanners = async (req, res) => {
     }
 
     const savedBanners = await saveBanners(banners);
+
+    logAuditEvent({
+      req,
+      action: "HOMEPAGE_BANNERS_UPDATE",
+      targetType: "banners",
+      targetId: "homepage",
+      details: {
+        bannerCount: savedBanners.length,
+        bannerIds: savedBanners.map((b) => b.id || b.title),
+      },
+    });
 
     res.json({
       success: true,

@@ -22,6 +22,7 @@ const { sendOtp } = await import("../src/controllers/authController.js");
 const { default: wp } = await import("../src/services/wordpress.js");
 const { getRazorpayInstance } = await import("../src/services/razorpayService.js");
 const { _setAnomalyHandlerForTesting } = await import("../src/services/alertService.js");
+const { _setWpClientForTesting } = await import("../src/services/paymentIntentService.js");
 const { default: axios } = await import("axios");
 
 test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", async (t) => {
@@ -36,6 +37,10 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     serverCache.clear();
     _resetPaymentStoreHoursFallbackForTesting?.();
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
+    _setWpClientForTesting({
+      post: async () => ({ data: { success: true } }),
+      get: async () => ({ data: { order: null } }),
+    });
   });
 
   t.afterEach(() => {
@@ -45,6 +50,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     wp.post = originalWpPost;
     axios.get = originalAxiosGet;
     storeHoursService.getStoreStatus = originalGetStoreStatus;
+    _setWpClientForTesting(null);
     serverCache.clear();
   });
 
@@ -430,7 +436,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
   // 5. Forensic Audit Fix: Email OTP Cooldown & Identifier Integrity
   // ───────────────────────────────────────────────────────────────────────────
 
-  await t.test("5.1. sendOtp returns HTTP 429 when WordPress reports rate_limited: true", async () => {
+  await t.test("5.1. sendOtp returns generic HTTP 200 without enumeration when WordPress reports rate_limited: true", async () => {
     wp.post = async (path) => {
       if (path === "/wp-json/mumbai-auth/v1/otp/store") {
         return {
@@ -438,6 +444,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
             success: true,
             user_found: true,
             rate_limited: true,
+            message: "If the number is registered, an OTP has been sent.",
           },
         };
       }
@@ -449,10 +456,8 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     };
     let statusCode = 0;
     let responseBody = null;
-    let retryAfterHeader = null;
     const res = {
-      set(k, v) {
-        if (k.toLowerCase() === "retry-after") retryAfterHeader = v;
+      set() {
         return this;
       },
       status(c) {
@@ -467,10 +472,9 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
 
     await sendOtp(req, res);
 
-    assert.equal(statusCode, 429, "Blocked OTP request must return HTTP 429");
-    assert.equal(retryAfterHeader, "60");
-    assert.equal(responseBody?.retryAfter, 60);
-    assert.equal(responseBody?.success, false);
+    assert.equal(statusCode, 200, "Reset password cooldown must return HTTP 200 to prevent account enumeration");
+    assert.equal(responseBody?.success, true);
+    assert.match(responseBody?.message, /If the number is registered/i);
   });
 
   await t.test("5.2. Email containing 10 digits is NEVER stripped into phone number", async () => {

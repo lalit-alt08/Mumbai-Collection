@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { getProductById } from "../../services/productService";
 import { Heart } from "lucide-react";
 import {
   addToCart as addToWooCart,
@@ -9,13 +10,20 @@ import {
 import { useCart } from "../../context/CartContext";
 import { useFavorites } from "../../context/FavoritesContext";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
-import { cleanProductTitle } from "../../utils/productUtils";
+import {
+  cleanProductTitle,
+  getCartFailureMessage,
+  getProductStock,
+  getRemainingStock,
+} from "../../utils/productUtils";
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
   const { cart, refreshCart, updateCart } = useCart();
   const { isFavorited, toggleFavorite } = useFavorites();
   const [updatingCart, setUpdatingCart] = useState(false);
+  const [stockOverride, setStockOverride] = useState(null);
+  const [cartError, setCartError] = useState("");
 
   const primaryImage = product?.images?.[0];
   const cardImageUrl = getCatalogImageUrl(primaryImage);
@@ -27,19 +35,23 @@ function ProductCard({ product }) {
     (item) => Number(item.id) === Number(product.id)
   );
 
-  const maxStock =
-    product.manage_stock && product.stock_quantity !== null
-      ? Number(product.stock_quantity)
-      : product.stock_status === "outofstock"
-      ? 0
-      : 99;
+  const stockProduct = stockOverride?.id === product.id
+    ? { ...product, ...stockOverride }
+    : product;
+  const { maxStock, isOutOfStock } = getProductStock(stockProduct, cartItem);
 
   const currentQuantity = cartItem?.quantity || 0;
-  const isOutOfStock =
-    product.stock_status === "outofstock" ||
-    (product.manage_stock && product.stock_quantity !== null && product.stock_quantity <= 0);
-
+  const remainingStock = getRemainingStock(stockProduct, currentQuantity, cartItem);
   const isMaxReached = currentQuantity >= maxStock && maxStock > 0;
+
+  const refreshStock = async () => {
+    try {
+      const latestProduct = await getProductById(product.id, { refresh: true });
+      setStockOverride(latestProduct);
+    } catch {
+      // Keep the current stock display if the refresh itself is unavailable.
+    }
+  };
 
   // Dynamic Discount Calculation
   const regularPrice = Number(product.regular_price || product.price || 0);
@@ -126,10 +138,18 @@ function ProductCard({ product }) {
       {/* Bottom Sticky Action Area */}
       <div className="mt-auto pt-1.5 flex flex-col gap-1">
         {/* Low Stock Indicator with Locked Height */}
-        <div className="h-[14px] flex items-center">
-          {maxStock <= 5 && maxStock > 0 ? (
+        <div className="min-h-[14px] flex items-center">
+          {cartError ? (
+            <span role="alert" className="line-clamp-2 text-[10px] font-semibold text-rose-700 leading-tight">
+              {cartError}
+            </span>
+          ) : isOutOfStock || isMaxReached ? (
             <span className="text-[9px] sm:text-[10px] font-bold text-amber-700 leading-none">
-              ⚡ Only {maxStock} left
+              Out of stock
+            </span>
+          ) : remainingStock <= 5 && remainingStock > 0 ? (
+            <span className="text-[9px] sm:text-[10px] font-bold text-amber-700 leading-none">
+              ⚡ Only {remainingStock} left
             </span>
           ) : null}
         </div>
@@ -162,7 +182,9 @@ function ProductCard({ product }) {
                       if (updatedCart) {
                         updateCart(updatedCart);
                       }
-                    } catch {
+                    } catch (error) {
+                      setCartError(getCartFailureMessage(error));
+                      await refreshStock();
                       await refreshCart().catch(() => {});
                     } finally {
                       setUpdatingCart(false);
@@ -187,13 +209,16 @@ function ProductCard({ product }) {
                 disabled={updatingCart}
                 onClick={async () => {
                   if (updatingCart) return;
+                  setCartError("");
                   try {
                     setUpdatingCart(true);
                     const updatedCart = await addToWooCart(product.id);
                     if (updatedCart) {
                       updateCart(updatedCart);
                     }
-                  } catch {
+                  } catch (error) {
+                    setCartError(getCartFailureMessage(error));
+                    await refreshStock();
                     await refreshCart().catch(() => {});
                   } finally {
                     setUpdatingCart(false);
@@ -219,7 +244,9 @@ function ProductCard({ product }) {
                       if (updatedCart) {
                         updateCart(updatedCart);
                       }
-                    } catch {
+                    } catch (error) {
+                      setCartError(getCartFailureMessage(error));
+                      await refreshStock();
                       await refreshCart().catch(() => {});
                     } finally {
                       setUpdatingCart(false);
@@ -244,14 +271,16 @@ function ProductCard({ product }) {
                       if (updatedCart) {
                         updateCart(updatedCart);
                       }
-                    } catch {
+                    } catch (error) {
+                      setCartError(getCartFailureMessage(error));
+                      await refreshStock();
                       await refreshCart().catch(() => {});
                     } finally {
                       setUpdatingCart(false);
                     }
                   }}
-                  disabled={updatingCart || isMaxReached}
-                  title={isMaxReached ? `Only ${maxStock} units in stock` : "Add one more"}
+                  disabled={updatingCart || isMaxReached || isOutOfStock}
+                  title={isOutOfStock || isMaxReached ? "Out of stock" : `Only ${remainingStock} more available`}
                   className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#6C35E8] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs font-bold"
                 >
                   +

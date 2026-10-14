@@ -28,6 +28,31 @@ const normalizeRegion = (input) => {
   return null;
 };
 
+export const normalizeAndValidateIndianPhone = (phone) => {
+  const rawDigits = String(phone || "").trim().replace(/\D/g, "");
+  let cleanPhone = rawDigits;
+  if (cleanPhone.length === 12 && cleanPhone.startsWith("91")) {
+    cleanPhone = cleanPhone.slice(2);
+  } else if (cleanPhone.length === 11 && cleanPhone.startsWith("0")) {
+    cleanPhone = cleanPhone.slice(1);
+  }
+
+  if (!cleanPhone || !/^[6-9]\d{9}$/.test(cleanPhone)) {
+    return null;
+  }
+  return cleanPhone;
+};
+
+export const validatePincode = (pincode) => {
+  if (pincode === undefined || pincode === null) return { valid: true, value: "" };
+  const clean = String(pincode).trim();
+  if (clean === "") return { valid: true, value: "" };
+  if (!/^[1-9][0-9]{5}$/.test(clean)) {
+    return { valid: false, value: clean };
+  }
+  return { valid: true, value: clean };
+};
+
 /**
  * Fetch all saved addresses for the authenticated customer
  */
@@ -44,6 +69,11 @@ export const getAddresses = async (req, res) => {
         timeout: 8000,
       },
     );
+
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.set("Pragma", "no-cache");
+    }
 
     res.json(response.data);
   } catch (error) {
@@ -107,11 +137,19 @@ export const saveAddress = async (req, res) => {
 
     const cleanFullName = `${firstName} ${lastName}`;
 
-    const cleanPhone = String(phone || "").trim().replace(/\D/g, "");
-    if (!cleanPhone || cleanPhone.length < 10) {
+    const cleanPhone = normalizeAndValidateIndianPhone(phone);
+    if (!cleanPhone) {
       return res.status(400).json({
         success: false,
-        message: "Please enter a valid 10-digit phone number.",
+        message: "Please enter a valid 10-digit Indian phone number starting with 6, 7, 8, or 9.",
+      });
+    }
+
+    const pincodeCheck = validatePincode(pincode);
+    if (!pincodeCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Pincode must be a valid 6-digit Indian postal code.",
       });
     }
 
@@ -160,7 +198,7 @@ export const saveAddress = async (req, res) => {
         address_line2: String(address_line2 || "").trim(),
         city: normalizedRegion,
         state: "MH",
-        pincode: pincode ? String(pincode).trim() : "",
+        pincode: pincodeCheck.value,
       },
       {
         headers: {
@@ -236,11 +274,19 @@ export const updateAddress = async (req, res) => {
 
     const cleanFullName = `${firstName} ${lastName}`;
 
-    const cleanPhone = String(phone || "").trim().replace(/\D/g, "");
-    if (!cleanPhone || cleanPhone.length < 10) {
+    const cleanPhone = normalizeAndValidateIndianPhone(phone);
+    if (!cleanPhone) {
       return res.status(400).json({
         success: false,
-        message: "Please enter a valid 10-digit phone number.",
+        message: "Please enter a valid 10-digit Indian phone number starting with 6, 7, 8, or 9.",
+      });
+    }
+
+    const pincodeCheck = validatePincode(pincode);
+    if (!pincodeCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Pincode must be a valid 6-digit Indian postal code.",
       });
     }
 
@@ -289,7 +335,7 @@ export const updateAddress = async (req, res) => {
         address_line2: String(address_line2 || "").trim(),
         city: normalizedRegion,
         state: "MH",
-        pincode: pincode ? String(pincode).trim() : "",
+        pincode: pincodeCheck.value,
       },
       {
         headers: {

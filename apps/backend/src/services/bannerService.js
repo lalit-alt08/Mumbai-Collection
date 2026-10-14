@@ -48,8 +48,19 @@ const CACHE_TTL_MS = 30 * 1000; // 30 seconds TTL
 export const sanitizeBannerLink = (link) => {
   const raw = String(link || "").trim();
   if (!raw) return "";
-  if (raw.startsWith("/")) return raw;
-  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/")) {
+    if (raw.startsWith("//")) return "";
+    return raw;
+  }
+  try {
+    const parsed = new URL(raw);
+    const allowedHosts = ["mumbaicollection.in", "www.mumbaicollection.in", "localhost"];
+    if (allowedHosts.includes(parsed.hostname.toLowerCase())) {
+      return parsed.pathname + parsed.search;
+    }
+  } catch {
+    return "";
+  }
   return "";
 };
 

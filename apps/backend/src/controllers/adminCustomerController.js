@@ -249,6 +249,10 @@ export const getAdminCustomers = async (req, res) => {
     const totalPages = Math.ceil(totalCustomers / limit) || 1;
     const paginatedCustomers = customerList.slice((pageNum - 1) * limit, pageNum * limit);
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
+
     res.json({
       success: true,
       page: pageNum,

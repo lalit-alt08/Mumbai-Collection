@@ -1,3 +1,5 @@
+import dns from "dns";
+import net from "net";
 import { imageSize } from "image-size";
 
 /**
@@ -214,3 +216,170 @@ export const validateImageBuffer = (file, options = {}) => {
     height: dimensions.height,
   };
 };
+
+/**
+ * Checks whether an IP address (IPv4 or IPv6) is private, loopback, link-local,
+ * multicast, or otherwise restricted from outbound external fetches.
+ */
+export const isPrivateOrRestrictedIp = (ipStr) => {
+  if (!ipStr || typeof ipStr !== "string") return true;
+  const ip = ipStr.trim().toLowerCase();
+
+  // IPv4 inspection
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
+      return true;
+    }
+
+    // 0.0.0.0/8 (Current network)
+    if (parts[0] === 0) return true;
+    // 10.0.0.0/8 (Private network RFC 1918)
+    if (parts[0] === 10) return true;
+    // 100.64.0.0/10 (Carrier-grade NAT RFC 6598)
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    // 127.0.0.0/8 (Loopback RFC 1122)
+    if (parts[0] === 127) return true;
+    // 169.254.0.0/16 (Link-local / Cloud metadata RFC 3927)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    // 172.16.0.0/12 (Private network RFC 1918: 172.16.0.0 – 172.31.255.255)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.0.0.0/24 (IETF Protocol Assignments)
+    if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+    // 192.0.2.0/24 (TEST-NET-1)
+    if (parts[0] === 192 && parts[1] === 0 && parts[2] === 2) return true;
+    // 192.168.0.0/16 (Private network RFC 1918)
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 198.18.0.0/15 (Benchmarking)
+    if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+    // 198.51.100.0/24 (TEST-NET-2)
+    if (parts[0] === 198 && parts[1] === 51 && parts[2] === 100) return true;
+    // 203.0.113.0/24 (TEST-NET-3)
+    if (parts[0] === 203 && parts[1] === 0 && parts[2] === 113) return true;
+    // 224.0.0.0/4 (Multicast)
+    if (parts[0] >= 224 && parts[0] <= 239) return true;
+    // 240.0.0.0/4 (Reserved / Broadcast)
+    if (parts[0] >= 240) return true;
+
+    return false;
+  }
+
+  // IPv6 inspection
+  if (net.isIPv6(ip)) {
+    // Loopback & Unspecified
+    if (
+      ip === "::1" ||
+      ip === "0:0:0:0:0:0:0:1" ||
+      ip === "::" ||
+      ip === "0:0:0:0:0:0:0:0"
+    ) {
+      return true;
+    }
+
+    // IPv4-mapped IPv6 (::ffff:127.0.0.1, etc.)
+    if (ip.startsWith("::ffff:") || ip.startsWith("0:0:0:0:0:ffff:")) {
+      const rest = ip.replace(/^::ffff:|^0:0:0:0:0:ffff:/, "");
+      if (net.isIPv4(rest)) {
+        return isPrivateOrRestrictedIp(rest);
+      }
+      return true;
+    }
+
+    // Unique Local Addresses (ULA): fc00::/7 (fc00:: through fdff::)
+    if (/^f[cd][0-9a-f]{2}:/i.test(ip) || ip.startsWith("fc") || ip.startsWith("fd")) {
+      return true;
+    }
+
+    // Link-Local: fe80::/10 (fe80:: through febf::)
+    if (
+      /^fe[89ab][0-9a-f]:/i.test(ip) ||
+      ip.startsWith("fe80:") ||
+      ip.startsWith("fe9") ||
+      ip.startsWith("fea") ||
+      ip.startsWith("feb")
+    ) {
+      return true;
+    }
+
+    // Deprecated Site-Local: fec0::/10
+    if (/^fe[c-f][0-9a-f]:/i.test(ip)) {
+      return true;
+    }
+
+    // Multicast: ff00::/8
+    if (ip.startsWith("ff")) {
+      return true;
+    }
+
+    // Discard prefix / Documentation: 100::/64, 2001:db8::/32
+    if (ip.startsWith("100:") || ip.startsWith("2001:db8:") || ip.startsWith("2001:20:")) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // Neither valid IPv4 nor IPv6
+  return true;
+};
+
+/**
+ * Validates external image URLs against SSRF (Server-Side Request Forgery) attacks.
+ * Rejects non-HTTP(S) protocols, loopback/private/link-local IP addresses (IPv4 & IPv6),
+ * bracketed IPv6 literals, and hostnames resolving to internal/private IPs via DNS.
+ */
+export const isSafeExternalImageUrl = async (urlStr) => {
+  if (!urlStr || typeof urlStr !== "string") return false;
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+
+    // Strip bracket notation from IPv6 hostnames (e.g. "[::1]" -> "::1")
+    const rawHost = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase().trim();
+    if (!rawHost) return false;
+
+    // Check common loopback, local, and reserved internal hostnames
+    if (
+      rawHost === "localhost" ||
+      rawHost.endsWith(".localhost") ||
+      rawHost.endsWith(".local") ||
+      rawHost.endsWith(".internal") ||
+      rawHost.endsWith(".arpa") ||
+      rawHost.endsWith(".test") ||
+      rawHost.endsWith(".example") ||
+      rawHost.endsWith(".invalid") ||
+      rawHost === "0.0.0.0"
+    ) {
+      return false;
+    }
+
+    // If hostname is directly an IP address, evaluate immediately without DNS lookup
+    if (net.isIP(rawHost)) {
+      return !isPrivateOrRestrictedIp(rawHost);
+    }
+
+    // Resolve domain hostnames via DNS with a strict timeout to prevent stalls
+    const addresses = await dns.promises.lookup(rawHost, {
+      all: true,
+      signal: AbortSignal.timeout(2500),
+    });
+
+    if (!addresses || addresses.length === 0) {
+      return false;
+    }
+
+    // Ensure NONE of the resolved IP addresses point to private/restricted ranges
+    for (const entry of addresses) {
+      if (isPrivateOrRestrictedIp(entry.address)) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+

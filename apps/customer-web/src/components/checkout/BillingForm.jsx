@@ -13,6 +13,13 @@ import {
   Home,
   Building2,
   Plus,
+  ShieldCheck,
+  Banknote,
+  ChevronRight,
+  ChevronUp,
+  X,
+  Check,
+  Clock,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
@@ -70,15 +77,39 @@ const loadRazorpayScript = () => {
   });
 };
 
-function BillingForm({ storeHours, onStoreClosed }) {
+function BillingForm({
+  storeHours,
+  onStoreClosed,
+  totalAmount,
+  standaloneBar = false,
+  hasOutOfStock = false,
+  shortfall = 0,
+}) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { cart, refreshCart } = useCart();
 
-  const [addresses, setAddresses] = useState([]);
-  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [addresses, setAddresses] = useState(() => {
+    try {
+      const cached = safeStorage.getJSON("saved_addresses_cache", []);
+      return Array.isArray(cached) ? cached : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedAddressId, setSelectedAddressId] = useState(() => {
+    try {
+      const cachedId = safeStorage.getItem("selected_address_id");
+      return cachedId ? Number(cachedId) : null;
+    } catch {
+      return null;
+    }
+  });
   const [paymentMethod, setPaymentMethod] = useState("cod"); // "cod" | "online"
   const [paymentStep, setPaymentStep] = useState(""); // "" | "preparing" | "opening_gateway" | "verifying"
+
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
@@ -89,6 +120,17 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const [removingStockItems, setRemovingStockItems] = useState(false);
   const isSubmittingRef = useRef(false);
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setShowAddressModal(false);
+        setShowPaymentModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleRemoveUnavailableAndContinue = async () => {
     if (removingStockItems) return;
@@ -259,6 +301,13 @@ function BillingForm({ storeHours, onStoreClosed }) {
 
   // Load saved addresses
   useEffect(() => {
+    if (!isAuthenticated) {
+      setAddresses([]);
+      setSelectedAddressId(null);
+      setLoadingAddresses(false);
+      return;
+    }
+
     const loadAddresses = async () => {
       try {
         setLoadingAddresses(true);
@@ -271,10 +320,16 @@ function BillingForm({ storeHours, onStoreClosed }) {
         const savedAddresses = response.data.addresses || [];
 
         setAddresses(savedAddresses);
+        safeStorage.setJSON("saved_addresses_cache", savedAddresses);
 
-        // Automatically select first saved address
+        // Keep current selection if valid, otherwise select first saved address
         if (savedAddresses.length > 0) {
-          setSelectedAddressId(savedAddresses[0].id);
+          setSelectedAddressId((prev) => {
+            const stillValid = prev && savedAddresses.some((a) => a.id === prev);
+            const nextId = stillValid ? prev : savedAddresses[0].id;
+            safeStorage.setItem("selected_address_id", nextId);
+            return nextId;
+          });
         }
       } catch (error) {
         setError(
@@ -287,7 +342,7 @@ function BillingForm({ storeHours, onStoreClosed }) {
     };
 
     loadAddresses();
-  }, []);
+  }, [isAuthenticated]);
 
   const selectedAddress = addresses.find(
     (address) => address.id === selectedAddressId,
@@ -296,8 +351,23 @@ function BillingForm({ storeHours, onStoreClosed }) {
   const handlePlaceOrder = async () => {
     if (isSubmittingRef.current) return;
 
+    if (!isAuthenticated) {
+      navigate("/login", { state: { from: "/cart" } });
+      return;
+    }
+
+    if (addresses.length === 0) {
+      navigate("/account/addresses");
+      return;
+    }
+
     if (!selectedAddress) {
       setError("Please select a delivery address.");
+      return;
+    }
+
+    if (hasOutOfStock) {
+      setError("Please remove sold out items from your cart to proceed.");
       return;
     }
 
@@ -523,6 +593,8 @@ function BillingForm({ storeHours, onStoreClosed }) {
               }
             } catch (_) {}
 
+            clearPendingPayment();
+            setIsPersistentPending(false);
             setError("Payment was cancelled. You can retry paying anytime.");
           },
         },
@@ -635,6 +707,8 @@ function BillingForm({ storeHours, onStoreClosed }) {
         isSubmittingRef.current = false;
         setLoading(false);
         setPaymentStep("");
+        clearPendingPayment();
+        setIsPersistentPending(false);
         const desc = failedRes?.error?.description || "Payment attempt failed. You can retry paying.";
         setError(desc);
       });
@@ -719,392 +793,278 @@ function BillingForm({ storeHours, onStoreClosed }) {
     }
   };
 
-  if (loadingAddresses) {
+  if (loadingAddresses && !standaloneBar) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-[20px] border border-[#ECECEC] bg-white">
-        <div className="flex items-center gap-2 text-[14px] font-medium text-[#444444]">
-          <Loader2 size={19} className="animate-spin text-[#7C3AED]" />
-          Loading your saved addresses...
-        </div>
+      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-gray-200/90 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
       </div>
     );
   }
 
+  const finalTotal =
+    totalAmount !== undefined && totalAmount !== null
+      ? totalAmount
+      : Number(cart?.totals?.total_price || 0) / 100;
+
+  const itemsSubtotal = cart?.totals?.total_items
+    ? Number(cart.totals.total_items) / 100
+    : (cart?.items || []).reduce(
+        (acc, item) =>
+          acc +
+          (Number(item.totals?.line_subtotal) ||
+            Number(item.totals?.line_total) ||
+            0),
+        0,
+      ) / 100;
+
+  const isBelowMin = itemsSubtotal < 500;
+  const isStoreClosed = storeHours && storeHours.is_open === false;
+  const pending = getPendingPayment();
+  const hasActivePendingPayment = Boolean(
+    pending?.razorpay_order_id &&
+    Date.now() - (pending.timestamp || 0) < 30 * 60 * 1000
+  );
+  const isDisabled =
+    loading ||
+    isStoreClosed ||
+    hasOutOfStock ||
+    isBelowMin ||
+    (paymentMethod === "online" && hasActivePendingPayment) ||
+    (isAuthenticated && addresses.length > 0 && !selectedAddress);
+
   return (
-    <div className="rounded-[20px] border border-[#ECECEC] bg-white p-5 shadow-[0_6px_24px_rgba(0,0,0,0.05)] md:p-6">
-      {/* Header */}
-      <div className="mb-5">
-        <h2 className="text-[25px] font-bold text-[#1E1E1E]">Checkout</h2>
-
-        <p className="mt-1.5 text-[14px] text-[#444444]">
-          Select your delivery address and payment method.
-        </p>
-      </div>
-
-      {/* Error */}
+    <div className="space-y-4">
+      {/* Error Banner */}
       {error && (
-        <div className="mb-5 rounded-[12px] bg-red-50 px-4 py-3 text-[13px] font-medium text-red-600">
+        <div className="rounded-xl border border-red-200 bg-red-50/90 px-3.5 py-2.5 text-xs font-bold text-red-700 shadow-xs">
           {error}
         </div>
       )}
 
-      {/* Delivery Address */}
-      <div className="mb-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-            <MapPin size={18} className="text-[#7C3AED]" />
-            Delivery Address
-          </h3>
-
+      {/* Session Expired Mid-Payment */}
+      {sessionExpiredPending && (
+        <div className="flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
+          <span className="font-semibold">
+            Your session expired while confirming payment. Sign in to resume your order.
+          </span>
           <button
             type="button"
-            onClick={() => navigate("/account/addresses")}
-            disabled={loading}
-            className={`flex items-center gap-1 text-[13px] font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8] hover:underline ${
-              loading ? "opacity-50 pointer-events-none cursor-not-allowed" : ""
-            }`}
+            onClick={() => navigate("/login?redirect=/cart")}
+            className="rounded-lg bg-[#7C3AED] px-3 py-1 font-bold text-white hover:bg-[#6C35E8] cursor-pointer"
           >
-            <Plus size={15} />
-            Add Address
+            Sign In
           </button>
         </div>
+      )}
 
-        {/* No saved addresses */}
-        {addresses.length === 0 ? (
-          <div className="rounded-[14px] border border-dashed border-[#C4B5FD] bg-[#F1ECFF] p-5 text-center">
-            <MapPin size={28} className="mx-auto mb-2 text-[#7C3AED]" />
-
-            <h4 className="text-[14px] font-bold text-[#1E1E1E]">
-              No saved addresses
-            </h4>
-
-            <p className="mt-1 text-[13px] text-[#444444]">
-              Please add a delivery address before placing your order.
-            </p>
-
-            <button
-              type="button"
-              onClick={() => navigate("/account/addresses")}
-              disabled={loading}
-              className={`mt-3 rounded-xl bg-[#7C3AED] px-4 py-2 text-[13px] font-bold text-white transition hover:bg-[#6C35E8] ${
-                loading ? "opacity-50 pointer-events-none cursor-not-allowed" : ""
-              }`}
-            >
-              Add Address
-            </button>
-          </div>
-        ) : (
-          <div className={`space-y-3 transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
-            {addresses.map((address) => {
-              const isSelected = selectedAddressId === address.id;
-
-              const isHome = address.type === "home";
-
-              return (
-                <button
-                  key={address.id}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setSelectedAddressId(address.id)}
-                  className={`w-full rounded-[16px] border-2 p-4 text-left transition-all ${
-                    isSelected
-                      ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
-                      : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {/* Icon */}
-                    <div
-                      className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
-                        isSelected
-                          ? "bg-[#7C3AED] text-white"
-                          : "bg-[#F5F5F5] text-[#444444]"
-                      }`}
-                    >
-                      {isHome ? <Home size={18} /> : <Building2 size={18} />}
-                    </div>
-
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[14px] font-bold text-[#1E1E1E]">
-                          {address.first_name || ""} {address.last_name || ""}
-                        </span>
-
-                        <span className="rounded-full bg-[#E9D5FF] px-2.5 py-0.5 text-[11px] font-bold text-[#7C3AED]">
-                          {address.type ? address.type.toUpperCase() : "HOME"}
-                        </span>
-                      </div>
-
-                      <div className="mt-1 text-[13px] text-[#444444]">
-                        {address.address_line1 || ""},{" "}
-                        {address.address_line2
-                          ? `${address.address_line2}, `
-                          : ""}
-                        {address.city || ""}, {address.state || ""}
-                        {address.pincode ? ` - ${address.pincode}` : ""}
-                      </div>
-
-                      {address.phone && (
-                        <div className="mt-1 text-[12px] font-medium text-[#7C3AED]">
-                          📞 {address.phone}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <hr className="my-5 border-[#ECECEC]" />
-
-      {/* Payment Method */}
-      <div className="mb-6">
-        <h3 className="mb-3 flex items-center gap-2 text-[16px] font-bold text-[#1E1E1E]">
-          <CreditCard size={18} className="text-[#7C3AED]" />
-          Payment Method
-        </h3>
-
-        <div className={`grid gap-3 sm:grid-cols-2 transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
-          {/* Cash on Delivery */}
-          <button
-            type="button"
-            onClick={() => setPaymentMethod("cod")}
-            disabled={loading}
-            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all ${
-              loading
-                ? "cursor-not-allowed"
-                : "cursor-pointer"
-            } ${
-              paymentMethod === "cod"
-                ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
-                : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
-            }`}
-          >
-            <div
-              className={`flex h-5 w-5 mt-0.5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                paymentMethod === "cod" ? "border-[#7C3AED]" : "border-gray-300"
-              }`}
-            >
-              {paymentMethod === "cod" && (
-                <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
-              )}
+      {/* Persistent Payment Pending Banner */}
+      {isPersistentPending && !sessionExpiredPending && (
+        <div className="rounded-[20px] border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-900 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
+              <Clock size={18} />
             </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-bold text-[#1E1E1E]">
-                Cash on Delivery (COD)
-              </div>
-              <div className="mt-0.5 text-[12px] text-[#444444]">
-                Pay with cash upon delivery.
-              </div>
-            </div>
-          </button>
-
-          {/* Pay Online */}
-          <button
-            type="button"
-            onClick={() => setPaymentMethod("online")}
-            disabled={loading}
-            className={`flex items-start gap-3 rounded-[16px] border-2 p-4 text-left transition-all ${
-              loading
-                ? "cursor-not-allowed"
-                : "cursor-pointer"
-            } ${
-              paymentMethod === "online"
-                ? "border-[#7C3AED] bg-[#F1ECFF] shadow-[0_4px_16px_rgba(124,58,237,0.07)]"
-                : "border-[#ECECEC] bg-white hover:border-[#C4B5FD]"
-            }`}
-          >
-            <div
-              className={`flex h-5 w-5 mt-0.5 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                paymentMethod === "online" ? "border-[#7C3AED]" : "border-gray-300"
-              }`}
-            >
-              {paymentMethod === "online" && (
-                <div className="h-2.5 w-2.5 rounded-full bg-[#7C3AED]" />
-              )}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-bold text-[#1E1E1E]">
-                Pay Online
-              </div>
-              <div className="mt-0.5 text-[12px] text-[#444444]">
-                UPI, Cards, NetBanking, Wallets
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* Place Order / Pay */}
-      {(() => {
-        const isStoreClosed = storeHours && storeHours.is_open === false;
-        const pending = getPendingPayment();
-        const hasActivePendingPayment = Boolean(
-          pending?.razorpay_order_id &&
-          Date.now() - (pending.timestamp || 0) < 30 * 60 * 1000
-        );
-        const isDisabled =
-          loading ||
-          addresses.length === 0 ||
-          !selectedAddress ||
-          isStoreClosed ||
-          (paymentMethod === "online" && hasActivePendingPayment);
-
-        return (
-          <>
-            {sessionExpiredPending && (
-              <div className="mb-3 flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
-                <span className="font-semibold">
-                  Your session expired while confirming payment. Sign in to resume your order.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => navigate("/login?redirect=/checkout")}
-                  className="rounded-lg bg-[#7C3AED] px-3 py-1 font-bold text-white hover:bg-[#6C35E8] cursor-pointer"
-                >
-                  Sign In
-                </button>
-              </div>
-            )}
-            {isPersistentPending && !sessionExpiredPending && (
-              <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-900 shadow-xs">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
-                    <Clock size={18} />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-extrabold text-amber-950 text-sm">
-                      Payment Pending Confirmation
-                    </h4>
-                    <p className="mt-1 leading-relaxed text-amber-800 text-[12px]">
-                      Your payment is currently being processed by your bank. If the amount was debited from your account, please do not pay again — your order will update as soon as the bank confirms.
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => verifyPendingOrder(true)}
-                        disabled={checkingPendingStatus}
-                        className="rounded-xl bg-[#7C3AED] px-3.5 py-1.5 font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
-                      >
-                        {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
-                      </button>
-                      <a
-                        href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 font-bold text-emerald-800 hover:bg-emerald-100"
-                      >
-                        WhatsApp Support (+91 87936 01567)
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {hasActivePendingPayment && paymentMethod === "online" && !isPersistentPending && !sessionExpiredPending && (
-              <div className="mb-3 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50/80 px-3.5 py-2.5 text-xs text-[#7C3AED]">
-                <span className="font-semibold flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin shrink-0" />
-                  Confirming payment with bank (attempt {pollAttempt + 1} of 9)...
-                </span>
+            <div className="flex-1">
+              <h4 className="font-extrabold text-amber-950 text-sm">
+                Payment Pending Confirmation
+              </h4>
+              <p className="mt-1 leading-relaxed text-amber-800 text-[12px]">
+                Your payment is currently being processed by your bank. If the amount was debited from your account, please do not pay again — your order will update as soon as the bank confirms.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => verifyPendingOrder(true)}
                   disabled={checkingPendingStatus}
-                  className="font-bold underline hover:text-[#6D28D9] cursor-pointer disabled:opacity-50"
+                  className="rounded-xl bg-[#7C3AED] px-3.5 py-1.5 font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
                 >
-                  {checkingPendingStatus ? "Checking..." : "Check Status"}
+                  {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
+                </button>
+                <a
+                  href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 font-bold text-emerald-800 hover:bg-emerald-100"
+                >
+                  WhatsApp Support (+91 87936 01567)
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!standaloneBar && (
+        <>
+          {/* Delivery Address Card (Compact) */}
+          <div className="rounded-[22px] border border-gray-200/90 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)]">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EDE9FE] text-[#7C3AED]">
+                  <MapPin size={16} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#111827]">
+                    Delivery Address
+                  </h2>
+                  <p className="text-[11px] font-medium text-gray-500">
+                    Where your order will be delivered
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (addresses.length === 0) {
+                    navigate("/account/addresses");
+                  } else {
+                    setShowAddressModal(true);
+                  }
+                }}
+                disabled={loading}
+                className="flex items-center gap-1 text-xs font-bold text-[#7C3AED] hover:underline cursor-pointer disabled:opacity-50"
+              >
+                {addresses.length === 0 ? (
+                  <>
+                    <Plus size={13} />
+                    <span>Add Address</span>
+                  </>
+                ) : (
+                  <span>Change</span>
+                )}
+              </button>
+            </div>
+
+            {/* Selected Address Preview or Empty State */}
+            {addresses.length === 0 ? (
+              <div className="mt-3 rounded-2xl border border-dashed border-purple-200 bg-[#F5F3FF]/50 p-4 text-center">
+                <p className="text-xs font-bold text-gray-700">No saved address found</p>
+                <p className="mt-0.5 text-[11px] text-gray-500 font-medium">Please add a delivery address to proceed.</p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/account/addresses")}
+                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#7C3AED] px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 transition cursor-pointer"
+                >
+                  <Plus size={13} />
+                  <span>Add Address</span>
                 </button>
               </div>
-            )}
-            <button
-              type="button"
-              onClick={handlePlaceOrder}
-              disabled={isDisabled}
-              className={`flex h-[54px] w-full shrink-0 items-center justify-center gap-2 rounded-[17px] text-[15px] font-bold whitespace-nowrap transition-colors ${
-                isStoreClosed
-                  ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
-                  : hasActivePendingPayment && paymentMethod === "online"
-                  ? "bg-purple-100 text-[#7C3AED] border border-[#7C3AED]/30 cursor-wait opacity-90"
-                  : "bg-[#7C3AED] text-white shadow-[0_7px_22px_rgba(124,58,237,0.2)] hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-              }`}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="animate-spin shrink-0" size={19} />
-                  <span>
-                    {paymentStep === "preparing"
-                      ? "Preparing payment..."
-                      : paymentStep === "opening_gateway"
-                      ? "Opening payment gateway..."
-                      : paymentStep.startsWith("confirming")
-                      ? `Confirming with bank ${paymentStep.replace("confirming", "")}...`
-                      : paymentStep === "verifying"
-                      ? "Verifying payment..."
-                      : "Processing..."}
-                  </span>
-                </>
-              ) : hasActivePendingPayment && paymentMethod === "online" ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="animate-spin shrink-0" size={18} />
-                  Confirming existing payment...
-                </span>
-              ) : isStoreClosed ? (
-                "Store is Currently Closed for Orders"
-              ) : paymentMethod === "online" ? (
-                "Pay Online securely →"
-              ) : (
-                "Place Order securely →"
-              )}
-            </button>
-          </>
-        );
-      })()}
+            ) : selectedAddress ? (
+              <div
+                onClick={() => !loading && setShowAddressModal(true)}
+                className="mt-3 flex items-start gap-3 rounded-2xl border border-purple-200/80 bg-[#F1ECFF]/40 p-3 sm:p-3.5 hover:bg-[#F1ECFF]/70 transition cursor-pointer"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-[#7C3AED] border border-purple-200 shadow-xs">
+                  {selectedAddress.type === "office" || selectedAddress.type === "work" ? (
+                    <Building2 size={16} />
+                  ) : (
+                    <Home size={16} />
+                  )}
+                </div>
 
-      {/* Compliance & Policy Links */}
-      <p className="mt-3.5 text-center text-[11px] leading-relaxed text-[#6B7280]">
-        By placing your order, you agree to Mumbai Collection&apos;s{" "}
-        <a
-          href="/terms"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-[#7C3AED] hover:underline"
-        >
-          Terms
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm font-extrabold text-[#111827] truncate">
+                      {selectedAddress.first_name || ""} {selectedAddress.last_name || ""}
+                    </span>
+                    <span className="rounded-full bg-[#EDE9FE] px-2 py-0.5 text-[9px] font-extrabold uppercase text-[#7C3AED] border border-purple-200/60">
+                      {selectedAddress.type ? selectedAddress.type.toUpperCase() : "HOME"}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-xs font-medium text-gray-600 line-clamp-2">
+                    {selectedAddress.address_line1 || ""}
+                    {selectedAddress.address_line2 ? `, ${selectedAddress.address_line2}` : ""}
+                    , {selectedAddress.city || ""}, {selectedAddress.state || "MH"}
+                    {selectedAddress.pincode ? ` - ${selectedAddress.pincode}` : ""}
+                  </p>
+
+                  {selectedAddress.phone && (
+                    <p className="mt-1 text-xs font-semibold text-[#7C3AED]">
+                      📞 {selectedAddress.phone}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Payment Method Card (Compact) */}
+          <div className="rounded-[22px] border border-gray-200/90 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)]">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EDE9FE] text-[#7C3AED]">
+                  <CreditCard size={16} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#111827]">
+                    Payment Method
+                  </h2>
+                  <p className="text-[11px] font-medium text-gray-500">
+                    Select how you wish to pay
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => !loading && setShowPaymentModal(true)}
+                disabled={loading}
+                className="text-xs font-bold text-[#7C3AED] hover:underline cursor-pointer disabled:opacity-50"
+              >
+                Change
+              </button>
+            </div>
+
+            <div
+              onClick={() => !loading && setShowPaymentModal(true)}
+              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-3 sm:p-3.5 hover:bg-white hover:border-purple-200 transition cursor-pointer"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#7C3AED] border border-gray-200 shadow-xs">
+                  {paymentMethod === "online" ? (
+                    <CreditCard size={18} />
+                  ) : (
+                    <Banknote size={18} className="text-emerald-600" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-xs sm:text-sm font-extrabold text-[#111827]">
+                    {paymentMethod === "online" ? "Pay Online" : "Cash on Delivery (COD)"}
+                  </h4>
+                  <p className="text-[11px] font-medium text-gray-500 truncate">
+                    {paymentMethod === "online" ? "UPI, Cards, NetBanking, Wallets" : "Pay with cash upon delivery"}
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs font-bold text-[#7C3AED] shrink-0">
+                Switch
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Checkout policy notice */}
+      <p className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-[11px] font-medium leading-5 text-[#4B5563]">
+        <span>By placing your order, you agree to our</span>
+        <a href="/terms" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
+          Terms and Conditions
         </a>
-        ,{" "}
-        <a
-          href="/privacy-policy"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-[#7C3AED] hover:underline"
-        >
+        <span aria-hidden="true">·</span>
+        <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
           Privacy Policy
         </a>
-        ,{" "}
-        <a
-          href="/shipping-policy"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-[#7C3AED] hover:underline"
-        >
-          Shipping
+        <span aria-hidden="true">·</span>
+        <a href="/shipping-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
+          Shipping Policy
         </a>
-        , and{" "}
-        <a
-          href="/return-policy"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-medium text-[#7C3AED] hover:underline"
-        >
+        <span aria-hidden="true">·</span>
+        <a href="/return-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
           Returns &amp; Refund Policy
         </a>
-        .
       </p>
 
       {/* Out-of-Stock Notification Modal */}
@@ -1117,6 +1077,422 @@ function BillingForm({ storeHours, onStoreClosed }) {
         onReturnToCart={handleReturnToCart}
         removing={removingStockItems}
       />
+
+      {/* Address Selection Modal / Bottom Sheet */}
+      {showAddressModal && (
+        <div
+          onClick={() => setShowAddressModal(false)}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex w-full max-w-[520px] max-h-[85vh] flex-col rounded-t-[28px] sm:rounded-[24px] bg-white p-5 sm:p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#111827]">
+                  Select Delivery Address
+                </h3>
+                <p className="text-xs font-medium text-gray-500">
+                  Where should we send your order?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddressModal(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-3.5 space-y-2.5 overflow-y-auto pr-1 flex-1 max-h-[50vh]">
+              {addresses.map((addr) => {
+                const isSelected = selectedAddressId === addr.id;
+                const isHome = addr.type === "home";
+
+                return (
+                  <div
+                    key={addr.id}
+                    onClick={() => {
+                      setSelectedAddressId(addr.id);
+                      safeStorage.setItem("selected_address_id", addr.id);
+                      setShowAddressModal(false);
+                    }}
+                    className={`flex items-start gap-3 rounded-2xl border p-3.5 transition-all cursor-pointer ${
+                      isSelected
+                        ? "border-[#7C3AED] bg-[#F1ECFF]/70 ring-2 ring-[#7C3AED]/15 shadow-xs"
+                        : "border-gray-200 bg-gray-50/60 hover:border-gray-300 hover:bg-white"
+                    }`}
+                  >
+                    <div
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${
+                        isSelected
+                          ? "bg-white text-[#7C3AED] border-purple-200"
+                          : "bg-white text-gray-500 border-gray-200"
+                      }`}
+                    >
+                      {isHome ? <Home size={15} /> : <Building2 size={15} />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs sm:text-sm font-extrabold text-[#111827] truncate">
+                          {addr.first_name || ""} {addr.last_name || ""}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
+                            isSelected
+                              ? "bg-[#EDE9FE] text-[#7C3AED] border-purple-200/60"
+                              : "bg-gray-100 text-gray-600 border-gray-200"
+                          }`}
+                        >
+                          {addr.type ? addr.type.toUpperCase() : "HOME"}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-xs font-medium text-gray-600 line-clamp-2">
+                        {addr.address_line1 || ""}
+                        {addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                        , {addr.city || ""}, {addr.state || "MH"}
+                        {addr.pincode ? ` - ${addr.pincode}` : ""}
+                      </p>
+
+                      {addr.phone && (
+                        <p className="mt-1 text-xs font-semibold text-[#7C3AED]">
+                          📞 {addr.phone}
+                        </p>
+                      )}
+                    </div>
+
+                    {isSelected && (
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#7C3AED] text-white self-center">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddressModal(false);
+                  navigate("/account/addresses");
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#7C3AED]/40 bg-purple-50/50 py-3 text-xs font-extrabold text-[#7C3AED] hover:bg-purple-50 active:scale-[0.99] transition cursor-pointer"
+              >
+                <Plus size={15} />
+                <span>Add New Address</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Method Selection Modal / Bottom Sheet */}
+      {showPaymentModal && (
+        <div
+          onClick={() => setShowPaymentModal(false)}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex w-full max-w-[500px] flex-col rounded-t-[28px] sm:rounded-[24px] bg-white p-5 sm:p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#111827]">
+                  Select Payment Method
+                </h3>
+                <p className="text-xs font-medium text-gray-500">
+                  How would you like to pay?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {/* Pay Online */}
+              <div
+                onClick={() => {
+                  setPaymentMethod("online");
+                  setShowPaymentModal(false);
+                }}
+                className={`flex items-start gap-3 rounded-2xl border p-4 transition-all cursor-pointer ${
+                  paymentMethod === "online"
+                    ? "border-[#7C3AED] bg-[#F1ECFF]/70 ring-2 ring-[#7C3AED]/15 shadow-xs"
+                    : "border-gray-200 bg-gray-50/60 hover:border-gray-300 hover:bg-white"
+                }`}
+              >
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                    paymentMethod === "online"
+                      ? "bg-white text-[#7C3AED] border-purple-200"
+                      : "bg-white text-gray-500 border-gray-200"
+                  }`}
+                >
+                  <CreditCard size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-extrabold text-[#111827]">
+                      Pay Online
+                    </h4>
+                    {paymentMethod === "online" && (
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7C3AED] text-white">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs font-medium text-gray-500">
+                    UPI (Google Pay, PhonePe, Paytm), Cards, NetBanking, Wallets
+                  </p>
+                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md w-fit border border-emerald-200/50">
+                    <ShieldCheck size={12} />
+                    <span>Instant &amp; 100% Secure via Razorpay</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cash on Delivery */}
+              <div
+                onClick={() => {
+                  setPaymentMethod("cod");
+                  setShowPaymentModal(false);
+                }}
+                className={`flex items-start gap-3 rounded-2xl border p-4 transition-all cursor-pointer ${
+                  paymentMethod === "cod"
+                    ? "border-[#7C3AED] bg-[#F1ECFF]/70 ring-2 ring-[#7C3AED]/15 shadow-xs"
+                    : "border-gray-200 bg-gray-50/60 hover:border-gray-300 hover:bg-white"
+                }`}
+              >
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                    paymentMethod === "cod"
+                      ? "bg-white text-emerald-700 border-emerald-200"
+                      : "bg-white text-gray-500 border-gray-200"
+                  }`}
+                >
+                  <Banknote size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-extrabold text-[#111827]">
+                      Cash on Delivery (COD)
+                    </h4>
+                    {paymentMethod === "cod" && (
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7C3AED] text-white">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs font-medium text-gray-500">
+                    Pay with cash upon delivery at your doorstep
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Quick-Commerce Bottom Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200/80 rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-6px_25px_rgba(0,0,0,0.08)] transform-gpu will-change-transform">
+        <div className="mx-auto w-full max-w-[700px] px-3.5 sm:px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {/* Subtle Pull Indicator Pill */}
+          <div className="mx-auto w-9 h-1 rounded-full bg-gray-200/90 mb-2 opacity-80" />
+
+          {/* Row 1: Unified Address Capsule */}
+          <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#F8F7FF] border border-[#EDE9FE] px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(124,58,237,0.03)]">
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAuthenticated) {
+                  navigate("/login", { state: { from: "/cart" } });
+                } else if (addresses.length === 0) {
+                  navigate("/account/addresses");
+                } else {
+                  setShowAddressModal(true);
+                }
+              }}
+              className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer hover:opacity-85 transition-opacity select-none"
+            >
+              <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-purple-100 text-[#7C3AED] shadow-xs">
+                {selectedAddress?.type === "office" || selectedAddress?.type === "work" ? (
+                  <Building2 size={16} strokeWidth={2.4} />
+                ) : (
+                  <Home size={16} strokeWidth={2.4} />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 leading-tight">
+                  <span className="font-black text-xs sm:text-[13px] text-[#111827] tracking-tight">
+                    {!isAuthenticated
+                      ? "Delivering to"
+                      : selectedAddress
+                      ? `Delivering to ${selectedAddress.type ? (selectedAddress.type.charAt(0).toUpperCase() + selectedAddress.type.slice(1)) : "Home"}`
+                      : loadingAddresses
+                      ? "Delivering to"
+                      : "No delivery address"}
+                  </span>
+                </div>
+                <p className="text-[11px] font-medium text-gray-500 truncate leading-tight mt-0.5">
+                  {!isAuthenticated
+                    ? "Login to select delivery address"
+                    : selectedAddress
+                    ? `${selectedAddress.address_line1 || ""}${selectedAddress.city ? `, ${selectedAddress.city}` : ""}${selectedAddress.pincode ? ` - ${selectedAddress.pincode}` : ""}`
+                    : loadingAddresses
+                    ? "Fetching saved addresses..."
+                    : "Click to add your delivery address"}
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAuthenticated) {
+                  navigate("/login", { state: { from: "/cart" } });
+                } else if (addresses.length === 0) {
+                  navigate("/account/addresses");
+                } else {
+                  setShowAddressModal(true);
+                }
+              }}
+              className="shrink-0 text-[11px] sm:text-xs font-black text-[#7C3AED] bg-white border border-purple-200/90 hover:bg-[#7C3AED] hover:text-white hover:border-[#7C3AED] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
+            >
+              {!isAuthenticated
+                ? "Login"
+                : addresses.length === 0
+                ? "+ Add"
+                : "Change"}
+            </button>
+          </div>
+
+          {/* Row 2: Payment Selector & Main Action Button */}
+          <div className="flex items-center justify-between gap-2.5 sm:gap-3">
+            {/* Payment Method Selector */}
+            <button
+              type="button"
+              onClick={() => setShowPaymentModal(true)}
+              disabled={loading}
+              className="flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 rounded-xl hover:bg-gray-50 active:scale-95 transition-all cursor-pointer max-w-[42%] min-w-0 disabled:opacity-50 text-left"
+            >
+              <div
+                className={`flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl border shadow-xs ${
+                  paymentMethod === "online"
+                    ? "bg-purple-50 border-purple-200/80 text-[#7C3AED]"
+                    : "bg-emerald-50 border-emerald-200/80 text-emerald-700"
+                }`}
+              >
+                {paymentMethod === "online" ? (
+                  <CreditCard size={15} strokeWidth={2.2} />
+                ) : (
+                  <Banknote size={16} strokeWidth={2.2} />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-gray-400 leading-tight">
+                  PAY USING <ChevronUp size={11} className="text-[#7C3AED] stroke-[2.8]" />
+                </span>
+                <span className="block text-xs sm:text-[13px] font-black text-[#111827] truncate leading-tight mt-0.5">
+                  {paymentMethod === "online" ? "Pay Online" : "Cash on Delivery"}
+                </span>
+              </div>
+            </button>
+
+            {/* Main Action Button */}
+            <button
+              type="button"
+              onClick={handlePlaceOrder}
+              disabled={isDisabled}
+              className={`group flex items-center justify-between gap-3 sm:gap-4 h-[56px] sm:h-[60px] px-4 sm:px-5 rounded-[20px] text-white font-extrabold transition-all shadow-[0_7px_24px_rgba(91,33,182,0.26)] hover:shadow-[0_9px_28px_rgba(91,33,182,0.34)] active:scale-[0.98] cursor-pointer flex-1 max-w-[250px] sm:max-w-[280px] ${
+                isStoreClosed
+                  ? "bg-amber-600 shadow-none cursor-not-allowed opacity-90"
+                  : hasActivePendingPayment && paymentMethod === "online"
+                  ? "bg-purple-700 cursor-wait opacity-90"
+                  : hasOutOfStock || isBelowMin
+                  ? "bg-gray-400 shadow-none cursor-not-allowed opacity-80"
+                  : "bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] hover:from-[#6D28D9] hover:to-[#5B21B6] disabled:cursor-not-allowed disabled:opacity-60"
+              }`}
+            >
+              {/* Total Price & Label */}
+              <div className="flex shrink-0 flex-col items-center justify-center text-center leading-none">
+                <div className="flex items-baseline gap-0.5 text-white">
+                  <span className="text-xs sm:text-sm font-black opacity-90 leading-none">₹</span>
+                  <span className="text-[17px] sm:text-lg font-black tracking-tight leading-none">
+                    {Number(finalTotal).toLocaleString("en-IN")}
+                  </span>
+                </div>
+                <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/75 mt-1 leading-none">
+                  TOTAL
+                </span>
+              </div>
+
+              {/* Vertical divider */}
+              <div className="h-8 w-px bg-white/25 rounded-full shrink-0" />
+
+              {/* Action text & chevron */}
+              <div className="flex min-h-10 min-w-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-3 text-[13px] sm:text-sm font-bold whitespace-nowrap">
+                {loading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin shrink-0" />
+                    <span className="truncate">
+                      {paymentStep === "preparing"
+                        ? "Preparing..."
+                        : paymentStep === "opening_gateway"
+                        ? "Opening..."
+                        : paymentStep.startsWith("confirming") || paymentStep === "verifying"
+                        ? "Verifying..."
+                        : "Processing..."}
+                    </span>
+                  </>
+                ) : hasActivePendingPayment && paymentMethod === "online" ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin shrink-0" />
+                    <span className="truncate">Verifying...</span>
+                  </>
+                ) : isStoreClosed ? (
+                  <span className="truncate">Store Closed</span>
+                ) : hasOutOfStock ? (
+                  <span className="truncate">Item Sold Out</span>
+                ) : isBelowMin ? (
+                  <span className="truncate">Min. ₹500 Order</span>
+                ) : !isAuthenticated ? (
+                  <>
+                    <span className="truncate">Login to Order</span>
+                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                  </>
+                ) : addresses.length === 0 ? (
+                  <>
+                    <span className="truncate">Add Address</span>
+                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                  </>
+                ) : paymentMethod === "online" ? (
+                  <>
+                    <span className="truncate">Pay Online</span>
+                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                  </>
+                ) : (
+                  <>
+                    <span className="truncate">Place Order</span>
+                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                  </>
+                )}
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

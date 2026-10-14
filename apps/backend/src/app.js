@@ -42,7 +42,7 @@ app.use(pinoHttp({
     return "silent";
   },
   serializers: {
-    req: (req) => ({ id: req.id, method: req.method, url: req.originalUrl || req.url }),
+    req: (req) => ({ id: req.id, method: req.method, url: (req.originalUrl || req.url || "").split("?")[0] }),
     res: (res) => ({ statusCode: res.statusCode }),
     err: sanitizeError,
   },

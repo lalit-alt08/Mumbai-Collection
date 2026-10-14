@@ -10,7 +10,7 @@ class MemoryCache {
     this.inFlight = new Map(); // Tracks concurrent in-flight Promises
     this.generations = new Map(); // Tracks per-key generation to prevent stale writes
 
-    // Periodic cleanup of expired entries every 30 seconds
+    // Periodic cleanup of expired entries and stale generation metadata every 30 seconds
     setInterval(() => {
       const now = Date.now();
       for (const [key, entry] of this.store.entries()) {
@@ -18,7 +18,20 @@ class MemoryCache {
           this.store.delete(key);
         }
       }
+      for (const key of this.generations.keys()) {
+        if (!this.inFlight.has(key)) {
+          this.generations.delete(key);
+        }
+      }
     }, 30000).unref();
+  }
+
+  _bumpGeneration(key) {
+    if (this.generations.size >= this.maxSize) {
+      const firstKey = this.generations.keys().next().value;
+      if (firstKey) this.generations.delete(firstKey);
+    }
+    this.generations.set(key, (this.generations.get(key) || 0) + 1);
   }
 
   get(key) {
@@ -77,6 +90,10 @@ class MemoryCache {
         if (this.inFlight.get(key) === promise) {
           this.inFlight.delete(key);
         }
+        // Clean up generation metadata once in-flight request settles
+        if (!this.inFlight.has(key)) {
+          this.generations.delete(key);
+        }
       }
     })();
 
@@ -85,32 +102,36 @@ class MemoryCache {
   }
 
   delete(key) {
-    this.generations.set(key, (this.generations.get(key) || 0) + 1);
-    this.inFlight.delete(key);
+    if (this.inFlight.has(key)) {
+      this._bumpGeneration(key);
+      this.inFlight.delete(key);
+    } else {
+      this.generations.delete(key);
+    }
     return this.store.delete(key);
   }
 
   clear() {
-    for (const key of this.store.keys()) {
-      this.generations.set(key, (this.generations.get(key) || 0) + 1);
-    }
-    for (const key of this.inFlight.keys()) {
-      this.generations.set(key, (this.generations.get(key) || 0) + 1);
-    }
     this.inFlight.clear();
     this.store.clear();
+    this.generations.clear();
   }
 
   invalidatePrefix(prefix) {
     for (const key of this.store.keys()) {
       if (key.startsWith(prefix)) {
-        this.generations.set(key, (this.generations.get(key) || 0) + 1);
+        if (this.inFlight.has(key)) {
+          this._bumpGeneration(key);
+          this.inFlight.delete(key);
+        } else {
+          this.generations.delete(key);
+        }
         this.store.delete(key);
       }
     }
     for (const key of this.inFlight.keys()) {
       if (key.startsWith(prefix)) {
-        this.generations.set(key, (this.generations.get(key) || 0) + 1);
+        this._bumpGeneration(key);
         this.inFlight.delete(key);
       }
     }

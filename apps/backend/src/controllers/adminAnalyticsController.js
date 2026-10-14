@@ -104,6 +104,9 @@ export const getDashboardOverview = async (req, res) => {
     if (!isRefresh) {
       const cachedOverview = serverCache.get("admin:analytics:overview");
       if (cachedOverview) {
+        if (typeof res.set === "function") {
+          res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+        }
         return res.json(cachedOverview);
       }
     }
@@ -295,6 +298,10 @@ export const getDashboardOverview = async (req, res) => {
 
     serverCache.set("admin:analytics:overview", responsePayload, 120000);
 
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
+
     res.json(responsePayload);
   } catch (error) {
     logError(req, error, "Admin dashboard overview error");
@@ -329,6 +336,9 @@ export const getAdminAnalytics = async (req, res) => {
     if (!isRefresh) {
       const cachedAnalytics = serverCache.get("admin:analytics:deep");
       if (cachedAnalytics) {
+        if (typeof res.set === "function") {
+          res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+        }
         return res.json(cachedAnalytics);
       }
     }
@@ -601,6 +611,10 @@ export const getAdminAnalytics = async (req, res) => {
     }
 
     serverCache.set("admin:analytics:deep", responsePayload, 120000);
+
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
 
     res.json(responsePayload);
   } catch (error) {

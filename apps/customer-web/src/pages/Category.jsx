@@ -4,6 +4,7 @@ import { getProductsByCategory } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
 import categories from "../data/category.js";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
+import { reshuffleCategoryProducts } from "../utils/productUtils";
 
 const PER_PAGE = 20;
 
@@ -47,7 +48,7 @@ function Category() {
           const count = typeof data?.total === "number" ? data.total : prods.length;
           const pages = typeof data?.totalPages === "number" ? data.totalPages : (prods.length > 0 ? 1 : 0);
 
-          setProducts(prods);
+          setProducts(reshuffleCategoryProducts(prods));
           setTotalCount(count);
           setTotalPages(pages);
 

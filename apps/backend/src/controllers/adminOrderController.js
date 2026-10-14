@@ -5,6 +5,8 @@ import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError } from "../utils/logger.js";
 import {
   isOrderStatusLocked,
+  isOnlineOrderUnpaid,
+  validateOrderStatusTransition,
   buildOrderStatusPayload,
   ALLOWED_ORDER_STATUSES,
 } from "../utils/orderStatusTransition.js";
@@ -76,8 +78,14 @@ export const getAdminOrders = async (req, res) => {
         date: o.date_created,
         items_count: o.line_items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0,
         payment_method: o.payment_method_title || "Cash on Delivery",
+        is_unpaid: isOnlineOrderUnpaid(o),
+        is_status_locked: isOrderStatusLocked(o),
       };
     });
+
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    }
 
     res.json({
       success: true,
@@ -125,11 +133,12 @@ export const updateAdminOrderStatus = async (req, res) => {
       });
     }
 
-    // Reject status change if order is completed and 72 hours (3 days) have elapsed
-    if (isOrderStatusLocked(currentOrder)) {
+    // Enforce status transition rules (72-hour delivery lock, unpaid online orders, terminal statuses)
+    const transitionValidation = validateOrderStatusTransition(currentOrder, status);
+    if (!transitionValidation.valid) {
       return res.status(400).json({
         success: false,
-        message: "Status changes are locked after 72 hours (3 days) of delivery.",
+        message: transitionValidation.message,
       });
     }
 

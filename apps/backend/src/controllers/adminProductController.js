@@ -11,6 +11,7 @@ import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError, logger } from "../utils/logger.js";
+import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 
 /**
  * Fetch Live Product Stock Counts (Cached for 60s)
@@ -49,7 +50,7 @@ export const fetchStockCounts = async () => {
       const lowstock = Number(lowStockRes?.headers?.["x-wp-total"]) || 0;
       let instock = Number(inStockRes?.headers?.["x-wp-total"]) || 0;
       if (!instock && all > 0) {
-        instock = Math.max(0, all - outofstock - lowstock);
+        instock = Math.max(0, all - outofstock);
       }
 
       return { all, instock, lowstock, outofstock };
@@ -452,17 +453,44 @@ export const createProduct = async (req, res) => {
       ? categories
       : [];
 
-    const imgList = Array.isArray(images) && images.length > 0
-      ? images.map((img) => {
-          if (typeof img === "number") return { id: img };
-          if (typeof img === "string") return { src: img };
-          if (img && (img.id || img.mediaId)) return { id: Number(img.id || img.mediaId) };
-          if (img && (img.src || img.url)) return { src: img.src || img.url };
-          return img;
-        })
-      : image_url
-      ? [{ src: image_url }]
-      : [];
+    const imgList = [];
+    const rawImages = Array.isArray(images) && images.length > 0
+      ? images
+      : (image_url ? [image_url] : []);
+
+    for (const img of rawImages) {
+      if (typeof img === "number") {
+        if (!Number.isInteger(img) || img <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid image media ID. Must be a positive integer.",
+          });
+        }
+        imgList.push({ id: img });
+      } else if (img && typeof img === "object" && ("id" in img || "mediaId" in img)) {
+        const rawId = img.id !== undefined ? img.id : img.mediaId;
+        const idVal = Number(rawId);
+        if (!Number.isInteger(idVal) || idVal <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid image media ID. Must be a positive integer.",
+          });
+        }
+        imgList.push({ id: idVal });
+      } else {
+        const src = typeof img === "string" ? img : (img?.src || img?.url);
+        if (src) {
+          const isSafe = await isSafeExternalImageUrl(src);
+          if (!isSafe) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid or restricted image URL. Localhost and private network addresses are blocked.",
+            });
+          }
+          imgList.push({ src });
+        }
+      }
+    }
 
     const payload = {
       name: name.trim(),

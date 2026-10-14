@@ -14,7 +14,10 @@ import paymentIntentService, {
   fetchOrphanWebhookEvents,
   findWcOrderByRazorpayOrderId,
 } from "../src/services/paymentIntentService.js";
-import { runPaymentReconciliation } from "../src/services/reconciliationService.js";
+import {
+  runPaymentReconciliation,
+  extractCheckoutDetails,
+} from "../src/services/reconciliationService.js";
 import { serverCache } from "../src/utils/memoryCache.js";
 import {
   createReconcilerTimeoutCallback,
@@ -217,6 +220,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const originalApiPost = api.post;
     const originalAcquireLock = paymentIntentService.acquireLock;
     const originalReleaseLock = paymentIntentService.releaseLock;
+    const originalFetchList = paymentIntentService.fetchReconciliationList;
+    const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
 
@@ -280,7 +285,6 @@ describe("Durable Payments & Reconciliation Suite", () => {
         updated_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
       };
 
-      const originalFetchList = paymentIntentService.fetchReconciliationList;
       paymentIntentService.fetchReconciliationList = async () => ({
         intents: [mockIntentA],
         hasMore: false,
@@ -355,12 +359,71 @@ describe("Durable Payments & Reconciliation Suite", () => {
       assert.strictEqual(resB.refundsExecuted, 1, "Reconciler must auto-refund when stock is 0");
       assert.strictEqual(refundCalledB, true, "Razorpay Refund API must be called");
 
-      paymentIntentService.fetchReconciliationList = originalFetchList;
+      // 5c: Amount Mismatch -> Reconciler discovers captured payment with mismatched amount (e.g. 5000 vs 20000 expected)
+      const rzpOrderIdC = `rzp_order_created_mismatch_${Date.now()}`;
+      const rzpPaymentIdC = `pay_created_mismatch_${Date.now()}`;
+      let wcOrderCreatedC = false;
+      let statusUpdatedC = null;
+
+      _setRazorpayInstanceForTesting({
+        orders: {
+          fetchPayments: async (orderId) => {
+            if (orderId === rzpOrderIdC) {
+              return { count: 1, items: [{ id: rzpPaymentIdC, status: "captured", amount: 5000, currency: "INR" }] };
+            }
+            return { count: 0, items: [] };
+          },
+        },
+      });
+
+      api.post = async (path) => {
+        if (path === "orders") {
+          wcOrderCreatedC = true;
+          return { data: { id: 1002 } };
+        }
+        return { data: {} };
+      };
+
+      const mockIntentC = {
+        rzp_order_id: rzpOrderIdC,
+        user_id: 3,
+        amount_paise: 20000, // Expected ₹200 vs captured ₹50
+        status: "created",
+        cart_fingerprint: "fp_test_789",
+        checkout_payload: JSON.stringify({
+          user_id: 3,
+          billing: { email: "mismatch@test.com", first_name: "Amit", last_name: "Verma" },
+          shipping: {},
+          line_items: [{ product_id: 225, quantity: 1 }],
+        }),
+        attempts: 0,
+        created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+        updated_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      };
+
+      paymentIntentService.fetchReconciliationList = async () => ({
+        intents: [mockIntentC],
+        hasMore: false,
+      });
+
+      paymentIntentService.updatePaymentIntentStatus = async (params) => {
+        statusUpdatedC = params;
+        return true;
+      };
+
+      const resC = await runPaymentReconciliation({ olderThanMinutes: 0 });
+
+      assert.strictEqual(resC.healedOrders, 0, "Mismatched amount must not heal order");
+      assert.strictEqual(wcOrderCreatedC, false, "WooCommerce order must never be created on amount mismatch");
+      assert.strictEqual(statusUpdatedC?.toStatus, "failed", "Intent must be quarantined with status failed");
+      assert.match(statusUpdatedC?.errorReason, /AMOUNT_MISMATCH/i);
     } finally {
       api.get = originalApiGet;
       api.post = originalApiPost;
       paymentIntentService.acquireLock = originalAcquireLock;
       paymentIntentService.releaseLock = originalReleaseLock;
+      paymentIntentService.fetchReconciliationList = originalFetchList;
+      paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
     }
   });
 
@@ -436,6 +499,10 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
     const originalApiGet = api.get;
     const originalApiPost = api.post;
+    const originalAcquireLock = paymentIntentService.acquireLock;
+    const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+    const originalGetIntent = paymentIntentService.getPaymentIntent;
+    const originalFindHpos = paymentIntentService.findWcOrderByRazorpayOrderId;
 
     try {
       _setRazorpayInstanceForTesting({
@@ -450,8 +517,6 @@ describe("Durable Payments & Reconciliation Suite", () => {
         },
       });
 
-      const originalAcquireLock = paymentIntentService.acquireLock;
-      const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
       paymentIntentService.acquireLock = async () => true;
       paymentIntentService.updatePaymentIntentStatus = async () => true;
 
@@ -474,7 +539,6 @@ describe("Durable Payments & Reconciliation Suite", () => {
       };
 
       // Mock stored payment intent
-      const originalGetIntent = paymentIntentService.getPaymentIntent;
       paymentIntentService.getPaymentIntent = async (id) => ({
         rzp_order_id: rzpOrderId,
         amount_in_paise: 50000,
@@ -487,7 +551,6 @@ describe("Durable Payments & Reconciliation Suite", () => {
       });
 
       // Mock HPOS order lookup returning null initially, then returning the order created by Worker 2
-      const originalFindHpos = paymentIntentService.findWcOrderByRazorpayOrderId;
       paymentIntentService.findWcOrderByRazorpayOrderId = async (id) => {
         return existingOrderInWc;
       };
@@ -509,14 +572,128 @@ describe("Durable Payments & Reconciliation Suite", () => {
       assert.strictEqual(result1.order_id, 7788);
       assert.strictEqual(result1._idempotent, true, "Worker 1 must return idempotent success without re-creating");
       assert.strictEqual(wcOrdersCreatedCount, 0, "No duplicate WooCommerce order should be created");
-
+    } finally {
+      api.get = originalApiGet;
+      api.post = originalApiPost;
       paymentIntentService.getPaymentIntent = originalGetIntent;
       paymentIntentService.findWcOrderByRazorpayOrderId = originalFindHpos;
       paymentIntentService.acquireLock = originalAcquireLock;
       paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
+    }
+  });
+
+  test("8. Reconciler handles nested checkout_payload correctly and extracts customer ID and items", async () => {
+    // 8a: extractCheckoutDetails unit checks
+    const nestedRow = {
+      user_id: 0,
+      checkout_payload: JSON.stringify({
+        checkout_payload: {
+          customer_id: 88,
+          billing: { email: "nested@test.com", first_name: "Aarav", last_name: "Patel" },
+          shipping: { first_name: "Aarav" },
+          line_items: [{ product_id: 232, quantity: 2 }],
+          coupon_lines: [{ code: "SAVE10" }],
+        },
+      }),
+    };
+    const extractedNested = extractCheckoutDetails(nestedRow);
+    assert.strictEqual(extractedNested.customerId, 88);
+    assert.strictEqual(extractedNested.customerEmail, "nested@test.com");
+    assert.strictEqual(extractedNested.customerName, "Aarav Patel");
+    assert.strictEqual(extractedNested.lineItems.length, 1);
+    assert.strictEqual(extractedNested.couponLines.length, 1);
+
+    const flatRow = {
+      user_id: 99,
+      checkout_payload: JSON.stringify({
+        user_id: 99,
+        billing: { email: "flat@test.com" },
+        line_items: [{ product_id: 232, quantity: 1 }],
+      }),
+    };
+    const extractedFlat = extractCheckoutDetails(flatRow);
+    assert.strictEqual(extractedFlat.customerId, 99);
+    assert.strictEqual(extractedFlat.customerEmail, "flat@test.com");
+    assert.strictEqual(extractedFlat.lineItems.length, 1);
+
+    // 8b: Reconciler execution with nested payload creates WC order with customer 88 and items
+    const rzpOrderIdNested = `rzp_order_nested_${Date.now()}`;
+    const rzpPaymentIdNested = `pay_nested_${Date.now()}`;
+    let createdPayload = null;
+
+    const originalApiGet = api.get;
+    const originalApiPost = api.post;
+    const originalFetchList = paymentIntentService.fetchReconciliationList;
+    const originalAcquireLock = paymentIntentService.acquireLock;
+    const originalReleaseLock = paymentIntentService.releaseLock;
+    paymentIntentService.acquireLock = async () => true;
+    paymentIntentService.releaseLock = async () => true;
+
+    try {
+      _setRazorpayInstanceForTesting({
+        orders: {
+          fetchPayments: async (orderId) => {
+            if (orderId === rzpOrderIdNested) {
+              return { count: 1, items: [{ id: rzpPaymentIdNested, status: "captured", amount: 45000 }] };
+            }
+            return { count: 0, items: [] };
+          },
+        },
+        payments: {
+          fetch: async (id) => ({
+            id,
+            status: "captured",
+            amount: 45000,
+            amount_refunded: 0,
+            currency: "INR",
+          }),
+        },
+      });
+
+      api.get = async (path) => {
+        if (path === "products/232") {
+          return { data: { id: 232, manage_stock: true, stock_quantity: 10, backorders_allowed: false } };
+        }
+        return { data: {} };
+      };
+
+      api.post = async (path, payload) => {
+        if (path === "orders") {
+          createdPayload = payload;
+          return { data: { id: 9001, status: "processing" } };
+        }
+        return { data: {} };
+      };
+
+      paymentIntentService.fetchReconciliationList = async () => ({
+        intents: [{
+          rzp_order_id: rzpOrderIdNested,
+          user_id: 0, // WP stored 0 initially
+          amount_paise: 45000,
+          status: "created",
+          cart_fingerprint: "fp_nested_123",
+          checkout_payload: nestedRow.checkout_payload,
+          attempts: 0,
+          created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+          updated_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+        }],
+        hasMore: false,
+      });
+
+      await paymentIntentService.releaseLock("cron_reconciler_worker");
+      const res = await runPaymentReconciliation({ olderThanMinutes: 0 });
+      assert.strictEqual(res.healedOrders, 1);
+      assert.ok(createdPayload !== null, "WooCommerce order should have been created");
+      assert.strictEqual(createdPayload.customer_id, 88, "WooCommerce order must have normalized customer_id 88, not 0");
+      assert.strictEqual(createdPayload.line_items.length, 1);
+      assert.strictEqual(createdPayload.line_items[0].product_id, 232);
+      assert.strictEqual(createdPayload.billing.email, "nested@test.com");
     } finally {
       api.get = originalApiGet;
       api.post = originalApiPost;
+      paymentIntentService.fetchReconciliationList = originalFetchList;
+      paymentIntentService.acquireLock = originalAcquireLock;
+      paymentIntentService.releaseLock = originalReleaseLock;
     }
   });
 });

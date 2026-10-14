@@ -209,7 +209,7 @@ test("Viral-Spike Hardening Suite", async (t) => {
     }
   });
 
-  await t.test("6. Post-checkout cache invalidation: selectively deletes ordered products and operational caches, keeps catalog browse cache intact", () => {
+  await t.test("6. Post-checkout cache invalidation: clears stock-bearing product lists and ordered product details", () => {
     // Populate caches
     serverCache.set("employee:overview:today", { count: 10 }, 60000);
     serverCache.set("admin:analytics:summary", { total: 5000 }, 60000);
@@ -234,6 +234,7 @@ test("Viral-Spike Hardening Suite", async (t) => {
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
     serverCache.delete("product_stock_counts");
+    serverCache.invalidatePrefix("catalog:products:");
 
     const orderItems = checkoutResponseData.items || [];
     for (const item of orderItems) {
@@ -254,15 +255,9 @@ test("Viral-Spike Hardening Suite", async (t) => {
     assert.equal(serverCache.get("catalog:product:20"), null, "Ordered product 20 detail cache must be deleted");
     assert.ok(serverCache.get("catalog:product:99"), "Unordered product 99 detail cache must remain intact");
 
-    // CRITICAL: Assert catalog product list caches remain intact
-    assert.ok(
-      serverCache.get("catalog:products:all:{\"page\":1}"),
-      "catalog browse listings must NOT be wiped by checkout"
-    );
-    assert.ok(
-      serverCache.get("catalog:products:all:{\"category\":\"summer\"}"),
-      "category listings must NOT be wiped by checkout"
-    );
+    // Stock-bearing catalog list caches are invalidated so checkout stock changes appear promptly.
+    assert.equal(serverCache.get("catalog:products:all:{\"page\":1}"), null);
+    assert.equal(serverCache.get("catalog:products:all:{\"category\":\"summer\"}"), null);
 
     // Clean up
     serverCache.invalidatePrefix("catalog:");

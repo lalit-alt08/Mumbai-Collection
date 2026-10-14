@@ -103,10 +103,10 @@
     }
   },
   "getOrderById_forbidden": {
-    "statusCode": 403,
+    "statusCode": 404,
     "body": {
       "success": false,
-      "message": "You are not authorized to view this order."
+      "message": "Order not found."
     }
   },
   "getOrderById_success": {

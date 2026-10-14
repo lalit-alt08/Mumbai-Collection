@@ -16,6 +16,9 @@ const {
   getEmployeeOrders,
   getOrderDeliveredTimestamp,
   isOrderStatusLocked,
+  isOnlineOrderUnpaid,
+  isCodOrder,
+  validateOrderStatusTransition,
 } = await import("../src/controllers/employeeController.js");
 const { updateAdminOrderStatus } = await import("../src/controllers/adminOrderController.js");
 const { serverCache } = await import("../src/utils/memoryCache.js");
@@ -416,6 +419,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
     let responseData = null;
     const res = {
       status: () => res,
+      set: () => res,
       json: (data) => {
         responseData = data;
       },
@@ -655,5 +659,191 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
       const parsedTime = new Date(completedAtMeta.value).getTime();
       assert.ok(!isNaN(parsedTime) && parsedTime > 0);
     });
+  });
+
+  await t.test("10. Unpaid Online Order Fulfillment Lock (State Machine Guard)", async (t2) => {
+    await t2.test("Helper correctly identifies unpaid online orders vs COD vs paid online", () => {
+      // Unpaid online order: pending status, no date_paid, no txn_id
+      const unpaidOnlineOrder = {
+        id: 501,
+        status: "pending",
+        payment_method: "razorpay",
+        payment_method_title: "Online Payment",
+        date_paid: null,
+      };
+      assert.equal(isCodOrder(unpaidOnlineOrder), false);
+      assert.equal(isOnlineOrderUnpaid(unpaidOnlineOrder), true);
+
+      // COD order in pending status: not unpaid in online sense
+      const codPendingOrder = {
+        id: 502,
+        status: "pending",
+        payment_method: "cod",
+        payment_method_title: "Cash on Delivery",
+      };
+      assert.equal(isCodOrder(codPendingOrder), true);
+      assert.equal(isOnlineOrderUnpaid(codPendingOrder), false);
+
+      // Paid online order: processing status with date_paid
+      const paidOnlineOrder = {
+        id: 503,
+        status: "processing",
+        payment_method: "razorpay",
+        payment_method_title: "Online Payment",
+        date_paid: "2026-10-10T10:00:00Z",
+        transaction_id: "pay_test123",
+      };
+      assert.equal(isOnlineOrderUnpaid(paidOnlineOrder), false);
+
+      // Online order with razorpay payment metadata
+      const paidWithMeta = {
+        id: 504,
+        status: "pending",
+        payment_method: "razorpay",
+        meta_data: [{ key: "_razorpay_payment_id", value: "pay_xyz456" }],
+      };
+      assert.equal(isOnlineOrderUnpaid(paidWithMeta), false);
+    });
+
+    await t2.test("Rejects fulfillment transition for unpaid online order with HTTP 400", async () => {
+      api.get = async (endpoint) => {
+        assert.ok(endpoint.includes("orders/510"));
+        return {
+          data: {
+            id: 510,
+            status: "pending",
+            payment_method: "razorpay",
+            payment_method_title: "Online Payment (Razorpay)",
+            date_paid: null,
+            transaction_id: "",
+            meta_data: [],
+          },
+        };
+      };
+
+      let putCalled = false;
+      api.put = async () => {
+        putCalled = true;
+        return { data: {} };
+      };
+
+      const req = {
+        params: { id: "510" },
+        body: { status: "packed" },
+        user: { id: 1, role: "employee" },
+      };
+
+      let statusCode = null;
+      let responseData = null;
+      const res = {
+        status: (code) => {
+          statusCode = code;
+          return res;
+        },
+        json: (data) => {
+          responseData = data;
+        },
+      };
+
+      await updateOrderStatus(req, res);
+
+      assert.equal(statusCode, 400);
+      assert.equal(responseData?.success, false);
+      assert.equal(
+        responseData?.message,
+        "Cannot fulfill order: online payment has not been received."
+      );
+      assert.equal(putCalled, false, "WooCommerce PUT must not be executed for unpaid order fulfillment");
+    });
+
+    await t2.test("Allows fulfillment transition for COD order even before date_paid", async () => {
+      api.get = async (endpoint) => {
+        assert.ok(endpoint.includes("orders/520"));
+        return {
+          data: {
+            id: 520,
+            status: "processing",
+            payment_method: "cod",
+            payment_method_title: "Cash on Delivery",
+            date_paid: null,
+            meta_data: [],
+          },
+        };
+      };
+
+      let putCalledWith = null;
+      api.put = async (endpoint, payload) => {
+        putCalledWith = { endpoint, payload };
+        return { data: { id: 520, ...payload } };
+      };
+
+      const req = {
+        params: { id: "520" },
+        body: { status: "packed" },
+        user: { id: 1, role: "employee" },
+      };
+
+      let responseData = null;
+      const res = {
+        status: () => res,
+        json: (data) => {
+          responseData = data;
+        },
+      };
+
+      await updateOrderStatus(req, res);
+
+      assert.equal(responseData?.success, true);
+      assert.equal(putCalledWith?.payload?.status, "processing");
+      assert.deepEqual(putCalledWith?.payload?.meta_data, [
+        { key: "_delivery_status", value: "packed" },
+      ]);
+    });
+  });
+
+  await t.test("11. Terminal Status Guard: cannot transition cancelled or refunded order to active fulfillment", async () => {
+    api.get = async (endpoint) => {
+      return {
+        data: {
+          id: 530,
+          status: "cancelled",
+          meta_data: [],
+        },
+      };
+    };
+
+    let putCalled = false;
+    api.put = async () => {
+      putCalled = true;
+      return { data: {} };
+    };
+
+    const req = {
+      params: { id: "530" },
+      body: { status: "packed" },
+      user: { id: 1, role: "employee" },
+    };
+
+    let statusCode = null;
+    let responseData = null;
+    const res = {
+      status: (code) => {
+        statusCode = code;
+        return res;
+      },
+      json: (data) => {
+        responseData = data;
+      },
+    };
+
+    await updateOrderStatus(req, res);
+
+    assert.equal(statusCode, 400);
+    assert.equal(responseData?.success, false);
+    assert.equal(
+      responseData?.message,
+      "Cannot transition a cancelled order to packed."
+    );
+    assert.equal(putCalled, false);
   });
 });

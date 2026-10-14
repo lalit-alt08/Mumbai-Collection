@@ -19,7 +19,7 @@ export const getAllProducts = async (req, res) => {
     const result = await serverCache.getOrFetch(
       cacheKey,
       () => fetchProducts(page, perPage),
-      60000
+      15000
     );
 
     const prods = Array.isArray(result)
@@ -68,11 +68,23 @@ export const getProductById = async (req, res) => {
   try {
     const productId = req.params.id;
     const cacheKey = `catalog:product:${productId}`;
-    const product = await serverCache.getOrFetch(cacheKey, () => fetchProductById(productId), 120000);
+    const isFreshRequest = req.query?.refresh === "1";
+    const product = isFreshRequest
+      ? await fetchProductById(productId)
+      : await serverCache.getOrFetch(cacheKey, () => fetchProductById(productId), 15000);
+    if (isFreshRequest) serverCache.set(cacheKey, product, 15000);
 
     res.json(transformMediaUrls(product, req));
   } catch (error) {
     logError(req, error, "Get product by ID error");
+
+    const statusCode = error.status || error.statusCode || error.response?.status || 500;
+    if (statusCode === 404) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
 
     res.status(500).json({
       success: false,
@@ -90,8 +102,18 @@ export const getRelatedProducts = async (req, res) => {
       () => fetchRelatedProducts(categoryId, currentProductId),
       120000
     );
+    const prods = Array.isArray(products) ? products : [];
+    const inStockOnly = prods.filter((p) => {
+      if (!p) return false;
+      if (p.stock_status === "outofstock") return false;
+      if (p.manage_stock === true) {
+        const qty = Number(p.stock_quantity);
+        if (!Number.isFinite(qty) || qty <= 0) return false;
+      }
+      return true;
+    });
 
-    res.json(transformMediaUrls(products, req));
+    res.json(transformMediaUrls(inStockOnly, req));
   } catch (error) {
     logError(req, error, "Get related products error");
 
@@ -133,7 +155,7 @@ export const getProductsByCategory = async (req, res) => {
     const result = await serverCache.getOrFetch(
       cacheKey,
       () => fetchProductsByCategory(categoryId, { page, per_page: perPage }),
-      120000
+      15000
     );
 
     if (result && Array.isArray(result.products)) {
@@ -240,7 +262,12 @@ export const getProductSocialPreview = async (req, res) => {
       300000
     );
 
-    if (!product || !product.id) {
+    if (
+      !product ||
+      !product.id ||
+      (product.status && product.status !== "publish") ||
+      product.catalog_visibility === "hidden"
+    ) {
       return res.status(404).send("Product not found");
     }
 

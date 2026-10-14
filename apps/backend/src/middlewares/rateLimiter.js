@@ -30,17 +30,21 @@ export const createRateLimiter = ({
   max = 15,                  // max attempts
   message = "Too many requests. Please try again later.",
   keyGenerator,
+  maxStoreKeys = 10000,
 } = {}) => {
   const requests = new Map();
 
-  // Periodic cleanup every 10 minutes to prevent memory growth
-  const cleanupTimer = setInterval(() => {
-    const now = Date.now();
+  const purgeExpired = (now = Date.now()) => {
     for (const [key, data] of requests.entries()) {
       if (now - data.startTime > windowMs) {
         requests.delete(key);
       }
     }
+  };
+
+  // Periodic cleanup every 10 minutes to prevent memory growth
+  const cleanupTimer = setInterval(() => {
+    purgeExpired();
   }, 10 * 60 * 1000);
 
   if (cleanupTimer && typeof cleanupTimer.unref === "function") {
@@ -65,6 +69,19 @@ export const createRateLimiter = ({
     const record = requests.get(key);
 
     if (!record || now - record.startTime > windowMs) {
+      if (requests.size >= maxStoreKeys) {
+        purgeExpired(now);
+        // If still at or over capacity after expired purge, prune oldest 20%
+        if (requests.size >= maxStoreKeys) {
+          const pruneCount = Math.ceil(maxStoreKeys * 0.2);
+          let deleted = 0;
+          for (const k of requests.keys()) {
+            requests.delete(k);
+            deleted += 1;
+            if (deleted >= pruneCount) break;
+          }
+        }
+      }
       requests.set(key, { count: 1, startTime: now });
       return next();
     }
@@ -92,6 +109,13 @@ export const createRateLimiter = ({
 
   return limiter;
 };
+
+export const ipAuthLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 60, // 60 total authentication attempts per 15 minutes per IP across all accounts
+  message: "Too many authentication attempts from this IP. Please try again in a few minutes.",
+  keyGenerator: (req) => `auth:ip:${getClientIp(req)}`,
+});
 
 export const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,

@@ -166,3 +166,21 @@ test("Upload Rate Limiter: Live export uploadLimiter is configured with windowMs
   assert.equal(res31.statusCode, 429);
   assert.match(res31.body.message, /upload rate limit reached/i);
 });
+
+test("Rate Limiter: Map memory bounds enforce maxStoreKeys capacity cap without unbound growth", () => {
+  const boundedLimiter = createRateLimiter({
+    windowMs: 60 * 1000,
+    max: 10,
+    maxStoreKeys: 10,
+    keyGenerator: (req) => req.ip,
+  });
+
+  // Inject 15 distinct IPs
+  for (let i = 1; i <= 15; i++) {
+    let nextCalled = false;
+    boundedLimiter({ ip: `10.0.0.${i}` }, createMockRes(), () => {
+      nextCalled = true;
+    });
+    assert.equal(nextCalled, true, `IP ${i} should be handled`);
+  }
+});

@@ -19,12 +19,12 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
   return (
     <div
-      className={`flex items-center gap-4 rounded-[22px] p-4 shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all duration-300 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 ${
+      className={`flex items-center gap-3 rounded-[18px] p-3 shadow-[0_6px_22px_rgba(0,0,0,0.045)] transition-all duration-300 hover:shadow-[0_10px_30px_rgba(0,0,0,0.07)] hover:-translate-y-0.5 ${
         isOutOfStock ? "bg-rose-50/20 border border-rose-200" : "bg-white"
       }`}
     >
       {/* Product Image */}
-      <div className="flex h-[90px] w-[90px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-[#ECECEC] bg-white p-1.5">
+      <div className="flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[15px] border border-[#ECECEC] bg-white p-1.5">
         <img
           src={getCatalogImageUrl(item)}
           alt={item.name || "Cart item"}
@@ -39,9 +39,9 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
       </div>
 
       {/* Product Details */}
-      <div className="flex flex-1 flex-col justify-between py-0.5 min-h-[90px] gap-1.5">
+      <div className="flex min-h-[72px] min-w-0 flex-1 flex-col justify-between gap-1 py-0.5">
         <div>
-          <h2 className="line-clamp-2 text-[14px] font-semibold leading-snug text-[#1E1E1E]">
+          <h2 className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#1E1E1E]">
             {cleanProductTitle(item.name)}
           </h2>
           {isOutOfStock ? (
@@ -58,7 +58,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
         <div className="flex items-center justify-between gap-2">
           {/* Price */}
           <div className="flex items-baseline gap-1.5 flex-wrap">
-            <span className="text-[16px] font-bold text-[#1E1E1E]">
+            <span className="text-[15px] font-bold text-[#1E1E1E]">
               ₹{price}
             </span>
             {regularPrice > price && (
@@ -70,7 +70,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
           {/* Quantity Controls */}
           <div
-            className={`flex h-[36px] w-[88px] items-center justify-between rounded-full px-1 text-white shadow-sm flex-shrink-0 select-none transition-colors ${
+            className={`flex h-[32px] w-[78px] items-center justify-between rounded-full px-1 text-white shadow-sm flex-shrink-0 select-none transition-colors ${
               isOutOfStock ? "bg-rose-600/90" : "bg-[#7C3AED]"
             }`}
           >
@@ -80,12 +80,12 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               onClick={() => onDecrease(item)}
               aria-label="Decrease quantity"
               title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <Minus size={15} strokeWidth={2.5} />
             </button>
 
-            <span className="flex-1 text-center text-[14px] font-bold leading-none tabular-nums">
+            <span className="flex-1 text-center text-[13px] font-bold leading-none tabular-nums">
               {item.quantity}
             </span>
 
@@ -101,7 +101,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
                   ? `Only ${maxLimit} available in stock`
                   : "Increase quantity"
               }
-              className="flex h-7 w-7 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <Plus size={15} strokeWidth={2.5} />
             </button>

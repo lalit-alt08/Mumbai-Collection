@@ -36,6 +36,7 @@ function ProtectedRoute() {
           `${API_URL}/profile/complete`,
           {
             withCredentials: true,
+            headers: { "X-Mumbai-Panel": "customer" },
             timeout: 8000,
           }
         );
@@ -61,8 +62,8 @@ function ProtectedRoute() {
   // AuthContext is still restoring/checking the login session
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <p className="text-gray-500">Loading...</p>
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
       </div>
     );
   }
@@ -81,8 +82,8 @@ function ProtectedRoute() {
   // Still checking profile completion
   if (checkingProfile) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <p className="text-gray-500">Checking profile...</p>
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
       </div>
     );
   }

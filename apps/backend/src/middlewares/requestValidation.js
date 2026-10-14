@@ -70,7 +70,7 @@ export const schemas = {
     category_ids: z.array(positiveId).min(1).max(500),
   }).passthrough(),
   orderStatus: z.object({
-    status: z.enum(["pending", "processing", "packed", "on-hold", "out-for-delivery", "dispatched", "completed", "cancelled", "refunded", "failed"]),
+    status: z.enum(["pending", "processing", "packed", "out-for-delivery", "dispatched", "completed", "cancelled", "failed"]),
   }).passthrough(),
   employeeAccess: z.object({
     email,
@@ -87,6 +87,29 @@ export const schemas = {
   }).passthrough(),
   suspensionLookup: z.object({ email }).passthrough(),
   unsuspension: z.object({ email }).passthrough(),
+  storeHoursUpdate: z.object({
+    manual_override: z.enum(["auto", "open", "closed"]).optional(),
+    schedule: z.record(z.string(), z.object({
+      open: z.string().trim().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      close: z.string().trim().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      is_enabled: z.boolean().optional(),
+      enabled: z.boolean().optional(),
+    })).optional(),
+    notice_message: boundedString(1000).optional(),
+    closed_message: boundedString(1000).optional(),
+    is_peak_hours: z.boolean().optional(),
+    peak_delivery_text: boundedString(200).optional(),
+    normal_delivery_text: boundedString(200).optional(),
+    peak_notice_message: boundedString(1000).optional(),
+    peak_notice: boundedString(1000).optional(),
+  }).passthrough(),
+  storeHoursPeakToggle: z.object({
+    is_peak_hours: z.boolean().optional(),
+    peak_delivery_text: boundedString(200).optional(),
+    normal_delivery_text: boundedString(200).optional(),
+    peak_notice_message: boundedString(1000).optional(),
+    peak_notice: boundedString(1000).optional(),
+  }).passthrough(),
   review: z.object({
     rating: z.coerce.number().int().min(1).max(5),
     review: boundedString(2000).min(1),

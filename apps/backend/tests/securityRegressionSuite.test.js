@@ -212,7 +212,7 @@ test("Security Regression Suite — Comprehensive Vulnerability Defenses", async
   // 2. IDOR Prevention on Customer Order Access (getOrderById)
   // ─────────────────────────────────────────────────────────────────────────────
   await suite.test("2. IDOR Protection: Customer A cannot inspect Customer B's order details", async (t) => {
-    await t.test("2a. Customer A is denied access to Customer B's order (HTTP 403, zero data leak)", async () => {
+    await t.test("2a. Customer A is denied access to Customer B's order (HTTP 404 ORDER_NOT_FOUND, zero data leak)", async () => {
       api.get = async (endpoint) => {
         if (endpoint.includes("orders/500")) {
           return {
@@ -253,10 +253,11 @@ test("Security Regression Suite — Comprehensive Vulnerability Defenses", async
 
       await getOrderById(req, res);
 
-      assert.equal(res.getStatus(), 403, "Must return HTTP 403 Forbidden on IDOR attempt");
+      assert.equal(res.getStatus(), 404, "Must return HTTP 404 Not Found on IDOR / probe attempt");
       const body = res.getData();
       assert.equal(body.success, false);
-      assert.equal(body.message, "You are not authorized to view this order.");
+      assert.equal(body.code, "ORDER_NOT_FOUND");
+      assert.equal(body.message, "Order not found.");
       assert.equal(body.order, undefined, "Order payload must never be returned to non-owner");
     });
 

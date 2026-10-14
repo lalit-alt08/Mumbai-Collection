@@ -53,6 +53,7 @@ function Addresses() {
   // Status feedback toast/banner
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -150,6 +151,14 @@ function Addresses() {
       [name]: value,
     }));
 
+    if (fieldErrors[name]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+
     setFormError("");
   };
 
@@ -165,6 +174,7 @@ function Addresses() {
       type: defaultType,
     });
     setFormError("");
+    setFieldErrors({});
     setFeedback({ type: "", message: "" });
     setShowForm(true);
   };
@@ -187,6 +197,7 @@ function Addresses() {
     });
 
     setFormError("");
+    setFieldErrors({});
     setFeedback({ type: "", message: "" });
     setShowForm(true);
   };
@@ -198,6 +209,7 @@ function Addresses() {
     setEditingId(null);
     setForm(emptyForm);
     setFormError("");
+    setFieldErrors({});
   };
 
   // --------------------------------------------------
@@ -208,63 +220,56 @@ function Addresses() {
     e.preventDefault();
 
     setFormError("");
+    const errors = {};
 
     if (!form.type || (form.type !== "home" && form.type !== "office")) {
-      setFormError("Please select a valid address type.");
-      return;
+      errors.type = "Please select a valid address type.";
     }
 
     // Client-side validation guarding against duplicate type
     if (!editingId && form.type === "home" && hasHome) {
-      setFormError("A Home address is already saved. You can only add an Office address.");
-      return;
-    }
-
-    if (!editingId && form.type === "office" && hasOffice) {
-      setFormError("An Office address is already saved. You can only add a Home address.");
-      return;
-    }
-
-    if (
+      errors.type = "A Home address is already saved. You can only add an Office address.";
+    } else if (!editingId && form.type === "office" && hasOffice) {
+      errors.type = "An Office address is already saved. You can only add a Home address.";
+    } else if (
       editingId &&
       form.type === "home" &&
       addresses.some((a) => a.id !== editingId && a.type?.toLowerCase() === "home")
     ) {
-      setFormError("Another Home address is already saved.");
-      return;
-    }
-
-    if (
+      errors.type = "Another Home address is already saved.";
+    } else if (
       editingId &&
       form.type === "office" &&
       addresses.some((a) => a.id !== editingId && a.type?.toLowerCase() === "office")
     ) {
-      setFormError("Another Office address is already saved.");
-      return;
+      errors.type = "Another Office address is already saved.";
     }
 
-    if (!form.first_name.trim()) {
-      setFormError("First name is required.");
-      return;
+    if (!form.first_name || !form.first_name.trim()) {
+      errors.first_name = "First name is required.";
     }
 
-    if (!form.last_name.trim()) {
-      setFormError("Last name is required.");
-      return;
+    if (!form.last_name || !form.last_name.trim()) {
+      errors.last_name = "Last name is required.";
     }
 
-    if (!isValidIndianPhone(form.phone)) {
-      setFormError("Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).");
-      return;
+    if (!form.phone || !form.phone.trim()) {
+      errors.phone = "Mobile number is required.";
+    } else if (!isValidIndianPhone(form.phone)) {
+      errors.phone = "Please enter a valid 10-digit mobile number.";
     }
 
-    if (!form.address_line1.trim()) {
-      setFormError("Please enter your street address / house number.");
-      return;
+    if (!form.address_line1 || !form.address_line1.trim()) {
+      errors.address_line1 = "Please enter your street address / house number.";
     }
 
-    if (!form.city.trim() || !isValidDeliveryRegion(form.city)) {
-      setFormError("Please select your delivery region (Vasai West, Vasai East, Nallasopara West, or Nallasopara East).");
+    if (!form.city || !form.city.trim() || !isValidDeliveryRegion(form.city)) {
+      errors.city = "Please select your delivery region.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setFormError("Please fill in the required fields highlighted in red below.");
       return;
     }
 
@@ -317,10 +322,19 @@ function Addresses() {
       await loadAddresses();
       closeForm();
     } catch (error) {
-      setFormError(
-        error.response?.data?.message ||
-          "Unable to save address."
-      );
+      const msg = error.response?.data?.message || "Unable to save address.";
+      setFormError(msg);
+      if (msg.toLowerCase().includes("phone") || msg.toLowerCase().includes("mobile")) {
+        setFieldErrors((prev) => ({ ...prev, phone: msg }));
+      } else if (msg.toLowerCase().includes("first name")) {
+        setFieldErrors((prev) => ({ ...prev, first_name: msg }));
+      } else if (msg.toLowerCase().includes("last name")) {
+        setFieldErrors((prev) => ({ ...prev, last_name: msg }));
+      } else if (msg.toLowerCase().includes("address") || msg.toLowerCase().includes("street")) {
+        setFieldErrors((prev) => ({ ...prev, address_line1: msg }));
+      } else if (msg.toLowerCase().includes("city") || msg.toLowerCase().includes("region")) {
+        setFieldErrors((prev) => ({ ...prev, city: msg }));
+      }
     } finally {
       setSaving(false);
     }
@@ -382,14 +396,8 @@ function Addresses() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center bg-[#F8F9F5]">
-        <div className="flex items-center gap-2 text-gray-500">
-          <Loader2
-            size={20}
-            className="animate-spin text-[#7C3AED]"
-          />
-          Loading addresses...
-        </div>
+      <div className="flex min-h-[50vh] items-center justify-center bg-[#F8F9F5]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
       </div>
     );
   }
@@ -493,13 +501,14 @@ function Addresses() {
 
             <form
               onSubmit={handleSubmit}
+              noValidate
               className="space-y-5"
             >
 
               {/* ADDRESS TYPE SELECTOR */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Address Type
+                <label className={`mb-2 block text-sm font-bold ${fieldErrors.type ? "text-red-600" : "text-gray-700"}`}>
+                  Address Type <span className={fieldErrors.type ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
                 </label>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -507,15 +516,25 @@ function Addresses() {
                   {isHomeAvailable ? (
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setForm((prev) => ({
                           ...prev,
                           type: "home",
-                        }))
-                      }
+                        }));
+                        if (fieldErrors.type) {
+                          setFieldErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.type;
+                            return next;
+                          });
+                        }
+                        setFormError("");
+                      }}
                       className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition cursor-pointer ${
                         form.type === "home"
                           ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED]"
+                          : fieldErrors.type
+                          ? "border-red-300 text-gray-700 hover:bg-red-50/30"
                           : "border-gray-200 text-gray-600 hover:bg-gray-50"
                       }`}
                     >
@@ -533,15 +552,25 @@ function Addresses() {
                   {isOfficeAvailable ? (
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setForm((prev) => ({
                           ...prev,
                           type: "office",
-                        }))
-                      }
+                        }));
+                        if (fieldErrors.type) {
+                          setFieldErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.type;
+                            return next;
+                          });
+                        }
+                        setFormError("");
+                      }}
                       className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition cursor-pointer ${
                         form.type === "office"
                           ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED]"
+                          : fieldErrors.type
+                          ? "border-red-300 text-gray-700 hover:bg-red-50/30"
                           : "border-gray-200 text-gray-600 hover:bg-gray-50"
                       }`}
                     >
@@ -555,13 +584,19 @@ function Addresses() {
                     </div>
                   )}
                 </div>
+                {fieldErrors.type && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                    <span>{fieldErrors.type}</span>
+                  </p>
+                )}
               </div>
 
               {/* FIRST NAME + LAST NAME */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    First Name <span className="text-[#7C3AED]">*</span>
+                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.first_name ? "text-red-600" : "text-gray-700"}`}>
+                    First Name <span className={fieldErrors.first_name ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
                   </label>
 
                   <input
@@ -570,14 +605,23 @@ function Addresses() {
                     value={form.first_name}
                     onChange={handleChange}
                     placeholder="e.g. Rahul"
-                    required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
+                      fieldErrors.first_name
+                        ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
+                        : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    }`}
                   />
+                  {fieldErrors.first_name && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
+                      <AlertCircle size={13} className="shrink-0 text-red-500" />
+                      <span>{fieldErrors.first_name}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Last Name <span className="text-[#7C3AED]">*</span>
+                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.last_name ? "text-red-600" : "text-gray-700"}`}>
+                    Last Name <span className={fieldErrors.last_name ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
                   </label>
 
                   <input
@@ -586,20 +630,29 @@ function Addresses() {
                     value={form.last_name}
                     onChange={handleChange}
                     placeholder="e.g. Sharma"
-                    required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
+                      fieldErrors.last_name
+                        ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
+                        : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    }`}
                   />
+                  {fieldErrors.last_name && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
+                      <AlertCircle size={13} className="shrink-0 text-red-500" />
+                      <span>{fieldErrors.last_name}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
               {/* PHONE */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Mobile Number <span className="text-[#7C3AED]">*</span>
+                <label className={`mb-2 block text-sm font-bold ${fieldErrors.phone ? "text-red-600" : "text-gray-700"}`}>
+                  Mobile Number <span className={fieldErrors.phone ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
                 </label>
 
                 <div className="relative flex items-center">
-                  <span className="absolute left-3.5 text-sm font-bold text-gray-500">
+                  <span className={`absolute left-3.5 text-sm font-bold ${fieldErrors.phone ? "text-red-500" : "text-gray-500"}`}>
                     +91
                   </span>
                   <input
@@ -609,17 +662,26 @@ function Addresses() {
                     maxLength={10}
                     value={form.phone}
                     onChange={handleChange}
-                    placeholder=""
-                    required
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    placeholder="10-digit number"
+                    className={`h-12 w-full rounded-xl border pl-12 pr-4 text-sm outline-none transition ${
+                      fieldErrors.phone
+                        ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
+                        : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    }`}
                   />
                 </div>
+                {fieldErrors.phone && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                    <span>{fieldErrors.phone}</span>
+                  </p>
+                )}
               </div>
 
               {/* ADDRESS LINE 1 */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Address Line 1 *
+                <label className={`mb-2 block text-sm font-bold ${fieldErrors.address_line1 ? "text-red-600" : "text-gray-700"}`}>
+                  Address Line 1 <span className={fieldErrors.address_line1 ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
                 </label>
 
                 <input
@@ -627,9 +689,18 @@ function Addresses() {
                   value={form.address_line1}
                   onChange={handleChange}
                   placeholder="Flat / House no., building, street"
-                  required
-                  className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                  className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
+                    fieldErrors.address_line1
+                      ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
+                      : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                  }`}
                 />
+                {fieldErrors.address_line1 && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                    <span>{fieldErrors.address_line1}</span>
+                  </p>
+                )}
               </div>
 
               {/* ADDRESS LINE 2 */}
@@ -653,15 +724,17 @@ function Addresses() {
               {/* DELIVERY REGION (4 OPTIONS WITH SMOOTH SCROLL) */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-bold text-gray-700">
-                    Delivery Region / Area <span className="text-[#7C3AED]">*</span>
+                  <label className={`block text-sm font-bold ${fieldErrors.city ? "text-red-600" : "text-gray-700"}`}>
+                    Delivery Region / Area <span className={fieldErrors.city ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
                   </label>
                   <span className="text-[11px] font-semibold text-gray-400">
                     Local delivery zones
                   </span>
                 </div>
 
-                <div className="flex gap-2 overflow-x-auto pb-1.5 scroll-smooth no-scrollbar md:grid md:grid-cols-2 lg:grid-cols-4">
+                <div className={`flex gap-2 overflow-x-auto p-1 rounded-2xl scroll-smooth no-scrollbar md:grid md:grid-cols-2 lg:grid-cols-4 ${
+                  fieldErrors.city ? "border-2 border-dashed border-red-300 bg-red-50/20" : ""
+                }`}>
                   {DELIVERY_REGIONS.map((region) => {
                     const isSelected = form.city?.toLowerCase() === region.toLowerCase();
 
@@ -674,20 +747,35 @@ function Addresses() {
                             ...prev,
                             city: region,
                           }));
+                          if (fieldErrors.city) {
+                            setFieldErrors((prev) => {
+                              const next = { ...prev };
+                              delete next.city;
+                              return next;
+                            });
+                          }
                           setFormError("");
                         }}
                         className={`flex shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 px-3.5 py-3 text-xs font-bold transition-all duration-200 cursor-pointer active:scale-95 ${
                           isSelected
                             ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED] shadow-sm ring-2 ring-[#7C3AED]/20"
+                            : fieldErrors.city
+                            ? "border-red-300 bg-white text-gray-700 hover:border-red-400"
                             : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300 hover:bg-gray-100"
                         }`}
                       >
-                        <MapPin size={14} className={isSelected ? "text-[#7C3AED]" : "text-gray-400"} />
+                        <MapPin size={14} className={isSelected ? "text-[#7C3AED]" : fieldErrors.city ? "text-red-400" : "text-gray-400"} />
                         <span className="whitespace-nowrap">{region}</span>
                       </button>
                     );
                   })}
                 </div>
+                {fieldErrors.city && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                    <span>{fieldErrors.city}</span>
+                  </p>
+                )}
               </div>
 
               {/* STATE (PERMANENTLY LOCKED TO MAHARASHTRA) */}

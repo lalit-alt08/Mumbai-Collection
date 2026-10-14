@@ -106,112 +106,111 @@ function Overview() {
   const maxRevenue = Math.max(...salesTrend.map((d) => d.revenue), 1000);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-6">
       {/* Page Title & Refresh */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-gray-900 md:text-3xl">
+          <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
             Store Performance Overview
           </h1>
-          <p className="text-xs font-medium text-gray-500 mt-1">
-            Real-time sales, order fulfillment, and inventory analytics for Mumbai Collection
+          <p className="mt-1 max-w-xl text-xs leading-relaxed text-gray-500 sm:text-sm">
+            Sales, order fulfillment, and inventory at a glance.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => fetchDashboardData(true)}
-            className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm transition hover:bg-gray-50"
-          >
-            <RotateCcw size={14} />
-            Refresh Data
-          </button>
-        </div>
+        <button
+          onClick={() => fetchDashboardData(true)}
+          className="inline-flex w-fit items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 shadow-xs transition hover:border-gray-300 hover:bg-gray-50"
+        >
+          <RotateCcw size={14} />
+          Refresh
+        </button>
       </div>
 
       {/* 3 Executive Metric Cards */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 sm:gap-4">
         {/* Today's Sales */}
-        <div className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-xs sm:p-5">
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:text-xs">
               Today&apos;s Revenue
             </span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-[#FF8A00]">
-              <TrendingUp size={20} />
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
+                ₹{summary.todaySales.toLocaleString("en-IN")}
+              </span>
+              <span className="text-[11px] font-medium text-gray-500 sm:text-xs">
+                Avg order ₹{summary.avgOrderValue.toLocaleString("en-IN")}
+              </span>
             </div>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black tracking-tight text-gray-900">
-              ₹{summary.todaySales.toLocaleString("en-IN")}
-            </span>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600 sm:h-10 sm:w-10">
+            <TrendingUp size={18} />
           </div>
-          <p className="mt-2 text-xs font-semibold text-gray-500">
-            Avg Order: ₹{summary.avgOrderValue.toLocaleString("en-IN")}
-          </p>
         </div>
 
         {/* Monthly Sales */}
-        <div className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-xs sm:p-5">
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:text-xs">
               Monthly Sales
             </span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Calendar size={20} />
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
+                ₹{(summary.monthSales ?? 0).toLocaleString("en-IN")}
+              </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 sm:text-xs">
+                <TrendingUp size={12} />
+                {summary.monthOrdersCount ?? 0} orders
+              </span>
             </div>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black tracking-tight text-gray-900">
-              ₹{(summary.monthSales ?? 0).toLocaleString("en-IN")}
-            </span>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 sm:h-10 sm:w-10">
+            <Calendar size={18} />
           </div>
-          <p className="mt-2 text-xs font-semibold text-blue-600 flex items-center gap-1">
-            <TrendingUp size={13} />
-            {summary.monthOrdersCount ?? 0} orders this month
-          </p>
         </div>
 
         {/* Low Stock Alerts */}
-        <div className="relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-gray-100 transition-all hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-xs sm:col-span-2 sm:p-5 xl:col-span-1">
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:text-xs">
               Low Stock Warnings
             </span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-              <AlertTriangle size={20} />
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
+                {summary.lowStockCount}
+              </span>
+              <span className="text-[11px] font-medium text-gray-500 sm:text-xs">critical products</span>
             </div>
+            <Link
+              to="/products"
+              className="mt-0.5 inline-flex text-[11px] font-semibold text-amber-700 hover:text-amber-800 sm:text-xs"
+            >
+              Review inventory <span aria-hidden="true" className="ml-1">→</span>
+            </Link>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black tracking-tight text-gray-900">
-              {summary.lowStockCount}
-            </span>
-            <span className="text-xs font-medium text-gray-500">products critical</span>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 sm:h-10 sm:w-10">
+            <AlertTriangle size={18} />
           </div>
-          <Link
-            to="/products"
-            className="mt-2 text-xs font-bold text-amber-700 hover:underline flex items-center gap-1"
-          >
-            Review inventory &rarr;
-          </Link>
         </div>
       </div>
 
       {/* Sales Trend Chart & Low Stock Widget */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 sm:gap-5">
         {/* Weekly Revenue Bar Chart */}
-        <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100 lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
+        <div className={`rounded-2xl border border-gray-100 bg-white p-4 shadow-xs sm:p-5 ${lowStockProducts.length === 0 ? "lg:col-span-3" : "lg:col-span-2"}`}>
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-base font-bold text-gray-900">Weekly Revenue Breakdown</h2>
-              <p className="text-xs font-medium text-gray-500">Daily store volume across recent days</p>
+              <h2 className="text-sm font-bold text-gray-900 sm:text-base">Weekly Revenue</h2>
+              <p className="mt-0.5 text-xs text-gray-500">Last 7 days</p>
             </div>
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-              Live WooCommerce Sync
+            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Synced
             </span>
           </div>
 
-          <div className="flex h-64 items-end gap-3 pt-6 sm:gap-6">
+          <div className="flex h-36 items-end gap-2 pt-3 sm:h-44 sm:gap-5">
             {salesTrend.map((day) => {
               const heightPercent = Math.max(8, Math.round((day.revenue / maxRevenue) * 100));
               return (
@@ -230,20 +229,15 @@ function Overview() {
           </div>
         </div>
 
-        {/* Low Stock Quick Glance */}
-        <div className="rounded-2xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-bold text-gray-900">Inventory Alerts</h2>
-            <Link to="/products" className="text-xs font-bold text-[#FF8A00] hover:underline">
-              View All
-            </Link>
-          </div>
-
-          {lowStockProducts.length === 0 ? (
-            <div className="py-12 text-center text-xs text-gray-500 font-medium">
-              ✅ All products are adequately stocked!
+        {/* Low Stock Quick Glance — shown only when action is needed */}
+        {lowStockProducts.length > 0 && (
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-xs sm:p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-900 sm:text-base">Inventory Alerts</h2>
+              <Link to="/products" className="text-[11px] font-semibold text-amber-700 hover:underline sm:text-xs">
+                View All
+              </Link>
             </div>
-          ) : (
             <div className="space-y-3">
               {lowStockProducts.map((p) => (
                 <div
@@ -270,8 +264,8 @@ function Overview() {
                 </div>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Recent Orders Live Stream with Instant Status Changer */}
@@ -316,8 +310,8 @@ function Overview() {
           </div>
         )}
 
-        {/* Mobile View: Clean Card-Based Layout (md:hidden) */}
-        <div className="space-y-3 md:hidden">
+        {/* Mobile View: Compact order cards */}
+        <div className="space-y-2.5 md:hidden">
           {!recentOrders || recentOrders.length === 0 ? (
             <div className="py-10 text-center text-xs font-medium text-gray-500 bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
               No orders received yet.
@@ -326,20 +320,17 @@ function Overview() {
             recentOrders.map((o) => (
               <div
                 key={o.id}
-                className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-2xs transition hover:border-gray-200"
+                className="rounded-xl border border-gray-200 bg-white p-3 sm:p-3.5"
               >
-                {/* Header: Order ID + Date & Status */}
-                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-gray-100">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm font-black text-gray-900 shrink-0">
-                      #{o.order_number}
-                    </span>
-                    <span className="text-[11px] font-medium text-gray-400 truncate">
-                      • {formatOrderDateTimeIST(o.date)}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="shrink-0 text-sm font-bold text-gray-900">#{o.order_number}</span>
+                    <span className="truncate text-[10px] text-gray-500 sm:text-[11px]">
+                      {formatOrderDateTimeIST(o.date)}
                     </span>
                   </div>
                   <span
-                    className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${getStatusBadgeClass(
+                    className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${getStatusBadgeClass(
                       o.status
                     )}`}
                   >
@@ -347,18 +338,17 @@ function Overview() {
                   </span>
                 </div>
 
-                {/* Customer Details & Item Count */}
-                <div className="py-2.5 flex items-center justify-between gap-3">
+                <div className="mt-2 flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="font-bold text-xs text-gray-900 truncate">
+                    <div className="truncate text-xs font-semibold text-gray-900">
                       {o.customer_name}
                     </div>
                     {(o.customer_phone || o.customer_email) && (
-                      <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
+                      <div className="mt-0.5 truncate text-[10px] text-gray-500">
                         {o.customer_phone ? (
                           <a
                             href={`tel:${o.customer_phone}`}
-                            className="hover:text-primary transition font-medium text-gray-600"
+                            className="font-medium text-gray-500 hover:text-gray-800"
                             onClick={(e) => e.stopPropagation()}
                           >
                             {o.customer_phone}
@@ -369,39 +359,36 @@ function Overview() {
                       </div>
                     )}
                   </div>
-                  <div className="shrink-0 text-right">
-                    <span className="inline-flex items-center gap-1 rounded-lg bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-gray-700 border border-gray-200/60">
-                      <ShoppingBag size={12} className="text-gray-400" />
+                  <span className="shrink-0 text-sm font-bold tracking-tight text-gray-900">
+                    ₹{o.total}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between gap-2 border-t border-gray-100 pt-2">
+                  <div className="flex min-w-0 items-center gap-3 text-[10px] text-gray-500 sm:text-[11px]">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                      <span className="truncate">{o.payment_method || "Cash on delivery"}</span>
+                    </span>
+                    <span className="shrink-0 inline-flex items-center gap-1">
+                      <ShoppingBag size={11} />
                       {o.items_count} item{o.items_count !== 1 ? "s" : ""}
                     </span>
                   </div>
-                </div>
-
-                {/* Footer: Payment Method, Total Price & Reconcile */}
-                <div className="flex items-center justify-between pt-2.5 border-t border-gray-100/80 bg-gray-50/50 -mx-3.5 -mb-3.5 px-3.5 py-2.5 rounded-b-xl">
-                  <span className="text-[11px] text-gray-500 font-medium flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    {o.payment_method || "Cash on delivery"}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleReconcile(o.id)}
-                      disabled={reconcilingId === o.id}
-                      title="Reconcile Payment with Gateway"
-                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600 shadow-2xs hover:bg-gray-50 hover:text-gray-900 active:scale-95 disabled:opacity-50 cursor-pointer"
-                    >
-                      {reconcilingId === o.id ? (
-                        <Loader2 size={10} className="animate-spin text-[#FF8A00]" />
-                      ) : (
-                        <RotateCcw size={10} className="text-gray-400" />
-                      )}
-                      <span>Reconcile</span>
-                    </button>
-                    <span className="text-sm font-black text-gray-900 tracking-tight">
-                      ₹{o.total}
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReconcile(o.id)}
+                    disabled={reconcilingId === o.id}
+                    title="Reconcile Payment with Gateway"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[10px] font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    {reconcilingId === o.id ? (
+                      <Loader2 size={11} className="animate-spin text-amber-600" />
+                    ) : (
+                      <RotateCcw size={11} className="text-gray-400" />
+                    )}
+                    Reconcile
+                  </button>
                 </div>
               </div>
             ))

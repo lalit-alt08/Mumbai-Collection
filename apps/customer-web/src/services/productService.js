@@ -8,8 +8,10 @@ export const getProducts = async (params = {}) => {
   return response.data;
 };
 
-export const getProductById = async (id) => {
-  const response = await axios.get(`${API}/products/${id}`);
+export const getProductById = async (id, { refresh = false } = {}) => {
+  const response = await axios.get(`${API}/products/${id}`, {
+    params: refresh ? { refresh: "1" } : undefined,
+  });
   return response.data;
 };
 

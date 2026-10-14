@@ -9,6 +9,35 @@ import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js"
 import { maskEmail } from "../utils/auditLogger.js";
 import { formatCustomerDisplayName, parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
+
+/**
+ * Sanitizes upstream WordPress auth errors to prevent information disclosure (paths, SQL, WP internals).
+ * Strips HTML tags and preserves clean user-facing error messages for legitimate client feedback.
+ */
+export const sanitizeAuthError = (error, defaultMessage = "Authentication request failed", fallbackStatus = 500) => {
+  const status = error.response?.status || error.status || fallbackStatus;
+  const upstreamData = error.response?.data;
+  let message = defaultMessage;
+
+  if (typeof upstreamData?.message === "string" && upstreamData.message.trim().length > 0) {
+    const cleanMsg = upstreamData.message.replace(/<[^>]*>/g, "").trim();
+    if (!/database error|sql|wpdb|syntax error|stack trace|fatal error|wp-content/i.test(cleanMsg)) {
+      message = cleanMsg;
+    }
+  }
+
+  const payload = {
+    success: false,
+    message,
+  };
+
+  if (typeof upstreamData?.code === "string") {
+    payload.code = upstreamData.code;
+  }
+
+  return { status, payload };
+};
 
 const resolveContext = (req) => {
   const panel = req.body?.context || req.query?.context || req.headers["x-mumbai-panel"];
@@ -205,6 +234,9 @@ export const register = async (req, res) => {
     }
 
     const cleanFullName = `${firstName} ${lastName}`;
+    const context = resolveContext(req);
+    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
+    const cookieOptions = getCookieOptions(req);
 
     const response = await wp.post("/wp-json/mumbai-auth/v1/register", {
       name: cleanFullName,
@@ -214,14 +246,62 @@ export const register = async (req, res) => {
       password,
     });
 
-    res.status(200).json(response.data);
+    const regData = response.data;
+    let authUser = regData?.user;
+    let session = regData?.session;
+    let cookieName = regData?.cookie_name;
+    let restNonce = regData?.rest_nonce;
+
+    // Auto-login upon registration to issue authentication cookies seamlessly
+    if (!session || !cookieName) {
+      try {
+        const loginResponse = await wp.post("/wp-json/mumbai-auth/v1/login", {
+          email,
+          password,
+        });
+        const loginData = loginResponse.data;
+        if (loginData?.success && loginData.session && loginData.cookie_name) {
+          session = loginData.session;
+          cookieName = loginData.cookie_name;
+          restNonce = loginData.rest_nonce;
+          authUser = loginData.user || authUser;
+        }
+      } catch (loginErr) {
+        logError(req, loginErr, "Auto-login after registration fallback warning");
+      }
+    }
+
+    if (session && cookieName && typeof res.cookie === "function") {
+      const fullCookieVal = `${cookieName}=${session}`;
+      res.cookie(cookieConfig.auth, fullCookieVal, cookieOptions);
+
+      if (authUser?.id) {
+        setSessionCache(fullCookieVal, {
+          userId: authUser.id,
+          name: authUser.name || cleanFullName,
+          roles: Array.isArray(authUser.roles) ? authUser.roles : ["customer"],
+          email: authUser.email || email,
+          isPhoneVerified: authUser.is_phone_verified === true,
+          isSuspended: false,
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    if (restNonce && typeof res.cookie === "function") {
+      res.cookie(cookieConfig.nonce, restNonce, cookieOptions);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: regData?.message || "Account created successfully.",
+      user: authUser,
+      context,
+    });
   } catch (error) {
-    res.status(error.response?.status || 500).json(
-      error.response?.data || {
-        success: false,
-        message: "Registration failed",
-      },
-    );
+    logError(req, error, "Registration error");
+    const { status, payload } = sanitizeAuthError(error, "Registration failed");
+    return res.status(status).json(payload);
   }
 };
 
@@ -236,13 +316,8 @@ export const forgotPassword = async (req, res) => {
     res.json(response.data);
   } catch (error) {
     logError(req, error, "Forgot password error");
-
-    res.status(error.response?.status || 500).json(
-      error.response?.data || {
-        success: false,
-        message: "Unable to process password reset request.",
-      },
-    );
+    const { status, payload } = sanitizeAuthError(error, "Unable to process password reset request.");
+    return res.status(status).json(payload);
   }
 };
 
@@ -269,13 +344,8 @@ export const resetPassword = async (req, res) => {
     res.json(response.data);
   } catch (error) {
     logError(req, error, "Reset password error");
-
-    res.status(error.response?.status || 500).json(
-      error.response?.data || {
-        success: false,
-        message: "Unable to reset password.",
-      },
-    );
+    const { status, payload } = sanitizeAuthError(error, "Unable to reset password.");
+    return res.status(status).json(payload);
   }
 };
 
@@ -596,28 +666,19 @@ export const sendOtp = async (req, res) => {
 
     const targetEmail = storeResponse.data?.email || userEmail;
     const targetName = storeResponse.data?.name || userName || "Valued Customer";
+    const cooldownKey = `otp_cooldown:${cleanPhone}`;
+    const lastCooldown = serverCache.get(cooldownKey);
+    const now = Date.now();
 
-    // Cooldown rate limiting: if reset_password and in cooldown, return HTTP 429
-    if (purpose === "reset_password" && storeResponse.data?.rate_limited === true) {
-      if (typeof res.set === "function") {
-        res.set("Retry-After", "60");
+    // Uniform response for reset_password prevents account enumeration.
+    // If in cooldown or user not found, cooldown/suppression is enforced silently without leaking account existence.
+    if (purpose === "reset_password") {
+      if (storeResponse.data?.rate_limited === true || storeResponse.data?.user_found === false || !targetEmail) {
+        return res.status(200).json({
+          success: true,
+          message: storeResponse.data?.message || "If the number is registered, an OTP has been sent.",
+        });
       }
-      return res.status(429).json({
-        success: false,
-        message: "Please wait 60 seconds before requesting a new verification code.",
-        retryAfter: 60,
-      });
-    }
-
-    // Account enumeration prevention: if reset_password and user was not found, or email not found
-    if (
-      purpose === "reset_password" &&
-      (storeResponse.data?.user_found === false || !targetEmail)
-    ) {
-      return res.status(200).json({
-        success: true,
-        message: storeResponse.data?.message || "If the account is registered, an OTP has been sent.",
-      });
     }
 
     if (!targetEmail) {
@@ -663,33 +724,42 @@ export const sendOtp = async (req, res) => {
       });
     }
 
+    // Uniform response for reset_password prevents account enumeration
+    if (purpose === "reset_password") {
+      return res.status(200).json({
+        success: true,
+        message: storeResponse.data.message || "If the number is registered, an OTP has been sent.",
+      });
+    }
+
     const masked = maskEmail(targetEmail);
     return res.status(200).json({
       success: true,
       masked_email: masked,
-      message: storeResponse.data.message || (purpose === "reset_password"
-        ? (masked ? `If the account is registered, an OTP has been sent to ${masked}.` : "If the account is registered, an OTP has been sent to your email.")
-        : (masked ? `Verification code sent to ${masked}.` : "Verification code sent to your registered email.")),
+      message: masked ? `Verification code sent to ${masked}.` : "Verification code sent to your registered email.",
     });
   } catch (error) {
     if (error.message === "OTP_HMAC_SECRET is not configured") {
       logError(req, error, "Critical OTP Configuration Error: OTP_HMAC_SECRET is missing");
+    } else {
+      logError(req, error, "Send OTP error");
     }
     const status = error.response?.status || 500;
     if (status === 429) {
       const headerRetry = error.response?.headers?.["retry-after"];
       const bodyRetry = error.response?.data?.retryAfter || error.response?.data?.retry_after;
       const retryAfter = Number(bodyRetry || headerRetry) || 60;
-      res.set("Retry-After", String(retryAfter));
+      if (typeof res.set === "function") {
+        res.set("Retry-After", String(retryAfter));
+      }
       return res.status(429).json({
         success: false,
-        message: error.response?.data?.message || "Too many attempts. Please try again later.",
+        message: "Too many attempts. Please try again later.",
         retryAfter,
       });
     }
-    return res.status(status).json(
-      error.response?.data || { success: false, message: "Failed to send OTP" }
-    );
+    const { status: errStatus, payload } = sanitizeAuthError(error, "Failed to send OTP");
+    return res.status(errStatus).json(payload);
   }
 };
 
@@ -779,10 +849,11 @@ export const verifyOtp = async (req, res) => {
   } catch (error) {
     if (error.message === "OTP_HMAC_SECRET is not configured") {
       logError(req, error, "Critical OTP Configuration Error: OTP_HMAC_SECRET is missing");
+    } else {
+      logError(req, error, "Verify OTP error");
     }
-    return res.status(error.response?.status || 400).json(
-      error.response?.data || { success: false, message: "OTP verification failed" }
-    );
+    const { status, payload } = sanitizeAuthError(error, "OTP verification failed", 400);
+    return res.status(status).json(payload);
   }
 };
 
@@ -823,8 +894,8 @@ export const resetPasswordOtp = async (req, res) => {
 
     return res.status(200).json(resetResponse.data);
   } catch (error) {
-    return res.status(error.response?.status || 400).json(
-      error.response?.data || { success: false, message: "Password reset failed" }
-    );
+    logError(req, error, "Reset password OTP error");
+    const { status, payload } = sanitizeAuthError(error, "Password reset failed", 400);
+    return res.status(status).json(payload);
   }
 };

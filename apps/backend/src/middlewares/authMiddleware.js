@@ -330,11 +330,10 @@ export const checkSessionPhoneVerified = async (wpAuth) => {
 const executeOptionalAuth = async (context, req, res, next) => {
   try {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
+    // Strictly read only the cookie designated for this context (no staff fallback across boundaries)
     const wpAuth =
       req.cookies?.[cookieConfig.auth] ||
-      (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined) ||
-      req.cookies?.mumbai_admin_auth ||
-      req.cookies?.mumbai_employee_auth;
+      (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
 
     if (!wpAuth) {
       return next();
@@ -343,6 +342,20 @@ const executeOptionalAuth = async (context, req, res, next) => {
     const now = Date.now();
     const cached = sessionCache.get(wpAuth);
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
+      const cachedRoles = cached.roles || [];
+      const isCustomer = cachedRoles.includes("customer") || cachedRoles.includes("subscriber");
+      const isAdmin = cachedRoles.includes("administrator");
+      const isEmployee = cachedRoles.includes("shop_manager") || cachedRoles.includes("employee");
+
+      const roleMatches =
+        (context === "customer" && (isCustomer || isAdmin)) ||
+        (context === "admin" && isAdmin) ||
+        (context === "employee" && (isEmployee || isAdmin));
+
+      if (!roleMatches) {
+        return next();
+      }
+
       req.wpAuthCookie = wpAuth;
       req.wpUserId = cached.userId;
       req.wpUserEmail = cached.email || "";
@@ -374,6 +387,19 @@ const executeOptionalAuth = async (context, req, res, next) => {
     const isSuspended = response.data?.is_suspended === true;
 
     if (response.data?.logged_in && userId) {
+      const isCustomer = roles.includes("customer") || roles.includes("subscriber");
+      const isAdmin = roles.includes("administrator");
+      const isEmployee = roles.includes("shop_manager") || roles.includes("employee");
+
+      const roleMatches =
+        (context === "customer" && (isCustomer || isAdmin)) ||
+        (context === "admin" && isAdmin) ||
+        (context === "employee" && (isEmployee || isAdmin));
+
+      if (!roleMatches) {
+        return next();
+      }
+
       setSessionCache(wpAuth, {
         userId,
         roles,

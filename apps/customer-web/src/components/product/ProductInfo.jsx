@@ -8,41 +8,54 @@ import { useCart } from "../../context/CartContext";
 import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
-import { cleanProductTitle } from "../../utils/productUtils";
+import {
+  cleanProductTitle,
+  getCartFailureMessage,
+  getProductStock,
+  getRemainingStock,
+} from "../../utils/productUtils";
+import { getProductById } from "../../services/productService";
 
 function ProductInfo({ product }) {
   const navigate = useNavigate();
   const { cart, refreshCart, updateCart } = useCart();
   const [loading, setLoading] = useState(false);
+  const [stockOverride, setStockOverride] = useState(null);
+  const [cartError, setCartError] = useState("");
 
   const cartItem = cart?.items?.find(
     (item) => Number(item.id) === Number(product.id)
   );
 
-  // Accurate stock limit calculation
-  const maxStock =
-    product.manage_stock && product.stock_quantity !== null
-      ? Number(product.stock_quantity)
-      : product.stock_status === "outofstock"
-      ? 0
-      : 99;
-
+  const stockProduct = stockOverride?.id === product.id
+    ? { ...product, ...stockOverride }
+    : product;
+  const { maxStock, isOutOfStock } = getProductStock(stockProduct, cartItem);
   const currentQuantity = cartItem?.quantity || 0;
-  const isOutOfStock =
-    product.stock_status === "outofstock" ||
-    (product.manage_stock && product.stock_quantity !== null && product.stock_quantity <= 0);
-
+  const remainingStock = getRemainingStock(stockProduct, currentQuantity, cartItem);
   const isMaxReached = currentQuantity >= maxStock && maxStock > 0;
+
+  const refreshStock = async () => {
+    try {
+      const latestProduct = await getProductById(product.id, { refresh: true });
+      setStockOverride(latestProduct);
+    } catch {
+      // Keep the current stock display if the refresh itself is unavailable.
+    }
+  };
 
   const handleAddToCart = async () => {
     if (isOutOfStock || isMaxReached) return;
+    setCartError("");
     try {
       setLoading(true);
       const updated = await addToWooCart(product.id);
       if (updated) {
         updateCart(updated);
       }
-    } catch {
+    } catch (error) {
+      setCartError(getCartFailureMessage(error));
+      await refreshStock();
       await refreshCart().catch(() => {});
     } finally {
       setLoading(false);
@@ -51,6 +64,7 @@ function ProductInfo({ product }) {
 
   const handleUpdateQuantity = async (newQuantity) => {
     if (loading) return;
+    setCartError("");
 
     // Strict client-side stock limit check
     if (newQuantity > maxStock) {
@@ -68,7 +82,9 @@ function ProductInfo({ product }) {
       if (updated) {
         updateCart(updated);
       }
-    } catch {
+    } catch (error) {
+      setCartError(getCartFailureMessage(error));
+      await refreshStock();
       await refreshCart().catch(() => {});
     } finally {
       setLoading(false);
@@ -131,19 +147,24 @@ function ProductInfo({ product }) {
 
           {/* Stock Availability Badge */}
           <div className="mt-2.5">
-            {isOutOfStock ? (
+            {isOutOfStock || isMaxReached ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 border border-rose-200">
                 <ShieldAlert size={14} /> Out of Stock
               </span>
-            ) : maxStock <= 5 ? (
+            ) : remainingStock <= 5 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 border border-amber-200">
                 <AlertTriangle size={14} className="text-amber-600 animate-pulse" />
-                ⚡ Only {maxStock} left in stock - Order soon!
+                ⚡ Only {remainingStock} left in stock - Order soon!
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
-                <CheckCircle2 size={14} /> In Stock ({maxStock} available in Vasai shop)
+                <CheckCircle2 size={14} /> {stockProduct.manage_stock ? `In Stock (${remainingStock} available in Vasai shop)` : "In Stock"}
               </span>
+            )}
+            {cartError && (
+              <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">
+                {cartError}
+              </p>
             )}
           </div>
         </div>
@@ -259,10 +280,10 @@ function ProductInfo({ product }) {
             {isOutOfStock ? (
               <span className="text-[10px] font-bold text-rose-600">Out of stock</span>
             ) : isMaxReached ? (
-              <span className="text-[10px] font-bold text-amber-700">Max stock ({maxStock})</span>
+              <span className="text-[10px] font-bold text-amber-700">All in cart</span>
             ) : (
               <span className="text-[10px] font-medium leading-none text-[#7C3AED]">
-                {maxStock <= 5 ? `Only ${maxStock} left` : "In stock"}
+                {remainingStock <= 5 ? `Only ${remainingStock} left` : "In stock"}
               </span>
             )}
           </div>
