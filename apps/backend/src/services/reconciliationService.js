@@ -15,9 +15,11 @@ import paymentIntentService, {
   getReconciliationWatermark,
   setReconciliationWatermark,
   findWcOrderByRazorpayOrderId,
+  reserveCheckoutStock,
+  releaseCheckoutStock,
 } from "./paymentIntentService.js";
-import { sendRefundEmail } from "./brevoService.js";
 import { alertStaffAnomaly } from "./alertService.js";
+import { publishOrderEvent } from "./orderNotificationService.js";
 import api from "../config/woocommerce.js";
 
 const RECONCILIATION_LOCK_ID = "cron_reconciler_worker";
@@ -177,6 +179,9 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
             if (!checkoutDetails || !Array.isArray(checkoutDetails.lineItems) || checkoutDetails.lineItems.length === 0) {
               throw new Error("Invalid or empty checkout_payload in intent — line_items required");
             }
+            const reservationId = checkoutDetails.raw.stock_reservation_id ||
+              checkoutDetails.raw.checkout_payload?.stock_reservation_id || rzpOrderId;
+            await reserveCheckoutStock({ reservationId, lineItems: checkoutDetails.lineItems });
 
             // Create WooCommerce order
             const orderPayload = {
@@ -212,6 +217,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 wcOrderId: existingOrder.id,
               });
               await _clearCart(checkoutDetails.customerId);
+              await releaseCheckoutStock(reservationId);
               results.healedOrders++;
               continue;
             }
@@ -220,6 +226,8 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
             const wcOrderId = wcRes.data?.id;
 
             if (wcOrderId) {
+              publishOrderEvent({ event: "ORDER_CREATED", orderId: wcOrderId });
+
               await _updateStatus({
                 rzpOrderId,
                 fromStatus: "paid",
@@ -228,6 +236,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               });
 
               await _clearCart(checkoutDetails.customerId);
+              await releaseCheckoutStock(reservationId);
 
               logger.info(
                 { rzpOrderId, wcOrderId, rzpPaymentId },
@@ -288,22 +297,9 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 toStatus: "refunded",
                 refundId: refund.id,
               });
-
-              // Notify customer by email
-              const checkoutDetails = extractCheckoutDetails(intentRow);
-              const customerEmail = checkoutDetails?.customerEmail;
-              const customerName = checkoutDetails?.customerName || "Customer";
-
-              if (customerEmail) {
-                await sendRefundEmail({
-                  toEmail: customerEmail,
-                  toName: customerName,
-                  amountInInr: (capturedPaise / 100).toFixed(2),
-                  rzpOrderId,
-                  refundId: refund.id,
-                  reason: "Store processing timeout — payment refunded automatically",
-                });
-              }
+              const reservationId = checkoutDetails?.raw?.stock_reservation_id ||
+                checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
+              await releaseCheckoutStock(reservationId);
 
               await alertStaffAnomaly({
                 type: "RECONCILER_AUTO_REFUND",
@@ -462,6 +458,17 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               }
 
               let stockValid = true;
+              const reservationId = checkoutDetails.raw.stock_reservation_id ||
+                checkoutDetails.raw.checkout_payload?.stock_reservation_id || rzpOrderId;
+              try {
+                await reserveCheckoutStock({ reservationId, lineItems: checkoutDetails.lineItems });
+              } catch (reservationErr) {
+                if (reservationErr.response?.status === 409) {
+                  stockValid = false;
+                } else {
+                  throw reservationErr;
+                }
+              }
               const stockResults = await Promise.allSettled(
                 checkoutDetails.lineItems.map(async (item) => {
                   try {
@@ -519,16 +526,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     refundId: refund.id,
                   });
 
-                  if (checkoutDetails.customerEmail) {
-                    await sendRefundEmail({
-                      toEmail: checkoutDetails.customerEmail,
-                      toName: checkoutDetails.customerName,
-                      amountInInr: (capturedPaise / 100).toFixed(2),
-                      rzpOrderId,
-                      refundId: refund.id,
-                      reason: "Item went out of stock before order finalization",
-                    });
-                  }
+                  await releaseCheckoutStock(reservationId);
 
                   await alertStaffAnomaly({
                     type: "RECONCILER_OUT_OF_STOCK_REFUND",
@@ -553,6 +551,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     wcOrderId: existingOrder.id,
                   });
                   await _clearCart(checkoutDetails.customerId);
+                  await releaseCheckoutStock(reservationId);
                   results.healedOrders++;
                 } else {
                   const orderPayload = {
@@ -578,6 +577,8 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                   const wcOrderId = wcRes.data?.id;
 
                   if (wcOrderId) {
+                    publishOrderEvent({ event: "ORDER_CREATED", orderId: wcOrderId });
+
                     await _updateStatus({
                       rzpOrderId,
                       fromStatus: "paid",
@@ -586,6 +587,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     });
 
                     await _clearCart(checkoutDetails.customerId);
+                    await releaseCheckoutStock(reservationId);
 
                     logger.info(
                       { rzpOrderId, wcOrderId, rzpPaymentId },
@@ -595,6 +597,29 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                   }
                 }
               }
+            } else if (createdAgeMinutes >= 15) {
+              // No captured payment discovered for an intent stuck in 'created' > 15 minutes.
+              // Release the held stock and mark as abandoned to prevent inventory starvation.
+              const checkoutDetails = extractCheckoutDetails(intentRow);
+              const reservationId = checkoutDetails?.raw?.stock_reservation_id ||
+                checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
+
+              if (reservationId) {
+                await releaseCheckoutStock(reservationId);
+              }
+
+              await _updateStatus({
+                rzpOrderId,
+                fromStatus: "created",
+                toStatus: "abandoned",
+                errorReason: "Abandoned checkout session: no payment captured after 15m",
+              });
+
+              logger.info(
+                { rzpOrderId, createdAgeMinutes: createdAgeMinutes.toFixed(1) },
+                "[Reconciler] Abandoned created intent cleaned up and stock released"
+              );
+              results.healedOrders++;
             }
           } catch (err) {
             logger.warn(

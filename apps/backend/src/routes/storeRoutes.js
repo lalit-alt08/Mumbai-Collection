@@ -22,13 +22,46 @@ export const _resetStoreRoutesHoursFallbackForTesting = () => {
   lastKnownStoreStatus = null;
 };
 
+// Strict allow-list of WooCommerce Store API v1 endpoints
+const ALLOWED_STORE_PATTERNS = [
+  /^\/cart(\/.*)?$/,
+  /^\/checkout(\/.*)?$/,
+  /^\/batch$/,
+  /^\/products(\/.*)?$/,
+];
+
 /**
  * Universal Store API Gateway Proxy
  * Forwards requests to WooCommerce Store API v1 (/wp-json/wc/store/v1/)
  * and relays Store API Nonce, Cart-Token, and session cookies.
  */
 async function proxyStoreApi(req, res) {
-  const targetPath = req.path;
+  const targetPath = req.path || "";
+
+  // Guard against path traversal attacks (e.g. .. or backslashes)
+  if (
+    targetPath.includes("..") ||
+    targetPath.includes("\\") ||
+    targetPath.includes("%2e") ||
+    targetPath.includes("%2E")
+  ) {
+    return res.status(403).json({
+      success: false,
+      code: "INVALID_PATH",
+      message: "Path traversal is strictly prohibited.",
+    });
+  }
+
+  // Strict allow-list enforcement: only authorized WooCommerce Store API endpoints may be proxied
+  const isAllowed = ALLOWED_STORE_PATTERNS.some((pattern) => pattern.test(targetPath));
+  if (!isAllowed) {
+    return res.status(403).json({
+      success: false,
+      code: "ENDPOINT_NOT_ALLOWED",
+      message: "Requested store endpoint is not permitted.",
+    });
+  }
+
   const targetUrl = `${WP_BASE_URL}/wp-json/wc/store/v1${targetPath}`;
 
   // Server-side enforcement for checkout order creation

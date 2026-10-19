@@ -26,6 +26,34 @@ export const _setWpClientForTesting = (client) => {
   wpClient = client || defaultWpClient;
 };
 
+/** Atomically reserves WooCommerce-managed inventory for a deferred payment. */
+export const reserveCheckoutStock = async ({ reservationId, lineItems, holdMinutes = 15 }) => {
+  if (!reservationId || !Array.isArray(lineItems) || lineItems.length === 0) {
+    throw new Error("A reservation ID and checkout line items are required");
+  }
+  const response = await wpClient.post("/wp-json/mumbai-auth/v1/stock/reserve", {
+    reservation_id: reservationId,
+    line_items: lineItems,
+    hold_minutes: holdMinutes,
+  });
+  if (response.data?.success !== true) throw new Error("WordPress did not confirm the stock reservation");
+  return response.data;
+};
+
+/** Releases a checkout reservation after order creation, refund, or failed setup. */
+export const releaseCheckoutStock = async (reservationId) => {
+  if (!reservationId) return false;
+  try {
+    const response = await wpClient.post("/wp-json/mumbai-auth/v1/stock/release", {
+      reservation_id: reservationId,
+    });
+    return response.data?.success === true;
+  } catch (err) {
+    logger.warn({ reservationId, err: err.message }, "[PaymentIntentService] Failed to release stock reservation");
+    return false;
+  }
+};
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**

@@ -20,9 +20,7 @@ function BottomNav() {
     "/shipping-policy",
   ];
 
-  // Also hide on order tracking sub-routes like /orders/:id/track
   const isOrderTrackRoute = path.includes("/track");
-
   const shouldHideCompletely =
     isOrderTrackRoute || hideOnPages.some((p) => path.startsWith(p));
 
@@ -115,7 +113,9 @@ function BottomNav() {
   return (
     <nav
       aria-label="Mobile Navigation"
-      className={`fixed bottom-0 left-0 right-0 z-40 rounded-t-[24px] border-t border-gray-200/70 bg-white/95 backdrop-blur-md shadow-[0_-4px_25px_rgba(0,0,0,0.05)] transition-transform duration-300 ease-in-out lg:hidden ${
+      className={`fixed bottom-0 left-0 right-0 z-40 rounded-t-[24px] border-t border-[#1E3252]/80 ${
+        path === "/" ? "bg-[#0E1A2E]/95" : "bg-[#0B1425]/95"
+      } backdrop-blur-md shadow-[0_-4px_25px_rgba(0,0,0,0.6)] transition-transform duration-300 ease-in-out lg:hidden ${
         isVisible ? "translate-y-0" : "translate-y-[120%]"
       }`}
       style={{
@@ -134,7 +134,7 @@ function BottomNav() {
               to={item.to}
               style={{ touchAction: "manipulation" }}
               className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 select-none ${
-                active ? "text-[#7C3AED]" : "text-[#6B7280] hover:text-[#7C3AED]"
+                active ? "text-[#42D6E8]" : "text-[#6E84A3] hover:text-[#42D6E8]"
               }`}
             >
               <div
@@ -146,14 +146,14 @@ function BottomNav() {
                   size={20}
                   strokeWidth={active ? 2.5 : 1.8}
                   className={`transition-colors ${
-                    active ? "text-[#7C3AED] fill-[#7C3AED]/15" : "text-[#6B7280]"
+                    active ? "text-[#42D6E8] fill-[#42D6E8]/20" : "text-[#6E84A3]"
                   }`}
                 />
               </div>
 
               <span
                 className={`text-[11px] tracking-tight transition-colors ${
-                  active ? "font-bold text-[#7C3AED]" : "font-medium text-[#6B7280]"
+                  active ? "font-bold text-[#42D6E8]" : "font-medium text-[#6E84A3]"
                 }`}
               >
                 {item.label}

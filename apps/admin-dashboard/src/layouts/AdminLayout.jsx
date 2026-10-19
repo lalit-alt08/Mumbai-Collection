@@ -14,12 +14,14 @@ import {
   ExternalLink,
   CircleDot,
   LogOut,
+  RotateCcw,
 } from "lucide-react";
 
 import { useAdminAuth } from "../context/AdminAuthContext.jsx";
 
 function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [dashboardRefresh, setDashboardRefresh] = useState(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -164,12 +166,24 @@ function AdminLayout() {
             <Menu size={22} />
           </button>
           <span className="text-sm font-bold text-gray-900">Mumbai Collection</span>
-          <div className="w-8" />
+          {location.pathname === "/" && dashboardRefresh ? (
+            <button
+              type="button"
+              onClick={dashboardRefresh}
+              aria-label="Refresh dashboard"
+              title="Refresh dashboard"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 active:scale-95"
+            >
+              <RotateCcw size={16} />
+            </button>
+          ) : (
+            <div className="w-8" />
+          )}
         </div>
 
         {/* Page */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <Outlet />
+          <Outlet context={{ setDashboardRefresh }} />
         </main>
       </div>
     </div>

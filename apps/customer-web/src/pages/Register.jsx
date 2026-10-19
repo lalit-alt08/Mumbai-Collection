@@ -1,8 +1,10 @@
-import { User, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { User, Mail, Lock, Eye, EyeOff, ArrowRight, Check } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { register, login as loginApi } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
+import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
+import { validatePassword, getPasswordRuleChecks } from "../utils/passwordValidator.js";
 
 
 function Register() {
@@ -27,6 +29,8 @@ function Register() {
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [error, setError] = useState("");
 
+  const passwordChecks = getPasswordRuleChecks(password);
+
   const handleRegister = async (e) => {
     e.preventDefault();
 
@@ -39,21 +43,24 @@ function Register() {
 
     let hasError = false;
 
+    const cleanFirst = normalizePersonName(firstName);
+    const cleanLast = normalizePersonName(lastName);
+
     // First Name validation
-    if (!firstName.trim()) {
+    if (!cleanFirst) {
       setFirstNameError("First name is required.");
       hasError = true;
-    } else if (firstName.trim().length < 2) {
-      setFirstNameError("First name must be at least 2 characters.");
+    } else if (!isValidPersonName(cleanFirst)) {
+      setFirstNameError("First name can only contain letters, spaces, hyphens, apostrophes, and periods.");
       hasError = true;
     }
 
     // Last Name validation
-    if (!lastName.trim()) {
+    if (!cleanLast) {
       setLastNameError("Last name is required.");
       hasError = true;
-    } else if (lastName.trim().length < 2) {
-      setLastNameError("Last name must be at least 2 characters.");
+    } else if (!isValidPersonName(cleanLast)) {
+      setLastNameError("Last name can only contain letters, spaces, hyphens, apostrophes, and periods.");
       hasError = true;
     }
 
@@ -61,17 +68,15 @@ function Register() {
     if (!email.trim()) {
       setEmailError("Email is required.");
       hasError = true;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (!/^(?!\.)(?!.*\.\.)[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)*\.[A-Z]{2,63}$/i.test(email.trim())) {
       setEmailError("Please enter a valid email address.");
       hasError = true;
     }
 
     // Password validation
-    if (!password) {
-      setPasswordError("Password is required.");
-      hasError = true;
-    } else if (password.length < 8) {
-      setPasswordError("Password must be at least 8 characters.");
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      setPasswordError(passwordValidation.message);
       hasError = true;
     }
 
@@ -94,20 +99,20 @@ function Register() {
       const cleanFirst = firstName.trim();
       const cleanLast = lastName.trim();
       const cleanFullName = `${cleanFirst} ${cleanLast}`;
+      const cleanEmail = email.trim().toLowerCase();
 
       const regResponse = await register({
         first_name: cleanFirst,
         last_name: cleanLast,
         name: cleanFullName,
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
 
-      // Automatically authenticate and issue fresh session cookies for the new user
       if (regResponse?.user) {
         loginUser(regResponse.user);
       } else {
-        const loginResponse = await loginApi(email.trim(), password);
+        const loginResponse = await loginApi(cleanEmail, password);
         loginUser(loginResponse.user);
       }
 
@@ -139,17 +144,17 @@ function Register() {
   };
 
   return (
-    <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F7F7FB]">
-      <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
+    <div className="bg-[#0B1425] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">
+      <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-10 md:py-12 md:shadow-lg">
         <div className="w-full">
           {/* Heading */}
 
           <div className="mb-8">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E1E1E] md:text-[32px]">
+            <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[32px]">
               Create Account
             </h1>
 
-            <p className="mt-2 text-[15px] text-gray-500 md:text-[16px]">
+            <p className="mt-2 text-[15px] text-[#8FA4BE] md:text-[16px]">
               Create your account to start shopping.
             </p>
           </div>
@@ -159,12 +164,12 @@ function Register() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {/* First Name */}
               <div>
-                <label className="mb-2 block text-[13px] font-bold text-gray-700">
+                <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                   First Name
                 </label>
 
                 <div className="relative flex items-center">
-                  <div className="absolute left-4 text-gray-400">
+                  <div className="absolute left-4 text-[#6E84A3]">
                     <User size={18} strokeWidth={2} />
                   </div>
 
@@ -178,28 +183,28 @@ function Register() {
                       setFirstNameError("");
                       setError("");
                     }}
-                    className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-11 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                    className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-11 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                       firstNameError
-                        ? "border-red-300 focus:border-red-400"
-                        : "border-gray-200 focus:border-[#7C3AED]"
+                        ? "border-rose-400 focus:border-rose-400"
+                        : "border-[#1E3252] focus:border-[#42D6E8]"
                     }`}
                     required
                   />
                 </div>
 
                 {firstNameError && (
-                  <p className="mt-2 text-sm text-red-600">{firstNameError}</p>
+                  <p className="mt-2 text-sm text-rose-400">{firstNameError}</p>
                 )}
               </div>
 
               {/* Last Name */}
               <div>
-                <label className="mb-2 block text-[13px] font-bold text-gray-700">
+                <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                   Last Name
                 </label>
 
                 <div className="relative flex items-center">
-                  <div className="absolute left-4 text-gray-400">
+                  <div className="absolute left-4 text-[#6E84A3]">
                     <User size={18} strokeWidth={2} />
                   </div>
 
@@ -213,17 +218,17 @@ function Register() {
                       setLastNameError("");
                       setError("");
                     }}
-                    className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-11 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                    className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-11 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                       lastNameError
-                        ? "border-red-300 focus:border-red-400"
-                        : "border-gray-200 focus:border-[#7C3AED]"
+                        ? "border-rose-400 focus:border-rose-400"
+                        : "border-[#1E3252] focus:border-[#42D6E8]"
                     }`}
                     required
                   />
                 </div>
 
                 {lastNameError && (
-                  <p className="mt-2 text-sm text-red-600">{lastNameError}</p>
+                  <p className="mt-2 text-sm text-rose-400">{lastNameError}</p>
                 )}
               </div>
             </div>
@@ -231,12 +236,12 @@ function Register() {
             {/* Email */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 Email Address
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Mail size={20} strokeWidth={2} />
                 </div>
 
@@ -250,29 +255,29 @@ function Register() {
                     setEmailError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                     emailError
-                      ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#7C3AED]"
+                      ? "border-rose-400 focus:border-rose-400"
+                      : "border-[#1E3252] focus:border-[#42D6E8]"
                   }`}
                   required
                 />
               </div>
 
               {emailError && (
-                <p className="mt-2 text-sm text-red-600">{emailError}</p>
+                <p className="mt-2 text-sm text-rose-400">{emailError}</p>
               )}
             </div>
 
             {/* Password */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -286,10 +291,10 @@ function Register() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                     passwordError
-                      ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#7C3AED]"
+                      ? "border-rose-400 focus:border-rose-400"
+                      : "border-[#1E3252] focus:border-[#42D6E8]"
                   }`}
                   required
                 />
@@ -297,26 +302,46 @@ function Register() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 text-gray-400 transition-colors hover:text-gray-600"
+                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
+              {password.length > 0 && (
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#1E3252]/60 bg-[#080F1C]/80 p-2.5 text-xs text-[#8FA4BE]">
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
+                  </span>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
+                  </span>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
+                  </span>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
+                  </span>
+                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special character (!@#$%^&*)
+                  </span>
+                </div>
+              )}
+
               {passwordError && (
-                <p className="mt-2 text-sm text-red-600">{passwordError}</p>
+                <p className="mt-2 text-sm text-rose-400">{passwordError}</p>
               )}
             </div>
 
             {/* Confirm Password */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 Confirm Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -330,10 +355,10 @@ function Register() {
                     setConfirmPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                     confirmPasswordError
-                      ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#7C3AED]"
+                      ? "border-rose-400 focus:border-rose-400"
+                      : "border-[#1E3252] focus:border-[#42D6E8]"
                   }`}
                   required
                 />
@@ -341,7 +366,7 @@ function Register() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-4 text-gray-400 transition-colors hover:text-gray-600"
+                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
                 >
                   {showConfirmPassword ? (
                     <EyeOff size={20} />
@@ -352,7 +377,7 @@ function Register() {
               </div>
 
               {confirmPasswordError && (
-                <p className="mt-2 text-sm text-red-600">
+                <p className="mt-2 text-sm text-rose-400">
                   {confirmPasswordError}
                 </p>
               )}
@@ -361,7 +386,7 @@ function Register() {
             {/* General Error */}
 
             {error && (
-              <div className="rounded-xl bg-red-50 p-4 text-[13px] font-medium text-red-600">
+              <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
                 {error}
               </div>
             )}
@@ -371,7 +396,7 @@ function Register() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Creating account..." : "Create Account"}
 
@@ -381,12 +406,12 @@ function Register() {
 
           {/* Login */}
 
-          <p className="mt-8 text-center text-[14px] text-gray-500">
+          <p className="mt-8 text-center text-[14px] text-[#8FA4BE]">
             Already have an account?
             <button
               type="button"
               onClick={() => navigate("/login")}
-              className="ml-1.5 font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8]"
+              className="ml-1.5 font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] cursor-pointer"
             >
               Sign In
             </button>

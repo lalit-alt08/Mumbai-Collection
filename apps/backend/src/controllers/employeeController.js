@@ -7,7 +7,10 @@ import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { classifyDeliveryLocation } from "../utils/locationClassifier.js";
 import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
 import { logError } from "../utils/logger.js";
+import { acquireLock, releaseLock } from "../services/paymentIntentService.js";
+import { sendRefundEmail } from "../services/brevoService.js";
 import { fetchStockCounts } from "./adminProductController.js";
+import { publishOrderEvent } from "../services/orderNotificationService.js";
 import {
   getOrderDeliveredTimestamp,
   isOrderStatusLocked,
@@ -447,6 +450,9 @@ export const updateOrderStatus = async (req, res) => {
 
     const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
 
+    // Publish minimal real-time event for employee dashboard (fire-and-forget, never throws)
+    publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: id, status });
+
     // Invalidate cached overview/analytics/customers immediately upon status transition
     serverCache.invalidatePrefix("employee:overview");
     serverCache.invalidatePrefix("admin:analytics");
@@ -473,6 +479,94 @@ export const updateOrderStatus = async (req, res) => {
       success: false,
       message: error.response?.data?.message || error.message || "Failed to update order status.",
     });
+  }
+};
+
+/** Explicit employee action: send a refund notification only when requested. */
+export const sendOrderRefundEmail = async (req, res) => {
+  const { id } = req.params;
+  const lockKey = `employee_refund_email_${id}`;
+  const workerId = `refund_mail_${process.pid}_${Date.now()}`;
+  let locked = false;
+
+  try {
+    locked = await acquireLock(lockKey, workerId, 1500);
+    if (!locked) {
+      return res.status(409).json({ success: false, message: "A refund email request for this order is already being processed." });
+    }
+
+    const response = await api.get(`orders/${encodeURIComponent(id)}`);
+    const order = response?.data;
+    if (!order) return res.status(404).json({ success: false, message: `Order #${id} not found.` });
+
+    const emailMeta = (order.meta_data || []).find((meta) => meta.key === "_manual_refund_email_sent_at");
+    if (emailMeta?.value) {
+      return res.status(409).json({ success: false, message: "A refund email has already been sent for this order." });
+    }
+
+    const toEmail = String(order.billing?.email || "").trim();
+    if (!toEmail || !toEmail.includes("@")) {
+      return res.status(422).json({ success: false, message: "This order does not have a valid customer email address." });
+    }
+
+    // Persist a claim before calling the mail provider so retries cannot send
+    // duplicate notifications if the provider succeeds but the request times out.
+    const emailMarker = { key: "_manual_refund_email_sent_at", value: `sending:${new Date().toISOString()}` };
+    await api.put(`orders/${encodeURIComponent(id)}`, {
+      meta_data: [
+        ...(order.meta_data || []).filter((meta) => meta.key !== emailMarker.key),
+        emailMarker,
+      ],
+    });
+
+    let sent;
+    try {
+      // This action sends a notification only. The employee must first process
+      // the actual refund through the appropriate payment/WooCommerce workflow.
+      sent = await sendRefundEmail({
+        toEmail,
+        toName: `${order.billing?.first_name || ""} ${order.billing?.last_name || ""}`.trim(),
+        orderNumber: order.number || id,
+        amountInInr: Number(order.total || 0).toFixed(2),
+      });
+    } catch (emailError) {
+      // Permit a deliberate retry when delivery failed. If cleanup fails, the
+      // marker remains and prevents accidental duplicate sends.
+      try {
+        await api.put(`orders/${encodeURIComponent(id)}`, {
+          meta_data: (order.meta_data || []).filter((meta) => meta.key !== emailMarker.key),
+        });
+      } catch (cleanupError) {
+        logError(req, cleanupError, "Could not clear failed refund-email marker");
+      }
+      throw emailError;
+    }
+
+    const sentAt = new Date().toISOString();
+    await api.put(`orders/${encodeURIComponent(id)}`, {
+      meta_data: [
+        ...(order.meta_data || []).filter((meta) => meta.key !== "_manual_refund_email_sent_at"),
+        { key: "_manual_refund_email_sent_at", value: sentAt },
+      ],
+    });
+
+    logAuditEvent({
+      req,
+      action: "MANUAL_REFUND_EMAIL_SENT",
+      targetType: "order",
+      targetId: id,
+      details: { message_id: sent.messageId || null },
+    });
+
+    return res.json({ success: true, message: `Refund email sent to ${toEmail}.`, sent_at: sentAt });
+  } catch (error) {
+    logError(req, error, "Send employee-triggered refund email error");
+    return res.status(error.response?.status || error.status || 502).json({
+      success: false,
+      message: error.response?.data?.message || error.message || "Could not send the refund email.",
+    });
+  } finally {
+    if (locked) await releaseLock(lockKey, workerId);
   }
 };
 

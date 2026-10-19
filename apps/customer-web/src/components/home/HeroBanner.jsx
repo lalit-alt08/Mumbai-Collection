@@ -7,19 +7,8 @@ import { Autoplay, Pagination } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/pagination";
 
-import staticBanners from "../../data/banner.js";
 import { getBanners } from "../../services/productService.js";
 import { resolveMediaUrl } from "../../utils/imageUtils.js";
-
-// Normalize static fallback banners
-const FALLBACK_BANNERS = staticBanners.map((item, idx) => ({
-  id: item.id || `static-${idx + 1}`,
-  title: item.title || `Featured Collection #${idx + 1}`,
-  link: item.link || "/categories",
-  desktop_image: item.image || "/banner/Art.webp",
-  mobile_image: item.image || "/banner/Art.webp",
-  is_active: true,
-}));
 
 function HeroBanner() {
   const [banners, setBanners] = useState([]);
@@ -41,11 +30,11 @@ function HeroBanner() {
         if (activeList.length > 0) {
           setBanners(activeList.slice(0, 3));
         } else {
-          setBanners(FALLBACK_BANNERS);
+          setBanners([]);
         }
       } catch {
         if (isMounted) {
-          setBanners(FALLBACK_BANNERS);
+          setBanners([]);
         }
       } finally {
         if (isMounted) {
@@ -61,14 +50,18 @@ function HeroBanner() {
     };
   }, []);
 
-  if (loading && banners.length === 0) {
+  if (loading) {
     return (
-      <div className="w-full aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] rounded-[18px] sm:rounded-[22px] bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
+      <div className="w-full aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] rounded-[18px] sm:rounded-[22px] bg-[#111F36] border border-[#1E3252]/60 animate-pulse" />
     );
   }
 
-  const displayBanners = banners.length > 0 ? banners.slice(0, 3) : FALLBACK_BANNERS;
-  const isMultiSlide = displayBanners.length > 1;
+  // If no live banners are configured, do not render static placeholders
+  if (banners.length === 0) {
+    return null;
+  }
+
+  const isMultiSlide = banners.length > 1;
 
   return (
     <Swiper
@@ -92,27 +85,12 @@ function HeroBanner() {
       loop={isMultiSlide}
       className="overflow-hidden rounded-[18px] sm:rounded-[22px] shadow-xs md:shadow-sm"
     >
-      {displayBanners.map((item, index) => {
+      {banners.map((item, index) => {
         const rawDesktop = item.desktop_image || item.mobile_image;
         const rawMobile = item.mobile_image || item.desktop_image;
         const desktopSrc = resolveMediaUrl(rawDesktop);
         const mobileSrc = resolveMediaUrl(rawMobile);
         const hasDistinctImages = Boolean(desktopSrc && mobileSrc && desktopSrc !== mobileSrc);
-        const fallbackSrc =
-          FALLBACK_BANNERS[index % FALLBACK_BANNERS.length]?.desktop_image ||
-          "/banner/Art.webp";
-
-        const handleImageError = (e) => {
-          if (e.currentTarget.getAttribute("data-fallback") !== "true") {
-            e.currentTarget.setAttribute("data-fallback", "true");
-            const picture = e.currentTarget.closest("picture");
-            if (picture) {
-              const sources = picture.querySelectorAll("source");
-              sources.forEach((s) => s.removeAttribute("srcset"));
-            }
-            e.currentTarget.src = fallbackSrc;
-          }
-        };
 
         const BannerImage = hasDistinctImages ? (
           <picture className="block w-full">
@@ -124,7 +102,6 @@ function HeroBanner() {
               src={desktopSrc}
               alt={item.title || "Mumbai Collection Promotional Banner"}
               loading={index === 0 ? "eager" : "lazy"}
-              onError={handleImageError}
               className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
             />
           </picture>
@@ -133,7 +110,6 @@ function HeroBanner() {
             src={desktopSrc || mobileSrc}
             alt={item.title || "Mumbai Collection Promotional Banner"}
             loading={index === 0 ? "eager" : "lazy"}
-            onError={handleImageError}
             className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
           />
         );

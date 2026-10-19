@@ -3,6 +3,7 @@ import express from "express";
 import {
   getAllProducts,
   getProductById,
+  getProductsByIds,
   getRelatedProducts,
   searchAllProducts,
   getProductsByCategory,
@@ -23,6 +24,7 @@ const router = express.Router();
 
 router.get("/:id/social-preview", catalogLimiter, validateRequest({ params: schemas.idParam }), getProductSocialPreview);
 router.get("/", validateRequest({ query: schemas.pagination }), getAllProducts);
+router.get("/by-ids", validateRequest({ query: schemas.productsByIds }), getProductsByIds);
 router.get("/categories", validateRequest({ query: schemas.pagination }), getAllCategories);
 router.get("/search", validateRequest({ query: schemas.pagination }), searchAllProducts);
 router.get("/related", validateRequest({ query: schemas.pagination }), getRelatedProducts);

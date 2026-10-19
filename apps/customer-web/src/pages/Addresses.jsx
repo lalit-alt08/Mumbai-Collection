@@ -396,8 +396,8 @@ function Addresses() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center bg-[#F8F9F5]">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+      <div className="flex min-h-[50vh] items-center justify-center bg-[#0B1425]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#1E3252] border-t-[#42D6E8]" />
       </div>
     );
   }
@@ -407,7 +407,7 @@ function Addresses() {
   // --------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-[#F7F7FB] px-4 py-6 sm:px-5 md:px-10 md:py-10 pb-28 sm:pb-16">
+    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 py-6 sm:px-5 md:px-10 md:py-10 pb-28 sm:pb-16">
       <div className="mx-auto max-w-4xl">
 
         {/* HEADER */}
@@ -421,15 +421,15 @@ function Addresses() {
               }
             }}
             aria-label="Back to Account"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-[#7C3AED] hover:text-white hover:border-[#7C3AED] cursor-pointer active:scale-95"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-sm border border-[#1E3252] transition hover:bg-[#42D6E8] hover:text-[#061220] hover:border-[#42D6E8] cursor-pointer active:scale-95"
           >
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-[26px] font-extrabold tracking-tight text-[#1E1E1E] sm:text-[32px]">
+            <h1 className="text-[26px] font-extrabold tracking-tight text-[#F1F5F9] sm:text-[32px]">
               My Addresses
             </h1>
-            <p className="text-xs text-gray-500 font-medium sm:text-sm">
+            <p className="text-xs text-[#8FA4BE] font-medium sm:text-sm">
               Manage your saved delivery addresses.
             </p>
           </div>
@@ -440,15 +440,15 @@ function Addresses() {
           <div
             className={`mb-6 flex items-center justify-between gap-3 rounded-2xl p-4 text-sm font-semibold animate-[slideUp_0.2s_ease-out] ${
               feedback.type === "success"
-                ? "bg-emerald-50 text-emerald-800 border border-emerald-200/80"
-                : "bg-red-50 text-red-700 border border-red-200/80"
+                ? "bg-[#132B45] text-[#67E8F9] border border-[#1E3252]"
+                : "bg-rose-950/40 text-rose-300 border border-rose-900/60"
             }`}
           >
             <div className="flex items-center gap-2.5">
               {feedback.type === "success" ? (
-                <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+                <CheckCircle2 size={18} className="shrink-0 text-[#42D6E8]" />
               ) : (
-                <AlertCircle size={18} className="shrink-0 text-red-500" />
+                <AlertCircle size={18} className="shrink-0 text-rose-400" />
               )}
               <span>{feedback.message}</span>
             </div>
@@ -456,7 +456,7 @@ function Addresses() {
             <button
               type="button"
               onClick={() => setFeedback({ type: "", message: "" })}
-              className="rounded-lg p-1 text-gray-400 hover:text-gray-600 transition cursor-pointer"
+              className="rounded-lg p-1 text-[#8FA4BE] hover:text-[#F1F5F9] transition cursor-pointer"
             >
               <X size={16} />
             </button>
@@ -465,18 +465,18 @@ function Addresses() {
 
         {/* ADD / EDIT FORM */}
         {showForm && (
-          <div className="mb-8 rounded-3xl border border-[#C4B5FD]/40 bg-white p-5 shadow-sm md:p-7 animate-[slideUp_0.25s_ease-out]">
+          <div className="mb-8 rounded-3xl border border-[#1E3252]/80 bg-[#111F36] p-5 shadow-lg md:p-7 animate-[slideUp_0.25s_ease-out]">
 
             {/* FORM HEADER */}
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-extrabold text-[#1E1E1E]">
+                <h2 className="text-xl font-extrabold text-[#F1F5F9]">
                   {editingId
                     ? "Edit Address"
                     : `Add ${!hasHome ? "Home" : "Office"} Address`}
                 </h2>
 
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-[#8FA4BE]">
                   {editingId
                     ? "Update your saved delivery address details."
                     : "Save your address for 1-click checkout."}
@@ -486,7 +486,7 @@ function Addresses() {
               <button
                 type="button"
                 onClick={closeForm}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-gray-200 cursor-pointer"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#080F1C] text-[#8FA4BE] border border-[#1E3252] transition hover:bg-[#162744] hover:text-[#F1F5F9] cursor-pointer"
               >
                 <X size={19} />
               </button>
@@ -494,7 +494,7 @@ function Addresses() {
 
             {/* FORM ERROR */}
             {formError && (
-              <div className="mb-5 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-600">
+              <div className="mb-5 rounded-xl border border-rose-900/60 bg-rose-950/40 p-3 text-sm font-medium text-rose-300">
                 {formError}
               </div>
             )}
@@ -507,8 +507,8 @@ function Addresses() {
 
               {/* ADDRESS TYPE SELECTOR */}
               <div>
-                <label className={`mb-2 block text-sm font-bold ${fieldErrors.type ? "text-red-600" : "text-gray-700"}`}>
-                  Address Type <span className={fieldErrors.type ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
+                <label className={`mb-2 block text-sm font-bold ${fieldErrors.type ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                  Address Type <span className={fieldErrors.type ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                 </label>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -532,17 +532,17 @@ function Addresses() {
                       }}
                       className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition cursor-pointer ${
                         form.type === "home"
-                          ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED]"
+                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9]"
                           : fieldErrors.type
-                          ? "border-red-300 text-gray-700 hover:bg-red-50/30"
-                          : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                          ? "border-rose-400 text-[#8FA4BE] hover:bg-rose-950/20"
+                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
                       }`}
                     >
                       <Home size={18} />
                       Home
                     </button>
                   ) : (
-                    <div className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-semibold text-gray-400">
+                    <div className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-[#1E3252] bg-[#080F1C]/50 px-3 text-xs font-semibold text-[#6E84A3]">
                       <Home size={16} />
                       <span>Home (Already Saved)</span>
                     </div>
@@ -568,25 +568,25 @@ function Addresses() {
                       }}
                       className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition cursor-pointer ${
                         form.type === "office"
-                          ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED]"
+                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9]"
                           : fieldErrors.type
-                          ? "border-red-300 text-gray-700 hover:bg-red-50/30"
-                          : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                          ? "border-rose-400 text-[#8FA4BE] hover:bg-rose-950/20"
+                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
                       }`}
                     >
                       <Building2 size={18} />
                       Office
                     </button>
                   ) : (
-                    <div className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-semibold text-gray-400">
+                    <div className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-[#1E3252] bg-[#080F1C]/50 px-3 text-xs font-semibold text-[#6E84A3]">
                       <Building2 size={16} />
                       <span>Office (Already Saved)</span>
                     </div>
                   )}
                 </div>
                 {fieldErrors.type && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
-                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-rose-400" />
                     <span>{fieldErrors.type}</span>
                   </p>
                 )}
@@ -595,8 +595,8 @@ function Addresses() {
               {/* FIRST NAME + LAST NAME */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.first_name ? "text-red-600" : "text-gray-700"}`}>
-                    First Name <span className={fieldErrors.first_name ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
+                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.first_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    First Name <span className={fieldErrors.first_name ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                   </label>
 
                   <input
@@ -607,21 +607,21 @@ function Addresses() {
                     placeholder="e.g. Rahul"
                     className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
                       fieldErrors.first_name
-                        ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
-                        : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                        ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
+                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
                     }`}
                   />
                   {fieldErrors.first_name && (
-                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
-                      <AlertCircle size={13} className="shrink-0 text-red-500" />
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
+                      <AlertCircle size={13} className="shrink-0 text-rose-400" />
                       <span>{fieldErrors.first_name}</span>
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.last_name ? "text-red-600" : "text-gray-700"}`}>
-                    Last Name <span className={fieldErrors.last_name ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
+                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.last_name ? "text-rose-400" : "text-[#8DA79A]"}`}>
+                    Last Name <span className={fieldErrors.last_name ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                   </label>
 
                   <input
@@ -632,13 +632,13 @@ function Addresses() {
                     placeholder="e.g. Sharma"
                     className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
                       fieldErrors.last_name
-                        ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
-                        : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                        ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
+                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
                     }`}
                   />
                   {fieldErrors.last_name && (
-                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
-                      <AlertCircle size={13} className="shrink-0 text-red-500" />
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
+                      <AlertCircle size={13} className="shrink-0 text-rose-400" />
                       <span>{fieldErrors.last_name}</span>
                     </p>
                   )}
@@ -647,12 +647,12 @@ function Addresses() {
 
               {/* PHONE */}
               <div>
-                <label className={`mb-2 block text-sm font-bold ${fieldErrors.phone ? "text-red-600" : "text-gray-700"}`}>
-                  Mobile Number <span className={fieldErrors.phone ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
+                <label className={`mb-2 block text-sm font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#8DA79A]"}`}>
+                  Mobile Number <span className={fieldErrors.phone ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                 </label>
 
                 <div className="relative flex items-center">
-                  <span className={`absolute left-3.5 text-sm font-bold ${fieldErrors.phone ? "text-red-500" : "text-gray-500"}`}>
+                  <span className={`absolute left-3.5 text-sm font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#6E84A3]"}`}>
                     +91
                   </span>
                   <input
@@ -665,14 +665,14 @@ function Addresses() {
                     placeholder="10-digit number"
                     className={`h-12 w-full rounded-xl border pl-12 pr-4 text-sm outline-none transition ${
                       fieldErrors.phone
-                        ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
-                        : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                        ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
+                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
                     }`}
                   />
                 </div>
                 {fieldErrors.phone && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
-                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-rose-400" />
                     <span>{fieldErrors.phone}</span>
                   </p>
                 )}
@@ -680,8 +680,8 @@ function Addresses() {
 
               {/* ADDRESS LINE 1 */}
               <div>
-                <label className={`mb-2 block text-sm font-bold ${fieldErrors.address_line1 ? "text-red-600" : "text-gray-700"}`}>
-                  Address Line 1 <span className={fieldErrors.address_line1 ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
+                <label className={`mb-2 block text-sm font-bold ${fieldErrors.address_line1 ? "text-rose-400" : "text-[#8DA79A]"}`}>
+                  Address Line 1 <span className={fieldErrors.address_line1 ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                 </label>
 
                 <input
@@ -691,13 +691,13 @@ function Addresses() {
                   placeholder="Flat / House no., building, street"
                   className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
                     fieldErrors.address_line1
-                      ? "border-red-500 bg-red-50/40 text-red-950 placeholder-red-300 focus:border-red-500 focus:ring-4 focus:ring-red-200"
-                      : "border-gray-200 bg-gray-50 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                      ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
+                      : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
                   }`}
                 />
                 {fieldErrors.address_line1 && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
-                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-rose-400" />
                     <span>{fieldErrors.address_line1}</span>
                   </p>
                 )}
@@ -705,9 +705,9 @@ function Addresses() {
 
               {/* ADDRESS LINE 2 */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
+                <label className="mb-2 block text-sm font-bold text-[#8FA4BE]">
                   Address Line 2
-                  <span className="ml-1 font-normal text-gray-400">
+                  <span className="ml-1 font-normal text-[#6E84A3]">
                     (Optional)
                   </span>
                 </label>
@@ -717,23 +717,23 @@ function Addresses() {
                   value={form.address_line2}
                   onChange={handleChange}
                   placeholder="Landmark, area name"
-                  className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                  className="h-12 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-sm text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
                 />
               </div>
 
               {/* DELIVERY REGION (4 OPTIONS WITH SMOOTH SCROLL) */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className={`block text-sm font-bold ${fieldErrors.city ? "text-red-600" : "text-gray-700"}`}>
-                    Delivery Region / Area <span className={fieldErrors.city ? "text-red-600 font-black" : "text-[#7C3AED]"}>*</span>
+                  <label className={`block text-sm font-bold ${fieldErrors.city ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Delivery Region / Area <span className={fieldErrors.city ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                   </label>
-                  <span className="text-[11px] font-semibold text-gray-400">
+                  <span className="text-[11px] font-semibold text-[#6E84A3]">
                     Local delivery zones
                   </span>
                 </div>
 
                 <div className={`flex gap-2 overflow-x-auto p-1 rounded-2xl scroll-smooth no-scrollbar md:grid md:grid-cols-2 lg:grid-cols-4 ${
-                  fieldErrors.city ? "border-2 border-dashed border-red-300 bg-red-50/20" : ""
+                  fieldErrors.city ? "border-2 border-dashed border-rose-400/40 bg-rose-950/20" : ""
                 }`}>
                   {DELIVERY_REGIONS.map((region) => {
                     const isSelected = form.city?.toLowerCase() === region.toLowerCase();
@@ -756,23 +756,23 @@ function Addresses() {
                           }
                           setFormError("");
                         }}
-                        className={`flex shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 px-3.5 py-3 text-xs font-bold transition-all duration-200 cursor-pointer active:scale-95 ${
+                        className={`flex shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3.5 py-3 text-xs font-bold transition-all duration-200 cursor-pointer active:scale-95 ${
                           isSelected
-                            ? "border-[#7C3AED] bg-[#F1ECFF] text-[#7C3AED] shadow-sm ring-2 ring-[#7C3AED]/20"
+                            ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] shadow-sm ring-2 ring-[#42D6E8]/20"
                             : fieldErrors.city
-                            ? "border-red-300 bg-white text-gray-700 hover:border-red-400"
-                            : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-300 hover:bg-gray-100"
+                            ? "border-rose-400 bg-rose-950/30 text-[#8FA4BE]"
+                            : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:border-[#42D6E8]/40 hover:bg-[#162744]"
                         }`}
                       >
-                        <MapPin size={14} className={isSelected ? "text-[#7C3AED]" : fieldErrors.city ? "text-red-400" : "text-gray-400"} />
+                        <MapPin size={14} className={isSelected ? "text-[#67E8F9]" : fieldErrors.city ? "text-rose-400" : "text-[#6E84A3]"} />
                         <span className="whitespace-nowrap">{region}</span>
                       </button>
                     );
                   })}
                 </div>
                 {fieldErrors.city && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-600 animate-in fade-in duration-150">
-                    <AlertCircle size={13} className="shrink-0 text-red-500" />
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
+                    <AlertCircle size={13} className="shrink-0 text-rose-400" />
                     <span>{fieldErrors.city}</span>
                   </p>
                 )}
@@ -780,16 +780,16 @@ function Addresses() {
 
               {/* STATE (PERMANENTLY LOCKED TO MAHARASHTRA) */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
+                <label className="mb-2 block text-sm font-bold text-[#8FA4BE]">
                   State
                 </label>
 
-                <div className="flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-100/90 px-4 text-sm font-bold text-gray-700">
+                <div className="flex h-12 w-full items-center justify-between rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-sm font-bold text-[#8FA4BE]">
                   <div className="flex items-center gap-2">
-                    <span>Maharashtra</span>
-                    <span className="text-xs font-semibold text-gray-400">(MH)</span>
+                    <span className="text-[#F1F5F9]">Maharashtra</span>
+                    <span className="text-xs font-semibold text-[#6E84A3]">(MH)</span>
                   </div>
-                  <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200">
+                  <span className="rounded-md bg-[#132B45] border border-[#1E3252] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#67E8F9]">
                     Store Delivery Zone
                   </span>
                 </div>
@@ -801,7 +801,7 @@ function Addresses() {
                   type="button"
                   onClick={closeForm}
                   disabled={saving}
-                  className="h-12 rounded-xl border border-gray-200 px-6 text-sm font-bold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
+                  className="h-12 rounded-xl border border-[#1E3252] bg-[#080F1C] px-6 text-sm font-bold text-[#8FA4BE] transition hover:bg-[#162744] hover:text-white disabled:opacity-50 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -809,12 +809,12 @@ function Addresses() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-7 text-sm font-bold text-white shadow-sm transition hover:bg-[#6C35E8] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer active:scale-95"
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#42D6E8] px-7 text-sm font-black text-[#061220] shadow-sm transition hover:bg-[#2CC4D8] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer active:scale-95"
                 >
                   {saving && (
                     <Loader2
                       size={17}
-                      className="animate-spin"
+                      className="animate-spin text-[#061220]"
                     />
                   )}
 
@@ -831,19 +831,19 @@ function Addresses() {
 
         {/* SAVED ADDRESSES */}
         {addresses.length === 0 ? (
-          <div className="rounded-3xl bg-white p-8 text-center shadow-sm md:p-12">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#F1ECFF]">
+          <div className="rounded-3xl border border-[#1E3252]/80 bg-[#111F36] p-8 text-center shadow-lg md:p-12">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#1E3252] bg-[#132B45] text-[#42D6E8]">
               <MapPin
                 size={30}
-                className="text-[#7C3AED]"
+                className="text-[#42D6E8]"
               />
             </div>
 
-            <h2 className="text-xl font-bold text-[#1E1E1E]">
+            <h2 className="text-xl font-bold text-[#F1F5F9]">
               No saved addresses
             </h2>
 
-            <p className="mt-2 text-gray-500">
+            <p className="mt-2 text-[#8FA4BE]">
               Add your Home or Office address for 1-click checkout.
             </p>
           </div>
@@ -856,41 +856,41 @@ function Addresses() {
               return (
                 <div
                   key={address.id}
-                  className="rounded-3xl bg-white p-5 shadow-sm transition hover:shadow-md md:p-6 border border-gray-100"
+                  className="rounded-3xl bg-[#111F36] p-5 shadow-lg transition hover:border-[#42D6E8]/50 md:p-6 border border-[#1E3252]/80"
                 >
 
                   {/* CARD HEADER */}
                   <div className="mb-5 flex items-start justify-between gap-3">
 
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF]">
+                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-[#1E3252] bg-[#132B45] text-[#42D6E8]">
                         {isHome ? (
                           <Home
                             size={23}
-                            className="text-[#7C3AED]"
+                            className="text-[#42D6E8]"
                           />
                         ) : (
                           <Building2
                             size={23}
-                            className="text-[#7C3AED]"
+                            className="text-[#42D6E8]"
                           />
                         )}
                       </div>
 
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-lg font-extrabold text-[#1E1E1E]">
+                          <h2 className="text-lg font-extrabold text-[#F1F5F9]">
                             {isHome
                               ? "Home"
                               : "Office"}
                           </h2>
 
-                          <span className="rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-bold text-green-600 border border-green-200">
+                          <span className="rounded-full bg-[#132B45] border border-[#1E3252] px-2.5 py-1 text-[10px] font-bold text-[#67E8F9]">
                             SAVED
                           </span>
                         </div>
 
-                        <p className="mt-1 text-xs text-gray-500 font-medium">
+                        <p className="mt-1 text-xs text-[#8FA4BE] font-medium">
                           Delivery address
                         </p>
                       </div>
@@ -903,7 +903,7 @@ function Addresses() {
                         onClick={() =>
                           openEditForm(address)
                         }
-                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#7C3AED] hover:bg-[#F1ECFF] hover:text-[#7C3AED] cursor-pointer"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] transition hover:border-[#42D6E8] hover:text-[#42D6E8] cursor-pointer"
                         title="Edit address"
                       >
                         <Pencil size={16} />
@@ -914,7 +914,7 @@ function Addresses() {
                         onClick={() =>
                           handlePromptDelete(address)
                         }
-                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-red-500 hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-900/60 bg-[#080F1C] text-rose-400 transition hover:bg-rose-600 hover:border-rose-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                         title="Delete address"
                       >
                         <Trash2 size={16} />
@@ -923,17 +923,17 @@ function Addresses() {
                   </div>
 
                   {/* ADDRESS INFORMATION */}
-                  <div className="border-t border-gray-100 pt-5">
+                  <div className="border-t border-[#1E3252]/60 pt-5">
 
-                    <p className="font-bold text-[#1E1E1E]">
+                    <p className="font-bold text-[#F1F5F9]">
                       {getCleanDisplayName(address.full_name, address.first_name, address.last_name)}
                     </p>
 
-                    <p className="mt-1 text-sm text-gray-500 font-medium">
+                    <p className="mt-1 text-sm text-[#8FA4BE] font-medium">
                       +91 {address.phone}
                     </p>
 
-                    <div className="mt-4 text-[14px] leading-relaxed text-gray-600">
+                    <div className="mt-4 text-[14px] leading-relaxed text-[#8FA4BE]">
                       <p>
                         {address.address_line1}
                       </p>
@@ -944,7 +944,7 @@ function Addresses() {
                         </p>
                       )}
 
-                      <p className="font-semibold text-gray-800 pt-1">
+                      <p className="font-semibold text-[#F1F5F9] pt-1">
                         {address.city}, Maharashtra
                       </p>
                     </div>
@@ -961,7 +961,7 @@ function Addresses() {
             <button
               type="button"
               onClick={openAddForm}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] px-6 py-4 text-[15px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.2)] transition hover:bg-[#6C35E8] active:scale-[0.98] sm:w-auto sm:min-w-[220px] cursor-pointer"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] px-6 py-4 text-[15px] font-black text-[#061220] shadow-lg transition hover:bg-[#2CC4D8] active:scale-[0.98] sm:w-auto sm:min-w-[220px] cursor-pointer"
             >
               <Plus size={19} />
               Add {!hasHome ? "Home" : "Office"} Address

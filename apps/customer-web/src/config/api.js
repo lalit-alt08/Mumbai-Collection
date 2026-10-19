@@ -7,6 +7,9 @@ if (typeof window !== "undefined" && window.location) {
     if (!resolvedApiUrl || resolvedApiUrl.includes("localhost") || resolvedApiUrl.includes("127.0.0.1")) {
       resolvedApiUrl = "/api";
     }
+  } else if (!resolvedApiUrl) {
+    // Match browser's active host (localhost or 127.0.0.1) to avoid IPv6/IPv4 mismatch
+    resolvedApiUrl = `http://${hostname}:5000/api`;
   }
 }
 

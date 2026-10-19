@@ -1,11 +1,12 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
-import { getProducts, getCategories } from "../services/productService";
+import { getProducts, getCategories, getProductsByIds } from "../services/productService";
 import { CheckCircle2, X, ChevronRight } from "lucide-react";
 import { reshuffleCategoryProducts } from "../utils/productUtils";
+import { getRecentlyViewedProductIds } from "../utils/recentlyViewedProducts.js";
 
 // In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
 let cachedHomeData = {
@@ -17,12 +18,21 @@ let cachedHomeData = {
 function Home() {
   const location = useLocation();
   const [products, setProducts] = useState(() => cachedHomeData.products || []);
+  const [recentProducts, setRecentProducts] = useState([]);
   const [categories, setCategories] = useState(() => cachedHomeData.categories || []);
   // Instant hydration: If cached data exists in memory, skip initial loading skeleton
   const [loading, setLoading] = useState(() => !cachedHomeData.products);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
   // Unique shuffle seed per visit/mount: stable during user interaction, fresh on every refresh
   const [shuffleSeed] = useState(() => Math.random());
+
+  useEffect(() => {
+    const prevBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = "#132238";
+    return () => {
+      document.body.style.backgroundColor = prevBg;
+    };
+  }, []);
 
   useEffect(() => {
     if (location.state?.message) {
@@ -48,12 +58,14 @@ function Home() {
         ]);
 
         if (isMounted) {
+          let catalogList = cachedHomeData.products || [];
           if (productsData.status === "fulfilled") {
             const list = Array.isArray(productsData.value)
               ? productsData.value
               : Array.isArray(productsData.value?.products)
               ? productsData.value.products
               : [];
+            catalogList = list;
             if (list.length > 0 || !cachedHomeData.products) {
               setProducts(list);
               cachedHomeData.products = list;
@@ -70,6 +82,24 @@ function Home() {
               cachedHomeData.categories = catList;
             }
           }
+
+          const recentIds = getRecentlyViewedProductIds().slice(0, 3);
+          const catalogById = new Map(catalogList.map((product) => [String(product.id), product]));
+          const missingRecentIds = recentIds.filter((id) => !catalogById.has(String(id)));
+          let fetchedRecentProducts = [];
+          if (missingRecentIds.length > 0) {
+            try {
+              fetchedRecentProducts = await getProductsByIds(missingRecentIds);
+            } catch {
+              // Still show recent products already present in the first catalog page.
+            }
+          }
+          const recentById = new Map(fetchedRecentProducts.map((product) => [String(product.id), product]));
+          setRecentProducts(
+            recentIds
+              .map((id) => catalogById.get(String(id)) || recentById.get(String(id)))
+              .filter(Boolean)
+          );
           cachedHomeData.timestamp = Date.now();
         }
       } catch {
@@ -135,15 +165,15 @@ function Home() {
     <div className="space-y-5 sm:space-y-6 md:space-y-8">
       {/* Toast Feedback */}
       {flashMessage && (
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-50 border border-emerald-200/80 p-3 sm:p-3.5 text-xs sm:text-sm font-semibold text-emerald-800 shadow-xs animate-[slideUp_0.25s_ease-out]">
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-[#132B45] border border-[#1E3252] p-3 sm:p-3.5 text-xs sm:text-sm font-semibold text-[#67E8F9] shadow-xs animate-[slideUp_0.25s_ease-out]">
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+            <CheckCircle2 size={16} className="shrink-0 text-[#42D6E8]" />
             <span>{flashMessage}</span>
           </div>
           <button
             type="button"
             onClick={() => setFlashMessage(null)}
-            className="p-1 text-gray-400 hover:text-gray-600 transition cursor-pointer"
+            className="p-1 text-[#8FA4BE] hover:text-white transition cursor-pointer"
           >
             <X size={15} />
           </button>
@@ -152,6 +182,24 @@ function Home() {
 
       {/* Hero Promotional Banner */}
       <HeroBanner />
+
+      {recentProducts.length > 0 && (
+        <section className="space-y-2.5 md:space-y-3.5" aria-label="Recently viewed products">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base sm:text-lg md:text-xl font-extrabold text-white tracking-tight">Recently Viewed</h2>
+            <Link to="/recently-viewed" className="shrink-0 text-xs md:text-sm font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9]">
+              View All <ChevronRight size={14} className="inline" />
+            </Link>
+          </div>
+          <div className="flex overflow-x-auto pb-2 pt-1 -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 scroll-px-3.5 sm:scroll-px-5 scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x snap-mandatory gap-3.5 sm:gap-4">
+            {recentProducts.map((product) => (
+              <div key={product.id} className="w-[160px] sm:w-[175px] md:w-[210px] shrink-0 snap-start flex flex-col">
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Desktop Only: Shop by Category Grid */}
       <CategoryGrid categories={categories} />
@@ -164,20 +212,20 @@ function Home() {
             {[1, 2].map((s) => (
               <div key={s} className="space-y-2.5 md:space-y-4 animate-pulse">
                 <div className="flex items-center justify-between">
-                  <div className="h-5 md:h-6 w-28 md:w-36 bg-gray-200 rounded-md" />
-                  <div className="h-4 md:h-5 w-16 md:w-20 bg-gray-200 rounded-md" />
+                  <div className="h-5 md:h-6 w-28 md:w-36 bg-[#162744] rounded-md" />
+                  <div className="h-4 md:h-5 w-16 md:w-20 bg-[#162744] rounded-md" />
                 </div>
                 <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4 md:gap-4.5 overflow-hidden md:overflow-visible -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 md:mx-0 md:px-0">
                   {[1, 2, 3, 4].map((card) => (
                     <div
                       key={card}
-                      className={`w-[160px] sm:w-[175px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-white p-2.5 md:p-3.5 border border-gray-100 shadow-xs ${
+                      className={`w-[160px] sm:w-[175px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-[#111F36] p-2.5 md:p-3.5 border border-[#1E3252]/50 shadow-xs ${
                         card === 4 ? "hidden md:block" : ""
                       }`}
                     >
-                      <div className="aspect-square w-full rounded-[12px] md:rounded-[14px] bg-gray-100 mb-2 md:mb-3" />
-                      <div className="h-3 md:h-4 w-3/4 bg-gray-100 rounded mb-1.5 md:mb-2" />
-                      <div className="h-4 w-1/2 bg-gray-100 rounded" />
+                      <div className="aspect-square w-full rounded-[12px] md:rounded-[14px] bg-[#080F1C] mb-2 md:mb-3" />
+                      <div className="h-3 md:h-4 w-3/4 bg-[#162744] rounded mb-1.5 md:mb-2" />
+                      <div className="h-4 w-1/2 bg-[#162744] rounded" />
                     </div>
                   ))}
                 </div>
@@ -189,13 +237,13 @@ function Home() {
             <section key={section.id} className="space-y-2.5 md:space-y-3.5">
               {/* Category Header with Responsive View All Link */}
               <div className="flex items-center justify-between">
-                <h2 className="text-base sm:text-lg md:text-xl font-extrabold text-[#111827] tracking-tight">
+                <h2 className="text-base sm:text-lg md:text-xl font-extrabold text-white tracking-tight">
                   {section.name}
                 </h2>
 
                 <Link
                   to={`/category/${section.id || section.slug}`}
-                  className="flex items-center gap-0.5 md:gap-1 text-xs md:text-sm font-bold text-[#7C3AED] transition-colors hover:text-[#6D28D9] active:scale-95 group"
+                  className="flex items-center gap-0.5 md:gap-1 text-xs md:text-sm font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] active:scale-95 group"
                 >
                   <span>
                     View All<span className="hidden md:inline"> ({section.products.length})</span>
@@ -222,8 +270,8 @@ function Home() {
             </section>
           ))
         ) : (
-          <div className="rounded-[18px] md:rounded-[20px] bg-white p-6 md:p-8 text-center border border-gray-100 shadow-xs">
-            <p className="text-sm md:text-base font-semibold text-gray-500">No products available at the moment.</p>
+          <div className="rounded-[18px] md:rounded-[20px] bg-[#111F36] p-6 md:p-8 text-center border border-[#1E3252] shadow-xs">
+            <p className="text-sm md:text-base font-semibold text-[#8FA4BE]">No products available at the moment.</p>
           </div>
         )}
       </div>

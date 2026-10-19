@@ -1,4 +1,5 @@
 import axios from "axios";
+import { readRetryDelayMs, shouldRetryRead } from "../utils/readRetry.js";
 
 const API_BASE = import.meta.env?.VITE_API_URL || "http://localhost:5000/api";
 
@@ -11,24 +12,20 @@ const api = axios.create({
   timeout: 12000,
 });
 
-// Automatic retry for transient connection drops (GET requests only - never retry mutations)
+// Automatically retry safe reads once; writes are not replayed after ambiguous failures.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    const isGetMethod =
-      originalRequest?.method &&
-      originalRequest.method.toLowerCase() === "get";
 
     if (
-      isGetMethod &&
-      error.message &&
-      (error.message.includes("Network Error") ||
-        error.code === "ECONNRESET" ||
-        error.code === "ERR_NETWORK") &&
-      !originalRequest._retry
+      !originalRequest?._retry &&
+      shouldRetryRead(error, originalRequest)
     ) {
+      const delayMs = readRetryDelayMs(error);
+      if (delayMs === null) return Promise.reject(error);
       originalRequest._retry = true;
+      await new Promise((r) => setTimeout(r, delayMs));
       try {
         return await api(originalRequest);
       } catch (retryError) {
@@ -61,6 +58,11 @@ export const getOrders = async (params = {}) => {
 
 export const updateOrderStatus = async (id, status) => {
   const res = await api.patch(`/orders/${id}/status`, { status });
+  return res.data;
+};
+
+export const sendOrderRefundEmail = async (id) => {
+  const res = await api.post(`/orders/${id}/refund-email`);
   return res.data;
 };
 
@@ -193,5 +195,7 @@ export const updateBanners = async (banners, headers = {}) => {
   const res = await api.put("/banners", { banners }, config);
   return res.data;
 };
+
+export const getEmployeeOrderStreamUrl = () => `${API_BASE}/employee/orders/stream`;
 
 export default api;

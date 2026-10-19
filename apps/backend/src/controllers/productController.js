@@ -1,6 +1,7 @@
 import {
   fetchProducts,
   fetchProductById,
+  fetchProductsByIds,
   fetchRelatedProducts,
   searchProducts,
   fetchProductsByCategory,
@@ -90,6 +91,35 @@ export const getProductById = async (req, res) => {
       success: false,
       message: "Failed to fetch product",
     });
+  }
+};
+
+export const getProductsByIds = async (req, res) => {
+  try {
+    const ids = [...new Set(String(req.query.ids || "").split(",").map(Number))];
+    if (ids.length === 0 || ids.length > 12 || ids.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+      return res.status(400).json({ success: false, message: "Provide between 1 and 12 valid product IDs." });
+    }
+
+    const cacheKey = `catalog:products:ids:${ids.join(",")}`;
+    const products = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchProductsByIds(ids),
+      30000
+    );
+    const availableProducts = (Array.isArray(products) ? products : []).filter((product) => {
+      if (product.stock_status === "outofstock") return false;
+      if (product.manage_stock === true) {
+        const quantity = Number(product.stock_quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) return false;
+      }
+      return true;
+    });
+
+    return res.json(transformMediaUrls(availableProducts, req));
+  } catch (error) {
+    logError(req, error, "Get selected products error");
+    return res.status(500).json({ success: false, message: "Failed to fetch selected products." });
   }
 };
 

@@ -8,6 +8,7 @@ import {
 } from "../src/controllers/employeeController.js";
 import {
   fetchProducts,
+  fetchProductsByIds,
   fetchProductsByCategory,
 } from "../src/services/productService.js";
 import {
@@ -252,6 +253,32 @@ test("Fix 4 - Catalog Products: fetchProducts queries WooCommerce with page and 
     assert.equal(res.page, 2);
     assert.equal(res.per_page, 20);
     assert.equal(res.products.length, 2);
+  } finally {
+    api.get = originalApiGet;
+  }
+});
+
+test("Catalog recommendations fetch only selected published products in requested order", async () => {
+  const originalApiGet = api.get;
+  let captured;
+  api.get = async (endpoint, params) => {
+    captured = { endpoint, params };
+    return {
+      data: [
+        { id: 22, status: "publish", catalog_visibility: "visible" },
+        { id: 11, status: "publish", catalog_visibility: "visible" },
+        { id: 33, status: "publish", catalog_visibility: "hidden" },
+      ],
+    };
+  };
+
+  try {
+    const products = await fetchProductsByIds([22, 11, 22, -1]);
+    assert.equal(captured.endpoint, "products");
+    assert.equal(captured.params.include, "22,11");
+    assert.equal(captured.params.orderby, "include");
+    assert.equal(captured.params.per_page, 2);
+    assert.deepEqual(products.map((product) => product.id), [22, 11]);
   } finally {
     api.get = originalApiGet;
   }

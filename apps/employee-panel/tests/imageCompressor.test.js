@@ -10,7 +10,77 @@ import {
   MAX_FILE_SIZE_BYTES,
   RAW_IMAGE_MAX_INPUT_BYTES,
   isAcceptedImage,
+  parseImageDimensionsFromHeader,
 } from "../src/utils/imageCompressor.js";
+
+const createJpegWithExifOrientation = (width, height, orientation) => {
+  const bytes = [
+    0xff, 0xd8, // SOI
+    0xff, 0xe1, 0x00, 0x22, // APP1, 34-byte segment
+    0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // Exif signature
+    0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, // Little-endian TIFF header
+    0x01, 0x00, // One IFD entry
+    0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, // Orientation tag, SHORT, count 1
+    orientation, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, // Next IFD
+    0xff, 0xc0, 0x00, 0x11, 0x08, // SOF0, length 17, 8-bit precision
+    (height >> 8) & 0xff, height & 0xff,
+    (width >> 8) & 0xff, width & 0xff,
+    0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+    0xff, 0xda, // SOS
+  ];
+  return new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
+};
+
+test("JPEG header dimensions: swaps axes for EXIF portrait orientations", async () => {
+  const orientedPortrait = await parseImageDimensionsFromHeader(
+    createJpegWithExifOrientation(4000, 3000, 6)
+  );
+  assert.deepEqual(orientedPortrait, { width: 3000, height: 4000 });
+
+  const regularLandscape = await parseImageDimensionsFromHeader(
+    createJpegWithExifOrientation(4000, 3000, 1)
+  );
+  assert.deepEqual(regularLandscape, { width: 4000, height: 3000 });
+});
+
+test("compressImage: sizes an EXIF-rotated Android portrait using display dimensions", async () => {
+  const originalDocument = globalThis.document;
+  const originalCreateImageBitmap = globalThis.createImageBitmap;
+  const originalFile = globalThis.File;
+
+  try {
+    let canvasWidth = 0;
+    let canvasHeight = 0;
+    let decodeOptions;
+    globalThis.createImageBitmap = async (_file, options) => {
+      decodeOptions = options;
+      return { width: options.resizeWidth, height: options.resizeHeight, close: () => {} };
+    };
+    globalThis.document = {
+      createElement: () => ({
+        set width(value) { canvasWidth = value; },
+        set height(value) { canvasHeight = value; },
+        getContext: () => ({ drawImage: () => {} }),
+        toBlob: (callback, mimeType) => callback(new Blob(["portrait"], { type: mimeType })),
+      }),
+    };
+
+    const input = createJpegWithExifOrientation(4000, 3000, 6);
+    input.name = "android_portrait.jpg";
+    await compressImage(input);
+
+    assert.equal(decodeOptions.imageOrientation, "from-image");
+    assert.equal(decodeOptions.resizeWidth, 1200);
+    assert.equal(decodeOptions.resizeHeight, 1600);
+    assert.equal(canvasWidth, 1200);
+    assert.equal(canvasHeight, 1600);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.createImageBitmap = originalCreateImageBitmap;
+    globalThis.File = originalFile;
+  }
+});
 
 test("Constants: matches production requirements for products, banners, and categories", () => {
   assert.equal(MAX_COMPRESS_DIMENSION, 1600, "Product max dimension is 1600px");

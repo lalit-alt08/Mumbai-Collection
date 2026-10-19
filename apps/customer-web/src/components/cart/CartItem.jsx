@@ -19,12 +19,14 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-[18px] p-3 shadow-[0_6px_22px_rgba(0,0,0,0.045)] transition-all duration-300 hover:shadow-[0_10px_30px_rgba(0,0,0,0.07)] hover:-translate-y-0.5 ${
-        isOutOfStock ? "bg-rose-50/20 border border-rose-200" : "bg-white"
+      className={`flex items-center gap-3 rounded-[18px] p-3 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all duration-300 hover:-translate-y-0.5 ${
+        isOutOfStock
+          ? "bg-rose-950/30 border border-rose-800/60"
+          : "bg-[#111F36] border border-[#1E3252]/80 hover:border-[#42D6E8]/50"
       }`}
     >
       {/* Product Image */}
-      <div className="flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[15px] border border-[#ECECEC] bg-white p-1.5">
+      <div className="flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[15px] border border-[#1E3252]/60 bg-[#080F1C] p-1.5">
         <img
           src={getCatalogImageUrl(item)}
           alt={item.name || "Cart item"}
@@ -41,15 +43,15 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
       {/* Product Details */}
       <div className="flex min-h-[72px] min-w-0 flex-1 flex-col justify-between gap-1 py-0.5">
         <div>
-          <h2 className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#1E1E1E]">
+          <h2 className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#F1F5F9]">
             {cleanProductTitle(item.name)}
           </h2>
           {isOutOfStock ? (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200">
+            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-rose-950/40 px-2 py-0.5 text-[10px] font-extrabold text-rose-300 border border-rose-800/60">
               ● Out of Stock
             </span>
           ) : isMaxReached ? (
-            <span className="text-[10px] font-bold text-amber-700">
+            <span className="text-[10px] font-bold text-amber-400">
               Max available stock reached
             </span>
           ) : null}
@@ -58,11 +60,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
         <div className="flex items-center justify-between gap-2">
           {/* Price */}
           <div className="flex items-baseline gap-1.5 flex-wrap">
-            <span className="text-[15px] font-bold text-[#1E1E1E]">
+            <span className="text-[15px] font-bold text-white">
               ₹{price}
             </span>
             {regularPrice > price && (
-              <span className="text-[12px] font-medium text-[#71717A] line-through">
+              <span className="text-[12px] font-medium text-[#6E84A3] line-through">
                 ₹{regularPrice}
               </span>
             )}
@@ -70,8 +72,10 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
           {/* Quantity Controls */}
           <div
-            className={`flex h-[32px] w-[78px] items-center justify-between rounded-full px-1 text-white shadow-sm flex-shrink-0 select-none transition-colors ${
-              isOutOfStock ? "bg-rose-600/90" : "bg-[#7C3AED]"
+            className={`flex h-[32px] w-[78px] items-center justify-between rounded-full px-1 shadow-sm flex-shrink-0 select-none transition-colors ${
+              isOutOfStock
+                ? "bg-rose-700 text-white"
+                : "bg-[#42D6E8] text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)]"
             }`}
           >
             <button
@@ -80,12 +84,16 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               onClick={() => onDecrease(item)}
               aria-label="Decrease quantity"
               title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
-              className="flex h-6 w-6 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                isOutOfStock
+                  ? "text-white/90 hover:text-white hover:bg-white/15"
+                  : "text-[#061220] hover:bg-black/15"
+              }`}
             >
               <Minus size={15} strokeWidth={2.5} />
             </button>
 
-            <span className="flex-1 text-center text-[13px] font-bold leading-none tabular-nums">
+            <span className="flex-1 text-center text-[13px] font-black leading-none tabular-nums">
               {item.quantity}
             </span>
 
@@ -101,7 +109,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
                   ? `Only ${maxLimit} available in stock`
                   : "Increase quantity"
               }
-              className="flex h-6 w-6 items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/15 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                isOutOfStock
+                  ? "text-white/90 hover:text-white hover:bg-white/15"
+                  : "text-[#061220] hover:bg-black/15"
+              }`}
             >
               <Plus size={15} strokeWidth={2.5} />
             </button>

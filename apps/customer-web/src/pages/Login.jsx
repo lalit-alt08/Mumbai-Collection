@@ -15,7 +15,7 @@ function Login() {
 
   const submittingRef = useRef(false);
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(location.state?.email || "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
@@ -82,9 +82,7 @@ function Login() {
       const from = location.state?.from;
 
       if (from) {
-        navigate(from, {
-          replace: true,
-        });
+        navigate(from, { replace: true });
       } else {
         navigate("/", {
           replace: true,
@@ -108,17 +106,17 @@ function Login() {
   };
 
   return (
-    <div className="bg-white font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center md:bg-[#F7F7FB]">
+    <div className="bg-[#0B1425] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">
       {/* Login Form Container */}
-      <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
+      <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-10 md:py-12 md:shadow-lg">
         <div className="w-full">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E1E1E] md:text-[32px]">
+            <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[32px]">
               Sign In
             </h1>
 
-            <p className="mt-2 text-[15px] text-gray-500 md:text-[16px]">
+            <p className="mt-2 text-[15px] text-[#8FA4BE] md:text-[16px]">
               Please enter your details to access your account.
             </p>
           </div>
@@ -126,12 +124,12 @@ function Login() {
           <form onSubmit={handleLogin} className="flex flex-col gap-5">
             {/* Email Field */}
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 Email Address
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Mail size={20} strokeWidth={2} />
                 </div>
 
@@ -145,24 +143,24 @@ function Login() {
                     setEmailError("");
                     setError("");
                   }}
-                  className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[15px] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
+                  className="h-[56px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
                   required
                 />
               </div>
 
               {emailError && (
-                <p className="mt-2 text-sm text-red-600">{emailError}</p>
+                <p className="mt-2 text-sm text-rose-400">{emailError}</p>
               )}
             </div>
 
             {/* Password Field */}
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -176,28 +174,28 @@ function Login() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className="h-[56px] w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15"
+                  className="h-[56px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
                   required
                 />
 
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 text-gray-400 transition-colors hover:text-gray-600"
+                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
               {passwordError && (
-                <p className="mt-2 text-sm text-red-600">{passwordError}</p>
+                <p className="mt-2 text-sm text-rose-400">{passwordError}</p>
               )}
 
               <div className="mt-3 flex justify-end">
                 <button
                   type="button"
                   onClick={() => navigate("/forgot-password")}
-                  className="text-[13px] font-semibold text-[#7C3AED] hover:underline"
+                  className="text-[13px] font-semibold text-[#42D6E8] hover:underline cursor-pointer"
                 >
                   Forgot password?
                 </button>
@@ -206,7 +204,7 @@ function Login() {
 
             {/* Error Message */}
             {error && (
-              <div className="rounded-xl bg-red-50 p-4 text-[13px] font-medium text-red-600">
+              <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
                 {error}
               </div>
             )}
@@ -215,7 +213,7 @@ function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Signing in..." : "Sign In"}
 
@@ -224,12 +222,12 @@ function Login() {
           </form>
 
           {/* Footer */}
-          <p className="mt-8 text-center text-[14px] text-gray-500">
+          <p className="mt-8 text-center text-[14px] text-[#8FA4BE]">
             Don't have an account?
             <button
               type="button"
               onClick={() => navigate("/register")}
-              className="ml-1.5 font-bold text-[#7C3AED] transition-colors hover:text-[#6C35E8]"
+              className="ml-1.5 font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] cursor-pointer"
             >
               Create one now
             </button>

@@ -11,6 +11,7 @@ import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 import {
   cleanProductTitle,
   getCartFailureMessage,
+  parseCartStockError,
   getProductStock,
   getRemainingStock,
 } from "../../utils/productUtils";
@@ -38,7 +39,14 @@ function ProductInfo({ product }) {
   const refreshStock = async () => {
     try {
       const latestProduct = await getProductById(product.id, { refresh: true });
-      setStockOverride(latestProduct);
+      if (latestProduct) {
+        setStockOverride((prev) => {
+          if (prev?.isAuthoritativeZero && latestProduct.stock_quantity > 0) {
+            return prev;
+          }
+          return latestProduct;
+        });
+      }
     } catch {
       // Keep the current stock display if the refresh itself is unavailable.
     }
@@ -54,9 +62,29 @@ function ProductInfo({ product }) {
         updateCart(updated);
       }
     } catch (error) {
-      setCartError(getCartFailureMessage(error));
-      await refreshStock();
-      await refreshCart().catch(() => {});
+      const stockInfo = parseCartStockError(error);
+      if (stockInfo.isStockError) {
+        const remaining = stockInfo.remaining ?? 0;
+        setStockOverride({
+          id: product.id,
+          manage_stock: true,
+          stock_quantity: remaining,
+          stock_status: remaining > 0 ? "instock" : "outofstock",
+          isAuthoritativeZero: remaining <= 0,
+        });
+        setCartError(getCartFailureMessage(error));
+      } else {
+        await refreshStock();
+        const freshCart = await refreshCart().catch(() => null);
+        const isInCart = freshCart?.items?.some(
+          (item) => Number(item.id) === Number(product.id)
+        );
+        if (!isInCart) {
+          setCartError(getCartFailureMessage(error));
+        } else {
+          setCartError("");
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -83,6 +111,17 @@ function ProductInfo({ product }) {
         updateCart(updated);
       }
     } catch (error) {
+      const stockInfo = parseCartStockError(error);
+      if (stockInfo.isStockError) {
+        const remaining = stockInfo.remaining ?? 0;
+        setStockOverride({
+          id: product.id,
+          manage_stock: true,
+          stock_quantity: remaining,
+          stock_status: remaining > 0 ? "instock" : "outofstock",
+          isAuthoritativeZero: remaining <= 0,
+        });
+      }
       setCartError(getCartFailureMessage(error));
       await refreshStock();
       await refreshCart().catch(() => {});
@@ -99,9 +138,9 @@ function ProductInfo({ product }) {
   return (
     <>
       {/* Main Product Info Card */}
-      <div className="rounded-[24px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] md:p-6 space-y-4">
+      <div className="rounded-[24px] bg-[#111F36] border border-[#1E3252]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] md:p-6 space-y-4">
         <div>
-          <h1 className="text-[22px] font-bold leading-snug text-[#1F2937] md:text-[26px]">
+          <h1 className="text-[22px] font-bold leading-snug text-[#F1F5F9] md:text-[26px]">
             {cleanProductTitle(product.name)}
           </h1>
 
@@ -116,15 +155,15 @@ function ProductInfo({ product }) {
                     el.scrollIntoView({ behavior: "smooth" });
                   }
                 }}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-[#7C3AED] transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8FA4BE] hover:text-[#42D6E8] transition cursor-pointer"
               >
-                <div className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 border border-amber-200">
+                <div className="inline-flex items-center gap-1 rounded-md bg-[#132B45] px-2 py-0.5 border border-[#1E3252]">
                   <Star size={13} className="fill-amber-400 text-amber-400" />
-                  <span className="font-extrabold text-amber-900 text-xs">
+                  <span className="font-extrabold text-[#42D6E8] text-xs">
                     {Number(product.average_rating) > 0 ? Number(product.average_rating).toFixed(1) : "5.0"}
                   </span>
                 </div>
-                <span className="text-gray-500 hover:underline">
+                <span className="text-[#8FA4BE] hover:underline">
                   ({product.rating_count} review{Number(product.rating_count) > 1 ? "s" : ""})
                 </span>
               </button>
@@ -137,9 +176,9 @@ function ProductInfo({ product }) {
                     el.scrollIntoView({ behavior: "smooth" });
                   }
                 }}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 hover:text-[#7C3AED] transition cursor-pointer"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6E84A3] hover:text-[#42D6E8] transition cursor-pointer"
               >
-                <Star size={12} className="text-gray-300" />
+                <Star size={12} className="text-[#4B6282]" />
                 <span>No reviews yet • Be the first to review</span>
               </button>
             )}
@@ -148,45 +187,45 @@ function ProductInfo({ product }) {
           {/* Stock Availability Badge */}
           <div className="mt-2.5">
             {isOutOfStock || isMaxReached ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 border border-rose-200">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-950/40 px-3 py-1 text-xs font-bold text-rose-300 border border-rose-800/60">
                 <ShieldAlert size={14} /> Out of Stock
               </span>
             ) : remainingStock <= 5 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 border border-amber-200">
-                <AlertTriangle size={14} className="text-amber-600 animate-pulse" />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-950/40 px-3 py-1 text-xs font-bold text-orange-400 border border-orange-500/40">
+                <AlertTriangle size={14} className="text-orange-400 animate-pulse" />
                 ⚡ Only {remainingStock} left in stock - Order soon!
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#42D6E8] border border-[#1E3252]">
                 <CheckCircle2 size={14} /> {stockProduct.manage_stock ? `In Stock (${remainingStock} available in Vasai shop)` : "In Stock"}
               </span>
             )}
             {cartError && (
-              <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">
+              <p role="alert" className="mt-2 text-xs font-semibold text-rose-400">
                 {cartError}
               </p>
             )}
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-100 pt-4">
+        <div className="flex items-center justify-between border-t border-[#1E3252]/70 pt-4">
           <div>
             <div className="mb-1 flex items-end gap-3">
-              <span className="text-[32px] font-extrabold leading-none text-[#1F2937]">
+              <span className="text-[32px] font-extrabold leading-none text-white">
                 ₹{product.price}
               </span>
               {isOnSale && (
                 <>
-                  <span className="mb-1.5 text-[16px] font-medium text-[#6B7280] line-through">
+                  <span className="mb-1.5 text-[16px] font-medium text-[#6E84A3] line-through">
                     ₹{product.regular_price}
                   </span>
-                  <span className="mb-1.5 rounded-md bg-[#7C3AED] px-1.5 py-0.5 text-[11px] font-bold text-white">
+                  <span className="mb-1.5 rounded-md bg-[#42D6E8] px-1.5 py-0.5 text-[11px] font-black text-[#061220]">
                     {discountPercent}% OFF
                   </span>
                 </>
               )}
             </div>
-            <p className="text-[11px] text-[#6B7280]">(Inclusive of all taxes)</p>
+            <p className="text-[11px] text-[#6E84A3]">(Inclusive of all taxes)</p>
           </div>
 
           {/* Desktop Add to Cart Button */}
@@ -197,7 +236,7 @@ function ProductInfo({ product }) {
                   type="button"
                   onClick={() => handleUpdateQuantity(0)}
                   disabled={loading}
-                  className="flex h-[40px] px-5 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-[13px] font-bold text-rose-600 shadow-xs transition-all hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                  className="flex h-[40px] px-5 items-center justify-center rounded-xl border border-rose-800/50 bg-rose-950/40 text-[13px] font-bold text-rose-300 shadow-xs transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
                 >
                   Sold Out — Remove
                 </button>
@@ -205,7 +244,7 @@ function ProductInfo({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-gray-100 text-[14px] font-bold text-gray-400 cursor-not-allowed border border-gray-200 select-none"
+                  className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#0E1A2E] text-[14px] font-bold text-[#6E84A3] cursor-not-allowed border border-[#1E3252] select-none"
                 >
                   Out of Stock
                 </button>
@@ -214,32 +253,32 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading}
-                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#7C3AED] text-[14px] font-bold text-white shadow-[0_4px_12px_rgba(124,58,237,0.2)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#42D6E8] text-[14px] font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 ADD
               </button>
             ) : (
               <div className="flex flex-col items-end gap-1">
-                <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#7C3AED] px-1.5 text-white shadow-[0_4px_12px_rgba(124,58,237,0.2)]">
+                <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#42D6E8] px-1.5 text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)]">
                   <button
                     disabled={loading}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-white/20 transition hover:bg-white/30 disabled:opacity-50"
+                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition hover:bg-black/25 disabled:opacity-50"
                     onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
                   >
                     <Minus size={16} />
                   </button>
-                  <span className="text-[15px] font-bold">{cartItem.quantity}</span>
+                  <span className="text-[15px] font-black">{cartItem.quantity}</span>
                   <button
                     disabled={loading || isMaxReached}
                     title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-white/20 transition hover:bg-white/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition hover:bg-black/25 disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
                   >
                     <Plus size={16} />
                   </button>
                 </div>
                 {isMaxReached && (
-                  <span className="text-[10px] font-bold text-amber-700">
+                  <span className="text-[10px] font-bold text-amber-400">
                     Max stock ({maxStock}) added
                   </span>
                 )}
@@ -253,14 +292,14 @@ function ProductInfo({ product }) {
       <div className="grid grid-cols-2 gap-2.5">
         <Link
           to="/return-policy"
-          className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50 cursor-pointer group"
+          className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#1E3252]/80 bg-[#111F36] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744] cursor-pointer group"
         >
-          <PackageX size={24} className="text-[#7C3AED] transition-transform group-hover:scale-105" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#1F2937] group-hover:text-[#7C3AED] transition-colors">No Return or Exchange</span>
+          <PackageX size={24} className="text-[#42D6E8] transition-transform group-hover:scale-105" strokeWidth={1.75} />
+          <span className="text-xs font-bold text-[#F1F5F9] group-hover:text-[#42D6E8] transition-colors">No Return or Exchange</span>
         </Link>
-        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.03)] transition-colors hover:bg-gray-50">
-          <Truck size={24} className="text-[#7C3AED]" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#1F2937]">Fast Local Delivery</span>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#1E3252]/80 bg-[#111F36] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744]">
+          <Truck size={24} className="text-[#42D6E8]" strokeWidth={1.75} />
+          <span className="text-xs font-bold text-[#F1F5F9]">Fast Local Delivery</span>
         </div>
       </div>
 
@@ -269,21 +308,25 @@ function ProductInfo({ product }) {
 
       {/* Sticky Bottom Purchase Bar (Mobile & Split-Screen < lg) */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-[100] w-full border-t border-gray-200 bg-white px-4 pt-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-[100] w-full border-t border-[#1E3252] bg-[#0B1425]/95 backdrop-blur-md px-4 pt-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] lg:hidden"
         style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))", marginBottom: "0" }}
       >
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
           <div className="flex flex-col flex-shrink-0">
-            <span className="mb-0.5 text-[22px] font-black leading-none tracking-tight text-[#1F2937]">
+            <span className="mb-0.5 text-[22px] font-black leading-none tracking-tight text-white">
               ₹{product.price}
             </span>
             {isOutOfStock ? (
-              <span className="text-[10px] font-bold text-rose-600">Out of stock</span>
+              <span className="text-[10px] font-bold text-rose-400">Out of stock</span>
             ) : isMaxReached ? (
-              <span className="text-[10px] font-bold text-amber-700">All in cart</span>
+              <span className="text-[10px] font-bold text-amber-400">All in cart</span>
+            ) : remainingStock <= 5 ? (
+              <span className="text-[10px] font-bold leading-none text-orange-400">
+                ⚡ Only {remainingStock} left
+              </span>
             ) : (
-              <span className="text-[10px] font-medium leading-none text-[#7C3AED]">
-                {remainingStock <= 5 ? `Only ${remainingStock} left` : "In stock"}
+              <span className="text-[10px] font-medium leading-none text-[#42D6E8]">
+                In stock
               </span>
             )}
           </div>
@@ -295,7 +338,7 @@ function ProductInfo({ product }) {
                   type="button"
                   onClick={() => handleUpdateQuantity(0)}
                   disabled={loading}
-                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50 text-[14px] font-bold text-rose-600 transition-all hover:bg-rose-100 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
+                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full border border-rose-800/50 bg-rose-950/40 text-[14px] font-bold text-rose-300 transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
                 >
                   Sold Out — Remove
                 </button>
@@ -303,7 +346,7 @@ function ProductInfo({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-gray-100 text-[15px] font-bold text-gray-400 cursor-not-allowed border border-gray-200 select-none"
+                  className="flex h-[46px] w-full items-center justify-center rounded-full bg-[#0E1A2E] text-[15px] font-bold text-[#6E84A3] cursor-not-allowed border border-[#1E3252] select-none"
                 >
                   Out of Stock
                 </button>
@@ -312,24 +355,24 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading}
-                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#7C3AED] text-[15px] font-bold text-white transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#42D6E8] text-[15px] font-black text-[#061220] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)]"
               >
                 Add to Cart
               </button>
             ) : (
-              <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#7C3AED] px-1.5 text-white shadow-sm">
+              <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#42D6E8] px-1.5 text-[#061220] shadow-sm">
                 <button
                   disabled={loading}
-                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-white/20 transition hover:bg-white/30"
+                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition hover:bg-black/25"
                   onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
                 >
                   <Minus size={18} />
                 </button>
-                <span className="text-[16px] font-bold">{cartItem.quantity}</span>
+                <span className="text-[16px] font-black">{cartItem.quantity}</span>
                 <button
                   disabled={loading || isMaxReached}
                   title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-white/20 transition hover:bg-white/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition hover:bg-black/25 disabled:opacity-40 disabled:cursor-not-allowed"
                   onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
                 >
                   <Plus size={18} />

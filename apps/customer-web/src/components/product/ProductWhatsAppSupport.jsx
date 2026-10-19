@@ -17,18 +17,18 @@ function ProductWhatsAppSupport({ product }) {
   const whatsappUrl = getProductWhatsAppUrl();
 
   return (
-    <div className="rounded-[22px] sm:rounded-[26px] border border-emerald-100/90 bg-gradient-to-r from-emerald-50/40 via-white to-purple-50/25 p-5 sm:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-all hover:border-emerald-200">
+    <div className="rounded-[22px] sm:rounded-[26px] border border-[#1E3252]/80 bg-[#111F36] p-5 sm:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-5">
         {/* Left: Icon & Text Info */}
         <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#25D366]/15 text-[#25D366] border border-[#25D366]/20 shadow-xs">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#25D366]/15 text-[#25D366] border border-[#25D366]/30 shadow-xs">
             <WhatsAppIcon className="h-6 w-6 text-[#25D366]" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] sm:text-base font-bold text-[#1F2937] tracking-tight">
+            <h3 className="text-[15px] sm:text-base font-bold text-[#F1F5F9] tracking-tight">
               Have questions about this product?
             </h3>
-            <p className="text-xs sm:text-[13px] text-gray-500 font-medium mt-0.5">
+            <p className="text-xs sm:text-[13px] text-[#8FA4BE] font-medium mt-0.5">
               Chat with us on WhatsApp
             </p>
           </div>
@@ -39,7 +39,7 @@ function ProductWhatsAppSupport({ product }) {
           href={whatsappUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex h-12 w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl sm:rounded-full bg-[#25D366] px-6 py-3 text-sm sm:text-[15px] font-bold text-white shadow-xs transition-all duration-200 hover:bg-[#20bd5a] hover:shadow-[0_4px_16px_rgba(37,211,102,0.35)] active:scale-95 cursor-pointer shrink-0"
+          className="inline-flex h-12 w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl sm:rounded-full bg-[#25D366] px-6 py-3 text-sm sm:text-[15px] font-black text-[#061220] shadow-xs transition-all duration-200 hover:bg-[#20bd5a] hover:shadow-[0_4px_16px_rgba(37,211,102,0.35)] active:scale-95 cursor-pointer shrink-0"
         >
           <WhatsAppIcon className="h-5 w-5 shrink-0" />
           <span>Chat on WhatsApp</span>

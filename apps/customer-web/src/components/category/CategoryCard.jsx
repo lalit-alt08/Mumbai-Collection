@@ -10,7 +10,7 @@ function CategoryCard({ category }) {
       to={linkUrl}
       className="group block"
     >
-      <div className="overflow-hidden rounded-[16px] sm:rounded-[20px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-gray-200/80 transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_10px_30px_rgba(124,58,237,0.08)]">
+      <div className="overflow-hidden rounded-[16px] sm:rounded-[20px] bg-[#111F36] shadow-[0_4px_20px_rgba(0,0,0,0.3)] border border-[#1E3252]/80 transition-all duration-300 group-hover:-translate-y-1 group-hover:border-[#42D6E8]/60 group-hover:shadow-[0_10px_30px_rgba(66,214,232,0.15)]">
         <img
           src={imageUrl}
           alt={category.name}
@@ -19,7 +19,7 @@ function CategoryCard({ category }) {
         />
       </div>
 
-      <h3 className="mt-2 text-center text-xs sm:text-sm font-bold tracking-tight text-[#111827]">
+      <h3 className="mt-2 text-center text-xs sm:text-sm font-bold tracking-tight text-white group-hover:text-[#42D6E8] transition-colors">
         {category.name}
       </h3>
     </Link>

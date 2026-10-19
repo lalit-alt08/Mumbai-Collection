@@ -21,7 +21,7 @@ function CategoryGrid({ categories: propCategories = [] }) {
 
   return (
     <section className="hidden md:block">
-      <h2 className="mb-3 sm:mb-4 text-base sm:text-lg md:text-xl font-extrabold text-[#111827] tracking-tight">
+      <h2 className="mb-3 sm:mb-4 text-base sm:text-lg md:text-xl font-extrabold text-white tracking-tight">
         Shop by Category
       </h2>
 

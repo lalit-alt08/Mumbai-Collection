@@ -26,6 +26,7 @@ const { _setWpClientForTesting } = await import("../src/services/paymentIntentSe
 const { default: axios } = await import("axios");
 
 test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", async (t) => {
+  let stockReservationRequest = null;
   const originalApiGet = api.get;
   const originalApiPost = api.post;
   const originalApiPut = api.put;
@@ -34,11 +35,15 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
   const originalGetStoreStatus = storeHoursService.getStoreStatus;
 
   t.beforeEach(() => {
+    stockReservationRequest = null;
     serverCache.clear();
     _resetPaymentStoreHoursFallbackForTesting?.();
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
     _setWpClientForTesting({
-      post: async () => ({ data: { success: true } }),
+      post: async (path, body) => {
+        if (path.endsWith("/stock/reserve")) stockReservationRequest = body;
+        return { data: { success: true } };
+      },
       get: async () => ({ data: { order: null } }),
     });
   });
@@ -151,6 +156,8 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
       assert.ok(intent, "Payment intent must be stored");
       assert.equal(intent.customer_id, 42);
       assert.equal(intent.amount_in_paise, 120000);
+      assert.equal(stockReservationRequest?.reservation_id, intent.stock_reservation_id);
+      assert.deepEqual(stockReservationRequest?.line_items, [{ product_id: 101, quantity: 2 }]);
     } finally {
       rzp.orders.create = originalOrdersCreate;
     }
@@ -560,7 +567,8 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
       rzp_order_id: rzpOrderId,
       customer_id: 42,
       amount_in_paise: 50000,
-      checkout_payload: { line_items: [] },
+      stock_reservation_id: "reservation_sig_success_102",
+      checkout_payload: { line_items: [{ product_id: 101, quantity: 1 }] },
     });
 
     const rzp = getRazorpayInstance();

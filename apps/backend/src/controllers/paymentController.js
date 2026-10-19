@@ -43,6 +43,8 @@ import paymentIntentService, {
   storeWebhookEvent,
   updateWebhookEventStatus,
   findWcOrderByRazorpayOrderId,
+  reserveCheckoutStock,
+  releaseCheckoutStock,
 } from "../services/paymentIntentService.js";
 import {
   createRazorpayOrder,
@@ -53,9 +55,9 @@ import {
   fetchRazorpayOrderPayments,
   refundRazorpayPayment,
 } from "../services/razorpayService.js";
-import { sendRefundEmail } from "../services/brevoService.js";
 import { alertStaffAnomaly } from "../services/alertService.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
+import { publishOrderEvent } from "../services/orderNotificationService.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 const MIN_ORDER_VALUE_INR = 500;
@@ -364,8 +366,29 @@ export const createOrder = async (req, res) => {
           Number(existingIntent.customer_id) === Number(userId) &&
           existingIntent.cart_fingerprint === cartFingerprint &&
           existingIntent.amount_in_paise === amountInPaise &&
+          existingIntent.stock_reservation_id &&
           Date.now() - (existingIntent.created_at || 0) < 15 * 60 * 1000
         ) {
+          try {
+            await reserveCheckoutStock({
+              reservationId: existingIntent.stock_reservation_id,
+              lineItems,
+            });
+          } catch (reservationErr) {
+            const status = reservationErr.response?.status;
+            if (status === 409) {
+              return res.status(422).json({
+                success: false,
+                code: "ITEM_OUT_OF_STOCK",
+                message: "An item in your cart is no longer available in the requested quantity.",
+              });
+            }
+            return res.status(503).json({
+              success: false,
+              code: "INVENTORY_UNAVAILABLE",
+              message: "We could not confirm inventory. Please try again shortly.",
+            });
+          }
           logger.info(
             { customer_id: userId, razorpay_order_id: existingRzpOrderId, cart_fingerprint: cartFingerprint },
             "[Payment] Reusing existing active unpaid payment intent for identical user & cart"
@@ -443,6 +466,28 @@ export const createOrder = async (req, res) => {
         });
       }
 
+      // Reserve stock atomically in WordPress before allowing payment to start.
+      // The pre-check above is only for a friendly product-specific response; this
+      // transactional reservation is the authoritative concurrency guard.
+      const stockReservationId = crypto.randomUUID();
+      try {
+        await reserveCheckoutStock({ reservationId: stockReservationId, lineItems });
+      } catch (reservationErr) {
+        if (reservationErr.response?.status === 409) {
+          return res.status(422).json({
+            success: false,
+            code: "ITEM_OUT_OF_STOCK",
+            message: "An item in your cart is no longer available in the requested quantity. Please update your cart.",
+          });
+        }
+        logger.error({ err: reservationErr.message }, "[Payment] Inventory reservation unavailable; checkout denied");
+        return res.status(503).json({
+          success: false,
+          code: "INVENTORY_UNAVAILABLE",
+          message: "We could not confirm inventory. Please try again shortly.",
+        });
+      }
+
       // ── 8. Create Razorpay Order ONLY (No WooCommerce order created yet) ───
       const receipt = `rcpt_${userId}_${Date.now()}`;
       let rzpOrder;
@@ -457,6 +502,7 @@ export const createOrder = async (req, res) => {
           },
         });
       } catch (rzpErr) {
+        await releaseCheckoutStock(stockReservationId);
         logError(req, rzpErr, "[Payment] Razorpay order creation failed");
         return res.status(502).json({
           success: false,
@@ -472,10 +518,12 @@ export const createOrder = async (req, res) => {
         amount_in_paise: amountInPaise,
         currency: "INR",
         status: "created",
+        stock_reservation_id: stockReservationId,
         cart_fingerprint: cartFingerprint,
         created_at: Date.now(),
         expires_at: Date.now() + 3600 * 1000,
         checkout_payload: {
+          stock_reservation_id: stockReservationId,
           customer_id: Number(userId),
           secondary_phone: billing_address.secondary_phone || shipping_address.secondary_phone || null,
           billing: {
@@ -509,6 +557,7 @@ export const createOrder = async (req, res) => {
 
       const storedDurable = await paymentIntentService.storePaymentIntent(rzpOrder.id, paymentIntent);
       if (!storedDurable && process.env.NODE_ENV === "production") {
+        await releaseCheckoutStock(stockReservationId);
         logError(req, new Error("Failed to persist payment intent to database"), "[Payment] Payment session persistence failure");
         return res.status(503).json({
           success: false,
@@ -760,6 +809,32 @@ export const finalizePaymentAndCreateOrder = async ({
     const lineItems = intent.checkout_payload?.line_items || [];
     let stockValid = true;
 
+    // Reacquire/renew the durable hold before finalization. A captured payment
+    // without a valid hold must never be finalized as a successful order.
+    const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || crypto.randomUUID();
+    try {
+      await reserveCheckoutStock({ reservationId, lineItems });
+    } catch (reservationErr) {
+      if (reservationErr.response?.status === 409) {
+        stockValid = false;
+      } else {
+        logger.error({ rzpOrderId, err: reservationErr.message }, "[Payment Finalize] Unable to verify inventory reservation");
+        await updatePaymentIntentStatus({
+          rzpOrderId,
+          toStatus: "paid",
+          rzpPaymentId,
+          capturedAmountPaise: rzpPayment.amount,
+          incrementAttempts: true,
+          errorReason: `Inventory reservation unavailable: ${reservationErr.message}`,
+        });
+        return {
+          success: false,
+          status: 503,
+          message: "Payment was received, but inventory confirmation is temporarily unavailable. We are safely retrying your order.",
+        };
+      }
+    }
+
     if (lineItems.length > 0) {
       const stockResults = await Promise.allSettled(
         lineItems.map(async (item) => {
@@ -842,19 +917,6 @@ export const finalizePaymentAndCreateOrder = async ({
           capturedAmountPaise: rzpPayment.amount,
         });
 
-        const customerEmail = intent.checkout_payload?.billing?.email;
-        const customerName = `${intent.checkout_payload?.billing?.first_name || ""} ${intent.checkout_payload?.billing?.last_name || ""}`.trim();
-        if (customerEmail) {
-          await sendRefundEmail({
-            toEmail: customerEmail,
-            toName: customerName,
-            amountInInr: (rzpPayment.amount / 100).toFixed(2),
-            rzpOrderId,
-            refundId,
-            reason: "Item out of stock during checkout completion",
-          });
-        }
-
         await alertStaffAnomaly({
           type: "AUTO_REFUND_STOCK_DEPLETED",
           severity: "warning",
@@ -863,6 +925,7 @@ export const finalizePaymentAndCreateOrder = async ({
           message: `Auto-refunded ₹${(rzpPayment.amount / 100).toFixed(2)} due to stock depletion`,
           details: { refund_id: refundId },
         });
+        await releaseCheckoutStock(reservationId);
       }
 
       return {
@@ -910,6 +973,7 @@ export const finalizePaymentAndCreateOrder = async ({
         rzpPaymentId,
         wcOrderId: immediateExisting.id,
       });
+      await releaseCheckoutStock(reservationId);
       return {
         success: true,
         order_id: immediateExisting.id,
@@ -962,7 +1026,11 @@ export const finalizePaymentAndCreateOrder = async ({
       wcOrderId: createdOrder.id,
       capturedAmountPaise: rzpPayment.amount,
     });
+    await releaseCheckoutStock(reservationId);
     await paymentIntentService.clearCustomerWcCart(intent.customer_id);
+
+    // Publish minimal real-time event for employee dashboard (fire-and-forget, never throws)
+    publishOrderEvent({ event: "ORDER_CREATED", orderId: createdOrder.id });
 
     serverCache.invalidatePrefix("employee:overview");
     serverCache.invalidatePrefix("admin:analytics");
@@ -1219,7 +1287,7 @@ export const handleWebhook = async (req, res) => {
     }
 
     const event = req.body?.event;
-    eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    eventId = req.headers["x-razorpay-event-id"] || req.body?.id || req.body?.event_id || `evt_${Date.now()}_${crypto.randomUUID()}`;
 
     const paymentEntity = req.body?.payload?.payment?.entity;
     const orderEntity = req.body?.payload?.order?.entity;
@@ -1437,6 +1505,9 @@ export const reconcileOrder = async (req, res) => {
         ],
       });
 
+      // Publish minimal real-time event for employee dashboard
+      publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: wcOrder.id, status: "processing" });
+
       serverCache.invalidatePrefix("employee:overview");
       serverCache.invalidatePrefix("admin:analytics");
       serverCache.invalidatePrefix("admin:customers");
@@ -1483,3 +1554,47 @@ export const reconcileOrder = async (req, res) => {
     });
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/payments/cancel (Customer Dismisses Checkout / Explicit Cancel)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const cancelPaymentOrder = async (req, res) => {
+  try {
+    const { razorpay_order_id } = req.body;
+    if (!razorpay_order_id) {
+      return res.status(400).json({ success: false, message: "razorpay_order_id is required." });
+    }
+
+    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id);
+    if (!intent) {
+      return res.status(200).json({ success: true, message: "No active checkout intent found." });
+    }
+
+    if (intent.status === "created") {
+      const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id;
+      if (reservationId) {
+        await releaseCheckoutStock(reservationId);
+      }
+
+      await updatePaymentIntentStatus({
+        rzpOrderId: razorpay_order_id,
+        toStatus: "cancelled",
+        errorReason: "Customer dismissed checkout modal or cancelled payment.",
+      });
+
+      if (intent.customer_id && intent.cart_fingerprint) {
+        serverCache.delete(`active_cart_intent:${intent.customer_id}:${intent.cart_fingerprint}`);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Checkout session cancelled and reserved stock released.",
+    });
+  } catch (err) {
+    logError(req, err, "[Payment Cancel] Error cancelling payment intent");
+    return res.status(500).json({ success: false, message: "Failed to cancel checkout session." });
+  }
+};
+

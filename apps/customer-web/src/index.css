@@ -8,7 +8,7 @@
 
 :root {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: light;
+  color-scheme: dark;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -21,8 +21,10 @@
 html,
 body {
   margin: 0;
-  background-color: #F8F9FD;
-  color: #111827;
+  background-color: #0B1425;
+  background-image: radial-gradient(1200px 900px at 15% 95%, #132440 0%, #0B1425 65%, #060C18 100%);
+  background-attachment: fixed;
+  color: #F1F5F9;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   width: 100%;
@@ -30,6 +32,12 @@ body {
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+/* Custom selection in Electric Cyan */
+::selection {
+  background-color: #42D6E8;
+  color: #061220;
 }
 
 /* Prevent accidental double-tap to zoom across all elements and tabs */
@@ -75,12 +83,12 @@ img {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #D1D5DB;
+  background: #1E3252;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #9CA3AF;
+  background: #42D6E8;
 }
 
 @keyframes fadeIn {

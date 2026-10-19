@@ -1,6 +1,10 @@
 import axios from "axios";
 import API_URL from "../config/api.js";
 import safeStorage from "../utils/safeStorage.js";
+import {
+  shouldRetryReadRequest,
+  getReadRetryDelayMs,
+} from "../utils/resilientAxios.js";
 
 const STORE_API = `${API_URL}/store`;
 
@@ -108,25 +112,13 @@ storeClient.interceptors.response.use(
     const config = error.config;
     if (!config) return Promise.reject(error);
 
-    const isGetMethod =
-      config.method && config.method.toLowerCase() === "get";
-
-    const isGatewayError =
-      error.response && [502, 503, 504].includes(error.response.status);
-
-    // Auto-retry once on network/socket reset or cold gateway/tunnel hiccups for GET requests
-    if (
-      !config._retry &&
-      isGetMethod &&
-      (error.message?.includes("Network Error") ||
-        error.code === "ERR_NETWORK" ||
-        error.code === "ECONNRESET" ||
-        isGatewayError)
-    ) {
+    // Cart/checkout writes can be applied even if their response is lost; only
+    // retry safe reads automatically. Nonce recovery below is a separate explicit 401.
+    if (!config._retry && shouldRetryReadRequest(error, config)) {
+      const delayMs = getReadRetryDelayMs(error);
+      if (delayMs === null) return Promise.reject(error);
       config._retry = true;
-      if (isGatewayError) {
-        await new Promise((r) => setTimeout(r, 450));
-      }
+      await new Promise((r) => setTimeout(r, delayMs));
       return storeClient(config);
     }
 

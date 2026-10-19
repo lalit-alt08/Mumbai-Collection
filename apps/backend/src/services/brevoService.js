@@ -285,54 +285,44 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "verify_pho
   }
 };
 
-/**
- * Sends a transactional customer notification email when a refund is processed.
- */
-export const sendRefundEmail = async ({ toEmail, toName, amountInInr, rzpOrderId, refundId, reason }) => {
-  if (!toEmail || typeof toEmail !== "string") return false;
-
-  const subject = `Refund Processed for Order #${rzpOrderId} — Mumbai Collection`;
-  const textContent = `Hello ${toName || "Customer"},\n\nA refund of ₹${amountInInr} has been processed for your order #${rzpOrderId}.\nReason: ${reason || "Item unavailable / checkout validation"}\nRefund Reference: ${refundId}\n\nThe amount should reflect in your original payment method in 5-7 business days.\n\nThank you,\nMumbai Collection`;
-  const htmlContent = `
-    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-      <h2 style="color: #7C3AED;">Mumbai Collection</h2>
-      <p>Hello ${toName || "Customer"},</p>
-      <p>A refund of <strong>₹${amountInInr}</strong> has been processed for your order <code>#${rzpOrderId}</code>.</p>
-      <div style="background: #f4f4f5; padding: 12px; border-radius: 6px; margin: 15px 0;">
-        <p style="margin: 4px 0;"><strong>Reason:</strong> ${reason || "Out of stock or checkout finalization issue"}</p>
-        <p style="margin: 4px 0;"><strong>Refund ID:</strong> <code>${refundId}</code></p>
-      </div>
-      <p>The funds will be credited back to your original payment method within 5-7 business days depending on your bank.</p>
-      <p style="margin-top: 25px; font-size: 12px; color: #71717a;">Mumbai Collection &bull; Vasai, Mumbai</p>
-    </div>
-  `;
+/** Sends a refund notification; called only from the explicit employee action. */
+export const sendRefundEmail = async ({ toEmail, toName, orderNumber, amountInInr }) => {
+  if (!toEmail || typeof toEmail !== "string" || !toEmail.includes("@")) {
+    throw new Error("Invalid destination email address");
+  }
+  const cleanEmail = toEmail.trim().toLowerCase();
+  const safeName = escapeHtml(toName || "Customer");
+  const safeOrderNumber = escapeHtml(String(orderNumber || ""));
+  const safeAmount = escapeHtml(String(amountInInr || "0.00"));
+  const subject = `Refund Processed for Order #${safeOrderNumber} — Mumbai Collection`;
+  const textContent = `Hello ${toName || "Customer"},\n\nA refund of ₹${safeAmount} has been processed for your order #${safeOrderNumber}.\n\nMumbai Collection`;
+  const htmlContent = `<!doctype html><html><body style="margin:0;padding:32px 16px;background:#f8f9fd;font-family:Arial,sans-serif;color:#202033"><table role="presentation" style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:32px;width:100%"><tr><td><h1 style="color:#7138e8;margin-top:0">Mumbai Collection</h1><p>Hello ${safeName},</p><p>A refund of <strong>₹${safeAmount}</strong> has been processed for your order <strong>#${safeOrderNumber}</strong>.</p><p>The time it takes for the funds to appear depends on your original payment method and bank.</p><p style="color:#6b7280">Mumbai Collection · Vasai, Mumbai</p></td></tr></table></body></html>`;
 
   if (isMockEmailEnabled()) {
-    console.log(`[MOCK EMAIL] Refund notice to ${toEmail}: ₹${amountInInr} (Refund ID: ${refundId})`);
-    return { success: true, mock: true };
+    console.log(`[MOCK REFUND EMAIL] Destination: ${cleanEmail}\n[MOCK REFUND EMAIL] Subject: ${subject}`);
+    return { success: true, mock: true, messageId: `mock_refund_${Date.now()}` };
   }
 
+  const apiKey = getBrevoApiKey();
+  const sender = getBrevoEmailSender();
   try {
-    const apiKey = getBrevoApiKey();
-    const sender = getBrevoEmailSender();
-
-    await axios.post(
-      BREVO_TRANSACTIONAL_EMAIL_URL,
-      {
-        sender: { name: sender.name, email: sender.email },
-        to: [{ email: toEmail, name: toName || "Customer" }],
-        subject,
-        htmlContent,
-        textContent,
-      },
-      {
-        headers: { "api-key": apiKey, "Content-Type": "application/json" },
-        timeout: 10000,
-      }
-    );
-    return { success: true };
-  } catch (err) {
-    logger.warn({ toEmail, rzpOrderId, err: err.message }, "[Brevo] Failed to send customer refund email");
-    return { success: false, error: err.message };
+    const response = await axios.post(BREVO_TRANSACTIONAL_EMAIL_URL, {
+      sender,
+      to: [{ email: cleanEmail, name: toName || "Customer" }],
+      subject,
+      htmlContent,
+      textContent,
+    }, {
+      headers: { "api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+      timeout: 10000,
+    });
+    logger.info({ orderNumber: safeOrderNumber }, "[Brevo] Employee-triggered refund email sent");
+    return { success: true, messageId: response.data?.messageId || null };
+  } catch (error) {
+    const message = error.response?.data?.message || error.message || "Brevo email request failed";
+    logger.error({ err: message }, "[Brevo] Failed to send employee-triggered refund email");
+    const safeError = new Error(message);
+    safeError.status = error.response?.status || 502;
+    throw safeError;
   }
 };

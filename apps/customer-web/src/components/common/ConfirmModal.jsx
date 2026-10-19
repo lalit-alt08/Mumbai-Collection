@@ -10,7 +10,7 @@ function ConfirmModal({
   confirmText = "Delete Address",
   cancelText = "Cancel",
   isLoading = false,
-  variant = "danger", // "danger" | "purple"
+  variant = "danger", // "danger" | "emerald"
   icon: Icon = Trash2,
 }) {
   // Close on Escape key press
@@ -50,11 +50,11 @@ function ConfirmModal({
         onClick={() => {
           if (!isLoading) onClose();
         }}
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity animate-[fadeIn_0.2s_ease-out]"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-[fadeIn_0.2s_ease-out]"
       />
 
       {/* Modal Container */}
-      <div className="relative z-10 w-full max-w-[460px] overflow-hidden rounded-[26px] border border-gray-100 bg-white p-6 shadow-[0_25px_65px_rgba(0,0,0,0.18)] animate-[scaleUp_0.2s_ease-out] sm:p-8">
+      <div className="relative z-10 w-full max-w-[460px] overflow-hidden rounded-[26px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_25px_65px_rgba(0,0,0,0.5)] animate-[scaleUp_0.2s_ease-out] sm:p-8">
         
         {/* Close Button */}
         <button
@@ -62,7 +62,7 @@ function ConfirmModal({
           onClick={onClose}
           disabled={isLoading}
           aria-label="Close modal"
-          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50 cursor-pointer"
+          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-[#8FA4BE] transition hover:bg-[#162744] hover:text-[#F1F5F9] disabled:opacity-50 cursor-pointer"
         >
           <X size={20} />
         </button>
@@ -72,8 +72,8 @@ function ConfirmModal({
           <div
             className={`flex h-16 w-16 items-center justify-center rounded-2xl border ${
               isDanger
-                ? "border-red-100 bg-red-50 text-red-500"
-                : "border-purple-100 bg-purple-50 text-[#7C3AED]"
+                ? "border-rose-900/60 bg-rose-950/40 text-rose-400"
+                : "border-[#1E3252] bg-[#132B45] text-[#42D6E8]"
             }`}
           >
             <Icon size={30} strokeWidth={2.2} />
@@ -84,11 +84,11 @@ function ConfirmModal({
         <div className="mt-4 text-center sm:mt-5">
           <h3
             id="confirm-modal-title"
-            className="text-xl font-black tracking-tight text-[#1F2937] sm:text-2xl"
+            className="text-xl font-black tracking-tight text-[#F1F5F9] sm:text-2xl"
           >
             {title}
           </h3>
-          <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-gray-500 sm:text-sm">
+          <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-[#8FA4BE] sm:text-sm">
             {message}
           </p>
         </div>
@@ -99,21 +99,21 @@ function ConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`flex h-[52px] sm:h-[54px] w-full items-center justify-center gap-2.5 rounded-2xl px-6 text-[15px] sm:text-base font-extrabold text-white shadow-md transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer ${
+            className={`flex h-[52px] sm:h-[54px] w-full items-center justify-center gap-2.5 rounded-2xl px-6 text-[15px] sm:text-base font-extrabold shadow-md transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer ${
               isDanger
-                ? "bg-red-600 shadow-[0_6px_20px_rgba(220,38,38,0.28)] hover:bg-red-700"
-                : "bg-[#7C3AED] shadow-[0_6px_20px_rgba(124,58,237,0.3)] hover:bg-[#6C35E8]"
+                ? "bg-rose-600 text-white shadow-[0_6px_20px_rgba(225,29,72,0.28)] hover:bg-rose-700"
+                : "bg-[#42D6E8] text-[#061220] font-black shadow-[0_6px_20px_rgba(66,214,232,0.3)] hover:bg-[#2CC4D8]"
             }`}
           >
             {isLoading && <Loader2 size={18} className="animate-spin" />}
-            <span>{isLoading ? "Deleting..." : confirmText}</span>
+            <span>{isLoading ? "Processing..." : confirmText}</span>
           </button>
 
           <button
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="flex h-[52px] sm:h-[54px] w-full items-center justify-center rounded-2xl border-2 border-gray-200 bg-white px-6 text-[15px] sm:text-base font-extrabold text-gray-700 shadow-sm transition hover:bg-gray-50 hover:border-gray-300 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+            className="flex h-[52px] sm:h-[54px] w-full items-center justify-center rounded-2xl border-2 border-[#1E3252] bg-[#080F1C] px-6 text-[15px] sm:text-base font-bold text-[#F1F5F9] shadow-sm transition hover:bg-[#162744] hover:border-[#42D6E8]/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
             {cancelText}
           </button>

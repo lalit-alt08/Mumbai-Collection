@@ -3,6 +3,7 @@ import app from "./app.js";
 import { logger, sanitizeError } from "./utils/logger.js";
 import { checkAlertChannelsConfigured, sendDailyHealthAlert } from "./services/alertService.js";
 import { runPaymentReconciliation } from "./services/reconciliationService.js";
+import { closeRedis } from "./config/redis.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -34,12 +35,19 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-const server = app.listen(PORT, () => {
-  logger.info({ port: PORT }, "Server is running");
+// Listen on 0.0.0.0 to support both IPv4 (127.0.0.1) and IPv6 (::1/localhost) on Windows
+const HOST = process.env.HOST || "0.0.0.0";
+const server = app.listen(PORT, HOST, () => {
+  logger.info({ port: PORT, host: HOST }, "Server is running");
 });
 
-// Align keepAliveTimeout with reverse proxies (e.g. ALB, Cloudflare, Nginx)
-server.keepAliveTimeout = 65000;
+// Keep the origin socket open slightly longer than Cloudflare Tunnel's default
+// 90s origin idle pool. Override when the deployed proxy has a different timeout.
+const configuredKeepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS);
+server.keepAliveTimeout =
+  Number.isFinite(configuredKeepAliveTimeout) && configuredKeepAliveTimeout > 0
+    ? configuredKeepAliveTimeout
+    : 95000;
 server.headersTimeout = 66000;
 
 // Reconciler Background Worker (Runs every 10 minutes, plus initial run on boot)
@@ -132,9 +140,10 @@ if (!isTestEnv) {
 }
 
 // Graceful shutdown
-const gracefulShutdown = () => {
+const gracefulShutdown = async () => {
   logger.info("Received shutdown signal. Closing HTTP server");
   stopBackgroundWorkers();
+  await closeRedis();
   server.close(() => {
     logger.info("HTTP server closed. Exiting process");
     process.exit(0);

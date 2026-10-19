@@ -4,6 +4,7 @@ import multer from "multer";
 import {
   getDashboardOverview,
   getAdminAnalytics,
+  getAdminAnalyticsReport,
 } from "../controllers/adminAnalyticsController.js";
 
 import {
@@ -17,6 +18,7 @@ import {
 
 import {
   getAdminCustomers,
+  getAdminCustomerOrders,
 } from "../controllers/adminCustomerController.js";
 
 import {
@@ -186,6 +188,14 @@ router.get(
   getAdminCustomers
 );
 
+router.get(
+  "/customers/:id/orders",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam, query: schemas.pagination }),
+  getAdminCustomerOrders
+);
+
 // Order Management (H4: previously orphaned — now mounted)
 router.get(
   "/orders",
@@ -217,6 +227,14 @@ router.get(
   requireAuth("admin"),
   requireRole(["administrator"]),
   getAdminAnalytics
+);
+
+router.get(
+  "/analytics/report",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ query: schemas.analyticsReport }),
+  getAdminAnalyticsReport
 );
 
 // Employee Access & Staff Directory Management

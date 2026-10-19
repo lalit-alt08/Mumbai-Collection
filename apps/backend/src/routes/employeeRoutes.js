@@ -4,10 +4,12 @@ import multer from "multer";
 import {
   getEmployeeOrders,
   updateOrderStatus,
+  sendOrderRefundEmail,
   getEmployeeOverview,
   uploadEmployeeMedia,
   deleteEmployeeMedia,
 } from "../controllers/employeeController.js";
+import { handleEmployeeOrderStream } from "../services/orderNotificationService.js";
 
 import {
   getAdminProducts,
@@ -98,7 +100,14 @@ router.get(
   getEmployeeOverview
 );
 
-// Orders & Dispatch Management
+// Orders & Dispatch Management (Real-time SSE Stream & Filtered Lists)
+router.get(
+  "/orders/stream",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  handleEmployeeOrderStream
+);
+
 router.get(
   "/orders",
   requireAuth("employee"),
@@ -113,6 +122,14 @@ router.patch(
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   validateRequest({ params: schemas.idParam, body: schemas.orderStatus }),
   updateOrderStatus
+);
+
+router.post(
+  "/orders/:id/refund-email",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam }),
+  sendOrderRefundEmail
 );
 
 // Products & Inventory Management (No deletion allowed for employees)

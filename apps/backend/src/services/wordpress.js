@@ -1,5 +1,6 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
+import { shouldRetryUpstreamRead } from "../utils/upstreamReadRetry.js";
 
 const wp = axios.create({
   baseURL: process.env.WORDPRESS_URL,
@@ -22,25 +23,18 @@ wp.interceptors.request.use((config) => {
   return config;
 });
 
-// Automatically retry once if a socket was closed by the web server
+// Retry only read-only upstream calls. A failed write may already have been applied
+// by WordPress even when the response is lost, so mutation calls are not replayed.
 wp.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
-    if (!config || config._retry) {
+    if (!shouldRetryUpstreamRead(error)) {
       return Promise.reject(error);
     }
 
-    if (
-      error.code === "ECONNRESET" ||
-      error.code === "ETIMEDOUT" ||
-      error.message?.includes("socket hang up")
-    ) {
-      config._retry = true;
-      return wp(config);
-    }
-
-    return Promise.reject(error);
+    config._retry = true;
+    return wp(config);
   }
 );
 

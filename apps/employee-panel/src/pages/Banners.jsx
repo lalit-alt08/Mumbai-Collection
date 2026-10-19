@@ -48,7 +48,6 @@ function DestinationLinkSelector({
   categories = [],
   loadingLookups = false,
   onUpdateLink,
-  onUpdateTitle,
 }) {
   const currentLink = (banner?.link || "").trim();
 
@@ -61,6 +60,11 @@ function DestinationLinkSelector({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isChangingProduct, setIsChangingProduct] = useState(false);
+  const [customLinkVal, setCustomLinkVal] = useState(currentLink);
+
+  useEffect(() => {
+    setCustomLinkVal(banner?.link || "");
+  }, [banner?.link]);
 
   // Match selected product from link
   const productMatch = currentLink.match(/^\/products?\/(\d+)/);
@@ -96,12 +100,9 @@ function DestinationLinkSelector({
   });
 
   const handleSelectProduct = (prod) => {
-    onUpdateLink(`/product/${prod.id}`);
     setIsChangingProduct(false);
     setSearchQuery("");
-    if (!banner?.title || banner.title.startsWith("Promotional Banner #")) {
-      onUpdateTitle(prod.name);
-    }
+    onUpdateLink(`/product/${prod.id}`, prod.name);
   };
 
   const handleSelectCategory = (catValue) => {
@@ -110,10 +111,7 @@ function DestinationLinkSelector({
       return;
     }
     const cat = categories.find((c) => String(c.slug || c.id) === String(catValue));
-    onUpdateLink(`/category/${cat?.slug || catValue}`);
-    if (!banner?.title || banner.title.startsWith("Promotional Banner #")) {
-      if (cat?.name) onUpdateTitle(`${cat.name} Special`);
-    }
+    onUpdateLink(`/category/${cat?.slug || catValue}`, cat?.name ? `${cat.name} Special` : undefined);
   };
 
   const handleModeChange = (newMode) => {
@@ -122,7 +120,7 @@ function DestinationLinkSelector({
       if (!currentLink.startsWith("/product/")) {
         const first = products[0];
         if (first) {
-          onUpdateLink(`/product/${first.id}`);
+          onUpdateLink(`/product/${first.id}`, first.name);
         } else {
           setIsChangingProduct(true);
         }
@@ -130,7 +128,7 @@ function DestinationLinkSelector({
     } else if (newMode === "category") {
       if (!currentLink.startsWith("/category/")) {
         const first = categories[0];
-        if (first) onUpdateLink(`/category/${first.slug || first.id}`);
+        if (first) onUpdateLink(`/category/${first.slug || first.id}`, `${first.name} Special`);
       }
     }
   };
@@ -345,8 +343,13 @@ function DestinationLinkSelector({
         <div>
           <input
             type="text"
-            value={banner.link || ""}
-            onChange={(e) => onUpdateLink(e.target.value)}
+            value={customLinkVal}
+            onChange={(e) => setCustomLinkVal(e.target.value)}
+            onBlur={() => {
+              if (customLinkVal !== banner.link) {
+                onUpdateLink(customLinkVal);
+              }
+            }}
             placeholder="e.g. /favorites or /categories"
             className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
           />
@@ -468,7 +471,71 @@ function Banners() {
     };
   }, []);
 
-  const handleAddBanner = () => {
+  /**
+   * 1-Click Instant Persistence Helper
+   * Automatically saves changes directly to WordPress & live website.
+   * No separate "Save & Publish" button needed!
+   */
+  const persistBanners = async (updatedBanners, successMsg) => {
+    try {
+      setSaving(true);
+      setError("");
+
+      const idempotencyKey =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idemp_bnr_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+
+      const res = await updateBanners(updatedBanners, {
+        "X-Idempotency-Key": idempotencyKey,
+      });
+
+      if (res.success && Array.isArray(res.banners)) {
+        setBanners(res.banners);
+      } else {
+        setBanners(updatedBanners);
+      }
+
+      if (successMsg) {
+        showToast(successMsg, "success");
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || "Failed to update banners.";
+      setError(msg);
+      showToast(msg, "error");
+      fetchBannerList(); // Roll back to server state on error
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * 1-Click Toggle Active / Inactive
+   */
+  const handleToggleActive = async (index) => {
+    const banner = banners[index];
+    const nextActive = !banner.is_active;
+
+    if (nextActive && !banner.desktop_image && !banner.mobile_image) {
+      showToast("Please upload an image before turning this banner Live.", "error");
+      return;
+    }
+
+    const updated = banners.map((b, idx) =>
+      idx === index ? { ...b, is_active: nextActive } : b
+    );
+    setBanners(updated);
+
+    await persistBanners(
+      updated,
+      nextActive ? "Banner is now LIVE on your website! 🎉" : "Banner hidden from website."
+    );
+  };
+
+  /**
+   * Add a new banner slot
+   */
+  const handleAddBanner = async () => {
     if (banners.length >= 3) {
       showToast("Maximum 3 homepage banners allowed.", "error");
       return;
@@ -477,33 +544,59 @@ function Banners() {
     const firstProd = products[0];
     const newBanner = {
       id: `banner-${Date.now()}`,
-      title: firstProd ? firstProd.name : `Promotional Banner #${banners.length + 1}`,
+      title: firstProd ? firstProd.name : `Slide #${banners.length + 1}`,
       link: firstProd ? `/product/${firstProd.id}` : "/categories",
       desktop_image: "",
       desktop_media_id: null,
       mobile_image: "",
       mobile_media_id: null,
-      is_active: true,
+      is_active: false, // Starts as draft until photo is uploaded
     };
 
-    setBanners((prev) => [...prev, newBanner]);
+    const updated = [...banners, newBanner];
+    setBanners(updated);
+    await persistBanners(updated, "New banner slot created! Upload a photo to make it live.");
   };
 
-  const handleRemoveBanner = (index) => {
-    setBanners((prev) => prev.filter((_, idx) => idx !== index));
+  /**
+   * Delete banner slot
+   */
+  const handleRemoveBanner = async (index) => {
+    const updated = banners.filter((_, idx) => idx !== index);
+    setBanners(updated);
+    await persistBanners(updated, "Banner deleted.");
   };
 
-  const handleUpdateField = (index, field, value) => {
-    setBanners((prev) => {
-      const updated = [...prev];
-      updated[index] = {
-        ...updated[index],
-        [field]: value,
-      };
-      return updated;
+  /**
+   * Update Destination Link & Optional Title
+   */
+  const handleUpdateLink = async (index, newLink, autoTitle) => {
+    const updated = banners.map((b, idx) => {
+      if (idx !== index) return b;
+      const next = { ...b, link: newLink };
+      if (autoTitle && (!b.title || b.title.startsWith("Promotional Banner #") || b.title.startsWith("Slide #"))) {
+        next.title = autoTitle;
+      }
+      return next;
     });
+    setBanners(updated);
+    await persistBanners(updated, "Destination link updated & published live!");
   };
 
+  /**
+   * Update Title on Blur
+   */
+  const handleUpdateTitle = async (index, newTitle) => {
+    const updated = banners.map((b, idx) =>
+      idx === index ? { ...b, title: newTitle } : b
+    );
+    setBanners(updated);
+    await persistBanners(updated, "Title updated!");
+  };
+
+  /**
+   * Upload Image -> Auto-activates and publishes immediately!
+   */
   const handleUploadImage = async (e, bannerIndex, slot) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -534,19 +627,19 @@ function Banners() {
     const slotKey = `${bannerIndex}-${slot}`;
     setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: true } }));
 
-    // Aspect ratio check: use fast header parser to avoid multi-hundred MB bitmap decoding on mobile
+    // Aspect ratio check: use fast header parser
     try {
       const dims = await parseImageDimensionsFromHeader(file);
       if (dims && dims.width > 0 && dims.height > 0) {
         const ratio = dims.width / dims.height;
         if (slot === "desktop" && (ratio < 2.0 || ratio > 3.5)) {
           showToast(
-            `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended desktop ratio is 8:3 (2.67:1). It will be fitted automatically.`,
+            `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended desktop ratio is 8:3 (2.67:1).`,
             "info"
           );
         } else if (slot === "mobile" && (ratio < 1.7 || ratio > 2.8)) {
           showToast(
-            `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended mobile ratio is 16:7 (2.28:1). It will be fitted automatically.`,
+            `Tip: Selected image ratio is ${ratio.toFixed(1)}:1. Recommended mobile ratio is 16:7 (2.28:1).`,
             "info"
           );
         }
@@ -555,7 +648,7 @@ function Banners() {
       // Non-blocking ratio guidance fallback
     }
 
-    // Compress banner image client-side before upload (max 1920px preserving aspect ratio, WebP 0.85 with JPEG fallback)
+    // Compress banner image client-side before upload
     let fileToUpload = file;
     try {
       fileToUpload = await compressImage(file, { maxDimension: BANNER_MAX_DIMENSION });
@@ -569,7 +662,6 @@ function Banners() {
         e.target.value = "";
         return;
       }
-      // Fall back to original file if compression fails on standard images
     }
 
     if (isHeicFile(fileToUpload)) {
@@ -592,18 +684,19 @@ function Banners() {
     try {
       const uploadRes = await uploadProductImage(fileToUpload);
       if (uploadRes.success && (uploadRes.url || uploadRes.id)) {
-        setBanners((prev) =>
-          prev.map((b, idx) => {
-            if (idx !== bannerIndex) return b;
-            return {
-              ...b,
-              ...(slot === "desktop"
-                ? { desktop_image: uploadRes.url, desktop_media_id: uploadRes.id }
-                : { mobile_image: uploadRes.url, mobile_media_id: uploadRes.id }),
-            };
-          })
-        );
-        showToast(`Banner ${slot} image uploaded to WordPress Media Library!`);
+        const updated = banners.map((b, idx) => {
+          if (idx !== bannerIndex) return b;
+          return {
+            ...b,
+            is_active: true, // Auto-activate upon uploading image!
+            ...(slot === "desktop"
+              ? { desktop_image: uploadRes.url, desktop_media_id: uploadRes.id }
+              : { mobile_image: uploadRes.url, mobile_media_id: uploadRes.id }),
+          };
+        });
+
+        setBanners(updated);
+        await persistBanners(updated, `Banner ${slot} image uploaded & published live! 🎉`);
       } else {
         showToast("Upload failed. Please try again.", "error");
       }
@@ -619,68 +712,21 @@ function Banners() {
     }
   };
 
-  const handleRemoveSlotImage = (bannerIndex, slot) => {
-    setBanners((prev) =>
-      prev.map((b, idx) => {
-        if (idx !== bannerIndex) return b;
-        return {
-          ...b,
-          ...(slot === "desktop"
-            ? { desktop_image: "", desktop_media_id: null }
-            : { mobile_image: "", mobile_media_id: null }),
-        };
-      })
-    );
-  };
-
-  const handleSaveAllBanners = async () => {
-    if (saving) return;
-
-    if (banners.length === 0) {
-      showToast("At least 1 banner is required.", "error");
-      return;
-    }
-
-    if (banners.length > 3) {
-      showToast("Maximum 3 banners allowed.", "error");
-      return;
-    }
-
-    // Verify each banner has at least one image
-    for (let i = 0; i < banners.length; i++) {
-      const b = banners[i];
-      if (!b.desktop_image && !b.mobile_image) {
-        showToast(`Banner #${i + 1} (${b.title || "Untitled"}) must have at least a desktop or mobile photo.`, "error");
-        return;
-      }
-    }
-
-    try {
-      setSaving(true);
-      setError("");
-
-      const idempotencyKey =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `idemp_bnr_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-
-      const res = await updateBanners(banners, {
-        "X-Idempotency-Key": idempotencyKey,
-      });
-
-      if (res.success && Array.isArray(res.banners)) {
-        setBanners(res.banners);
-        showToast("Homepage banners saved & published to WordPress!");
-      } else {
-        showToast("Banners updated successfully!");
-        fetchBannerList();
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || "Failed to persist banners in WordPress.");
-      showToast("Failed to save banners.", "error");
-    } finally {
-      setSaving(false);
-    }
+  /**
+   * Remove Slot Image
+   */
+  const handleRemoveSlotImage = async (bannerIndex, slot) => {
+    const updated = banners.map((b, idx) => {
+      if (idx !== bannerIndex) return b;
+      return {
+        ...b,
+        ...(slot === "desktop"
+          ? { desktop_image: "", desktop_media_id: null }
+          : { mobile_image: "", mobile_media_id: null }),
+      };
+    });
+    setBanners(updated);
+    await persistBanners(updated, "Image removed.");
   };
 
   return (
@@ -727,11 +773,27 @@ function Banners() {
           </p>
         </div>
 
+        {/* Action Controls: Live Sync Indicator + Add Button */}
         <div className="flex items-center gap-2.5">
+          {/* Live Sync Status Pill */}
+          <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold border border-gray-200 shadow-2xs">
+            {saving ? (
+              <>
+                <Loader2 size={13} className="animate-spin text-emerald-600" />
+                <span className="text-emerald-800 font-extrabold">Publishing live...</span>
+              </>
+            ) : (
+              <>
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-gray-700">Auto-Publishes Live</span>
+              </>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={handleAddBanner}
-            disabled={banners.length >= 3 || loading}
+            disabled={banners.length >= 3 || loading || saving}
             className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition active:scale-95 cursor-pointer ${
               banners.length >= 3
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
@@ -741,64 +803,6 @@ function Banners() {
             <Plus size={15} />
             {banners.length >= 3 ? "3 / 3 (Max Reached)" : "Add Banner"}
           </button>
-
-          <button
-            type="button"
-            onClick={handleSaveAllBanners}
-            disabled={saving || loading}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#0F172A] px-5 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-slate-800 transition active:scale-95 cursor-pointer disabled:opacity-50"
-          >
-            {saving ? (
-              <>
-                <Loader2 size={15} className="animate-spin text-emerald-400" />
-                <span>Saving to WordPress...</span>
-              </>
-            ) : (
-              <>
-                <Check size={15} className="text-emerald-400" />
-                <span>Save & Publish</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Banner Sizing & Aspect Ratio Guidelines Card */}
-      <div className="rounded-3xl border border-sky-100 bg-gradient-to-r from-sky-50/60 to-indigo-50/40 p-4 sm:p-5 shadow-2xs">
-        <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-sky-500 text-white shrink-0 shadow-xs">
-            <Sparkles size={16} />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-xs font-black uppercase tracking-wider text-sky-950">
-              Required Banner Dimensions & Responsive Ratios
-            </h3>
-            <p className="text-xs text-sky-800/80 leading-relaxed">
-              Customer Web serves optimized banners per viewport. Please crop your promotional creatives to the recommended ratios before uploading:
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
-              <div className="flex items-center gap-2.5 rounded-xl border border-sky-200/80 bg-white/90 p-2.5 text-xs shadow-2xs">
-                <Monitor size={18} className="text-sky-600 shrink-0" />
-                <div>
-                  <span className="font-bold text-gray-900 block">Desktop Banner</span>
-                  <span className="text-[11px] text-gray-500">
-                    Recommended: <strong className="text-sky-700">1600 × 600 px</strong> (Ratio: <strong>8:3 / 16:6</strong>)
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 rounded-xl border border-indigo-200/80 bg-white/90 p-2.5 text-xs shadow-2xs">
-                <Smartphone size={18} className="text-indigo-600 shrink-0" />
-                <div>
-                  <span className="font-bold text-gray-900 block">Mobile Banner</span>
-                  <span className="text-[11px] text-gray-500">
-                    Recommended: <strong className="text-indigo-700">800 × 350 px</strong> (Ratio: <strong>16:7</strong>)
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -810,6 +814,19 @@ function Banners() {
       )}
 
       {/* Main Banner List */}
+      {/* Notice if all banners are inactive */}
+      {!loading && banners.length > 0 && !banners.some((b) => b.is_active) && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950 shadow-xs">
+          <AlertCircle size={20} className="shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <p className="font-black text-amber-950">All banners are currently turned off</p>
+            <p className="text-[11px] font-medium text-amber-800 mt-0.5">
+              Because no banners are active, your website is not displaying any hero banners right now. Click &quot;Turn On&quot; on any banner below to instantly publish it live!
+            </p>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((n) => (
@@ -843,7 +860,7 @@ function Banners() {
                 className={`rounded-3xl border transition-all duration-200 bg-white shadow-xs p-4 sm:p-6 space-y-4 ${
                   banner.is_active
                     ? "border-gray-200/90 hover:border-emerald-300"
-                    : "border-gray-200 bg-gray-50/50 opacity-75"
+                    : "border-gray-200 bg-gray-50/50 opacity-80"
                 }`}
               >
                 {/* Banner Card Header */}
@@ -857,11 +874,11 @@ function Banners() {
                     </h2>
                     {banner.is_active ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        Active on Homepage
+                        Live on Store
                       </span>
                     ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
-                        Inactive / Hidden
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                        Draft / Hidden
                       </span>
                     )}
                   </div>
@@ -877,23 +894,35 @@ function Banners() {
                       Preview
                     </button>
 
-                    {/* Active Toggle */}
+                    {/* 1-Click Live/Hidden Instant Toggle */}
                     <button
                       type="button"
-                      onClick={() => handleUpdateField(index, "is_active", !banner.is_active)}
-                      className={`inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-2xs cursor-pointer ${
+                      onClick={() => handleToggleActive(index)}
+                      disabled={saving}
+                      className={`inline-flex items-center gap-2 select-none rounded-xl px-3 py-1.5 text-xs font-bold transition border cursor-pointer ${
                         banner.is_active
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          : "bg-gray-100 text-gray-600 border border-gray-200"
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-2xs"
+                          : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
                       }`}
+                      title={
+                        banner.is_active
+                          ? "Banner is live on customer homepage. Click to turn off immediately."
+                          : "Banner is off. Click to make live immediately."
+                      }
                     >
-                      {banner.is_active ? "Active" : "Disabled"}
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full ${
+                          banner.is_active ? "bg-emerald-500 shadow-xs animate-pulse" : "bg-gray-400"
+                        }`}
+                      />
+                      <span>{banner.is_active ? "Live on Store" : "Hidden (Turn On)"}</span>
                     </button>
 
                     {/* Delete Banner */}
                     <button
                       type="button"
                       onClick={() => handleRemoveBanner(index)}
+                      disabled={saving}
                       className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
                       title="Remove banner"
                     >
@@ -910,9 +939,14 @@ function Banners() {
                     </label>
                     <input
                       type="text"
-                      value={banner.title}
-                      onChange={(e) => handleUpdateField(index, "title", e.target.value)}
-                      placeholder="e.g. Toys and Fun Special Sale"
+                      defaultValue={banner.title || ""}
+                      key={banner.id + "-title"}
+                      onBlur={(e) => {
+                        if (e.target.value !== banner.title) {
+                          handleUpdateTitle(index, e.target.value);
+                        }
+                      }}
+                      placeholder="e.g. Special Collection Sale"
                       className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
                     />
                   </div>
@@ -924,8 +958,7 @@ function Banners() {
                       products={products}
                       categories={categories}
                       loadingLookups={loadingLookups}
-                      onUpdateLink={(newLink) => handleUpdateField(index, "link", newLink)}
-                      onUpdateTitle={(newTitle) => handleUpdateField(index, "title", newTitle)}
+                      onUpdateLink={(newLink, autoTitle) => handleUpdateLink(index, newLink, autoTitle)}
                     />
                   </div>
                 </div>
@@ -966,7 +999,7 @@ function Banners() {
                           {isDesktopUploading && (
                             <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white gap-2 text-xs font-bold">
                               <Loader2 size={18} className="animate-spin text-emerald-400" />
-                              <span>Uploading to WordPress...</span>
+                              <span>Uploading &amp; Publishing...</span>
                             </div>
                           )}
 
@@ -997,12 +1030,12 @@ function Banners() {
                     ) : (
                       <label
                         htmlFor={`file-desktop-${index}`}
-                        className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white p-5 text-center hover:border-sky-400 hover:bg-sky-50/20 transition cursor-pointer aspect-[16/6]"
+                        className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white p-5 text-center hover:border-emerald-400 hover:bg-emerald-50/20 transition cursor-pointer aspect-[16/6]"
                       >
                         {isDesktopUploading ? (
                           <div className="flex flex-col items-center gap-2 text-xs font-bold text-gray-600">
-                            <Loader2 size={20} className="animate-spin text-sky-600" />
-                            <span>Uploading to WordPress...</span>
+                            <Loader2 size={20} className="animate-spin text-emerald-600" />
+                            <span>Uploading &amp; Publishing...</span>
                           </div>
                         ) : (
                           <>
@@ -1049,7 +1082,7 @@ function Banners() {
                           {isMobileUploading && (
                             <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white gap-2 text-xs font-bold">
                               <Loader2 size={18} className="animate-spin text-emerald-400" />
-                              <span>Uploading to WordPress...</span>
+                              <span>Uploading &amp; Publishing...</span>
                             </div>
                           )}
 
@@ -1085,7 +1118,7 @@ function Banners() {
                         {isMobileUploading ? (
                           <div className="flex flex-col items-center gap-2 text-xs font-bold text-gray-600">
                             <Loader2 size={20} className="animate-spin text-indigo-600" />
-                            <span>Uploading to WordPress...</span>
+                            <span>Uploading &amp; Publishing...</span>
                           </div>
                         ) : (
                           <>
@@ -1118,69 +1151,81 @@ function Banners() {
                   {previewBanner.title || "Promotional Banner"} &bull; Links to: <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-700 font-mono text-[11px]">{previewBanner.link}</code>
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={() => setPreviewBanner(null)}
-                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer"
+                className="p-1.5 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Device Switcher */}
-            <div className="flex items-center justify-center gap-2">
+            {/* Viewport Mode Switcher */}
+            <div className="flex items-center justify-center gap-2 bg-gray-100 p-1 rounded-2xl w-fit mx-auto border border-gray-200">
               <button
                 type="button"
                 onClick={() => setPreviewMode("desktop")}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition ${
                   previewMode === "desktop"
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    ? "bg-white text-gray-900 shadow-2xs font-black"
+                    : "text-gray-600 hover:text-gray-900"
                 }`}
               >
                 <Monitor size={14} /> Desktop (8:3)
               </button>
-
               <button
                 type="button"
                 onClick={() => setPreviewMode("mobile")}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition ${
                   previewMode === "mobile"
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    ? "bg-white text-gray-900 shadow-2xs font-black"
+                    : "text-gray-600 hover:text-gray-900"
                 }`}
               >
                 <Smartphone size={14} /> Mobile (16:7)
               </button>
             </div>
 
-            {/* Rendered Preview Box */}
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 flex items-center justify-center min-h-[220px]">
-              {previewMode === "desktop" ? (
-                <div className="w-full max-w-xl overflow-hidden rounded-[20px] shadow-sm border border-gray-200">
+            {/* Preview Viewport Canvas */}
+            <div className="bg-[#0B1425] p-4 sm:p-6 rounded-2xl border border-[#1E3252]/60 flex items-center justify-center">
+              <div
+                className={`w-full overflow-hidden rounded-[18px] border border-white/10 shadow-lg ${
+                  previewMode === "desktop"
+                    ? "aspect-[16/6] max-w-full"
+                    : "aspect-[16/7] max-w-xs mx-auto"
+                }`}
+              >
+                {previewMode === "desktop" ? (
+                  previewBanner.desktop_image || previewBanner.mobile_image ? (
+                    <img
+                      src={previewBanner.desktop_image || previewBanner.mobile_image}
+                      alt="Preview"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center bg-gray-800 text-gray-400 text-xs font-bold">
+                      No desktop image uploaded
+                    </div>
+                  )
+                ) : previewBanner.mobile_image || previewBanner.desktop_image ? (
                   <img
-                    src={previewBanner.desktop_image || previewBanner.mobile_image || "/banner/Art.webp"}
-                    alt="Desktop Preview"
-                    className="aspect-[16/6] w-full object-cover"
+                    src={previewBanner.mobile_image || previewBanner.desktop_image}
+                    alt="Preview"
+                    className="h-full w-full object-cover"
                   />
-                </div>
-              ) : (
-                <div className="w-72 overflow-hidden rounded-[18px] shadow-sm border-2 border-gray-300 bg-white">
-                  <img
-                    src={previewBanner.mobile_image || previewBanner.desktop_image || "/banner/Art.webp"}
-                    alt="Mobile Preview"
-                    className="aspect-[16/7] w-full object-cover"
-                  />
-                </div>
-              )}
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center bg-gray-800 text-gray-400 text-xs font-bold">
+                    No mobile image uploaded
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end pt-2">
               <button
                 type="button"
                 onClick={() => setPreviewBanner(null)}
-                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition shadow-xs cursor-pointer"
+                className="px-5 py-2 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition"
               >
                 Close Preview
               </button>

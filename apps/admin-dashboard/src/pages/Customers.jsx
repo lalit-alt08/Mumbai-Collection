@@ -21,7 +21,7 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
-import { getCustomers } from "../services/adminApi";
+import { getCustomers, getCustomerOrders } from "../services/adminApi";
 
 // Fixed delivery zone filter options
 const LOCATION_FILTER_OPTIONS = [
@@ -101,6 +101,12 @@ function Customers() {
 
   // Selected customer for Profile Modal
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerOrders, setCustomerOrders] = useState([]);
+  const [customerOrdersPage, setCustomerOrdersPage] = useState(1);
+  const [customerOrdersTotalPages, setCustomerOrdersTotalPages] = useState(1);
+  const [customerOrdersTotal, setCustomerOrdersTotal] = useState(0);
+  const [customerOrdersLoading, setCustomerOrdersLoading] = useState(false);
+  const [customerOrdersError, setCustomerOrdersError] = useState("");
 
   // Close dropdowns on outside click or Escape
   useEffect(() => {
@@ -138,7 +144,7 @@ function Customers() {
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  // Fetch Customers with server pagination & search
+  // Fetch Customers with server pagination, sorting & search
   const fetchCustomerList = async () => {
     const requestId = ++requestIdRef.current;
     try {
@@ -149,6 +155,7 @@ function Customers() {
         per_page: perPage,
         search: debouncedSearch.trim() || undefined,
         location: selectedLocation !== "all" ? selectedLocation : undefined,
+        sort: sortBy,
       });
 
       if (res.success && Array.isArray(res.customers)) {
@@ -172,30 +179,44 @@ function Customers() {
 
   useEffect(() => {
     fetchCustomerList();
-  }, [page, debouncedSearch, selectedLocation]);
+  }, [page, debouncedSearch, selectedLocation, sortBy]);
 
-  // Client-side filtering & sorting
-  const processedCustomers = useMemo(() => {
-    let list = [...customers];
-
-    // Sorting
-    list.sort((a, b) => {
-      if (sortBy === "ltv_desc") return (b.lifetimeSpent || 0) - (a.lifetimeSpent || 0);
-      if (sortBy === "ltv_asc") return (a.lifetimeSpent || 0) - (b.lifetimeSpent || 0);
-      if (sortBy === "orders_desc") return (b.ordersCount || 0) - (a.ordersCount || 0);
-      if (sortBy === "recent") {
-        const dateA = a.lastOrderDate ? new Date(a.lastOrderDate).getTime() : 0;
-        const dateB = b.lastOrderDate ? new Date(b.lastOrderDate).getTime() : 0;
-        return dateB - dateA;
+  useEffect(() => {
+    if (!selectedCustomer?.id) return undefined;
+    let active = true;
+    const loadOrders = async () => {
+      try {
+        setCustomerOrdersLoading(true);
+        setCustomerOrdersError("");
+        const result = await getCustomerOrders(selectedCustomer.id, {
+          page: customerOrdersPage,
+          per_page: 10,
+          email: selectedCustomer.email && selectedCustomer.email !== "N/A" ? selectedCustomer.email : undefined,
+        });
+        if (!active) return;
+        setCustomerOrders(result.orders || []);
+        setCustomerOrdersTotal(result.total || 0);
+        setCustomerOrdersTotalPages(result.totalPages || 1);
+      } catch (requestError) {
+        if (!active) return;
+        setCustomerOrders([]);
+        setCustomerOrdersError(requestError.response?.data?.message || "Unable to load this customer’s order history.");
+      } finally {
+        if (active) setCustomerOrdersLoading(false);
       }
-      if (sortBy === "name_asc") {
-        return (a.name || "").localeCompare(b.name || "");
-      }
-      return 0;
-    });
+    };
+    loadOrders();
+    return () => { active = false; };
+  }, [selectedCustomer?.id, customerOrdersPage]);
 
-    return list;
-  }, [customers, sortBy]);
+  const openCustomerProfile = (customer) => {
+    setCustomerOrders([]);
+    setCustomerOrdersPage(1);
+    setSelectedCustomer(customer);
+  };
+
+  // Server-sorted customers list directly from API (database-level sorting across all records)
+  const processedCustomers = customers;
 
   // Format IST Date helper
   const formatISTDate = (dateStr) => {
@@ -362,6 +383,7 @@ function Customers() {
                       type="button"
                       onClick={() => {
                         setSortBy(opt.id);
+                        setPage(1);
                         setIsSortOpen(false);
                       }}
                       className={`flex w-full items-center justify-between px-3 py-2 text-xs font-semibold text-left transition ${
@@ -514,8 +536,8 @@ function Customers() {
 
                         {/* LTV */}
                         <td className="py-3.5 px-4">
-                          <div className="font-black text-gray-900 text-xs tracking-tight">
-                            ₹{(c.lifetimeSpent || 0).toLocaleString("en-IN")}
+                          <div className="font-black text-gray-900 text-xs tracking-tight tabular-nums">
+                            ₹{Math.round(Number(c.lifetimeSpent) || 0).toLocaleString("en-IN")}
                           </div>
                         </td>
 
@@ -530,7 +552,7 @@ function Customers() {
                         {/* Action Buttons */}
                         <td className="py-3.5 px-4 text-right">
                           <button
-                            onClick={() => setSelectedCustomer(c)}
+                            onClick={() => openCustomerProfile(c)}
                             className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-gray-700 shadow-sm hover:border-[#FF8A00] hover:text-[#FF8A00] hover:bg-amber-50/50 transition active:scale-95"
                           >
                             <Eye size={12} className="text-[#FF8A00]" />
@@ -575,7 +597,7 @@ function Customers() {
                     <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50/70 p-2.5 rounded-xl border border-gray-100">
                       <div>
                         <span className="text-[10px] text-gray-400 block font-semibold uppercase">Lifetime Value</span>
-                        <span className="font-black text-gray-900 text-xs">₹{(c.lifetimeSpent || 0).toLocaleString("en-IN")}</span>
+                        <span className="font-black text-gray-900 text-xs tabular-nums">₹{Math.round(Number(c.lifetimeSpent) || 0).toLocaleString("en-IN")}</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-gray-400 block font-semibold uppercase">Total Orders</span>
@@ -593,7 +615,7 @@ function Customers() {
                       </div>
 
                       <button
-                        onClick={() => setSelectedCustomer(c)}
+                        onClick={() => openCustomerProfile(c)}
                         className="inline-flex items-center gap-1 rounded-xl bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-[#FF8A00] hover:bg-[#FF8A00] hover:text-white transition"
                       >
                         <Eye size={12} />
@@ -669,20 +691,20 @@ function Customers() {
               <div className="grid grid-cols-3 gap-2.5 rounded-2xl bg-amber-50/40 p-3 sm:p-4 border border-amber-100/70 text-center">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Lifetime Spend</span>
-                  <div className="text-sm sm:text-base font-black text-gray-900 mt-0.5">
-                    ₹{(selectedCustomer.lifetimeSpent || 0).toLocaleString("en-IN")}
+                  <div className="text-sm sm:text-base font-black text-gray-900 mt-0.5 tabular-nums">
+                    ₹{Math.round(Number(selectedCustomer.lifetimeSpent) || 0).toLocaleString("en-IN")}
                   </div>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Total Orders</span>
-                  <div className="text-sm sm:text-base font-black text-[#FF8A00] mt-0.5">
+                  <div className="text-sm sm:text-base font-black text-[#FF8A00] mt-0.5 tabular-nums">
                     {selectedCustomer.ordersCount || 0}
                   </div>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Average Basket</span>
-                  <div className="text-sm sm:text-base font-black text-gray-900 mt-0.5">
-                    ₹{selectedCustomer.ordersCount > 0 ? Math.round(selectedCustomer.lifetimeSpent / selectedCustomer.ordersCount).toLocaleString("en-IN") : 0}
+                  <div className="text-sm sm:text-base font-black text-gray-900 mt-0.5 tabular-nums">
+                    ₹{selectedCustomer.ordersCount > 0 ? Math.round((Number(selectedCustomer.lifetimeSpent) || 0) / selectedCustomer.ordersCount).toLocaleString("en-IN") : 0}
                   </div>
                 </div>
               </div>
@@ -728,17 +750,22 @@ function Customers() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="font-extrabold uppercase tracking-wider text-gray-400 text-[10px] flex items-center gap-1.5">
-                    <ShoppingBag size={13} className="text-[#FF8A00]" /> Past Purchases ({selectedCustomer.orders?.length || 0})
+                    <ShoppingBag size={13} className="text-[#FF8A00]" /> Past Purchases ({customerOrdersTotal})
                   </h4>
+                  {customerOrdersTotalPages > 1 && <span className="text-[10px] font-semibold text-gray-400">Page {customerOrdersPage} of {customerOrdersTotalPages}</span>}
                 </div>
 
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {(selectedCustomer.orders || []).length === 0 ? (
+                  {customerOrdersLoading ? (
+                    <div className="p-4 text-center text-xs font-semibold text-gray-400">Loading order history…</div>
+                  ) : customerOrdersError ? (
+                    <div className="p-4 text-center text-xs font-semibold text-rose-500">{customerOrdersError}</div>
+                  ) : customerOrders.length === 0 ? (
                     <div className="p-4 text-center text-xs text-gray-400 bg-gray-50 rounded-xl">
                       No past orders recorded for this profile.
                     </div>
                   ) : (
-                    (selectedCustomer.orders || []).map((o) => (
+                    customerOrders.map((o) => (
                       <div
                         key={o.id}
                         className="flex items-center justify-between rounded-xl bg-gray-50/80 p-3 border border-gray-100 hover:bg-gray-100/60 transition"
@@ -748,6 +775,13 @@ function Customers() {
                           <div className="text-[10px] text-gray-500">
                             {formatISTDate(o.date)} • {o.payment_method}
                           </div>
+                          {o.items?.length > 0 && (
+                            <div className="pt-1 text-[10px] leading-relaxed text-gray-500">
+                              {o.items.map((item, index) => (
+                                <div key={`${item.product_id}-${index}`} className="truncate">{item.name} × {Number(item.quantity).toLocaleString("en-IN")}</div>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         <div className="text-right space-y-1">
@@ -764,6 +798,21 @@ function Customers() {
                     ))
                   )}
                 </div>
+                {customerOrdersTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      disabled={customerOrdersPage <= 1 || customerOrdersLoading}
+                      onClick={() => setCustomerOrdersPage((current) => Math.max(1, current - 1))}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+                    >Previous</button>
+                    <span className="text-[10px] text-gray-400">{customerOrdersTotal} orders total</span>
+                    <button
+                      disabled={customerOrdersPage >= customerOrdersTotalPages || customerOrdersLoading}
+                      onClick={() => setCustomerOrdersPage((current) => Math.min(customerOrdersTotalPages, current + 1))}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+                    >Next</button>
+                  </div>
+                )}
               </div>
             </div>
 
