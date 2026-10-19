@@ -63,7 +63,7 @@ function ProtectedRoute() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
       </div>
     );
   }
@@ -83,7 +83,7 @@ function ProtectedRoute() {
   if (checkingProfile) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
       </div>
     );
   }

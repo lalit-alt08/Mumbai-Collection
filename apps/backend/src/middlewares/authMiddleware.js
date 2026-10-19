@@ -1,6 +1,8 @@
+import crypto from "crypto";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import { logError } from "../utils/logger.js";
+import { getRedisClient } from "../config/redis.js";
 
 export const COOKIE_NAMES = {
   customer: {
@@ -22,6 +24,11 @@ const sessionCache = new Map();
 const SESSION_CACHE_TTL = 60 * 1000; // 60 seconds
 const SESSION_CACHE_MAX_SIZE = 5000; // Hard memory cap to prevent unbounded growth
 
+const hashCookieKey = (cookie) => {
+  if (!cookie) return "";
+  return crypto.createHash("sha256").update(String(cookie)).digest("hex").slice(0, 32);
+};
+
 export const setSessionCache = (cookie, data) => {
   if (sessionCache.size >= SESSION_CACHE_MAX_SIZE) {
     const oldestKey = sessionCache.keys().next().value;
@@ -30,9 +37,18 @@ export const setSessionCache = (cookie, data) => {
     }
   }
   sessionCache.set(cookie, data);
+
+  // Sync with distributed Redis if active
+  const redis = getRedisClient();
+  if (redis && cookie && data) {
+    try {
+      const keyHash = hashCookieKey(cookie);
+      redis.psetex(`sess:${keyHash}`, SESSION_CACHE_TTL, JSON.stringify(data)).catch(() => {});
+    } catch (_) {}
+  }
 };
 
-// Periodic cleanup every 5 minutes
+// Periodic cleanup every 5 minutes for local RAM
 setInterval(() => {
   const now = Date.now();
 
@@ -46,14 +62,28 @@ setInterval(() => {
 export const invalidateSessionCache = (cookie) => {
   if (cookie) {
     sessionCache.delete(cookie);
+    const redis = getRedisClient();
+    if (redis) {
+      try {
+        const keyHash = hashCookieKey(cookie);
+        redis.del(`sess:${keyHash}`).catch(() => {});
+      } catch (_) {}
+    }
   }
 };
 
 export const invalidateUserSessionCache = (userId) => {
   if (!userId) return;
+  const redis = getRedisClient();
   for (const [cookie, data] of sessionCache.entries()) {
     if (data.userId === userId || Number(data.userId) === Number(userId)) {
       sessionCache.delete(cookie);
+      if (redis) {
+        try {
+          const keyHash = hashCookieKey(cookie);
+          redis.del(`sess:${keyHash}`).catch(() => {});
+        } catch (_) {}
+      }
     }
   }
 };
@@ -76,9 +106,24 @@ const executeAuth = async (context, req, res, next) => {
     }
 
     const now = Date.now();
-    const cached = sessionCache.get(wpAuth);
+    let cached = sessionCache.get(wpAuth);
 
-    // 1. Use 60-second in-memory session cache
+    // If not in local process RAM, check distributed Redis cache across instances
+    if (!cached) {
+      const redis = getRedisClient();
+      if (redis) {
+        try {
+          const keyHash = hashCookieKey(wpAuth);
+          const redisData = await redis.get(`sess:${keyHash}`);
+          if (redisData) {
+            cached = JSON.parse(redisData);
+            sessionCache.set(wpAuth, cached);
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 1. Use 60-second session cache (from RAM or Redis)
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
       req.wpAuthCookie = wpAuth;
       req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || (context === "customer" ? req.cookies?.mumbai_wp_nonce : undefined);

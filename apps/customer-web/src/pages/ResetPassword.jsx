@@ -5,10 +5,12 @@ import {
   ArrowRight,
   CheckCircle,
   ArrowLeft,
+  Check,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../services/authService";
+import { validatePassword, getPasswordRuleChecks } from "../utils/passwordValidator.js";
 
 function ResetPassword() {
   const navigate = useNavigate();
@@ -29,6 +31,8 @@ function ResetPassword() {
 
   const [loading, setLoading] = useState(false);
 
+  const passwordChecks = getPasswordRuleChecks(password);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -44,11 +48,9 @@ function ResetPassword() {
 
     let hasError = false;
 
-    if (!password) {
-      setPasswordError("Password is required.");
-      hasError = true;
-    } else if (password.length < 8) {
-      setPasswordError("Password must be at least 8 characters.");
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      setPasswordError(passwordValidation.message);
       hasError = true;
     }
 
@@ -94,15 +96,15 @@ function ResetPassword() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white font-sans md:bg-[#F7F7FB]">
-      <div className="flex w-full flex-col px-6 pb-24 pt-8 md:w-[480px] md:rounded-[24px] md:bg-white md:px-10 md:py-12 md:shadow-[0_10px_40px_rgba(0,0,0,0.04)]">
+    <div className="flex min-h-screen items-center justify-center bg-[#0B1425] font-sans">
+      <div className="flex w-full flex-col px-6 pb-24 pt-8 md:w-[480px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-10 md:py-12 md:shadow-lg">
 
         {/* Back */}
 
         <button
           type="button"
           onClick={() => navigate("/login")}
-          className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-gray-600 transition hover:text-[#7C3AED]"
+          className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-[#8FA4BE] transition hover:text-[#42D6E8] cursor-pointer"
         >
           <ArrowLeft size={18} />
           Back to Sign In
@@ -111,11 +113,11 @@ function ResetPassword() {
         {/* Heading */}
 
         <div className="mb-8">
-          <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E1E1E] md:text-[32px]">
+          <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[32px]">
             Create New Password
           </h1>
 
-          <p className="mt-2 text-[15px] leading-relaxed text-gray-500 md:text-[16px]">
+          <p className="mt-2 text-[15px] leading-relaxed text-[#8FA4BE] md:text-[16px]">
             Choose a new password for your Mumbai Collection account.
           </p>
         </div>
@@ -123,7 +125,7 @@ function ResetPassword() {
         {/* Invalid token */}
 
         {!token ? (
-          <div className="rounded-2xl bg-red-50 p-5 text-sm font-medium text-red-600">
+          <div className="rounded-2xl border border-rose-900/60 bg-rose-950/40 p-5 text-sm font-medium text-rose-300">
             This password reset link is invalid.
           </div>
         ) : (
@@ -134,12 +136,12 @@ function ResetPassword() {
             {/* Password */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 New Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -152,10 +154,10 @@ function ResetPassword() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                     passwordError
-                      ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#7C3AED]"
+                      ? "border-rose-400 focus:border-rose-400"
+                      : "border-[#1E3252] focus:border-[#42D6E8]"
                   }`}
                   required
                 />
@@ -165,7 +167,7 @@ function ResetPassword() {
                   onClick={() =>
                     setShowPassword(!showPassword)
                   }
-                  className="absolute right-4 text-gray-400 transition-colors hover:text-gray-600"
+                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
                 >
                   {showPassword ? (
                     <EyeOff size={20} />
@@ -175,8 +177,28 @@ function ResetPassword() {
                 </button>
               </div>
 
+              {password.length > 0 && (
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#1E3252]/60 bg-[#080F1C]/80 p-2.5 text-xs text-[#8FA4BE]">
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
+                  </span>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
+                  </span>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
+                  </span>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
+                  </span>
+                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                    <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special character (!@#$%^&*)
+                  </span>
+                </div>
+              )}
+
               {passwordError && (
-                <p className="mt-2 text-sm text-red-600">
+                <p className="mt-2 text-sm text-rose-400">
                   {passwordError}
                 </p>
               )}
@@ -185,12 +207,12 @@ function ResetPassword() {
             {/* Confirm Password */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-gray-700">
+              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
                 Confirm New Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-gray-400">
+                <div className="absolute left-4 text-[#6E84A3]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -203,10 +225,10 @@ function ResetPassword() {
                     setConfirmPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-gray-50 pl-12 pr-12 text-[15px] text-gray-900 outline-none transition-all focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
                     confirmPasswordError
-                      ? "border-red-300 focus:border-red-400"
-                      : "border-gray-200 focus:border-[#7C3AED]"
+                      ? "border-rose-400 focus:border-rose-400"
+                      : "border-[#1E3252] focus:border-[#42D6E8]"
                   }`}
                   required
                 />
@@ -216,7 +238,7 @@ function ResetPassword() {
                   onClick={() =>
                     setShowConfirmPassword(!showConfirmPassword)
                   }
-                  className="absolute right-4 text-gray-400 transition-colors hover:text-gray-600"
+                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
                 >
                   {showConfirmPassword ? (
                     <EyeOff size={20} />
@@ -227,7 +249,7 @@ function ResetPassword() {
               </div>
 
               {confirmPasswordError && (
-                <p className="mt-2 text-sm text-red-600">
+                <p className="mt-2 text-sm text-rose-400">
                   {confirmPasswordError}
                 </p>
               )}
@@ -236,7 +258,7 @@ function ResetPassword() {
             {/* General Error */}
 
             {error && (
-              <div className="rounded-xl bg-red-50 p-4 text-[13px] font-medium text-red-600">
+              <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
                 {error}
               </div>
             )}
@@ -244,8 +266,8 @@ function ResetPassword() {
             {/* Success */}
 
             {success && (
-              <div className="flex items-center gap-3 rounded-xl bg-green-50 p-4 text-[13px] font-medium text-green-700">
-                <CheckCircle size={20} />
+              <div className="flex items-center gap-3 rounded-xl border border-[#1E3252] bg-[#132B45] p-4 text-[13px] font-medium text-[#67E8F9]">
+                <CheckCircle size={20} className="text-[#42D6E8]" />
                 <span>{success}</span>
               </div>
             )}
@@ -255,7 +277,7 @@ function ResetPassword() {
             <button
               type="submit"
               disabled={loading || !!success}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#7C3AED] text-[16px] font-bold text-white shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition-all hover:bg-[#6C35E8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Updating..." : "Reset Password"}
 

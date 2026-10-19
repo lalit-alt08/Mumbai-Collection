@@ -43,13 +43,14 @@ const Terms = lazy(() => import("../pages/Terms"));
 const PrivacyPolicy = lazy(() => import("../pages/PrivacyPolicy"));
 const Categories = lazy(() => import("../pages/Categories"));
 const Favorites = lazy(() => import("../pages/Favorites"));
+const RecentlyViewed = lazy(() => import("../pages/RecentlyViewed"));
 
 import { CartRouteManager } from "../context/CartContext";
 
 function RouteLoadingFallback() {
   return (
     <div className="flex min-h-[50vh] w-full items-center justify-center">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
     </div>
   );
 }
@@ -66,6 +67,7 @@ function AppRouter() {
             <Route path="/cart" element={<Cart />} />
             <Route path="/checkout" element={<Navigate to="/cart" replace />} />
             <Route path="/favorites" element={<Favorites />} />
+            <Route path="/recently-viewed" element={<RecentlyViewed />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/category" element={<Navigate to="/categories" replace />} />
 

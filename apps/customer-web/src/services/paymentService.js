@@ -11,12 +11,15 @@
 
 import axios from "axios";
 import API_URL from "../config/api.js";
+import { attachStaleConnectionRetry } from "../utils/resilientAxios.js";
 
 const API = axios.create({
   baseURL: `${API_URL}/payments`,
   withCredentials: true,
   timeout: 30000,
 });
+
+attachStaleConnectionRetry(API);
 
 /**
  * Creates or reuses a payment order on the backend.
@@ -59,9 +62,26 @@ export const checkPaymentStatus = async (razorpayOrderId) => {
   return response.data;
 };
 
+/**
+ * Explicitly cancels an incomplete checkout session and releases reserved inventory.
+ *
+ * @param {string} razorpayOrderId
+ * @returns {Promise<Object>}
+ */
+export const cancelPaymentOrder = async (razorpayOrderId) => {
+  try {
+    const response = await API.post("/cancel", { razorpay_order_id: razorpayOrderId });
+    return response.data;
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
 export default {
   createPaymentOrder,
   verifyPayment,
   checkPaymentStatus,
+  cancelPaymentOrder,
 };
+
 

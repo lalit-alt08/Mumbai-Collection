@@ -27,7 +27,7 @@ import {
   ArrowRight,
   MoreVertical,
 } from "lucide-react";
-import { getOrders, updateOrderStatus } from "../services/employeeApi.js";
+import { getOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl } from "../services/employeeApi.js";
 import {
   triggerNewOrderNotification,
   requestNotificationPermission,
@@ -291,11 +291,53 @@ function Orders() {
   useEffect(() => {
     fetchOrderList(false);
 
+    let eventSource = null;
+    let isReconnecting = false;
+
+    // Connect to real-time Server-Sent Events stream for instantaneous order notifications
+    const setupEventSource = () => {
+      try {
+        const streamUrl = getEmployeeOrderStreamUrl();
+        eventSource = new EventSource(streamUrl, { withCredentials: true });
+
+        eventSource.onopen = () => {
+          // If reconnected after network blip or server restart, immediately refetch to catch missed events
+          if (isReconnecting) {
+            fetchOrderList(true);
+            isReconnecting = false;
+          }
+        };
+
+        eventSource.addEventListener("order_event", (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data?.event === "ORDER_CREATED" || data?.event === "ORDER_STATUS_UPDATED") {
+              // Refetch from authoritative authenticated API to safely load complete order data
+              fetchOrderList(true);
+            }
+          } catch (_) {
+            fetchOrderList(true);
+          }
+        });
+
+        eventSource.onerror = () => {
+          // Flag reconnection so that upon next onopen, we pull fresh state
+          isReconnecting = true;
+        };
+      } catch (err) {
+        // Fallback to polling if EventSource initialization is unsupported or blocked
+        isReconnecting = true;
+      }
+    };
+
+    setupEventSource();
+
+    // Slower safety-net polling fallback (45 seconds) to handle sleeping tabs or missed events
     const startPolling = () => {
       if (!pollTimerRef.current) {
         pollTimerRef.current = setInterval(() => {
           fetchOrderList(true);
-        }, 25000);
+        }, 45000);
       }
     };
 
@@ -308,6 +350,7 @@ function Orders() {
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
+        // Tab brought to foreground: immediately sync latest diff
         fetchOrderList(true);
       }
     };
@@ -316,6 +359,10 @@ function Orders() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -502,6 +549,43 @@ function Orders() {
       setUpdatingIds((prev) => {
         const next = new Set(prev);
         next.delete(orderId);
+        return next;
+      });
+    }
+  };
+
+  const handleSendRefundEmail = async (order) => {
+    if (!order || updatingIds.has(order.id)) return;
+    const alreadySent = order.manual_refund_email_sent_at ||
+      order.meta_data?.find((meta) => meta.key === "_manual_refund_email_sent_at")?.value;
+    if (alreadySent) {
+      showToast("A refund email has already been sent for this order.", "error");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Send a refund email to this customer? This only sends the email; process the actual refund separately first."
+    );
+    if (!confirmed) return;
+
+    setIsStatusDropdownOpen(false);
+    setUpdatingIds((prev) => new Set(prev).add(order.id));
+    try {
+      const result = await sendOrderRefundEmail(order.id);
+      const sentAt = result?.sent_at || new Date().toISOString();
+      const meta = { key: "_manual_refund_email_sent_at", value: sentAt };
+      setOrders((prev) => prev.map((item) => item.id === order.id
+        ? { ...item, manual_refund_email_sent_at: sentAt, meta_data: [...(item.meta_data || []).filter((entry) => entry.key !== meta.key), meta] }
+        : item));
+      setSelectedOrder((prev) => prev?.id === order.id
+        ? { ...prev, manual_refund_email_sent_at: sentAt, meta_data: [...(prev.meta_data || []).filter((entry) => entry.key !== meta.key), meta] }
+        : prev);
+      showToast(result?.message || "Refund email sent.");
+    } catch (err) {
+      showToast(err.response?.data?.message || err.message || "Could not send refund email.", "error");
+    } finally {
+      setUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(order.id);
         return next;
       });
     }
@@ -1528,7 +1612,7 @@ function Orders() {
 
                     {/* Custom In-DOM Dropdown Menu */}
                     {isStatusDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 z-40 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-60 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="absolute top-full left-0 right-0 z-40 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
                         {STATUS_OPTIONS.map((option) => {
                           const isSelected = selectedOrder.status === option.value;
                           return (
@@ -1557,6 +1641,25 @@ function Orders() {
                             </button>
                           );
                         })}
+                        {(() => {
+                          const refundEmailSent = selectedOrder.manual_refund_email_sent_at ||
+                            selectedOrder.meta_data?.find((meta) => meta.key === "_manual_refund_email_sent_at")?.value;
+                          const refundEmailLabel = String(refundEmailSent || "").startsWith("sending:")
+                            ? "Refund email pending"
+                            : "Refund email sent";
+                          return (
+                            <button
+                              type="button"
+                              disabled={updatingIds.has(selectedOrder.id) || Boolean(refundEmailSent)}
+                              onClick={() => handleSendRefundEmail(selectedOrder)}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-left font-semibold text-rose-700 transition hover:bg-rose-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Mail size={14} className="shrink-0" />
+                              <span>{refundEmailSent ? refundEmailLabel : "Send refund email"}</span>
+                              {refundEmailSent && <Check size={14} className="ml-auto text-emerald-600" />}
+                            </button>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

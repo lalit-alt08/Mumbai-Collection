@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { ArrowLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "lucide-react";
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
+import CartCrossSells from "../components/cart/CartCrossSells";
 import SharedCartModal from "../components/cart/SharedCartModal";
 import BillingForm from "../components/checkout/BillingForm";
 import { checkPaymentStatus } from "../services/paymentService";
@@ -525,7 +526,7 @@ function Cart() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
       </div>
     );
   }
@@ -556,30 +557,30 @@ function Cart() {
   return (
     <div className={`mx-auto w-full max-w-[700px] ${isCartEmpty ? "pb-6" : "pb-56"} lg:pb-20 md:pt-4`}>
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between rounded-[22px] bg-white px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.03)] md:mb-6">
+      <div className="mb-4 flex items-center justify-between rounded-[22px] bg-[#111F36] border border-[#1E3252]/80 px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.2)] md:mb-6">
         <button
           onClick={() => navigate(-1)}
           aria-label="Go back"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100/80 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#132B45] text-[#F1F5F9] border border-[#1E3252] transition-transform hover:scale-105 active:scale-95 cursor-pointer"
         >
           <ArrowLeft size={20} strokeWidth={2.4} />
         </button>
-        <h1 className="text-[18px] font-bold text-[#1E1E1E]">My Cart</h1>
+        <h1 className="text-[18px] font-bold text-[#F1F5F9]">My Cart</h1>
         <div className="relative">
           <button
             onClick={handleShareCart}
             aria-label="Share cart"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-gray-100/80 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#132B45] text-[#F1F5F9] border border-[#1E3252] transition-transform hover:scale-105 active:scale-95 cursor-pointer"
           >
             {shareFeedback ? (
-              <Check size={18} className="text-emerald-600" />
+              <Check size={18} className="text-[#42D6E8]" />
             ) : (
               <Share size={18} strokeWidth={2.2} />
             )}
           </button>
           {shareFeedback && (
-            <div className="absolute right-0 top-12 z-20 whitespace-nowrap rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out] flex items-center gap-1.5">
-              <Check size={13} className="text-emerald-400" />
+            <div className="absolute right-0 top-12 z-20 whitespace-nowrap rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out] flex items-center gap-1.5 border border-[#1E3252]">
+              <Check size={13} className="text-[#42D6E8]" />
               <span>{shareFeedback}</span>
             </div>
           )}
@@ -588,16 +589,16 @@ function Cart() {
 
       {/* Shared Cart Top Prompt Banner (When modal closed but URL still has query) */}
       {hasSharedBanner && (
-        <div className="mb-4 rounded-2xl bg-gradient-to-r from-purple-50 via-white to-purple-50 border border-[#7C3AED]/25 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+        <div className="mb-4 rounded-2xl bg-[#111F36] border border-[#42D6E8]/30 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7C3AED]/10 text-[#7C3AED]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
               <ShoppingBag size={20} />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#1F2937]">
+              <p className="text-xs font-bold text-[#F1F5F9]">
                 Someone shared a cart with you
               </p>
-              <p className="text-[11px] text-gray-500 font-medium">
+              <p className="text-[11px] text-[#8FA4BE] font-medium">
                 {sharedItems.length} item{sharedItems.length === 1 ? "" : "s"} ready to review
               </p>
             </div>
@@ -605,13 +606,13 @@ function Cart() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSharedModalOpen(true)}
-              className="rounded-xl bg-[#7C3AED] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#6C35E8] transition active:scale-95 cursor-pointer"
+              className="rounded-xl bg-[#42D6E8] px-3.5 py-1.5 text-xs font-black text-[#061220] hover:bg-[#2CC4D8] hover:text-[#061220] transition active:scale-95 cursor-pointer"
             >
               View Items
             </button>
             <button
               onClick={() => navigate("/cart", { replace: true })}
-              className="rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition cursor-pointer"
+              className="rounded-xl border border-[#1E3252] bg-transparent px-2.5 py-1.5 text-xs font-medium text-[#8FA4BE] hover:bg-[#162744] transition cursor-pointer"
             >
               Dismiss
             </button>
@@ -621,15 +622,15 @@ function Cart() {
 
       {isCartEmpty ? (
         <div className="mx-auto flex max-w-[700px] flex-col items-center justify-center px-6 py-20 text-center">
-          <h1 className="mb-4 text-[24px] font-bold text-[#1E1E1E]">
+          <h1 className="mb-4 text-[24px] font-bold text-[#F1F5F9]">
             Your Cart is Empty
           </h1>
-          <p className="mb-8 text-[#444444]">
+          <p className="mb-8 text-[#8FA4BE]">
             Looks like you haven&apos;t added anything to your cart yet.
           </p>
           <button
             onClick={() => navigate("/")}
-            className="rounded-full bg-[#7C3AED] px-8 py-3.5 font-semibold text-white transition-all hover:bg-[#6C35E8] active:scale-95 shadow-[0_4px_20px_rgba(124,58,237,0.2)] cursor-pointer"
+            className="rounded-full bg-[#42D6E8] px-8 py-3.5 font-black text-[#061220] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 shadow-[0_4px_20px_rgba(66,214,232,0.3)] cursor-pointer"
           >
             Start Shopping
           </button>
@@ -638,16 +639,16 @@ function Cart() {
         <div className="space-y-5">
           {/* Out of Stock Notice Banner */}
           {hasOutOfStockItems && (
-            <div className="rounded-[22px] bg-rose-50 border border-rose-200/90 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="rounded-[22px] bg-rose-950/40 border border-rose-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-900/50 text-rose-300 border border-rose-800/60">
                   <AlertTriangle size={20} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs sm:text-[13px] font-bold text-rose-900 leading-snug">
+                  <p className="text-xs sm:text-[13px] font-bold text-rose-200 leading-snug">
                     {outOfStockItems.length} item{outOfStockItems.length > 1 ? "s" : ""} sold out in your cart
                   </p>
-                  <p className="text-[11px] text-rose-700 leading-tight">
+                  <p className="text-[11px] text-rose-400 leading-tight">
                     Please remove unavailable items to proceed to checkout.
                   </p>
                 </div>
@@ -655,7 +656,7 @@ function Cart() {
               <button
                 type="button"
                 onClick={handleRemoveAllOutOfStock}
-                className="flex items-center gap-1.5 rounded-xl bg-white border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 shadow-xs hover:bg-rose-100 transition active:scale-95 cursor-pointer flex-shrink-0"
+                className="flex items-center gap-1.5 rounded-xl bg-rose-900/60 border border-rose-700/60 px-3 py-1.5 text-xs font-bold text-rose-200 shadow-xs hover:bg-rose-800/60 transition active:scale-95 cursor-pointer flex-shrink-0"
               >
                 <Trash2 size={13} />
                 Remove All
@@ -689,6 +690,8 @@ function Cart() {
               );
             })}
           </div>
+
+          <CartCrossSells items={cart.items} />
 
           {/* Bill Summary, Policies */}
           <CartSummary

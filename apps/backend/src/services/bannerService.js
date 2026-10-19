@@ -3,40 +3,9 @@ import { httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
 
 /**
- * Default fallback banners if WordPress options are empty or during first setup
+ * Default banners empty fallback
  */
-export const DEFAULT_BANNERS = [
-  {
-    id: "default-1",
-    title: "Art & Crafts Collection",
-    link: "/category/art",
-    desktop_image: "/banner/Art.webp",
-    desktop_media_id: null,
-    mobile_image: "/banner/Art.webp",
-    mobile_media_id: null,
-    is_active: true,
-  },
-  {
-    id: "default-2",
-    title: "Playstation & Gaming",
-    link: "/category/playstation",
-    desktop_image: "/banner/Playstation.webp",
-    desktop_media_id: null,
-    mobile_image: "/banner/Playstation.webp",
-    mobile_media_id: null,
-    is_active: true,
-  },
-  {
-    id: "default-3",
-    title: "Toys and Fun",
-    link: "/category/toys",
-    desktop_image: "/banner/Toys.webp",
-    desktop_media_id: null,
-    mobile_image: "/banner/Toys.webp",
-    mobile_media_id: null,
-    is_active: true,
-  },
-];
+export const DEFAULT_BANNERS = [];
 
 // In-memory cache: { data: Array, timestamp: number }
 let bannersCache = null;

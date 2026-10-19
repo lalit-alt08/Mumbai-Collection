@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  PackagePlus,
-  ArrowLeft,
   Upload,
   Image as ImageIcon,
   Check,
@@ -14,6 +12,9 @@ import {
   Plus,
   Trash2,
   Camera,
+  ChevronDown,
+  Maximize2,
+  Tag,
 } from "lucide-react";
 import {
   createProduct,
@@ -52,6 +53,7 @@ function AddProduct() {
   // Categories State
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
 
   // Media / Image Upload State
   const [images, setImages] = useState([]); // [{ file, preview, url, uploaded, uploading }]
@@ -63,6 +65,7 @@ function AddProduct() {
 
   // Toast Notification State
   const [toast, setToast] = useState(null);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -245,6 +248,11 @@ function AddProduct() {
       return;
     }
 
+    if (!formData.category_id) {
+      setError("Please select a product category.");
+      return;
+    }
+
     const regPrice = Number(formData.regular_price);
     if (isNaN(regPrice) || regPrice < 0) {
       setError("Please enter a valid regular price.");
@@ -369,27 +377,6 @@ function AddProduct() {
         </div>
       )}
 
-      {/* Header & Back Navigation */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <Link
-              to="/products"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
-            >
-              <ArrowLeft size={14} /> Back to Products
-            </Link>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 mt-2 flex items-center gap-2">
-            <PackagePlus size={24} className="text-emerald-600" />
-            Add New Product
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Create a complete product and add it to the store catalog.
-          </p>
-        </div>
-      </div>
-
       {/* Success Banner if Product Created */}
       {createdProduct ? (
         <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-6 sm:p-8 text-center space-y-4 shadow-sm animate-in zoom-in-95 duration-200">
@@ -434,8 +421,8 @@ function AddProduct() {
 
           {/* TWO-COLUMN GRID */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* LEFT COLUMN: Product Information (2 Columns) */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-xs space-y-5 lg:col-span-2">
+            {/* Product Information */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-xs space-y-5 lg:col-span-3">
               <h2 className="text-sm font-black uppercase tracking-wider text-gray-900 border-b border-gray-100 pb-3">
                 General Product Information
               </h2>
@@ -455,52 +442,6 @@ function AddProduct() {
                   className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-4 py-2.5 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
                 />
               </div>
-
-              {/* Product Description */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Product Description
-                </label>
-                <textarea
-                  rows={6}
-                  name="description"
-                  value={formData.description}
-                  onChange={handleChange}
-                  placeholder="Write a clear description of the product, including key features, specifications, compatibility, and other useful information..."
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 p-4 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition leading-relaxed"
-                />
-                <p className="text-[11px] text-gray-400">
-                  This description is displayed on Customer Web product detail pages.
-                </p>
-              </div>
-
-              {/* Product Category */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Product Category (Optional)
-                </label>
-                <select
-                  name="category_id"
-                  value={formData.category_id}
-                  onChange={handleChange}
-                  disabled={loadingCategories}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition cursor-pointer"
-                >
-                  <option value="">Select Category...</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.count !== undefined ? `(${c.count})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* RIGHT COLUMN: Pricing & Inventory (1 Column) */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-xs space-y-5 flex flex-col">
-              <h2 className="text-sm font-black uppercase tracking-wider text-gray-900 border-b border-gray-100 pb-3">
-                Pricing & Inventory
-              </h2>
 
               {/* Regular Price */}
               <div className="space-y-1.5">
@@ -547,6 +488,84 @@ function AddProduct() {
                 </div>
               </div>
 
+              {/* Product Category */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700">
+                  Product Category <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded={categoryMenuOpen}
+                    aria-required="true"
+                    disabled={loadingCategories || categories.length === 0}
+                    onClick={() => setCategoryMenuOpen((open) => !open)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setCategoryMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-xl border bg-white px-3.5 py-3 text-left shadow-xs outline-none transition focus:ring-4 focus:ring-emerald-500/10 disabled:cursor-wait disabled:bg-gray-50 ${
+                      categoryMenuOpen
+                        ? "border-emerald-500"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                      <Tag size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-sm font-semibold ${formData.category_id ? "text-gray-900" : "text-gray-500"}`}>
+                        {loadingCategories
+                          ? "Loading categories…"
+                          : categories.find((category) => String(category.id) === String(formData.category_id))?.name || (categories.length ? "Select a category" : "No categories available")}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-gray-400">
+                        {formData.category_id ? "Product category" : "Choose one category for this product"}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      size={16}
+                      className={`shrink-0 text-gray-400 transition-transform ${categoryMenuOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {categoryMenuOpen && (
+                    <div
+                      role="listbox"
+                      aria-label="Product categories"
+                      className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-56 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl shadow-gray-900/10"
+                    >
+                      {categories.map((category) => {
+                        const selected = String(category.id) === String(formData.category_id);
+                        return (
+                          <button
+                            key={category.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => {
+                              setFormData((previous) => ({ ...previous, category_id: String(category.id) }));
+                              setCategoryMenuOpen(false);
+                              if (error) setError("");
+                            }}
+                            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition ${
+                              selected ? "bg-emerald-50 text-emerald-800" : "text-gray-700 hover:bg-gray-50"
+                            }`}
+                          >
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${selected ? "bg-emerald-600" : "bg-gray-200"}`} />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{category.name}</span>
+                            {category.count !== undefined && (
+                              <span className="shrink-0 text-xs text-gray-400">{category.count}</span>
+                            )}
+                            {selected && <Check size={15} className="shrink-0 text-emerald-700" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Stock Quantity */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
@@ -568,30 +587,37 @@ function AddProduct() {
                 </p>
               </div>
 
-              {/* Stock Summary Preview Badge */}
-              <div className="rounded-xl bg-slate-50 p-4 border border-slate-200/60 mt-auto space-y-1.5">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  Initial Inventory Status
-                </span>
-                <div>
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                      Number(formData.stock_quantity) <= 0
-                        ? "bg-rose-50 text-rose-700 border border-rose-200"
-                        : Number(formData.stock_quantity) <= 5
-                        ? "bg-amber-50 text-amber-700 border border-amber-200"
-                        : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    }`}
+              {/* Product Description */}
+              <div className="space-y-1.5">
+                <label htmlFor="product-description" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Product Description
+                </label>
+                <div className="relative">
+                  <textarea
+                    id="product-description"
+                    rows={2}
+                    name="description"
+                    value={formData.description}
+                    onChange={handleChange}
+                    placeholder="Add a short product description..."
+                    className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-3.5 pr-12 text-xs font-medium leading-relaxed text-gray-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsDescriptionExpanded(true)}
+                    aria-label="Open full description editor"
+                    title="Expand description"
+                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 shadow-xs transition hover:border-emerald-300 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                   >
-                    {Number(formData.stock_quantity) <= 0
-                      ? "Out of Stock"
-                      : Number(formData.stock_quantity) <= 5
-                      ? "Low Stock"
-                      : "In Stock"}
-                  </span>
+                    <Maximize2 size={14} />
+                  </button>
                 </div>
+                <p className="text-[11px] text-gray-400">
+                  Shown on product details. Use the expand button for the full editor.
+                </p>
               </div>
             </div>
+
           </div>
 
           {/* PRODUCT IMAGE UPLOAD SECTION (Max 3 Images) */}
@@ -764,7 +790,7 @@ function AddProduct() {
             <button
               type="submit"
               disabled={submitting || images.some((img) => img.uploading)}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-emerald-500 transition active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="mx-auto inline-flex w-[94%] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:mx-0 sm:w-auto"
             >
               {submitting ? (
                 <>
@@ -785,6 +811,61 @@ function AddProduct() {
             </button>
           </div>
         </form>
+      )}
+
+      {isDescriptionExpanded && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]"
+          onClick={() => setIsDescriptionExpanded(false)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setIsDescriptionExpanded(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="description-editor-title"
+            className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl sm:p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 id="description-editor-title" className="text-base font-bold text-gray-900">
+                  Product description
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  Add the details customers need to know about this product.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDescriptionExpanded(false)}
+                aria-label="Close description editor"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:bg-gray-50 hover:text-gray-800"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              rows={12}
+              name="description"
+              value={formData.description}
+              onChange={handleChange}
+              placeholder="Write a clear description, including key features, specifications, compatibility, and other useful information…"
+              className="w-full resize-y rounded-xl border border-gray-200 bg-gray-50/50 p-4 text-sm leading-6 text-gray-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
+            />
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsDescriptionExpanded(false)}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
+              >
+                Done
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );

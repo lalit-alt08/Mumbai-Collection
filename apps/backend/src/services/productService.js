@@ -51,6 +51,28 @@ export const fetchProductById = async (id) => {
   return product;
 };
 
+export const fetchProductsByIds = async (rawIds = []) => {
+  const ids = [...new Set(rawIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 12);
+  if (ids.length === 0) return [];
+
+  const response = await api.get("products", {
+    status: "publish",
+    include: ids.join(","),
+    orderby: "include",
+    per_page: ids.length,
+  });
+
+  if (!Array.isArray(response.data)) {
+    throw new Error("Invalid WooCommerce selected-products response");
+  }
+
+  return response.data.filter((product) =>
+    product &&
+    (!product.status || product.status === "publish") &&
+    product.catalog_visibility !== "hidden"
+  );
+};
+
 export const fetchRelatedProducts = async (
   categoryId,
   currentProductId

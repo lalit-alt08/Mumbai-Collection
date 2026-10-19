@@ -122,7 +122,7 @@ function ProductGallery({ product }) {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] backdrop-blur-md transition-transform hover:scale-105 cursor-pointer"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111F36]/95 text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#1E3252] backdrop-blur-md transition-transform hover:scale-105 cursor-pointer"
         >
           <ArrowLeft size={20} strokeWidth={2.5} />
         </button>
@@ -131,14 +131,14 @@ function ProductGallery({ product }) {
           <button
             onClick={handleToggleFav}
             aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] backdrop-blur-md transition-all hover:scale-105 active:scale-125 cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111F36]/95 text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#1E3252] backdrop-blur-md transition-all hover:scale-110 active:scale-125 cursor-pointer"
           >
             <Heart
               size={20}
               className={`transition-all duration-300 ${
                 favorited
-                  ? "fill-[#7C3AED] text-[#7C3AED] scale-110"
-                  : "text-[#1F2937] hover:text-[#7C3AED]"
+                  ? "fill-[#42D6E8] text-[#42D6E8] scale-110"
+                  : "text-white hover:text-[#42D6E8]"
               }`}
             />
           </button>
@@ -147,17 +147,17 @@ function ProductGallery({ product }) {
           <button
             onClick={handleShare}
             aria-label="Share product"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[#1F2937] shadow-[0_4px_12px_rgba(0,0,0,0.08)] backdrop-blur-md transition-transform hover:scale-105 cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111F36]/95 text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#1E3252] backdrop-blur-md transition-transform hover:scale-105 cursor-pointer"
           >
-            {shareFeedback ? <Check size={18} className="text-emerald-600" /> : <Share2 size={19} />}
+            {shareFeedback ? <Check size={18} className="text-[#42D6E8]" /> : <Share2 size={19} />}
           </button>
         </div>
       </div>
 
       {/* Share Toast Notification */}
       {shareFeedback && (
-        <div className="absolute top-16 right-4 z-20 flex items-center gap-1.5 rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
-          <Check size={13} className="text-emerald-400" />
+        <div className="absolute top-16 right-4 z-20 flex items-center gap-1.5 rounded-xl bg-[#111F36] border border-[#1E3252] px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
+          <Check size={13} className="text-[#42D6E8]" />
           <span>{shareFeedback}</span>
         </div>
       )}
@@ -185,14 +185,14 @@ function ProductGallery({ product }) {
             <button
               onClick={handlePrev}
               aria-label="Previous image"
-              className="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-gray-700 shadow-md backdrop-blur-xs transition-all hover:bg-white hover:scale-110 cursor-pointer"
+              className="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-md border border-[#1E3252] backdrop-blur-xs transition-all hover:bg-[#162744] hover:scale-110 cursor-pointer"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               onClick={handleNext}
               aria-label="Next image"
-              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-gray-700 shadow-md backdrop-blur-xs transition-all hover:bg-white hover:scale-110 cursor-pointer"
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-md border border-[#1E3252] backdrop-blur-xs transition-all hover:bg-[#162744] hover:scale-110 cursor-pointer"
             >
               <ChevronRight size={20} />
             </button>
@@ -211,10 +211,10 @@ function ProductGallery({ product }) {
                 key={img.id || index}
                 onClick={() => setSelectedIndex(index)}
                 aria-label={`View image ${index + 1}`}
-                className={`relative flex h-16 w-16 sm:h-18 sm:w-18 items-center justify-center rounded-xl overflow-hidden bg-[#FAFBFD] p-1 transition-all duration-300 cursor-pointer ${
+                className={`relative flex h-16 w-16 sm:h-18 sm:w-18 items-center justify-center rounded-xl overflow-hidden bg-[#080F1C] p-1 transition-all duration-300 cursor-pointer ${
                   isSelected
-                    ? "border-2 border-[#7C3AED] ring-2 ring-[#7C3AED]/20 shadow-xs scale-105"
-                    : "border border-gray-200 opacity-60 hover:opacity-100 hover:border-gray-300"
+                    ? "border-2 border-[#42D6E8] ring-2 ring-[#42D6E8]/25 shadow-xs scale-105"
+                    : "border border-[#1E3252] opacity-60 hover:opacity-100 hover:border-[#42D6E8]/60"
                 }`}
               >
                 <img

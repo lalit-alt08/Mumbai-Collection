@@ -64,8 +64,9 @@ function Products() {
   // Category filter state
   const [categories, setCategories] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState(urlCategoryParam || "all");
-  const [isMobileCategoryOpen, setIsMobileCategoryOpen] = useState(false);
-  const mobileCategoryRef = useRef(null);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [categorySearchQuery, setCategorySearchQuery] = useState("");
+  const categoryDropdownRef = useRef(null);
 
   // Pagination & Per-Page state (20 / 50 / 100)
   const [page, setPage] = useState(1);
@@ -271,19 +272,19 @@ function Products() {
     };
   }, []);
 
-  // Close mobile category dropdown on outside click or Escape
+  // Close category dropdown on outside click or Escape
   useEffect(() => {
-    if (!isMobileCategoryOpen) return;
+    if (!isCategoryDropdownOpen) return;
 
     const handleClickOutside = (event) => {
-      if (mobileCategoryRef.current && !mobileCategoryRef.current.contains(event.target)) {
-        setIsMobileCategoryOpen(false);
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target)) {
+        setIsCategoryDropdownOpen(false);
       }
     };
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        setIsMobileCategoryOpen(false);
+        setIsCategoryDropdownOpen(false);
       }
     };
 
@@ -296,7 +297,7 @@ function Products() {
       document.removeEventListener("touchstart", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isMobileCategoryOpen]);
+  }, [isCategoryDropdownOpen]);
 
   const fetchProductList = async () => {
     const currentRequestId = ++requestIdRef.current;
@@ -594,14 +595,12 @@ function Products() {
   // Server-side filtering and pagination are authoritative
   const displayedProducts = products;
 
-  // Selected category label helper
+  // Selected category label and list helpers
   const selectedCategoryObj = categories.find((c) => String(c.id) === String(categoryFilter));
-  const selectedCategoryLabel =
-    categoryFilter === "all"
-      ? "All Categories"
-      : selectedCategoryObj
-      ? `${selectedCategoryObj.name} ${selectedCategoryObj.count !== undefined ? `(${selectedCategoryObj.count})` : ""}`
-      : "All Categories";
+  const totalCategoryProductsCount = categories.reduce((sum, c) => sum + (Number(c.count) || 0), 0);
+  const filteredCategories = categories.filter((c) =>
+    c.name.toLowerCase().includes(categorySearchQuery.trim().toLowerCase())
+  );
 
   // Stock filter tabs with authoritative counts from server (Low Stock removed as API doesn't support it)
   const stockFilterTabs = [
@@ -684,108 +683,178 @@ function Products() {
           })}
         </div>
 
-        {/* Mobile Custom Category Dropdown (<640px) */}
-        <div className="block sm:hidden relative w-full" ref={mobileCategoryRef}>
+        {/* Unified Category Filter Dropdown (Responsive: Mobile + Desktop) */}
+        <div className="relative w-full sm:w-auto" ref={categoryDropdownRef}>
           <button
             type="button"
-            onClick={() => setIsMobileCategoryOpen((prev) => !prev)}
+            onClick={() => setIsCategoryDropdownOpen((prev) => !prev)}
             aria-haspopup="listbox"
-            aria-expanded={isMobileCategoryOpen}
-            className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-2xs transition cursor-pointer active:scale-[0.99]"
+            aria-expanded={isCategoryDropdownOpen}
+            className={`w-full sm:w-auto min-w-[210px] h-10 flex items-center justify-between gap-2.5 rounded-xl border px-3.5 text-xs font-bold transition-all cursor-pointer shadow-2xs select-none active:scale-[0.99] ${
+              categoryFilter !== "all"
+                ? "border-emerald-500 bg-emerald-50/70 text-emerald-950 ring-2 ring-emerald-500/15"
+                : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50/80"
+            } ${isCategoryDropdownOpen ? "ring-2 ring-emerald-500/20 border-emerald-500" : ""}`}
           >
             <div className="flex items-center gap-2 min-w-0">
-              <Filter size={13} className="text-gray-400 shrink-0" />
-              <span className="truncate">{selectedCategoryLabel}</span>
+              <Filter
+                size={14}
+                className={`shrink-0 transition-colors ${
+                  categoryFilter !== "all" ? "text-emerald-600" : "text-gray-400"
+                }`}
+              />
+              <span className="truncate">
+                {selectedCategoryObj ? selectedCategoryObj.name : "All Categories"}
+              </span>
+              {selectedCategoryObj?.count !== undefined && (
+                <span className="rounded-full bg-emerald-200/80 text-emerald-800 text-[10px] font-black px-1.5 py-0.5 shrink-0">
+                  {selectedCategoryObj.count}
+                </span>
+              )}
             </div>
-            <ChevronDown
-              size={14}
-              className={`text-gray-400 transition-transform duration-200 shrink-0 ml-2 ${
-                isMobileCategoryOpen ? "rotate-180 text-emerald-600" : ""
-              }`}
-            />
+
+            <div className="flex items-center gap-1.5 shrink-0 ml-1">
+              {categoryFilter !== "all" && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCategoryFilterChange("all");
+                    setIsCategoryDropdownOpen(false);
+                    setCategorySearchQuery("");
+                  }}
+                  title="Clear category filter"
+                  className="p-1 rounded-md text-emerald-700 hover:bg-emerald-200/70 hover:text-emerald-950 transition cursor-pointer"
+                >
+                  <X size={13} />
+                </span>
+              )}
+              <ChevronDown
+                size={14}
+                className={`text-gray-400 transition-transform duration-200 ${
+                  isCategoryDropdownOpen ? "rotate-180 text-emerald-600" : ""
+                }`}
+              />
+            </div>
           </button>
 
-          {isMobileCategoryOpen && (
+          {/* Custom Dropdown Popover */}
+          {isCategoryDropdownOpen && (
             <div
               role="listbox"
               aria-label="Filter by Category"
-              className="absolute top-full left-0 right-0 z-30 mt-1.5 w-full rounded-2xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-60 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150"
+              className="absolute top-full left-0 sm:left-auto sm:right-0 z-40 mt-1.5 w-full sm:w-[280px] rounded-2xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1.5 animate-in fade-in zoom-in-95 duration-150"
             >
-              <button
-                type="button"
-                role="option"
-                aria-selected={categoryFilter === "all"}
-                onClick={() => {
-                  handleCategoryFilterChange("all");
-                  setIsMobileCategoryOpen(false);
-                }}
-                className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
-                  categoryFilter === "all"
-                    ? "bg-emerald-50 text-emerald-900 font-extrabold"
-                    : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
-                }`}
-              >
-                <span>All Categories</span>
-                {categoryFilter === "all" && (
-                  <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
-                )}
-              </button>
-
-              {categories.map((c) => {
-                const isSelected = String(categoryFilter) === String(c.id);
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => {
-                      handleCategoryFilterChange(String(c.id));
-                      setIsMobileCategoryOpen(false);
-                    }}
-                    className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
-                      isSelected
-                        ? "bg-emerald-50 text-emerald-900 font-extrabold"
-                        : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="truncate">{c.name}</span>
-                      {c.count !== undefined && (
-                        <span className="text-[11px] font-medium text-gray-400 shrink-0">
-                          ({c.count})
-                        </span>
-                      )}
-                    </div>
-                    {isSelected && (
-                      <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
+              {/* Optional Search inside dropdown if > 5 categories */}
+              {categories.length > 5 && (
+                <div className="p-2 border-b border-gray-100">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={categorySearchQuery}
+                      onChange={(e) => setCategorySearchQuery(e.target.value)}
+                      placeholder="Search categories..."
+                      className="w-full rounded-lg border border-gray-200 bg-gray-50/70 py-1.5 pl-8 pr-7 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-1 focus:ring-emerald-500/20"
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                    {categorySearchQuery && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCategorySearchQuery("");
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
+                      >
+                        <X size={12} />
+                      </button>
                     )}
-                  </button>
-                );
-              })}
+                  </div>
+                </div>
+              )}
+
+              <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+                {/* All Categories Option */}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={categoryFilter === "all"}
+                  onClick={() => {
+                    handleCategoryFilterChange("all");
+                    setIsCategoryDropdownOpen(false);
+                    setCategorySearchQuery("");
+                  }}
+                  className={`w-full min-h-[40px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                    categoryFilter === "all"
+                      ? "bg-emerald-50 text-emerald-900 font-extrabold border-l-2 border-emerald-500"
+                      : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span>All Categories</span>
+                    {totalCategoryProductsCount > 0 && (
+                      <span className="text-[10px] font-bold text-gray-400">
+                        ({totalCategoryProductsCount})
+                      </span>
+                    )}
+                  </div>
+                  {categoryFilter === "all" && (
+                    <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
+                  )}
+                </button>
+
+                {/* Filtered Category Items */}
+                {filteredCategories.map((c) => {
+                  const isSelected = String(categoryFilter) === String(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      onClick={() => {
+                        handleCategoryFilterChange(String(c.id));
+                        setIsCategoryDropdownOpen(false);
+                        setCategorySearchQuery("");
+                      }}
+                      className={`w-full min-h-[40px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                        isSelected
+                          ? "bg-emerald-50 text-emerald-900 font-extrabold border-l-2 border-emerald-500"
+                          : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">{c.name}</span>
+                        {c.count !== undefined && (
+                          <span
+                            className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold shrink-0 ${
+                              isSelected
+                                ? "bg-emerald-200/80 text-emerald-800"
+                                : "bg-gray-100 text-gray-500"
+                            }`}
+                          >
+                            {c.count}
+                          </span>
+                        )}
+                      </div>
+                      {isSelected && (
+                        <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
+                      )}
+                    </button>
+                  );
+                })}
+
+                {filteredCategories.length === 0 && (
+                  <div className="px-3.5 py-4 text-center text-xs text-gray-400">
+                    No matching categories found
+                  </div>
+                )}
+              </div>
             </div>
           )}
-        </div>
-
-        {/* Desktop Category Selector (>=640px) */}
-        <div className="hidden sm:block relative">
-          <Filter
-            size={13}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-          />
-          <select
-            value={categoryFilter}
-            onChange={(e) => handleCategoryFilterChange(e.target.value)}
-            className="w-full sm:w-auto h-8.5 rounded-xl border border-gray-200 bg-white pl-8 pr-7 text-xs font-bold text-gray-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition cursor-pointer shadow-2xs"
-            aria-label="Filter by Category"
-          >
-            <option value="all">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={String(c.id)}>
-                {c.name} {c.count !== undefined ? `(${c.count})` : ""}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 

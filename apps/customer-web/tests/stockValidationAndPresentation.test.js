@@ -41,7 +41,7 @@ test("Stock Validation & Presentation Test Suite", async (t) => {
       getCartFailureMessage({ response: { data: { code: "woocommerce_rest_cart_item_out_of_stock" } } }),
       /Stock changed/
     );
-    assert.match(getCartFailureMessage(new Error("offline")), /Could not update your cart/);
+    assert.match(getCartFailureMessage(new Error("offline")), /Click again/i);
   });
 
   await t.test("1. cleanProductTitle strips marketplace scrape artifacts and SEO noise", () => {
@@ -231,5 +231,6 @@ test("Stock Validation & Presentation Test Suite", async (t) => {
     ];
     assert.deepEqual(filterAndShuffleRelatedProducts(allOutOfStock), []);
   });
+
 });
 

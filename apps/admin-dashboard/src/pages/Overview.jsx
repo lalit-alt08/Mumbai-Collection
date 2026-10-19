@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   TrendingUp,
   Package,
@@ -24,6 +24,7 @@ function Overview() {
   const [error, setError] = useState("");
   const [reconcilingId, setReconcilingId] = useState(null);
   const [reconcileFeedback, setReconcileFeedback] = useState(null);
+  const { setDashboardRefresh } = useOutletContext();
 
   const fetchDashboardData = async (isRefresh = false) => {
     try {
@@ -39,6 +40,14 @@ function Overview() {
       setLoading(false);
     }
   };
+
+  const fetchDashboardDataRef = useRef(fetchDashboardData);
+  fetchDashboardDataRef.current = fetchDashboardData;
+
+  useEffect(() => {
+    setDashboardRefresh(() => () => fetchDashboardDataRef.current(true));
+    return () => setDashboardRefresh(null);
+  }, [setDashboardRefresh]);
 
   const handleReconcile = async (orderId) => {
     try {
@@ -107,26 +116,6 @@ function Overview() {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      {/* Page Title & Refresh */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
-            Store Performance Overview
-          </h1>
-          <p className="mt-1 max-w-xl text-xs leading-relaxed text-gray-500 sm:text-sm">
-            Sales, order fulfillment, and inventory at a glance.
-          </p>
-        </div>
-
-        <button
-          onClick={() => fetchDashboardData(true)}
-          className="inline-flex w-fit items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-semibold text-gray-700 shadow-xs transition hover:border-gray-300 hover:bg-gray-50"
-        >
-          <RotateCcw size={14} />
-          Refresh
-        </button>
-      </div>
-
       {/* 3 Executive Metric Cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 sm:gap-4">
         {/* Today's Sales */}

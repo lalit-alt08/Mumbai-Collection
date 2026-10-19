@@ -113,32 +113,35 @@ function FloatingCartBar() {
   return (
     <aside
       aria-label="Floating cart summary"
-      className={`fixed left-1/2 z-50 w-[92%] max-w-[360px] -translate-x-1/2 transition-all duration-300 ease-in-out ${bottomPositionClass} ${visibilityClass}`}
+      className={`fixed left-1/2 z-50 w-auto -translate-x-1/2 transition-all duration-300 ease-in-out ${bottomPositionClass} ${visibilityClass}`}
     >
       <Link
         to="/cart"
-        className="flex w-full items-center justify-between overflow-hidden rounded-full bg-[#7C3AED] p-2 pr-4 shadow-[0_12px_40px_rgba(124,58,237,0.35)] transition-all hover:scale-[1.02] hover:bg-[#6C35E8] active:scale-[0.98]"
+        className="flex min-w-[284px] max-w-[calc(100vw-24px)] items-center justify-between gap-3 rounded-full bg-[#42D6E8] p-1.5 pl-1.5 pr-2.5 shadow-[0_10px_30px_rgba(66,214,232,0.4)] transition-all hover:scale-[1.02] hover:bg-[#2CC4D8] active:scale-[0.98]"
       >
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white p-1">
-            {firstItemImage ? (
-              <img
-                src={firstItemImage}
-                alt={firstItemAlt}
-                className="h-full w-full rounded-full object-contain"
-              />
-            ) : (
-              <div className="h-full w-full rounded-full bg-gray-100" />
-            )}
-          </div>
-          <span className="text-[14px] font-bold text-white leading-tight">
-            {totalItems} item{totalItems > 1 ? "s" : ""}
+        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#080F1C] p-1 border border-[#1E3252] shadow-xs">
+          {firstItemImage ? (
+            <img
+              src={firstItemImage}
+              alt={firstItemAlt}
+              className="h-full w-full rounded-full object-contain"
+            />
+          ) : (
+            <div className="h-full w-full rounded-full bg-[#080F1C]" />
+          )}
+        </div>
+
+        <div className="flex flex-col text-left">
+          <span className="text-[14px] font-black text-[#061220] leading-tight">
+            View cart
+          </span>
+          <span className="text-[11.5px] font-bold text-[#061220]/85 leading-tight">
+            {totalItems} {totalItems === 1 ? "Item" : "Items"}
           </span>
         </div>
 
-        <div className="flex items-center gap-1 font-bold text-white text-[13px]">
-          <span>View Cart</span>
-          <ChevronRight size={16} strokeWidth={2.5} />
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#061220]/15 text-[#061220] ml-0.5">
+          <ChevronRight size={16} strokeWidth={2.8} />
         </div>
       </Link>
     </aside>

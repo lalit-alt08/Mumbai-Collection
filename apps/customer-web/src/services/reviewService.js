@@ -1,5 +1,6 @@
 import axios from "axios";
 import API_URL from "../config/api.js";
+import { attachStaleConnectionRetry } from "../utils/resilientAxios.js";
 
 const api = axios.create({
   baseURL: `${API_URL}/reviews`,
@@ -9,6 +10,8 @@ const api = axios.create({
   },
   timeout: 12000,
 });
+
+attachStaleConnectionRetry(api);
 
 /**
  * Fetch reviews and summary for a product

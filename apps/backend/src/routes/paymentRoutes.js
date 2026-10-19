@@ -21,6 +21,7 @@ import {
   createOrder,
   verifyPayment,
   checkPaymentStatus,
+  cancelPaymentOrder,
   handlePaymentCallback,
   handleWebhook,
   reconcileOrder,
@@ -65,6 +66,14 @@ router.post(
   statusCheckLimiter,
   requireAuth("customer"),
   checkPaymentStatus
+);
+
+// POST /api/payments/cancel (Customer Dismisses Checkout / Explicit Cancel)
+router.post(
+  "/cancel",
+  validateRequest({ body: schemas.paymentCancel }),
+  statusCheckLimiter,
+  cancelPaymentOrder
 );
 
 // POST /api/payments/webhook

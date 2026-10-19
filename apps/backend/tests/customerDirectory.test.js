@@ -16,7 +16,6 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
   // Helper reconciling function matching adminCustomerController logic
   function reconcileCustomerDirectory(registeredUsers, orders, search = "") {
     const customerMap = new Map();
-    const emailToIdMap = new Map();
 
     // 1. Populate registered WordPress customers (Authoritative population)
     for (const u of registeredUsers) {
@@ -47,9 +46,6 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
       };
 
       customerMap.set(userId, record);
-      if (email) {
-        emailToIdMap.set(email, userId);
-      }
     }
 
     // 2. Reconcile WooCommerce orders with registered customers
@@ -57,7 +53,6 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
       if (o.status === "trash") continue;
 
       const rawCustId = Number(o.customer_id);
-      const email = (o.billing?.email || "").trim().toLowerCase();
       const orderTotal = Number(o.total) || 0;
 
       const orderSummary = {
@@ -73,8 +68,6 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
       let matchedUser = null;
       if (rawCustId > 0 && customerMap.has(rawCustId)) {
         matchedUser = customerMap.get(rawCustId);
-      } else if (email && emailToIdMap.has(email)) {
-        matchedUser = customerMap.get(emailToIdMap.get(email));
       }
 
       if (matchedUser) {
@@ -169,7 +162,7 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
     assert.equal(list.length, 0);
   });
 
-  await t.test("4. Order matching a registered customer's email is reconciled into their LTV stats", () => {
+  await t.test("4. Only orders linked by customer ID count toward a registered customer's LTV", () => {
     const mockUsers = [
       {
         id: 105,
@@ -182,7 +175,7 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
     ];
 
     const mockOrders = [
-      // Order placed with customer_id=0 (guest checkout) but matching registered email
+      // An unlinked order with the same email must not be attached to this account.
       {
         id: 901,
         customer_id: 0,
@@ -206,8 +199,8 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
 
     assert.equal(list.length, 1);
     assert.equal(list[0].id, 105);
-    assert.equal(list[0].ordersCount, 2);
-    assert.equal(list[0].lifetimeSpent, 3699);
+    assert.equal(list[0].ordersCount, 1);
+    assert.equal(list[0].lifetimeSpent, 1200);
     assert.equal(list[0].lastOrderId, 902);
   });
 
@@ -313,5 +306,66 @@ test("Customer Directory & Account Population Architecture Test Suite", async (t
     assert.equal(list.length, 1);
     assert.equal(list[0].ordersCount, 0);
     assert.equal(list[0].lifetimeSpent, 0);
+  });
+
+  await t.test("9. Sorting by ltv_desc, orders_desc, recent, and name_asc ranks VIP spenders accurately", () => {
+    const mockUsers = [
+      { id: 1, email: "c1@test.com", first_name: "Aman", last_name: "Verma", roles: ["customer"], registered_at: "2026-01-01" },
+      { id: 2, email: "c2@test.com", first_name: "Bhavna", last_name: "Shah", roles: ["customer"], registered_at: "2026-02-01" },
+      { id: 3, email: "c3@test.com", first_name: "Chirag", last_name: "Patel", roles: ["customer"], registered_at: "2026-03-01" },
+    ];
+    const mockOrders = [
+      { id: 10, customer_id: 1, billing: { email: "c1@test.com" }, total: "500", status: "completed", date_created: "2026-04-01" },
+      { id: 20, customer_id: 2, billing: { email: "c2@test.com" }, total: "15000", status: "completed", date_created: "2026-03-15" },
+      { id: 30, customer_id: 3, billing: { email: "c3@test.com" }, total: "2000", status: "completed", date_created: "2026-05-01" },
+      { id: 31, customer_id: 3, billing: { email: "c3@test.com" }, total: "2000", status: "completed", date_created: "2026-05-02" },
+      { id: 32, customer_id: 3, billing: { email: "c3@test.com" }, total: "2000", status: "completed", date_created: "2026-05-03" },
+    ];
+
+    const list = reconcileCustomerDirectory(mockUsers, mockOrders);
+
+    // Sort by LTV DESC (Top spender Bhavna Shah with ₹15,000 must be #1)
+    const byLtv = [...list].sort((a, b) => b.lifetimeSpent - a.lifetimeSpent);
+    assert.equal(byLtv[0].id, 2);
+    assert.equal(byLtv[0].lifetimeSpent, 15000);
+
+    // Sort by Orders DESC (Most frequent buyer Chirag Patel with 3 orders must be #1)
+    const byOrders = [...list].sort((a, b) => b.ordersCount - a.ordersCount);
+    assert.equal(byOrders[0].id, 3);
+    assert.equal(byOrders[0].ordersCount, 3);
+
+    // Sort by Recent Order Date DESC (Chirag with order on 2026-05-03 must be #1)
+    const byRecent = [...list].sort((a, b) => new Date(b.lastOrderDate) - new Date(a.lastOrderDate));
+    assert.equal(byRecent[0].id, 3);
+
+    // Sort by Name ASC (Aman Verma must be #1)
+    const byName = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    assert.equal(byName[0].id, 1);
+  });
+
+  await t.test("10. Pagination cleanly slices customer datasets and computes exact totalPages", () => {
+    const customers = Array.from({ length: 95 }, (_, i) => ({
+      id: i + 1,
+      name: `Customer ${i + 1}`,
+      lifetimeSpent: (i + 1) * 100,
+    }));
+
+    const limit = 20;
+    const total = customers.length;
+    const totalPages = Math.ceil(total / limit);
+
+    assert.equal(totalPages, 5);
+
+    // Page 1
+    const p1 = customers.slice(0, 20);
+    assert.equal(p1.length, 20);
+    assert.equal(p1[0].id, 1);
+    assert.equal(p1[19].id, 20);
+
+    // Page 5 (final page with remaining 15 items)
+    const p5 = customers.slice(80, 100);
+    assert.equal(p5.length, 15);
+    assert.equal(p5[0].id, 81);
+    assert.equal(p5[14].id, 95);
   });
 });

@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://care-surely-underground-realize.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://persian-nuke-antenna-give.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://care-surely-underground-realize.trycloudflare.com/sitemap.xml"
+      "destination": "https://persian-nuke-antenna-give.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://care-surely-underground-realize.trycloudflare.com/api/:path*"
+      "destination": "https://persian-nuke-antenna-give.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

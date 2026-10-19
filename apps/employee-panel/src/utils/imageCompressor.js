@@ -49,6 +49,44 @@ export const isHeicFile = (file) => {
   return /\.(heic|heif)$/i.test(name);
 };
 
+const readJpegExifOrientation = (view, segmentStart, segmentLength) => {
+  // APP1 segment includes a two-byte length, followed by the six-byte Exif signature.
+  const tiffStart = segmentStart + 10;
+  const segmentEnd = segmentStart + 2 + segmentLength;
+  if (tiffStart + 8 > segmentEnd || segmentEnd > view.byteLength) return 1;
+  if (
+    view.getUint8(segmentStart + 4) !== 0x45 ||
+    view.getUint8(segmentStart + 5) !== 0x78 ||
+    view.getUint8(segmentStart + 6) !== 0x69 ||
+    view.getUint8(segmentStart + 7) !== 0x66 ||
+    view.getUint8(segmentStart + 8) !== 0 ||
+    view.getUint8(segmentStart + 9) !== 0
+  ) return 1;
+
+  const byteOrder = view.getUint16(tiffStart, false);
+  const littleEndian = byteOrder === 0x4949;
+  if (!littleEndian && byteOrder !== 0x4d4d) return 1;
+  if (view.getUint16(tiffStart + 2, littleEndian) !== 42) return 1;
+
+  const ifdOffset = view.getUint32(tiffStart + 4, littleEndian);
+  const ifdStart = tiffStart + ifdOffset;
+  if (ifdStart + 2 > segmentEnd) return 1;
+  const entryCount = view.getUint16(ifdStart, littleEndian);
+  for (let i = 0; i < entryCount; i += 1) {
+    const entry = ifdStart + 2 + i * 12;
+    if (entry + 12 > segmentEnd) return 1;
+    if (view.getUint16(entry, littleEndian) !== 0x0112) continue;
+    const type = view.getUint16(entry + 2, littleEndian);
+    const count = view.getUint32(entry + 4, littleEndian);
+    if (type !== 3 || count < 1) return 1;
+    const orientation = count === 1
+      ? view.getUint16(entry + 8, littleEndian)
+      : view.getUint16(tiffStart + view.getUint32(entry + 8, littleEndian), littleEndian);
+    return orientation >= 1 && orientation <= 8 ? orientation : 1;
+  }
+  return 1;
+};
+
 /**
  * Fast client-side image header parser to extract dimensions without full pixel decoding.
  * Avoids multi-hundred MB RGBA bitmap allocations for large camera photos on mobile devices.
@@ -142,6 +180,9 @@ export const parseImageDimensionsFromHeader = async (file) => {
     // 4. JPEG: Starts with FF D8
     if (view.getUint8(0) === 0xff && view.getUint8(1) === 0xd8) {
       let offset = 2;
+      let jpegWidth = 0;
+      let jpegHeight = 0;
+      let orientation = 1;
       while (offset < len - 1) {
         if (view.getUint8(offset) !== 0xff) {
           offset++;
@@ -152,6 +193,20 @@ export const parseImageDimensionsFromHeader = async (file) => {
           offset++;
           continue;
         }
+        if (marker === 0xda) break; // Start of scan: header metadata is complete.
+        if (marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+          offset += 2;
+          continue;
+        }
+
+        const segmentLength = offset + 3 < len ? view.getUint16(offset + 2, false) : 0;
+        if (segmentLength < 2 || offset + 2 + segmentLength > len) break;
+
+        // APP1 may contain the EXIF orientation that rotates Android camera photos.
+        if (marker === 0xe1) {
+          orientation = readJpegExifOrientation(view, offset, segmentLength);
+        }
+
         // SOF markers (SOF0..SOF3, SOF5..SOF7, SOF9..SOFB)
         if (
           (marker >= 0xc0 && marker <= 0xc3) ||
@@ -159,21 +214,18 @@ export const parseImageDimensionsFromHeader = async (file) => {
           (marker >= 0xc9 && marker <= 0xcb)
         ) {
           if (offset + 8 < len) {
-            const height = view.getUint16(offset + 5, false);
-            const width = view.getUint16(offset + 7, false);
-            if (width > 0 && height > 0) {
-              return { width, height };
+            jpegHeight = view.getUint16(offset + 5, false);
+            jpegWidth = view.getUint16(offset + 7, false);
+            if (jpegWidth > 0 && jpegHeight > 0) {
+              const swapsAxes = orientation >= 5 && orientation <= 8;
+              return swapsAxes
+                ? { width: jpegHeight, height: jpegWidth }
+                : { width: jpegWidth, height: jpegHeight };
             }
           }
           break;
         }
-
-        if (offset + 3 < len) {
-          const segmentLength = view.getUint16(offset + 2, false);
-          offset += 2 + segmentLength;
-        } else {
-          break;
-        }
+        offset += 2 + segmentLength;
       }
     }
   } catch {

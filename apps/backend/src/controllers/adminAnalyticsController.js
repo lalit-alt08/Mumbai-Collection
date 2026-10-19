@@ -217,6 +217,17 @@ export const getDashboardOverview = async (req, res) => {
         lowStockCount: stockCounts?.lowstock ?? lowStockProducts.length,
         avgOrderValue: s.avgOrderValue,
       };
+
+      // Populate 7-day sales trend from real-time database aggregation
+      if (s.weeklyTrend && typeof s.weeklyTrend === "object") {
+        for (const [dateStr, dayStats] of Object.entries(s.weeklyTrend)) {
+          if (last7DaysMap.has(dateStr)) {
+            const entry = last7DaysMap.get(dateStr);
+            entry.revenue = Number(dayStats.revenue) || 0;
+            entry.orders = Number(dayStats.orders) || 0;
+          }
+        }
+      }
     } else {
       // Fallback: paginated WooCommerce requests if direct SQL summary is offline
       const orders = await fetchAllOrders();
@@ -348,7 +359,7 @@ export const getAdminAnalytics = async (req, res) => {
       try {
         summaryRes = await wp.get("/wp-json/mumbai-auth/v1/admin/analytics-summary", {
           headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
-          timeout: 7000,
+          timeout: 5000,
         });
       } catch (_) {}
     }
@@ -375,6 +386,17 @@ export const getAdminAnalytics = async (req, res) => {
         dailyRevenueMap.set(dateKey, { date: dateKey, day: dayName, sales: 0, orders: 0 });
       }
 
+      // Populate 7-day daily trend from real-time database aggregation
+      if (s.weeklyTrend && typeof s.weeklyTrend === "object") {
+        for (const [dateStr, dayStats] of Object.entries(s.weeklyTrend)) {
+          if (dailyRevenueMap.has(dateStr)) {
+            const entry = dailyRevenueMap.get(dateStr);
+            entry.sales = Number(dayStats.revenue) || 0;
+            entry.orders = Number(dayStats.orders) || 0;
+          }
+        }
+      }
+
       const validOrderCount = s.validOrderCount || 0;
       const codCount = s.payments?.cod?.count || 0;
       const codRevenue = s.payments?.cod?.revenue || 0;
@@ -385,15 +407,15 @@ export const getAdminAnalytics = async (req, res) => {
         success: true,
         data: {
           revenue: {
-            totalRevenue: s.totalRevenue,
-            completedRevenue: s.completedRevenue,
-            shippingRevenue: s.shippingRevenue,
-            discountTotal: s.discountTotal,
-            avgOrderValue: s.avgOrderValue,
+            totalRevenue: Math.round(Number(s.totalRevenue) || 0),
+            completedRevenue: Math.round(Number(s.completedRevenue) || 0),
+            shippingRevenue: Math.round(Number(s.shippingRevenue) || 0),
+            discountTotal: Math.round(Number(s.discountTotal) || 0),
+            avgOrderValue: Math.round(Number(s.avgOrderValue) || 0),
             dailyTrend: Array.from(dailyRevenueMap.values()),
           },
           orders: {
-            total: s.totalOrders,
+            total: Number(s.totalOrders) || 0,
             completed: sc.completed || 0,
             processing: sc.processing || 0,
             outForDelivery: outForDeliveryOrders,
@@ -404,17 +426,26 @@ export const getAdminAnalytics = async (req, res) => {
           payments: {
             cod: {
               count: codCount,
-              revenue: codRevenue,
+              revenue: Math.round(Number(codRevenue) || 0),
               percentage: validOrderCount > 0 ? Math.round((codCount / validOrderCount) * 100) : 0,
             },
             online: {
               count: onlineCount,
-              revenue: onlineRevenue,
+              revenue: Math.round(Number(onlineRevenue) || 0),
               percentage: validOrderCount > 0 ? Math.round((onlineCount / validOrderCount) * 100) : 0,
             },
           },
-          topProducts: s.topProducts || [],
-          topCustomers: s.topCustomers || [],
+          topProducts: (s.topProducts || []).map((p) => ({
+            ...p,
+            totalRevenue: Math.round(Number(p.totalRevenue) || 0),
+            totalQuantitySold: Number(p.totalQuantitySold) || 0,
+          })),
+          topCustomers: (s.topCustomers || []).map((c) => ({
+            ...c,
+            name: c.name || (c.email ? c.email.split("@")[0].replace(/[._\-+]/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()) : "Customer"),
+            lifetimeSpent: Math.round(Number(c.lifetimeSpent) || 0),
+            ordersCount: Number(c.ordersCount) || 0,
+          })),
           customerMetrics: s.customerMetrics || {
             totalUniqueCustomers: 0,
             repeatCustomerRate: 0,
@@ -623,6 +654,67 @@ export const getAdminAnalytics = async (req, res) => {
     res.status(statusCode).json({
       success: false,
       message: error.response?.data?.message || error.message || "Failed to load analytics.",
+    });
+  }
+};
+
+const parseReportDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) return null;
+  return Date.parse(`${value}T00:00:00+05:30`);
+};
+
+/** Filterable, bounded analytics report backed by WooCommerce's HPOS tables. */
+export const getAdminAnalyticsReport = async (req, res) => {
+  try {
+    const { date_from: dateFrom, date_to: dateTo, product_id: rawProductId, refresh } = req.query || {};
+    const start = parseReportDate(dateFrom);
+    const end = parseReportDate(dateTo);
+    if (start === null || end === null || end < start) {
+      return res.status(400).json({ success: false, message: "Choose a valid start and end date." });
+    }
+    const productId = rawProductId ? Number(rawProductId) : 0;
+    if (rawProductId && (!Number.isSafeInteger(productId) || productId <= 0)) {
+      return res.status(400).json({ success: false, message: "Choose a valid product." });
+    }
+
+    const cacheKey = `admin:analytics:report:${dateFrom}:${dateTo}:${productId || "all"}`;
+    if (refresh !== "true" && refresh !== "1") {
+      const cached = serverCache.get(cacheKey);
+      if (cached) {
+        res.set?.("Cache-Control", "no-store, no-cache, must-revalidate, private");
+        return res.json(cached);
+      }
+    }
+
+    const endExclusive = end + 24 * 60 * 60 * 1000;
+    const response = await wp.get("/wp-json/mumbai-auth/v1/admin/analytics-report", {
+      headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
+      params: {
+        date_after: new Date(start).toISOString(),
+        date_before: new Date(endExclusive).toISOString(),
+        product_id: productId || undefined,
+      },
+      timeout: 10000,
+    });
+
+    if (!response.data?.success || !response.data?.data) {
+      return res.status(502).json({ success: false, message: "WooCommerce could not generate this report." });
+    }
+    serverCache.set(cacheKey, response.data, 60000);
+    res.set?.("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    return res.json(response.data);
+  } catch (error) {
+    logError(req, error, "Get date-filtered admin analytics report error");
+    return res.status(error.response?.status || 502).json({
+      success: false,
+      message: error.response?.data?.message || "Unable to load the selected sales report.",
     });
   }
 };

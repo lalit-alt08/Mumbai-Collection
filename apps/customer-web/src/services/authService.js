@@ -1,5 +1,6 @@
 import axios from "axios";
 import API_URL from "../config/api.js";
+import { attachStaleConnectionRetry } from "../utils/resilientAxios.js";
 
 const API = axios.create({
   baseURL: `${API_URL}/auth`,
@@ -10,30 +11,7 @@ const API = axios.create({
   timeout: 12000,
 });
 
-// Automatically retry once if the local development socket reset (GET requests only - never retry mutations)
-API.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const config = error.config;
-    const isGetMethod =
-      config?.method && config.method.toLowerCase() === "get";
-
-    if (!config || config._retry || error.response || !isGetMethod) {
-      return Promise.reject(error);
-    }
-
-    if (
-      error.message?.includes("Network Error") ||
-      error.code === "ERR_NETWORK" ||
-      error.code === "ECONNRESET"
-    ) {
-      config._retry = true;
-      return API(config);
-    }
-
-    return Promise.reject(error);
-  }
-);
+attachStaleConnectionRetry(API);
 
 export const login = async (email, password) => {
   const { data } = await API.post("/login", {

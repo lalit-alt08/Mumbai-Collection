@@ -120,7 +120,7 @@ function Category() {
   const displayCount = loading ? "Loading..." : `${totalCount} ${totalCount === 1 ? "item" : "items"}`;
 
   return (
-    <div className="min-h-screen bg-[#F8F9FD] text-[#1E1E1E] px-4 pt-4 pb-28 sm:px-6 md:pt-8 md:pb-16">
+    <div className="min-h-screen bg-[#0B1425] text-white px-4 pt-4 pb-28 sm:px-6 md:pt-8 md:pb-16">
       <div className="mx-auto max-w-7xl space-y-4 sm:space-y-6">
         {/* ────────────────────────────────────────────────────────── */}
         {/* TOP BAR / NAVIGATION                                       */}
@@ -130,18 +130,18 @@ function Category() {
             <button
               onClick={handleBack}
               aria-label="Back"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-gray-700 shadow-xs border border-gray-200/70 transition-all hover:border-[#7C3AED]/30 hover:bg-[#F5F3FF] hover:text-[#7C3AED] active:scale-95 cursor-pointer"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-white shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8] hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
             >
               <ArrowLeft size={17} strokeWidth={2.2} />
             </button>
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-[#1E1E1E] sm:text-xl">
+              <h1 className="text-lg font-bold tracking-tight text-white sm:text-xl">
                 {categoryName}
               </h1>
             </div>
           </div>
 
-          <span className="text-xs font-bold text-[#7C3AED] bg-[#F5F3FF] px-3 py-1 rounded-full border border-[#7C3AED]/15">
+          <span className="text-xs font-bold text-[#42D6E8] bg-[#132B45] px-3 py-1 rounded-full border border-[#1E3E63]">
             {displayCount}
           </span>
         </div>
@@ -154,28 +154,28 @@ function Category() {
             {[1, 2, 3, 4, 5, 6].map((n) => (
               <div
                 key={n}
-                className="h-72 rounded-[20px] bg-white p-3.5 shadow-xs border border-gray-100 animate-pulse"
+                className="h-72 rounded-[20px] bg-[#111F36] p-3.5 shadow-xs border border-[#1E3252]/60 animate-pulse"
               >
-                <div className="aspect-square w-full rounded-[14px] bg-gray-100 mb-3" />
-                <div className="h-4 w-3/4 bg-gray-100 rounded mb-2" />
-                <div className="h-4 w-1/2 bg-gray-100 rounded" />
+                <div className="aspect-square w-full rounded-[14px] bg-[#080F1C] mb-3" />
+                <div className="h-4 w-3/4 bg-[#162744] rounded mb-2" />
+                <div className="h-4 w-1/2 bg-[#162744] rounded" />
               </div>
             ))}
           </div>
         ) : products.length === 0 ? (
-          <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] bg-white p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.02)] border border-gray-100">
-            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#F5F3FF] text-[#7C3AED]">
+          <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] bg-[#111F36] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#1E3252]">
+            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#132B45] text-[#42D6E8]">
               <ShoppingBag size={24} />
             </div>
-            <h3 className="text-base font-bold text-[#1E1E1E]">
+            <h3 className="text-base font-bold text-white">
               No products found
             </h3>
-            <p className="text-xs text-gray-500 mt-1 mb-5">
+            <p className="text-xs text-[#8FA4BE] mt-1 mb-5">
               Check back soon for new arrivals in this department.
             </p>
             <button
               onClick={() => navigate("/categories")}
-              className="rounded-full bg-[#7C3AED] px-5 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#6C35E8] transition active:scale-95 cursor-pointer"
+              className="rounded-full bg-[#42D6E8] px-5 py-2 text-xs font-bold text-[#061220] shadow-xs hover:bg-[#2CC4D8] transition active:scale-95 cursor-pointer"
             >
               Browse Other Categories
             </button>
@@ -194,7 +194,7 @@ function Category() {
                 <button
                   onClick={handleLoadMore}
                   disabled={loadingMore}
-                  className="flex items-center justify-center gap-2 rounded-full bg-[#7C3AED] px-6 py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm hover:bg-[#6C35E8] transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex items-center justify-center gap-2 rounded-full bg-[#42D6E8] px-6 py-2.5 text-xs sm:text-sm font-bold text-[#061220] shadow-sm hover:bg-[#2CC4D8] transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {loadingMore ? (
                     <>
@@ -205,7 +205,7 @@ function Category() {
                     <span>Load More Products</span>
                   )}
                 </button>
-                <p className="text-[11px] font-medium text-gray-500">
+                <p className="text-[11px] font-medium text-[#8FA4BE]">
                   Showing {products.length} of {totalCount} products
                 </p>
               </div>

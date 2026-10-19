@@ -1,4 +1,5 @@
 import axios from "axios";
+import { readRetryDelayMs, shouldRetryRead } from "../utils/readRetry.js";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
@@ -11,13 +12,11 @@ const api = axios.create({
   timeout: 12000,
 });
 
-// Automatically retry once if the local development socket reset (GET requests only - never retry mutations)
+// Automatically retry safe reads once; writes are not replayed after ambiguous failures.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const config = error.config;
-    const isGetMethod =
-      config?.method && config.method.toLowerCase() === "get";
 
     // Handle session expiration
     if (error.response?.status === 401 && !window.location.pathname.includes("/login")) {
@@ -25,16 +24,15 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (!config || config._retry || error.response || !isGetMethod) {
+    if (!config || config._retry) {
       return Promise.reject(error);
     }
 
-    if (
-      error.message?.includes("Network Error") ||
-      error.code === "ERR_NETWORK" ||
-      error.code === "ECONNRESET"
-    ) {
+    if (shouldRetryRead(error, config)) {
+      const delayMs = readRetryDelayMs(error);
+      if (delayMs === null) return Promise.reject(error);
       config._retry = true;
+      await new Promise((r) => setTimeout(r, delayMs));
       return api(config);
     }
 
@@ -84,8 +82,18 @@ export const getCustomers = async (params = {}) => {
   return res.data;
 };
 
+export const getCustomerOrders = async (customerId, params = {}) => {
+  const res = await api.get(`/customers/${customerId}/orders`, { params });
+  return res.data;
+};
+
 export const getAnalytics = async (params = {}) => {
   const res = await api.get("/analytics", { params });
+  return res.data;
+};
+
+export const getAnalyticsReport = async (params = {}) => {
+  const res = await api.get("/analytics/report", { params });
   return res.data;
 };
 

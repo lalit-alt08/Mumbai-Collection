@@ -15,6 +15,16 @@ export function cleanProductTitle(rawTitle) {
 
   let clean = rawTitle.trim();
 
+  // Decode common HTML entities from marketplace/WooCommerce scrapes
+  clean = clean
+    .replace(/&amp;/g, "&")
+    .replace(/&#038;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+
   // Strip prefix garbage such as "Click to see full view", "2 VIDEOS", "5 IMAGES"
   clean = clean
     .replace(/^(?:click\s+to\s+see\s+full\s+view\s*)?(?:\d+\s*(?:videos?|images?)\s*)?/i, "")
@@ -76,14 +86,68 @@ export function getRemainingStock(product, quantityInCart = 0, cartItem = null) 
   return Math.max(0, maxStock - currentQuantity);
 }
 
-export function getCartFailureMessage(error) {
+/**
+ * Parses WooCommerce Store API error response to extract stock availability.
+ * E.g. "You cannot add that amount of \"Keychain watch\" to the cart because there is not enough stock (0 remaining)."
+ *
+ * @param {any} error
+ * @returns {{ isStockError: boolean, remaining: number|null, isOutOfStock: boolean }}
+ */
+export function parseCartStockError(error) {
   const response = error?.response?.data;
   const code = String(response?.code || "").toLowerCase();
-  const message = String(response?.message || "").toLowerCase();
-  if (/stock|inventory|quantity|available/.test(`${code} ${message}`)) {
+  const rawMsg = String(response?.message || "");
+
+  // Match e.g. "(0 remaining)" or "(2 remaining)"
+  const match = rawMsg.match(/\((\d+)\s+remaining\)/i);
+  if (match) {
+    const remaining = parseInt(match[1], 10);
+    return {
+      isStockError: true,
+      remaining,
+      isOutOfStock: remaining <= 0,
+    };
+  }
+
+  if (
+    code.includes("out_of_stock") ||
+    code.includes("partially_out_of_stock") ||
+    /out of stock|not enough stock|insufficient stock/i.test(rawMsg)
+  ) {
+    return {
+      isStockError: true,
+      remaining: 0,
+      isOutOfStock: true,
+    };
+  }
+
+  if (/stock|inventory|quantity|available/i.test(`${code} ${rawMsg}`)) {
+    return {
+      isStockError: true,
+      remaining: 0,
+      isOutOfStock: true,
+    };
+  }
+
+  return {
+    isStockError: false,
+    remaining: null,
+    isOutOfStock: false,
+  };
+}
+
+export function getCartFailureMessage(error) {
+  const stockInfo = parseCartStockError(error);
+  if (stockInfo.isStockError) {
+    if (stockInfo.remaining === 0 || stockInfo.isOutOfStock) {
+      return "This item is now out of stock.";
+    }
+    if (typeof stockInfo.remaining === "number" && stockInfo.remaining > 0) {
+      return `Only ${stockInfo.remaining} item${stockInfo.remaining > 1 ? "s" : ""} left in stock.`;
+    }
     return "Stock changed while adding this item. Availability has been refreshed.";
   }
-  return "Could not update your cart. Please try again.";
+  return "Unable to update cart. Please try again.";
 }
 
 /**
@@ -148,3 +212,33 @@ export function filterAndShuffleRelatedProducts(products) {
 
   return shuffleProducts(inStockOnly);
 }
+
+/** Interleave catalog items by primary category while retaining each category's order. */
+export function mixProductsByCategory(products) {
+  if (!Array.isArray(products) || products.length === 0) return [];
+  const pools = new Map();
+  const seen = new Set();
+
+  for (const product of products) {
+    if (product?.id == null || seen.has(String(product.id))) continue;
+    seen.add(String(product.id));
+    const category = Array.isArray(product.categories)
+      ? product.categories.find((item) => item?.id != null)
+      : null;
+    const key = category ? String(category.id) : "uncategorized";
+    if (!pools.has(key)) pools.set(key, []);
+    pools.get(key).push(product);
+  }
+
+  const queues = [...pools.values()];
+  const mixed = [];
+  while (queues.length) {
+    for (let index = queues.length - 1; index >= 0; index -= 1) {
+      const product = queues[index].shift();
+      if (product) mixed.push(product);
+      if (queues[index].length === 0) queues.splice(index, 1);
+    }
+  }
+  return mixed;
+}
+

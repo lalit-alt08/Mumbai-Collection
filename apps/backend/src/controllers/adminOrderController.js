@@ -10,6 +10,7 @@ import {
   buildOrderStatusPayload,
   ALLOWED_ORDER_STATUSES,
 } from "../utils/orderStatusTransition.js";
+import { publishOrderEvent } from "../services/orderNotificationService.js";
 
 /**
  * Admin Order Management Controller (Placeholder / Extensible domain controller)
@@ -145,6 +146,9 @@ export const updateAdminOrderStatus = async (req, res) => {
     const payload = buildOrderStatusPayload(status);
 
     const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
+
+    // Publish minimal real-time event for employee dashboard (fire-and-forget, never throws)
+    publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: id, status });
 
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");

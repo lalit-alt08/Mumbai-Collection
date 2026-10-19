@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { updateCheckout, removeCartItem } from "../../services/storeApi";
-import { createPaymentOrder, verifyPayment, checkPaymentStatus } from "../../services/paymentService.js";
+import { createPaymentOrder, verifyPayment, checkPaymentStatus, cancelPaymentOrder } from "../../services/paymentService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
 import safeStorage from "../../utils/safeStorage.js";
@@ -100,7 +100,9 @@ function BillingForm({
   const [selectedAddressId, setSelectedAddressId] = useState(() => {
     try {
       const cachedId = safeStorage.getItem("selected_address_id");
-      return cachedId ? Number(cachedId) : null;
+      if (cachedId) return Number(cachedId);
+      const cached = safeStorage.getJSON("saved_addresses_cache", []);
+      return cached && cached[0] ? cached[0].id : null;
     } catch {
       return null;
     }
@@ -562,7 +564,7 @@ function BillingForm({
         },
         notes: {},
         theme: {
-          color: "#7C3AED",
+          color: "#42D6E8",
         },
         modal: {
           ondismiss: async () => {
@@ -593,6 +595,9 @@ function BillingForm({
               }
             } catch (_) {}
 
+            if (paymentResponse?.razorpay_order_id) {
+              cancelPaymentOrder(paymentResponse.razorpay_order_id).catch(() => {});
+            }
             clearPendingPayment();
             setIsPersistentPending(false);
             setError("Payment was cancelled. You can retry paying anytime.");
@@ -704,6 +709,9 @@ function BillingForm({
 
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", (failedRes) => {
+        if (paymentResponse?.razorpay_order_id) {
+          cancelPaymentOrder(paymentResponse.razorpay_order_id).catch(() => {});
+        }
         isSubmittingRef.current = false;
         setLoading(false);
         setPaymentStep("");
@@ -795,8 +803,8 @@ function BillingForm({
 
   if (loadingAddresses && !standaloneBar) {
     return (
-      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-gray-200/90 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
       </div>
     );
   }
@@ -836,21 +844,21 @@ function BillingForm({
     <div className="space-y-4">
       {/* Error Banner */}
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50/90 px-3.5 py-2.5 text-xs font-bold text-red-700 shadow-xs">
+        <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-3.5 py-2.5 text-xs font-bold text-rose-300 shadow-xs">
           {error}
         </div>
       )}
 
       {/* Session Expired Mid-Payment */}
       {sessionExpiredPending && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
+        <div className="flex items-center justify-between rounded-xl border border-amber-800/60 bg-amber-950/40 px-3.5 py-2.5 text-xs text-amber-200">
           <span className="font-semibold">
             Your session expired while confirming payment. Sign in to resume your order.
           </span>
           <button
             type="button"
             onClick={() => navigate("/login?redirect=/cart")}
-            className="rounded-lg bg-[#7C3AED] px-3 py-1 font-bold text-white hover:bg-[#6C35E8] cursor-pointer"
+            className="rounded-lg bg-[#42D6E8] px-3 py-1 font-bold text-[#061220] hover:bg-[#2CC4D8] hover:text-[#061220] cursor-pointer"
           >
             Sign In
           </button>
@@ -859,16 +867,16 @@ function BillingForm({
 
       {/* Persistent Payment Pending Banner */}
       {isPersistentPending && !sessionExpiredPending && (
-        <div className="rounded-[20px] border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-900 shadow-xs">
+        <div className="rounded-[20px] border border-amber-800/60 bg-amber-950/40 p-4 text-xs text-amber-200 shadow-xs">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-900/60 text-amber-300">
               <Clock size={18} />
             </div>
             <div className="flex-1">
-              <h4 className="font-extrabold text-amber-950 text-sm">
+              <h4 className="font-extrabold text-amber-100 text-sm">
                 Payment Pending Confirmation
               </h4>
-              <p className="mt-1 leading-relaxed text-amber-800 text-[12px]">
+              <p className="mt-1 leading-relaxed text-amber-300/90 text-[12px]">
                 Your payment is currently being processed by your bank. If the amount was debited from your account, please do not pay again — your order will update as soon as the bank confirms.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -876,7 +884,7 @@ function BillingForm({
                   type="button"
                   onClick={() => verifyPendingOrder(true)}
                   disabled={checkingPendingStatus}
-                  className="rounded-xl bg-[#7C3AED] px-3.5 py-1.5 font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 cursor-pointer disabled:opacity-50"
+                  className="rounded-xl bg-[#42D6E8] px-3.5 py-1.5 font-bold text-[#061220] shadow-xs hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
                 </button>
@@ -884,7 +892,7 @@ function BillingForm({
                   href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 font-bold text-emerald-800 hover:bg-emerald-100"
+                  className="rounded-xl border border-emerald-800/60 bg-emerald-950/50 px-3.5 py-1.5 font-bold text-emerald-400 hover:bg-emerald-900/60"
                 >
                   WhatsApp Support (+91 87936 01567)
                 </a>
@@ -897,17 +905,17 @@ function BillingForm({
       {!standaloneBar && (
         <>
           {/* Delivery Address Card (Compact) */}
-          <div className="rounded-[22px] border border-gray-200/90 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)]">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EDE9FE] text-[#7C3AED]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
                   <MapPin size={16} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#111827]">
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
                     Delivery Address
                   </h2>
-                  <p className="text-[11px] font-medium text-gray-500">
+                  <p className="text-[11px] font-medium text-[#8FA4BE]">
                     Where your order will be delivered
                   </p>
                 </div>
@@ -923,7 +931,7 @@ function BillingForm({
                   }
                 }}
                 disabled={loading}
-                className="flex items-center gap-1 text-xs font-bold text-[#7C3AED] hover:underline cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer disabled:opacity-50"
               >
                 {addresses.length === 0 ? (
                   <>
@@ -938,13 +946,13 @@ function BillingForm({
 
             {/* Selected Address Preview or Empty State */}
             {addresses.length === 0 ? (
-              <div className="mt-3 rounded-2xl border border-dashed border-purple-200 bg-[#F5F3FF]/50 p-4 text-center">
-                <p className="text-xs font-bold text-gray-700">No saved address found</p>
-                <p className="mt-0.5 text-[11px] text-gray-500 font-medium">Please add a delivery address to proceed.</p>
+              <div className="mt-3 rounded-2xl border border-dashed border-[#1E3252] bg-[#0B1425] p-4 text-center">
+                <p className="text-xs font-bold text-[#F1F5F9]">No saved address found</p>
+                <p className="mt-0.5 text-[11px] text-[#8FA4BE] font-medium">Please add a delivery address to proceed.</p>
                 <button
                   type="button"
                   onClick={() => navigate("/account/addresses")}
-                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#7C3AED] px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[#6C35E8] active:scale-95 transition cursor-pointer"
+                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-3.5 py-1.5 text-xs font-black text-[#061220] shadow-xs hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 transition cursor-pointer"
                 >
                   <Plus size={13} />
                   <span>Add Address</span>
@@ -953,9 +961,9 @@ function BillingForm({
             ) : selectedAddress ? (
               <div
                 onClick={() => !loading && setShowAddressModal(true)}
-                className="mt-3 flex items-start gap-3 rounded-2xl border border-purple-200/80 bg-[#F1ECFF]/40 p-3 sm:p-3.5 hover:bg-[#F1ECFF]/70 transition cursor-pointer"
+                className="mt-3 flex items-start gap-3 rounded-2xl border border-[#1E3252] bg-[#0B1425] p-3 sm:p-3.5 hover:border-[#42D6E8]/60 transition cursor-pointer"
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-[#7C3AED] border border-purple-200 shadow-xs">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
                   {selectedAddress.type === "office" || selectedAddress.type === "work" ? (
                     <Building2 size={16} />
                   ) : (
@@ -965,15 +973,15 @@ function BillingForm({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs sm:text-sm font-extrabold text-[#111827] truncate">
+                    <span className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] truncate">
                       {selectedAddress.first_name || ""} {selectedAddress.last_name || ""}
                     </span>
-                    <span className="rounded-full bg-[#EDE9FE] px-2 py-0.5 text-[9px] font-extrabold uppercase text-[#7C3AED] border border-purple-200/60">
+                    <span className="rounded-full bg-[#132B45] px-2 py-0.5 text-[9px] font-extrabold uppercase text-[#42D6E8] border border-[#1E3252]">
                       {selectedAddress.type ? selectedAddress.type.toUpperCase() : "HOME"}
                     </span>
                   </div>
 
-                  <p className="mt-1 text-xs font-medium text-gray-600 line-clamp-2">
+                  <p className="mt-1 text-xs font-medium text-[#8FA4BE] line-clamp-2">
                     {selectedAddress.address_line1 || ""}
                     {selectedAddress.address_line2 ? `, ${selectedAddress.address_line2}` : ""}
                     , {selectedAddress.city || ""}, {selectedAddress.state || "MH"}
@@ -981,7 +989,7 @@ function BillingForm({
                   </p>
 
                   {selectedAddress.phone && (
-                    <p className="mt-1 text-xs font-semibold text-[#7C3AED]">
+                    <p className="mt-1 text-xs font-semibold text-[#42D6E8]">
                       📞 {selectedAddress.phone}
                     </p>
                   )}
@@ -991,17 +999,17 @@ function BillingForm({
           </div>
 
           {/* Payment Method Card (Compact) */}
-          <div className="rounded-[22px] border border-gray-200/90 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.03)]">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EDE9FE] text-[#7C3AED]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
                   <CreditCard size={16} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#111827]">
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
                     Payment Method
                   </h2>
-                  <p className="text-[11px] font-medium text-gray-500">
+                  <p className="text-[11px] font-medium text-[#8FA4BE]">
                     Select how you wish to pay
                   </p>
                 </div>
@@ -1011,7 +1019,7 @@ function BillingForm({
                 type="button"
                 onClick={() => !loading && setShowPaymentModal(true)}
                 disabled={loading}
-                className="text-xs font-bold text-[#7C3AED] hover:underline cursor-pointer disabled:opacity-50"
+                className="text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer disabled:opacity-50"
               >
                 Change
               </button>
@@ -1019,27 +1027,27 @@ function BillingForm({
 
             <div
               onClick={() => !loading && setShowPaymentModal(true)}
-              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-3 sm:p-3.5 hover:bg-white hover:border-purple-200 transition cursor-pointer"
+              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#1E3252] bg-[#0B1425] p-3 sm:p-3.5 hover:border-[#42D6E8]/60 transition cursor-pointer"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#7C3AED] border border-gray-200 shadow-xs">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
                   {paymentMethod === "online" ? (
                     <CreditCard size={18} />
                   ) : (
-                    <Banknote size={18} className="text-emerald-600" />
+                    <Banknote size={18} className="text-[#42D6E8]" />
                   )}
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs sm:text-sm font-extrabold text-[#111827]">
+                  <h4 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9]">
                     {paymentMethod === "online" ? "Pay Online" : "Cash on Delivery (COD)"}
                   </h4>
-                  <p className="text-[11px] font-medium text-gray-500 truncate">
+                  <p className="text-[11px] font-medium text-[#8FA4BE] truncate">
                     {paymentMethod === "online" ? "UPI, Cards, NetBanking, Wallets" : "Pay with cash upon delivery"}
                   </p>
                 </div>
               </div>
 
-              <span className="text-xs font-bold text-[#7C3AED] shrink-0">
+              <span className="text-xs font-bold text-[#42D6E8] shrink-0">
                 Switch
               </span>
             </div>
@@ -1048,21 +1056,21 @@ function BillingForm({
       )}
 
       {/* Checkout policy notice */}
-      <p className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-[11px] font-medium leading-5 text-[#4B5563]">
+      <p className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-[11px] font-medium leading-5 text-[#8FA4BE]">
         <span>By placing your order, you agree to our</span>
-        <a href="/terms" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
+        <a href="/terms" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
           Terms and Conditions
         </a>
         <span aria-hidden="true">·</span>
-        <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
+        <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
           Privacy Policy
         </a>
         <span aria-hidden="true">·</span>
-        <a href="/shipping-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
+        <a href="/shipping-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
           Shipping Policy
         </a>
         <span aria-hidden="true">·</span>
-        <a href="/return-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#6D28D9]">
+        <a href="/return-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
           Returns &amp; Refund Policy
         </a>
       </p>
@@ -1082,25 +1090,25 @@ function BillingForm({
       {showAddressModal && (
         <div
           onClick={() => setShowAddressModal(false)}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="flex w-full max-w-[520px] max-h-[85vh] flex-col rounded-t-[28px] sm:rounded-[24px] bg-white p-5 sm:p-6 shadow-2xl"
+            className="flex w-full max-w-[520px] max-h-[85vh] flex-col rounded-t-[28px] sm:rounded-[24px] bg-[#111F36] border border-[#1E3252] p-5 sm:p-6 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
               <div>
-                <h3 className="text-base font-extrabold text-[#111827]">
+                <h3 className="text-base font-extrabold text-[#F1F5F9]">
                   Select Delivery Address
                 </h3>
-                <p className="text-xs font-medium text-gray-500">
+                <p className="text-xs font-medium text-[#8FA4BE]">
                   Where should we send your order?
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddressModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[#8FA4BE] hover:bg-[#162744] hover:text-white transition cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -1121,15 +1129,15 @@ function BillingForm({
                     }}
                     className={`flex items-start gap-3 rounded-2xl border p-3.5 transition-all cursor-pointer ${
                       isSelected
-                        ? "border-[#7C3AED] bg-[#F1ECFF]/70 ring-2 ring-[#7C3AED]/15 shadow-xs"
-                        : "border-gray-200 bg-gray-50/60 hover:border-gray-300 hover:bg-white"
+                        ? "border-[#42D6E8] bg-[#132B45]/70 ring-2 ring-[#42D6E8]/20 shadow-xs"
+                        : "border-[#1E3252] bg-[#0B1425] hover:border-[#42D6E8]/50"
                     }`}
                   >
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${
                         isSelected
-                          ? "bg-white text-[#7C3AED] border-purple-200"
-                          : "bg-white text-gray-500 border-gray-200"
+                          ? "bg-[#111F36] text-[#42D6E8] border-[#42D6E8]/50"
+                          : "bg-[#111F36] text-[#6E84A3] border-[#1E3252]"
                       }`}
                     >
                       {isHome ? <Home size={15} /> : <Building2 size={15} />}
@@ -1137,21 +1145,21 @@ function BillingForm({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs sm:text-sm font-extrabold text-[#111827] truncate">
+                        <span className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] truncate">
                           {addr.first_name || ""} {addr.last_name || ""}
                         </span>
                         <span
                           className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
                             isSelected
-                              ? "bg-[#EDE9FE] text-[#7C3AED] border-purple-200/60"
-                              : "bg-gray-100 text-gray-600 border-gray-200"
+                              ? "bg-[#132B45] text-[#42D6E8] border-[#1E3252]"
+                              : "bg-[#0E1A2E] text-[#8FA4BE] border-[#1E3252]"
                           }`}
                         >
                           {addr.type ? addr.type.toUpperCase() : "HOME"}
                         </span>
                       </div>
 
-                      <p className="mt-1 text-xs font-medium text-gray-600 line-clamp-2">
+                      <p className="mt-1 text-xs font-medium text-[#8FA4BE] line-clamp-2">
                         {addr.address_line1 || ""}
                         {addr.address_line2 ? `, ${addr.address_line2}` : ""}
                         , {addr.city || ""}, {addr.state || "MH"}
@@ -1159,14 +1167,14 @@ function BillingForm({
                       </p>
 
                       {addr.phone && (
-                        <p className="mt-1 text-xs font-semibold text-[#7C3AED]">
+                        <p className="mt-1 text-xs font-semibold text-[#42D6E8]">
                           📞 {addr.phone}
                         </p>
                       )}
                     </div>
 
                     {isSelected && (
-                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#7C3AED] text-white self-center">
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220] self-center">
                         <Check size={12} strokeWidth={3} />
                       </div>
                     )}
@@ -1175,14 +1183,14 @@ function BillingForm({
               })}
             </div>
 
-            <div className="mt-4 pt-3 border-t border-gray-100">
+            <div className="mt-4 pt-3 border-t border-[#1E3252]/70">
               <button
                 type="button"
                 onClick={() => {
                   setShowAddressModal(false);
                   navigate("/account/addresses");
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#7C3AED]/40 bg-purple-50/50 py-3 text-xs font-extrabold text-[#7C3AED] hover:bg-purple-50 active:scale-[0.99] transition cursor-pointer"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#42D6E8]/40 bg-[#132B45]/30 py-3 text-xs font-extrabold text-[#42D6E8] hover:bg-[#132B45]/50 active:scale-[0.99] transition cursor-pointer"
               >
                 <Plus size={15} />
                 <span>Add New Address</span>
@@ -1196,25 +1204,25 @@ function BillingForm({
       {showPaymentModal && (
         <div
           onClick={() => setShowPaymentModal(false)}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="flex w-full max-w-[500px] flex-col rounded-t-[28px] sm:rounded-[24px] bg-white p-5 sm:p-6 shadow-2xl"
+            className="flex w-full max-w-[500px] flex-col rounded-t-[28px] sm:rounded-[24px] bg-[#111F36] border border-[#1E3252] p-5 sm:p-6 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
               <div>
-                <h3 className="text-base font-extrabold text-[#111827]">
+                <h3 className="text-base font-extrabold text-[#F1F5F9]">
                   Select Payment Method
                 </h3>
-                <p className="text-xs font-medium text-gray-500">
+                <p className="text-xs font-medium text-[#8FA4BE]">
                   How would you like to pay?
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowPaymentModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[#8FA4BE] hover:bg-[#162744] hover:text-white transition cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -1229,34 +1237,34 @@ function BillingForm({
                 }}
                 className={`flex items-start gap-3 rounded-2xl border p-4 transition-all cursor-pointer ${
                   paymentMethod === "online"
-                    ? "border-[#7C3AED] bg-[#F1ECFF]/70 ring-2 ring-[#7C3AED]/15 shadow-xs"
-                    : "border-gray-200 bg-gray-50/60 hover:border-gray-300 hover:bg-white"
+                    ? "border-[#42D6E8] bg-[#132B45]/70 ring-2 ring-[#42D6E8]/20 shadow-xs"
+                    : "border-[#1E3252] bg-[#0B1425] hover:border-[#42D6E8]/50"
                 }`}
               >
                 <div
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
                     paymentMethod === "online"
-                      ? "bg-white text-[#7C3AED] border-purple-200"
-                      : "bg-white text-gray-500 border-gray-200"
+                      ? "bg-[#111F36] text-[#42D6E8] border-[#42D6E8]/50"
+                      : "bg-[#111F36] text-[#6E84A3] border-[#1E3252]"
                   }`}
                 >
                   <CreditCard size={18} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-extrabold text-[#111827]">
+                    <h4 className="text-sm font-extrabold text-[#F1F5F9]">
                       Pay Online
                     </h4>
                     {paymentMethod === "online" && (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7C3AED] text-white">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220]">
                         <Check size={12} strokeWidth={3} />
                       </div>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs font-medium text-gray-500">
+                  <p className="mt-0.5 text-xs font-medium text-[#8FA4BE]">
                     UPI (Google Pay, PhonePe, Paytm), Cards, NetBanking, Wallets
                   </p>
-                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md w-fit border border-emerald-200/50">
+                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-[#42D6E8] bg-[#132B45] px-2 py-0.5 rounded-md w-fit border border-[#1E3252]">
                     <ShieldCheck size={12} />
                     <span>Instant &amp; 100% Secure via Razorpay</span>
                   </div>
@@ -1271,31 +1279,31 @@ function BillingForm({
                 }}
                 className={`flex items-start gap-3 rounded-2xl border p-4 transition-all cursor-pointer ${
                   paymentMethod === "cod"
-                    ? "border-[#7C3AED] bg-[#F1ECFF]/70 ring-2 ring-[#7C3AED]/15 shadow-xs"
-                    : "border-gray-200 bg-gray-50/60 hover:border-gray-300 hover:bg-white"
+                    ? "border-[#42D6E8] bg-[#132B45]/70 ring-2 ring-[#42D6E8]/20 shadow-xs"
+                    : "border-[#1E3252] bg-[#0B1425] hover:border-[#42D6E8]/50"
                 }`}
               >
                 <div
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
                     paymentMethod === "cod"
-                      ? "bg-white text-emerald-700 border-emerald-200"
-                      : "bg-white text-gray-500 border-gray-200"
+                      ? "bg-[#111F36] text-[#42D6E8] border-[#42D6E8]/50"
+                      : "bg-[#111F36] text-[#6E84A3] border-[#1E3252]"
                   }`}
                 >
                   <Banknote size={18} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-extrabold text-[#111827]">
+                    <h4 className="text-sm font-extrabold text-[#F1F5F9]">
                       Cash on Delivery (COD)
                     </h4>
                     {paymentMethod === "cod" && (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#7C3AED] text-white">
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220]">
                         <Check size={12} strokeWidth={3} />
                       </div>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs font-medium text-gray-500">
+                  <p className="mt-0.5 text-xs font-medium text-[#8FA4BE]">
                     Pay with cash upon delivery at your doorstep
                   </p>
                 </div>
@@ -1306,76 +1314,89 @@ function BillingForm({
       )}
 
       {/* Sticky Quick-Commerce Bottom Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200/80 rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-6px_25px_rgba(0,0,0,0.08)] transform-gpu will-change-transform">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0B1425]/95 backdrop-blur-md border-t border-[#1E3252] rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-8px_25px_rgba(0,0,0,0.5)] transform-gpu will-change-transform">
         <div className="mx-auto w-full max-w-[700px] px-3.5 sm:px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {/* Subtle Pull Indicator Pill */}
-          <div className="mx-auto w-9 h-1 rounded-full bg-gray-200/90 mb-2 opacity-80" />
+          <div className="mx-auto w-9 h-1 rounded-full bg-[#1E3252] mb-2 opacity-80" />
 
           {/* Row 1: Unified Address Capsule */}
-          <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#F8F7FF] border border-[#EDE9FE] px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(124,58,237,0.03)]">
-            <button
-              type="button"
-              onClick={() => {
-                if (!isAuthenticated) {
-                  navigate("/login", { state: { from: "/cart" } });
-                } else if (addresses.length === 0) {
-                  navigate("/account/addresses");
-                } else {
-                  setShowAddressModal(true);
-                }
-              }}
-              className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer hover:opacity-85 transition-opacity select-none"
-            >
-              <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-purple-100 text-[#7C3AED] shadow-xs">
-                {selectedAddress?.type === "office" || selectedAddress?.type === "work" ? (
-                  <Building2 size={16} strokeWidth={2.4} />
-                ) : (
-                  <Home size={16} strokeWidth={2.4} />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 leading-tight">
-                  <span className="font-black text-xs sm:text-[13px] text-[#111827] tracking-tight">
-                    {!isAuthenticated
-                      ? "Delivering to"
-                      : selectedAddress
-                      ? `Delivering to ${selectedAddress.type ? (selectedAddress.type.charAt(0).toUpperCase() + selectedAddress.type.slice(1)) : "Home"}`
-                      : loadingAddresses
-                      ? "Delivering to"
-                      : "No delivery address"}
-                  </span>
+          <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#111F36] border border-[#1E3252]/80 px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+            {loadingAddresses && !selectedAddress ? (
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
+                    <Home size={16} strokeWidth={2.4} className="animate-pulse" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-3 w-24 bg-[#1E3252] rounded animate-pulse" />
+                    <div className="h-2.5 w-40 bg-[#162744] rounded animate-pulse" />
+                  </div>
                 </div>
-                <p className="text-[11px] font-medium text-gray-500 truncate leading-tight mt-0.5">
-                  {!isAuthenticated
-                    ? "Login to select delivery address"
-                    : selectedAddress
-                    ? `${selectedAddress.address_line1 || ""}${selectedAddress.city ? `, ${selectedAddress.city}` : ""}${selectedAddress.pincode ? ` - ${selectedAddress.pincode}` : ""}`
-                    : loadingAddresses
-                    ? "Fetching saved addresses..."
-                    : "Click to add your delivery address"}
-                </p>
+                <div className="h-7 w-14 bg-[#162744] rounded-xl animate-pulse shrink-0" />
               </div>
-            </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      navigate("/login", { state: { from: "/cart" } });
+                    } else if (addresses.length === 0) {
+                      navigate("/account/addresses");
+                    } else {
+                      setShowAddressModal(true);
+                    }
+                  }}
+                  className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer hover:opacity-85 transition-opacity select-none"
+                >
+                  <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
+                    {selectedAddress?.type === "office" || selectedAddress?.type === "work" ? (
+                      <Building2 size={16} strokeWidth={2.4} />
+                    ) : (
+                      <Home size={16} strokeWidth={2.4} />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 leading-tight">
+                      <span className="font-black text-xs sm:text-[13px] text-[#F1F5F9] tracking-tight">
+                        {!isAuthenticated
+                          ? "Delivering to"
+                          : selectedAddress
+                          ? `Delivering to ${selectedAddress.type ? (selectedAddress.type.charAt(0).toUpperCase() + selectedAddress.type.slice(1)) : "Home"}`
+                          : "No delivery address"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-medium text-[#8FA4BE] truncate leading-tight mt-0.5">
+                      {!isAuthenticated
+                        ? "Login to select delivery address"
+                        : selectedAddress
+                        ? `${selectedAddress.address_line1 || ""}${selectedAddress.city ? `, ${selectedAddress.city}` : ""}${selectedAddress.pincode ? ` - ${selectedAddress.pincode}` : ""}`
+                        : "Click to add your delivery address"}
+                    </p>
+                  </div>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (!isAuthenticated) {
-                  navigate("/login", { state: { from: "/cart" } });
-                } else if (addresses.length === 0) {
-                  navigate("/account/addresses");
-                } else {
-                  setShowAddressModal(true);
-                }
-              }}
-              className="shrink-0 text-[11px] sm:text-xs font-black text-[#7C3AED] bg-white border border-purple-200/90 hover:bg-[#7C3AED] hover:text-white hover:border-[#7C3AED] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
-            >
-              {!isAuthenticated
-                ? "Login"
-                : addresses.length === 0
-                ? "+ Add"
-                : "Change"}
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      navigate("/login", { state: { from: "/cart" } });
+                    } else if (addresses.length === 0) {
+                      navigate("/account/addresses");
+                    } else {
+                      setShowAddressModal(true);
+                    }
+                  }}
+                  className="shrink-0 text-[11px] sm:text-xs font-black text-[#42D6E8] bg-[#132B45] border border-[#1E3252] hover:bg-[#42D6E8] hover:text-[#061220] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
+                >
+                  {!isAuthenticated
+                    ? "Login"
+                    : addresses.length === 0
+                    ? "+ Add"
+                    : "Change"}
+                </button>
+              </>
+            )}
           </div>
 
           {/* Row 2: Payment Selector & Main Action Button */}
@@ -1385,14 +1406,10 @@ function BillingForm({
               type="button"
               onClick={() => setShowPaymentModal(true)}
               disabled={loading}
-              className="flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 rounded-xl hover:bg-gray-50 active:scale-95 transition-all cursor-pointer max-w-[42%] min-w-0 disabled:opacity-50 text-left"
+              className="flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 rounded-xl hover:bg-[#162744] active:scale-95 transition-all cursor-pointer max-w-[42%] min-w-0 disabled:opacity-50 text-left"
             >
               <div
-                className={`flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl border shadow-xs ${
-                  paymentMethod === "online"
-                    ? "bg-purple-50 border-purple-200/80 text-[#7C3AED]"
-                    : "bg-emerald-50 border-emerald-200/80 text-emerald-700"
-                }`}
+                className={`flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl border shadow-xs bg-[#132B45] border-[#1E3252] text-[#42D6E8]`}
               >
                 {paymentMethod === "online" ? (
                   <CreditCard size={15} strokeWidth={2.2} />
@@ -1401,10 +1418,10 @@ function BillingForm({
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-gray-400 leading-tight">
-                  PAY USING <ChevronUp size={11} className="text-[#7C3AED] stroke-[2.8]" />
+                <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-[#6E84A3] leading-tight">
+                  PAY USING <ChevronUp size={11} className="text-[#42D6E8] stroke-[2.8]" />
                 </span>
-                <span className="block text-xs sm:text-[13px] font-black text-[#111827] truncate leading-tight mt-0.5">
+                <span className="block text-xs sm:text-[13px] font-black text-[#F1F5F9] truncate leading-tight mt-0.5">
                   {paymentMethod === "online" ? "Pay Online" : "Cash on Delivery"}
                 </span>
               </div>
@@ -1415,34 +1432,34 @@ function BillingForm({
               type="button"
               onClick={handlePlaceOrder}
               disabled={isDisabled}
-              className={`group flex items-center justify-between gap-3 sm:gap-4 h-[56px] sm:h-[60px] px-4 sm:px-5 rounded-[20px] text-white font-extrabold transition-all shadow-[0_7px_24px_rgba(91,33,182,0.26)] hover:shadow-[0_9px_28px_rgba(91,33,182,0.34)] active:scale-[0.98] cursor-pointer flex-1 max-w-[250px] sm:max-w-[280px] ${
+              className={`group flex items-center justify-between gap-3 sm:gap-4 h-[56px] sm:h-[60px] px-4 sm:px-5 rounded-[20px] font-black transition-all shadow-[0_7px_24px_rgba(66,214,232,0.3)] active:scale-[0.98] cursor-pointer flex-1 max-w-[250px] sm:max-w-[280px] ${
                 isStoreClosed
-                  ? "bg-amber-600 shadow-none cursor-not-allowed opacity-90"
+                  ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
                   : hasActivePendingPayment && paymentMethod === "online"
-                  ? "bg-purple-700 cursor-wait opacity-90"
+                  ? "bg-cyan-800 text-white cursor-wait opacity-90"
                   : hasOutOfStock || isBelowMin
-                  ? "bg-gray-400 shadow-none cursor-not-allowed opacity-80"
-                  : "bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] hover:from-[#6D28D9] hover:to-[#5B21B6] disabled:cursor-not-allowed disabled:opacity-60"
+                  ? "bg-[#0E1A2E] text-[#6E84A3] border border-[#1E3252] shadow-none cursor-not-allowed opacity-80"
+                  : "bg-gradient-to-r from-[#42D6E8] to-[#2CC4D8] text-[#061220] hover:from-[#2CC4D8] hover:to-[#1FBAD0] hover:text-[#061220] disabled:cursor-not-allowed disabled:opacity-60"
               }`}
             >
               {/* Total Price & Label */}
               <div className="flex shrink-0 flex-col items-center justify-center text-center leading-none">
-                <div className="flex items-baseline gap-0.5 text-white">
+                <div className="flex items-baseline gap-0.5">
                   <span className="text-xs sm:text-sm font-black opacity-90 leading-none">₹</span>
                   <span className="text-[17px] sm:text-lg font-black tracking-tight leading-none">
                     {Number(finalTotal).toLocaleString("en-IN")}
                   </span>
                 </div>
-                <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/75 mt-1 leading-none">
+                <span className="text-[9px] font-bold uppercase tracking-[0.14em] opacity-75 mt-1 leading-none">
                   TOTAL
                 </span>
               </div>
 
               {/* Vertical divider */}
-              <div className="h-8 w-px bg-white/25 rounded-full shrink-0" />
+              <div className="h-8 w-px bg-black/20 rounded-full shrink-0" />
 
               {/* Action text & chevron */}
-              <div className="flex min-h-10 min-w-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-3 text-[13px] sm:text-sm font-bold whitespace-nowrap">
+              <div className="flex min-h-10 min-w-0 items-center gap-1 rounded-full border border-black/10 bg-black/10 px-3 text-[13px] sm:text-sm font-black whitespace-nowrap">
                 {loading ? (
                   <>
                     <Loader2 size={15} className="animate-spin shrink-0" />

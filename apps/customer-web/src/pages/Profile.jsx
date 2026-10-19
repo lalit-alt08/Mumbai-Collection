@@ -14,6 +14,7 @@ import {
   Check,
   Loader2,
   ArrowLeft,
+  AlertCircle,
   AlertTriangle,
   Trash2,
   Shield,
@@ -21,6 +22,7 @@ import {
 import axios from "axios";
 import safeStorage from "../utils/safeStorage.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
+import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 
 function Profile() {
   const navigate = useNavigate();
@@ -38,6 +40,7 @@ function Profile() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [success, setSuccess] = useState("");
 
   const [form, setForm] = useState({
@@ -64,6 +67,24 @@ function Profile() {
       return fullName.trim();
     }
     return fallback;
+  };
+
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return "";
+    const clean = String(phone).replace(/\D/g, "");
+    let national = clean;
+    if (clean.length === 12 && clean.startsWith("91")) {
+      national = clean.slice(2);
+    } else if (clean.length === 11 && clean.startsWith("0")) {
+      national = clean.slice(1);
+    } else if (clean.length > 10) {
+      national = clean.slice(-10);
+    }
+
+    if (national.length === 10) {
+      return `+91 ${national.slice(0, 5)} ${national.slice(5)}`;
+    }
+    return phone.startsWith("+") ? phone : `+91 ${phone}`;
   };
 
   // ==============================
@@ -171,6 +192,14 @@ function Profile() {
       [name]: nextValue,
     }));
 
+    if (fieldErrors[name]) {
+      setFieldErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[name];
+        return copy;
+      });
+    }
+
     setError("");
     setSuccess("");
   };
@@ -194,6 +223,7 @@ function Profile() {
     });
 
     setError("");
+    setFieldErrors({});
     setSuccess("");
     setEditing(true);
   };
@@ -217,6 +247,7 @@ function Profile() {
     });
 
     setError("");
+    setFieldErrors({});
     setSuccess("");
     setEditing(false);
   };
@@ -229,35 +260,34 @@ function Profile() {
     e.preventDefault();
 
     setError("");
+    setFieldErrors({});
     setSuccess("");
 
-    if (!form.first_name.trim()) {
-      setError("First name is required.");
-      return;
+    const newFieldErrors = {};
+    const cleanFirst = normalizePersonName(form.first_name);
+    const cleanLast = normalizePersonName(form.last_name);
+
+    if (!cleanFirst) {
+      newFieldErrors.first_name = "First name is required.";
+    } else if (!isValidPersonName(cleanFirst)) {
+      newFieldErrors.first_name = "First name can only contain letters, spaces, hyphens, apostrophes, and periods.";
     }
 
-    if (!form.last_name.trim()) {
-      setError("Last name is required.");
-      return;
+    if (!cleanLast) {
+      newFieldErrors.last_name = "Last name is required.";
+    } else if (!isValidPersonName(cleanLast)) {
+      newFieldErrors.last_name = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
     }
 
     if (!form.age) {
-      setError("Age is required.");
-      return;
-    }
-
-    if (
-      Number(form.age) < 13 ||
-      Number(form.age) > 120
-    ) {
-      setError("Please enter a valid age (13 - 120).");
-      return;
+      newFieldErrors.age = "Age is required.";
+    } else if (Number(form.age) < 13 || Number(form.age) > 120) {
+      newFieldErrors.age = "Please enter a valid age (13 - 120).";
     }
 
     // Validate primary phone only if user is setting it for the first time
     if (!profile?.phone && (!form.phone || !isValidIndianPhone(form.phone))) {
-      setError("Please enter a valid 10-digit primary Indian mobile number.");
-      return;
+      newFieldErrors.phone = "Please enter a valid 10-digit primary Indian mobile number.";
     }
 
     // Validate secondary phone if provided
@@ -266,13 +296,22 @@ function Profile() {
 
     if (form.secondary_phone && cleanSecondary.length > 0) {
       if (!isValidIndianPhone(cleanSecondary)) {
-        setError("Please enter a valid 10-digit alternative mobile number.");
-        return;
+        newFieldErrors.secondary_phone = "Please enter a valid 10-digit alternative mobile number.";
+      } else if (cleanSecondary === effectivePrimary) {
+        newFieldErrors.secondary_phone = "Alternative mobile number cannot be the same as your primary mobile number.";
       }
-      if (cleanSecondary === effectivePrimary) {
-        setError("Alternative mobile number cannot be the same as your primary mobile number.");
-        return;
+    }
+
+    if (Object.keys(newFieldErrors).length > 0) {
+      setFieldErrors(newFieldErrors);
+      setError("");
+      const firstField = Object.keys(newFieldErrors)[0];
+      const elem = document.querySelector(`[name="${firstField}"]`);
+      if (elem) {
+        elem.focus();
+        elem.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+      return;
     }
 
     try {
@@ -352,10 +391,44 @@ function Profile() {
         return;
       }
 
-      setError(
-        error.response?.data?.message ||
-          "Unable to update profile."
-      );
+      const serverMsg = error.response?.data?.message || "Unable to update profile.";
+      const status = error.response?.status;
+      const lower = serverMsg.toLowerCase();
+
+      let targetField = null;
+      if (
+        status === 409 ||
+        lower.includes("primary") ||
+        lower.includes("mobile number is already") ||
+        lower.includes("phone number is already") ||
+        (lower.includes("phone") && !lower.includes("secondary") && !lower.includes("alternative")) ||
+        (lower.includes("mobile") && !lower.includes("secondary") && !lower.includes("alternative"))
+      ) {
+        targetField = "phone";
+      } else if (lower.includes("secondary") || lower.includes("alternative")) {
+        targetField = "secondary_phone";
+      } else if (lower.includes("first name")) {
+        targetField = "first_name";
+      } else if (lower.includes("last name")) {
+        targetField = "last_name";
+      } else if (lower.includes("age")) {
+        targetField = "age";
+      }
+
+      if (targetField) {
+        setFieldErrors({ [targetField]: serverMsg });
+        setError("");
+        setTimeout(() => {
+          const elem = document.querySelector(`[name="${targetField}"]`);
+          if (elem) {
+            elem.focus();
+            elem.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }, 50);
+      } else {
+        setFieldErrors({});
+        setError(serverMsg);
+      }
     } finally {
       setSaving(false);
     }
@@ -400,7 +473,7 @@ function Profile() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#7C3AED]/20 border-t-[#7C3AED]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#1E3252] border-t-[#42D6E8]" />
       </div>
     );
   }
@@ -412,19 +485,32 @@ function Profile() {
   if (error && !editing && !profile) {
     return (
       <div className="mx-auto max-w-3xl px-5 py-10">
-        <div className="rounded-2xl bg-red-50 p-5 text-red-600">
+        <div className="rounded-2xl border border-rose-900/60 bg-rose-950/40 p-5 text-rose-300">
           {error}
         </div>
       </div>
     );
   }
 
+  const displayName = getCleanDisplayName(profile?.full_name, profile?.first_name, profile?.last_name, "Your Name");
+  const avatarInitials =
+    displayName
+      .split(" ")
+      .map((w) => {
+        const letter = Array.from(w).find((ch) => /[\p{L}\p{M}]/u.test(ch));
+        return letter || "";
+      })
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "U";
+
   return (
-    <div className="min-h-screen bg-[#F7F7FB] px-4 py-6 sm:px-5 md:px-10 md:py-10 pb-28 sm:pb-16">
-      <div className="mx-auto max-w-4xl">
+    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 py-4 sm:px-5 sm:py-6 pb-24 sm:pb-16">
+      <div className="mx-auto max-w-xl">
 
         {/* HEADER */}
-        <div className="mb-6 flex items-center gap-3.5 sm:mb-8">
+        <div className="mb-4 flex items-center gap-3">
           <button
             onClick={() => {
               if (window.history.state && window.history.state.idx > 0) {
@@ -434,98 +520,82 @@ function Profile() {
               }
             }}
             aria-label="Back to Account"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-[#7C3AED] hover:text-white hover:border-[#7C3AED] cursor-pointer active:scale-95"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-xs border border-[#1E3252] transition hover:bg-[#42D6E8] hover:text-[#061220] hover:border-[#42D6E8] cursor-pointer active:scale-95"
           >
-            <ArrowLeft size={18} />
+            <ArrowLeft size={17} />
           </button>
           <div>
-            <h1 className="text-[26px] font-extrabold tracking-tight text-[#1E1E1E] sm:text-[32px]">
+            <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl">
               My Profile
             </h1>
-            <p className="text-xs text-gray-500 font-medium sm:text-sm">
-              Manage your personal information.
+            <p className="text-xs text-[#8FA4BE] font-medium">
+              Manage your personal information
             </p>
           </div>
         </div>
 
         {/* SUCCESS */}
         {success && (
-          <div className="mb-5 rounded-2xl bg-green-50 p-4 text-sm font-medium text-green-600">
+          <div className="mb-4 rounded-xl border border-[#1E3252] bg-[#132B45] p-3 text-xs font-semibold text-[#67E8F9]">
             {success}
           </div>
         )}
 
         {/* ERROR */}
         {error && (
-          <div className="mb-5 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-600">
+          <div className="mb-4 rounded-xl border border-rose-900/60 bg-rose-950/40 p-3 text-xs font-semibold text-rose-300">
             {error}
           </div>
         )}
 
-        {/* PROFILE CARD */}
-        <div className="rounded-3xl bg-white p-6 shadow-sm md:p-8">
+        {/* UNIFIED PROFILE CARD */}
+        <div className="overflow-hidden rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] shadow-lg">
 
-          {/* PROFILE HEADER */}
-          <div className="mb-8 flex items-center justify-between gap-4">
-
-            <div className="flex items-center gap-4">
-
-              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-[#F1ECFF]">
-                <User
-                  size={30}
-                  className="text-[#7C3AED]"
-                />
+          {/* PROFILE HERO HEADER */}
+          <div className="flex items-center justify-between gap-3.5 p-4 sm:p-5 border-b border-[#1E3252]/60">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex h-13 w-13 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#42D6E8] to-[#2CC4D8] text-[#061220] font-black text-lg sm:text-xl shadow-sm ring-1 ring-[#1E3252]">
+                {avatarInitials}
               </div>
-
-              <div>
-                <h2 className="text-xl font-extrabold text-[#1E1E1E]">
-                  {getCleanDisplayName(profile?.full_name, profile?.first_name, profile?.last_name, "Your Name")}
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl font-extrabold text-[#F1F5F9] truncate">
+                  {displayName}
                 </h2>
-
-                <p className="mt-1 text-sm text-gray-500">
-                  Personal Information
+                <p className="text-xs sm:text-sm text-[#8FA4BE] truncate mt-0.5">
+                  {editing ? "Editing Information" : "Personal Information"}
                 </p>
               </div>
-
             </div>
 
-            {/* EDIT BUTTON */}
             {!editing && (
               <button
                 type="button"
                 onClick={handleEdit}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-600 transition hover:border-[#7C3AED] hover:bg-[#F1ECFF] hover:text-[#7C3AED]"
+                className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#132B45] border border-[#1E3252] px-4 py-2 text-xs sm:text-sm font-bold text-[#67E8F9] shadow-xs transition hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95 cursor-pointer"
               >
-                <Pencil size={17} />
-                Edit
+                <Pencil size={14} />
+                <span>Edit</span>
               </button>
             )}
-
           </div>
 
           {/* ========================================= */}
           {/* EDIT MODE */}
           {/* ========================================= */}
-
           {editing ? (
-            <form
-              onSubmit={handleSave}
-              className="space-y-5"
-            >
+            <form onSubmit={handleSave} className="p-4 sm:p-5 space-y-3.5">
 
               {/* FIRST NAME & LAST NAME */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    First Name <span className="text-[#7C3AED]">*</span>
+                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.first_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    First Name <span className={fieldErrors.first_name ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
                   </label>
-
                   <div className="relative">
                     <User
-                      size={19}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                      size={15}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.first_name ? "text-rose-400" : "text-[#6E84A3]"}`}
                     />
-
                     <input
                       type="text"
                       name="first_name"
@@ -534,22 +604,30 @@ function Profile() {
                       autoComplete="given-name"
                       placeholder="e.g. Rahul"
                       required
-                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                      className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#F1F5F9] outline-none transition ${
+                        fieldErrors.first_name
+                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
+                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                      }`}
                     />
                   </div>
+                  {fieldErrors.first_name && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{fieldErrors.first_name}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-bold text-gray-700">
-                    Last Name <span className="text-[#7C3AED]">*</span>
+                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.last_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Last Name <span className={fieldErrors.last_name ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
                   </label>
-
                   <div className="relative">
                     <User
-                      size={19}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                      size={15}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.last_name ? "text-rose-400" : "text-[#6E84A3]"}`}
                     />
-
                     <input
                       type="text"
                       name="last_name"
@@ -558,24 +636,32 @@ function Profile() {
                       autoComplete="family-name"
                       placeholder="e.g. Sharma"
                       required
-                      className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                      className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#F1F5F9] outline-none transition ${
+                        fieldErrors.last_name
+                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
+                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                      }`}
                     />
                   </div>
+                  {fieldErrors.last_name && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{fieldErrors.last_name}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
               {/* AGE */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
+                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.age ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                   Age
                 </label>
-
                 <div className="relative">
                   <Calendar
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    size={15}
+                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.age ? "text-rose-400" : "text-[#6E84A3]"}`}
                   />
-
                   <input
                     type="number"
                     name="age"
@@ -584,22 +670,30 @@ function Profile() {
                     min="13"
                     max="120"
                     placeholder="Enter your age"
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#F1F5F9] outline-none transition ${
+                      fieldErrors.age
+                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
+                        : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                    }`}
                   />
                 </div>
+                {fieldErrors.age && (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                    <span>{fieldErrors.age}</span>
+                  </p>
+                )}
               </div>
 
-              {/* PRIMARY PHONE (LOCKED ONCE SET LIKE EMAIL) */}
+              {/* PRIMARY PHONE */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
-                  Mobile Number
+                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                  Primary Mobile
                 </label>
-
                 <div className="relative flex items-center">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
+                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#6E84A3]"}`}>
                     +91
                   </span>
-
                   <input
                     type="tel"
                     inputMode="numeric"
@@ -607,37 +701,36 @@ function Profile() {
                     value={profile?.phone || user?.phone || form.phone}
                     onChange={handleChange}
                     disabled={Boolean(profile?.phone || user?.phone)}
-                    className={`h-14 w-full rounded-2xl border border-gray-200 pl-14 pr-4 outline-none transition font-semibold text-sm sm:text-base ${
-                      (profile?.phone || user?.phone)
-                        ? "cursor-not-allowed bg-gray-100 text-gray-500"
-                        : "bg-gray-50 text-[#1E1E1E] focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+                    className={`h-11 w-full rounded-xl border pl-11 pr-3.5 outline-none transition font-semibold text-sm ${
+                      fieldErrors.phone
+                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#F1F5F9]"
+                        : (profile?.phone || user?.phone)
+                        ? "cursor-not-allowed border-[#1E3252] bg-[#080F1C]/50 text-[#6E84A3]"
+                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                     }`}
                   />
                 </div>
-
-                {(profile?.phone || user?.phone) && (
-                  <p className="mt-2 text-xs text-gray-400">
-                    Primary mobile number cannot be changed from this page.
+                {fieldErrors.phone ? (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                    <span>{fieldErrors.phone}</span>
                   </p>
-                )}
+                ) : (profile?.phone || user?.phone) ? (
+                  <p className="mt-1 text-[11px] text-[#6E84A3]">
+                    Primary mobile cannot be changed from this page.
+                  </p>
+                ) : null}
               </div>
 
-              {/* SECONDARY / ALTERNATIVE PHONE (OPTIONAL) */}
+              {/* SECONDARY MOBILE */}
               <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-bold text-gray-700">
-                    Alternative Mobile Number
-                  </label>
-                  <span className="text-xs font-semibold text-[#7C3AED] bg-[#F1ECFF] px-2 py-0.5 rounded-md">
-                    Optional
-                  </span>
-                </div>
-
+                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.secondary_phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                  Secondary Mobile
+                </label>
                 <div className="relative flex items-center">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
+                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.secondary_phone ? "text-rose-400" : "text-[#6E84A3]"}`}>
                     +91
                   </span>
-
                   <input
                     type="tel"
                     inputMode="numeric"
@@ -645,167 +738,166 @@ function Profile() {
                     name="secondary_phone"
                     value={form.secondary_phone}
                     onChange={handleChange}
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-14 pr-4 text-[#1E1E1E] outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10 font-semibold text-sm sm:text-base"
+                    placeholder="Enter secondary mobile"
+                    className={`h-11 w-full rounded-xl border pl-11 pr-3.5 text-sm outline-none transition font-semibold ${
+                      fieldErrors.secondary_phone
+                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#F1F5F9]"
+                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                    }`}
                   />
                 </div>
-
-                <p className="mt-2 text-xs text-gray-400">
-                  Used by our delivery team if your primary number is unreachable.
-                </p>
+                {fieldErrors.secondary_phone ? (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                    <span>{fieldErrors.secondary_phone}</span>
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-[#6E84A3]">
+                    Used by our delivery team if your primary mobile is unreachable.
+                  </p>
+                )}
               </div>
 
               {/* EMAIL */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-gray-700">
+                <label className="mb-1.5 block text-xs font-bold text-[#8FA4BE]">
                   Email
                 </label>
-
                 <div className="relative">
                   <Mail
-                    size={19}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+                    size={15}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6E84A3]"
                   />
-
                   <input
                     type="text"
                     value={profile?.email || user?.email || "Not available"}
                     disabled
-                    className="h-14 w-full cursor-not-allowed rounded-2xl border border-gray-200 bg-gray-100 pl-12 pr-4 text-gray-500 outline-none"
+                    className="h-11 w-full cursor-not-allowed rounded-xl border border-[#1E3252] bg-[#080F1C]/50 pl-10 pr-3.5 text-sm text-[#6E84A3] outline-none"
                   />
                 </div>
-
-                <p className="mt-2 text-xs text-gray-400">
+                <p className="mt-1 text-[11px] text-[#6E84A3]">
                   Email cannot be changed from this page.
                 </p>
               </div>
 
-              {/* BUTTONS */}
-              <div className="flex flex-col gap-3 pt-3 sm:flex-row sm:justify-end">
-
+              {/* ACTION BUTTONS */}
+              <div className="flex items-center justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={handleCancel}
                   disabled={saving}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl border border-gray-200 px-6 text-sm font-bold text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-xs font-bold text-[#8FA4BE] transition hover:bg-[#162744] hover:text-[#F1F5F9] disabled:opacity-50 cursor-pointer"
                 >
-                  <X size={17} />
-                  Cancel
+                  <X size={15} />
+                  <span>Cancel</span>
                 </button>
 
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-6 text-sm font-bold text-white transition hover:bg-[#6C35E8] disabled:cursor-not-allowed disabled:opacity-70"
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#42D6E8] px-5 text-xs font-black text-[#061220] transition hover:bg-[#2CC4D8] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer shadow-xs"
                 >
                   {saving ? (
                     <>
                       <Loader2
-                        size={17}
-                        className="animate-spin"
+                        size={15}
+                        className="animate-spin text-[#061220]"
                       />
-                      Saving...
+                      <span>Saving...</span>
                     </>
                   ) : (
                     <>
-                      <Check size={17} />
-                      Save Changes
+                      <Check size={15} />
+                      <span>Save Changes</span>
                     </>
                   )}
                 </button>
-
               </div>
 
             </form>
           ) : (
-
             /* ========================================= */
-            /* NORMAL VIEW MODE */
+            /* COMPACT UNIFIED VIEW MODE */
             /* ========================================= */
-
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="divide-y divide-[#1E3252]/60">
 
               {/* FULL NAME */}
-              <div className="rounded-2xl bg-gray-50 p-5">
-                <div className="mb-3 flex items-center gap-2 text-gray-400">
-                  <User size={18} />
-
-                  <span className="text-xs font-bold uppercase tracking-wide">
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                    <User size={17} />
+                  </div>
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE]">
                     Full Name
                   </span>
                 </div>
-
-                <p className="font-semibold text-[#1E1E1E]">
-                  {getCleanDisplayName(profile?.full_name, profile?.first_name, profile?.last_name, "Not provided")}
-                </p>
+                <span className="text-right text-[15px] sm:text-base font-semibold text-[#F1F5F9] truncate max-w-[58%]">
+                  {displayName}
+                </span>
               </div>
 
               {/* AGE */}
-              <div className="rounded-2xl bg-gray-50 p-5">
-                <div className="mb-3 flex items-center gap-2 text-gray-400">
-                  <Calendar size={18} />
-
-                  <span className="text-xs font-bold uppercase tracking-wide">
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                    <Calendar size={17} />
+                  </div>
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE]">
                     Age
                   </span>
                 </div>
-
-                <p className="font-semibold text-[#1E1E1E]">
-                  {profile?.age ||
-                    "Not provided"}
-                </p>
+                <span className={`text-right text-[15px] sm:text-base font-semibold ${profile?.age ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
+                  {profile?.age || "Not provided"}
+                </span>
               </div>
 
-              {/* PHONE */}
-              <div className="rounded-2xl bg-gray-50 p-5">
-                <div className="mb-3 flex items-center gap-2 text-gray-400">
-                  <Phone size={18} />
-
-                  <span className="text-xs font-bold uppercase tracking-wide">
+              {/* PRIMARY MOBILE */}
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                    <Phone size={17} />
+                  </div>
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE] whitespace-nowrap">
                     Primary Mobile
                   </span>
                 </div>
-
-                <p className="font-semibold text-[#1E1E1E]">
+                <span className={`text-right text-[15px] sm:text-base font-semibold font-mono whitespace-nowrap ${(profile?.phone || user?.phone) ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
                   {(profile?.phone || user?.phone)
-                    ? `+91 ${profile?.phone || user?.phone}`
+                    ? formatPhoneNumber(profile?.phone || user?.phone)
                     : "Not provided"}
-                </p>
+                </span>
               </div>
 
-              {/* SECONDARY / ALTERNATE PHONE */}
-              <div className="rounded-2xl bg-gray-50 p-5">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <Phone size={18} />
-                    <span className="text-xs font-bold uppercase tracking-wide">
-                      Backup Mobile
-                    </span>
+              {/* SECONDARY MOBILE */}
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                    <Phone size={17} />
                   </div>
-                  <span className="text-[10px] font-bold text-[#7C3AED] bg-[#F1ECFF] px-2 py-0.5 rounded-md">
-                    Optional
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE] whitespace-nowrap">
+                    Secondary Mobile
                   </span>
                 </div>
-
-                <p className="font-semibold text-[#1E1E1E]">
+                <span className={`text-right text-[15px] sm:text-base font-semibold font-mono whitespace-nowrap ${(profile?.secondary_phone || user?.secondary_phone) ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
                   {(profile?.secondary_phone || user?.secondary_phone)
-                    ? `+91 ${profile?.secondary_phone || user?.secondary_phone}`
+                    ? formatPhoneNumber(profile?.secondary_phone || user?.secondary_phone)
                     : "Not provided"}
-                </p>
+                </span>
               </div>
 
               {/* EMAIL */}
-              <div className="rounded-2xl bg-gray-50 p-5">
-                <div className="mb-3 flex items-center gap-2 text-gray-400">
-                  <Mail size={18} />
-
-                  <span className="text-xs font-bold uppercase tracking-wide">
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                    <Mail size={17} />
+                  </div>
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE]">
                     Email
                   </span>
                 </div>
-
-                <p className="break-all font-semibold text-[#1E1E1E]">
+                <span className="text-right text-sm sm:text-[15px] font-semibold text-[#F1F5F9] break-all max-w-[58%] sm:max-w-none">
                   {profile?.email || user?.email || "Not available"}
-                </p>
+                </span>
               </div>
 
             </div>
@@ -814,22 +906,22 @@ function Profile() {
         </div>
 
         {/* ACCOUNT PRIVACY: DELETE ACCOUNT */}
-        <div className="mt-6 space-y-2">
+        <div className="mt-5 space-y-2">
           <div className="flex items-center gap-1.5 px-1">
-            <Shield size={14} className="text-gray-500" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+            <Shield size={14} className="text-[#6E84A3]" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[#6E84A3]">
               Account Privacy
             </h3>
           </div>
 
-          <div className="rounded-2xl border border-red-100 bg-red-50/40 p-3.5 sm:p-4 transition hover:bg-red-50/60">
+          <div className="rounded-[18px] border border-rose-900/60 bg-rose-950/25 p-4 transition hover:bg-rose-950/35">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-red-600">
-                  <AlertTriangle size={13} />
+                <div className="flex items-center gap-1.5 text-sm font-bold text-rose-400">
+                  <AlertTriangle size={14} />
                   <span>Delete Account</span>
                 </div>
-                <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+                <p className="mt-0.5 text-xs leading-snug text-[#8FA4BE]">
                   Permanently delete your account, addresses, and saved data.
                 </p>
               </div>
@@ -837,7 +929,7 @@ function Profile() {
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(true)}
-                className="shrink-0 flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 shadow-2xs transition hover:bg-red-600 hover:border-red-600 hover:text-white active:scale-95 cursor-pointer"
+                className="shrink-0 flex items-center gap-1.5 rounded-xl border border-rose-900/60 bg-[#111F36] px-3.5 py-2 text-xs sm:text-sm font-bold text-rose-400 shadow-2xs transition hover:bg-rose-600 hover:border-rose-600 hover:text-white active:scale-95 cursor-pointer"
               >
                 <Trash2 size={13} />
                 <span>Delete</span>

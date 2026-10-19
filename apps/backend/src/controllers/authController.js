@@ -89,7 +89,8 @@ const getClearCookieOptions = (req) => {
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = String(req.body.email || "").trim().toLowerCase();
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const cookieOptions = getCookieOptions(req);
@@ -216,7 +217,8 @@ export const logout = async (req, res) => {
 
 export const register = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = String(req.body.email || "").trim().toLowerCase();
     const { firstName, lastName } = parseFirstAndLastName(req.body);
 
     if (!firstName) {
