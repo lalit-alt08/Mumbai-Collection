@@ -24,7 +24,7 @@ function TrackOrder() {
   const { orderId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const urlOrderId = orderId || searchParams.get("id") || "";
 
@@ -115,7 +115,15 @@ function TrackOrder() {
   // Initial fetch on activeOrderId change
   useEffect(() => {
     if (activeOrderId) {
-      fetchOrder(activeOrderId, false);
+      if (authLoading) return;
+
+      if (!user) {
+        setOrder(null);
+        setError("Please sign in to the account that placed this order to view its tracking details.");
+        setLoading(false);
+      } else {
+        fetchOrder(activeOrderId, false);
+      }
     }
 
     return () => {
@@ -123,7 +131,7 @@ function TrackOrder() {
       requestControllerRef.current = null;
       requestSequenceRef.current += 1;
     };
-  }, [activeOrderId, fetchOrder]);
+  }, [activeOrderId, authLoading, user, fetchOrder]);
 
   // Visibility-aware polling (about every 30 seconds while the order is active).
   useEffect(() => {
@@ -353,7 +361,7 @@ function TrackOrder() {
         )}
 
         {/* Loading Spinner */}
-        {loading && (
+        {(authLoading || loading) && (
           <div className="flex flex-col items-center justify-center py-16 text-[#8FA4BE] gap-3">
             <Loader2 size={32} className="animate-spin text-[#42D6E8]" />
             <p className="text-xs font-bold text-[#F1F5F9]">Connecting to Mumbai Collection live dispatch...</p>
@@ -370,10 +378,10 @@ function TrackOrder() {
             <p className="text-xs text-rose-300 leading-relaxed">{error}</p>
             <div className="pt-2">
               <Link
-                to="/account/orders"
+                to={user ? "/account/orders" : "/login"}
                 className="inline-flex items-center gap-1 text-xs font-bold text-[#42D6E8] hover:underline"
               >
-                &larr; View all your active orders
+                {user ? "← View all your active orders" : "Sign in to view this order"}
               </Link>
             </div>
           </div>

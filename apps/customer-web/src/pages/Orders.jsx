@@ -522,7 +522,7 @@ function Orders() {
                           </button>
                         )}
 
-                        {!["cancelled", "failed", "refunded", "pending", "on-hold"].includes(order.status) && (
+                        {!["cancelled", "failed", "refunded"].includes(order.status) && (
                           <Link
                             to={`/orders/${order.id}/track`}
                             className="flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-4 py-2 text-xs font-black text-[#061220] transition hover:bg-[#2CC4D8]"

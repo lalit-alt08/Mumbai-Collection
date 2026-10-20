@@ -599,8 +599,8 @@ function BillingForm({
               }
             } catch (_) {}
 
-            if (paymentResponse?.razorpay_order_id) {
-              cancelPaymentOrder(paymentResponse.razorpay_order_id).catch(() => {});
+            if (orderRes?.razorpay_order_id) {
+              cancelPaymentOrder(orderRes.razorpay_order_id).catch(() => {});
             }
             clearPendingPayment();
             setIsPersistentPending(false);
@@ -713,8 +713,8 @@ function BillingForm({
 
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", (failedRes) => {
-        if (paymentResponse?.razorpay_order_id) {
-          cancelPaymentOrder(paymentResponse.razorpay_order_id).catch(() => {});
+        if (failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id) {
+          cancelPaymentOrder(failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id).catch(() => {});
         }
         isSubmittingRef.current = false;
         setLoading(false);
