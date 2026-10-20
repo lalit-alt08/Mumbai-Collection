@@ -56,18 +56,30 @@ export const schemas = {
   resetPassword: z.object({ token: z.string().trim().min(1).max(512), password: strongPassword }),
   googleLogin: z.object({ credential: z.string().trim().min(1).max(10000) }),
   otpSend: z.object({
-    phone: z.string().trim().min(3).max(254),
+    phone: z.string().trim().min(3).max(254).optional(),
+    email: email.optional(),
     purpose: z.enum(["verify_phone", "reset_password"]),
+  }).refine((data) => !!(data.phone || data.email), {
+    message: "Email or phone number is required.",
+    path: ["phone"],
   }),
   otpVerify: z.object({
-    phone: z.string().trim().min(3).max(254),
-    otp: z.string().trim().regex(/^\d{6}$/),
+    phone: z.string().trim().min(3).max(254).optional(),
+    email: email.optional(),
+    otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
     purpose: z.enum(["verify_phone", "reset_password"]),
+  }).refine((data) => !!(data.phone || data.email), {
+    message: "Email or phone number is required.",
+    path: ["phone"],
   }),
   otpResetPassword: z.object({
-    phone: z.string().trim().min(3).max(254),
+    phone: z.string().trim().min(3).max(254).optional(),
+    email: email.optional(),
     reset_token: z.string().trim().min(1).max(512),
     new_password: strongPassword,
+  }).refine((data) => !!(data.phone || data.email), {
+    message: "Email or phone number is required.",
+    path: ["phone"],
   }),
   productCreate: z.object({
     name: boundedString(200).min(1),
@@ -256,6 +268,7 @@ export const schemas = {
   }),
   productsByIds: z.object({
     ids: z.string().trim().min(1).max(131).regex(/^\d+(,\d+){0,11}$/),
+    fresh: z.enum(["0", "1"]).optional(),
   }),
 };
 

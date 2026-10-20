@@ -5,6 +5,7 @@ import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { logError, logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { sendResult } from "../utils/responseHelper.js";
+import { getOrderDetail } from "../services/orderDetailCache.js";
 
 /**
  * Fetch authenticated customer's orders from WooCommerce
@@ -169,6 +170,7 @@ export const getCustomerOrders = async (req, res) => {
         per_page: limit,
         orderby: "date",
         order: "desc",
+        _fields: "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax",
       };
       if (req.query.after) {
         orderQueryParams.after = req.query.after;
@@ -195,6 +197,7 @@ export const getCustomerOrders = async (req, res) => {
           per_page: limit,
           orderby: "date",
           order: "desc",
+          _fields: "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax",
         });
         rawOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
         totalOrders = Number(searchRes.headers?.["x-wp-total"]) || rawOrders.length;
@@ -265,8 +268,10 @@ export const getOrderById = async (req, res) => {
       });
     }
 
-    const response = await api.get(`orders/${encodeURIComponent(id)}`);
-    const order = response.data;
+    const order = await getOrderDetail(id, async () => {
+      const response = await api.get(`orders/${encodeURIComponent(id)}`);
+      return response?.data || null;
+    });
 
     if (!order || !order.id) {
       return sendResult(res, {

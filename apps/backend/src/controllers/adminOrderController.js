@@ -11,6 +11,7 @@ import {
   ALLOWED_ORDER_STATUSES,
 } from "../utils/orderStatusTransition.js";
 import { publishOrderEvent } from "../services/orderNotificationService.js";
+import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
 
 /**
  * Admin Order Management Controller (Placeholder / Extensible domain controller)
@@ -153,6 +154,7 @@ export const updateAdminOrderStatus = async (req, res) => {
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
     serverCache.invalidatePrefix("employee:overview");
+    await invalidateOrderDetailCache(id);
 
     logAuditEvent({
       req,

@@ -8,7 +8,36 @@ import {
 import { logError, logger } from "../utils/logger.js";
 
 /**
- * Get all favorited products for authenticated customer
+ * Lightweight endpoint returning strictly product IDs for fast nav/heart icon checking
+ */
+export const getFavoriteIds = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.wpUserId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
+    }
+
+    const productIds = await getFavoriteProductIds(userId);
+    return res.json({
+      success: true,
+      count: productIds.length,
+      productIds,
+    });
+  } catch (error) {
+    logError(req, error, "Get favorite IDs error");
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load favorite IDs.",
+      productIds: [],
+    });
+  }
+};
+
+/**
+ * Get all favorited products for authenticated customer (Full catalog hydration for /favorites page)
  */
 export const getFavorites = async (req, res) => {
   try {
@@ -31,11 +60,12 @@ export const getFavorites = async (req, res) => {
       });
     }
 
-    // Fetch full real-time product details from WooCommerce
+    // Fetch compact product details from WooCommerce (fields restricted to UI display requirements)
     try {
       const response = await api.get("products", {
         include: productIds,
         per_page: Math.min(100, productIds.length),
+        _fields: "id,name,slug,price,regular_price,sale_price,images,stock_status",
       });
 
       const products = Array.isArray(response.data) ? response.data : [];

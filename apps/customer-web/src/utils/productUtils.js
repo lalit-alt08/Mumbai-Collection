@@ -45,21 +45,23 @@ export function cleanProductTitle(rawTitle) {
 }
 
 export function getProductStock(product, cartItem = null) {
-  const cartItemOutOfStock =
-    cartItem?.stock_status === "outofstock" ||
-    cartItem?.is_in_stock === false ||
-    cartItem?.quantity_limits?.maximum === 0 ||
-    Boolean(cartItem?.isOutOfStock);
-
+  const backordersAllowed = product?.backorders_allowed === true || cartItem?.backorders_allowed === true;
   const managesStock = product?.manage_stock === true &&
     product.stock_quantity !== null &&
     product.stock_quantity !== undefined &&
     product.stock_quantity !== "";
   const quantity = managesStock ? Number(product.stock_quantity) : null;
-  const isOutOfStock =
+
+  const cartItemOutOfStock =
+    cartItem?.quantity_limits?.maximum === 0 ||
+    ((cartItem?.stock_status === "outofstock" || cartItem?.is_in_stock === false || Boolean(cartItem?.isOutOfStock)) &&
+      (!managesStock || !Number.isFinite(quantity) || quantity <= 0));
+
+  const isOutOfStock = !backordersAllowed && (
     cartItemOutOfStock ||
     product?.stock_status === "outofstock" ||
-    (managesStock && (!Number.isFinite(quantity) || quantity <= 0));
+    (managesStock && (!Number.isFinite(quantity) || quantity <= 0))
+  );
 
   const maxLimit = typeof cartItem?.quantity_limits?.maximum === "number"
     ? cartItem.quantity_limits.maximum
@@ -68,6 +70,8 @@ export function getProductStock(product, cartItem = null) {
   let maxStock;
   if (isOutOfStock) {
     maxStock = 0;
+  } else if (backordersAllowed) {
+    maxStock = 99;
   } else if (managesStock && Number.isFinite(quantity)) {
     maxStock = Math.max(0, quantity);
   } else if (maxLimit !== null) {
@@ -76,7 +80,7 @@ export function getProductStock(product, cartItem = null) {
     maxStock = 99;
   }
 
-  return { maxStock, isOutOfStock };
+  return { maxStock, isOutOfStock, availableStock: backordersAllowed ? null : maxStock, backordersAllowed };
 }
 
 export function getRemainingStock(product, quantityInCart = 0, cartItem = null) {

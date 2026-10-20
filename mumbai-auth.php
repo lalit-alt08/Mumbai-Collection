@@ -595,6 +595,18 @@ add_action('rest_api_init', function () {
             'per_page' => ['default' => 10, 'sanitize_callback' => 'absint'],
         ],
     ]);
+    register_rest_route('mumbai-auth/v1', '/employee/orders', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_employee_get_orders',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'status'   => ['sanitize_callback' => 'sanitize_key'],
+            'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
+            'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
+            'after'    => ['sanitize_callback' => 'sanitize_text_field'],
+            'before'   => ['sanitize_callback' => 'sanitize_text_field'],
+        ],
+    ]);
 
     // Analytics Summary & Customer LTV Aggregations (Internal Node.js only)
     register_rest_route('mumbai-auth/v1', '/admin/analytics-summary', [
@@ -2589,7 +2601,9 @@ function mumbai_otp_store(WP_REST_Request $request) {
 
     $generic_success = [
         'success' => true,
-        'message' => 'If the number is registered, an OTP has been sent.',
+        'message' => is_email($phone)
+            ? 'If an account is registered with this email, an OTP has been sent.'
+            : 'If the number is registered, an OTP has been sent.',
     ];
 
     $user = null;
@@ -2728,8 +2742,14 @@ function mumbai_otp_verify(WP_REST_Request $request) {
             return new WP_Error('invalid_otp_purpose', 'This OTP was not issued for this action.', ['status' => 400]);
         }
 
-        if (!empty($stored_pending_phone) && mumbai_normalize_phone($stored_pending_phone) !== mumbai_normalize_phone($phone)) {
-            return new WP_Error('invalid_otp_phone', 'This OTP was not requested for this phone number.', ['status' => 400]);
+        if (!empty($stored_pending_phone)) {
+            $is_email_match = (is_email($stored_pending_phone) || is_email($phone));
+            $phone_match = $is_email_match
+                ? (strtolower(trim($stored_pending_phone)) === strtolower(trim($phone)))
+                : (mumbai_normalize_phone($stored_pending_phone) === mumbai_normalize_phone($phone));
+            if (!$phone_match) {
+                return new WP_Error('invalid_otp_phone', 'This OTP was not requested for this identifier.', ['status' => 400]);
+            }
         }
 
         if (!$stored_hash || time() > $expires) {
@@ -4641,6 +4661,116 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
             'products' => $products,
         ],
     ]);
+}
+
+/**
+ * Fetch employee orders directly from WooCommerce with DB-side status filtering
+ * and pagination. This endpoint is internal-only and requires HPOS because the
+ * delivery status is stored in WooCommerce order metadata.
+ */
+function mumbai_employee_get_orders(WP_REST_Request $request) {
+    if (!function_exists('wc_get_orders') || !class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') || !class_exists('WC_REST_Orders_Controller')) {
+        return new WP_Error('woocommerce_unavailable', 'WooCommerce order querying is unavailable.', ['status' => 503]);
+    }
+
+    if (!Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+        return new WP_Error('hpos_required', 'Server-side delivery-status filtering requires WooCommerce HPOS.', ['status' => 501]);
+    }
+    if (defined('WC_VERSION') && version_compare(WC_VERSION, '8.2', '<')) {
+        return new WP_Error('hpos_required', 'Server-side delivery-status filtering requires WooCommerce 8.2 or newer.', ['status' => 501]);
+    }
+
+    $status = sanitize_key((string) $request->get_param('status'));
+    $page = max(1, absint($request->get_param('page') ?: 1));
+    $limit = min(100, max(1, absint($request->get_param('per_page') ?: 20)));
+
+    $args = [
+        'type'     => 'shop_order',
+        'limit'    => $limit,
+        'paged'    => $page,
+        'paginate' => true,
+        'orderby'  => 'date',
+        'order'    => 'DESC',
+    ];
+
+    $active_statuses = ['pending', 'processing', 'on-hold', 'packed', 'out-for-delivery', 'dispatched'];
+    $operational_wc_statuses = ['pending', 'processing', 'on-hold', 'completed'];
+
+    if ($status === 'active') {
+        $args['status'] = $operational_wc_statuses;
+        $args['meta_query'] = [
+            'relation' => 'OR',
+            ['key' => '_delivery_status', 'value' => $active_statuses, 'compare' => 'IN'],
+            ['key' => '_delivery_status', 'compare' => 'NOT EXISTS'],
+            ['key' => '_delivery_status', 'value' => '', 'compare' => '='],
+        ];
+    } elseif ($status === 'processing') {
+        $args['status'] = ['processing'];
+        $args['meta_query'] = [
+            'relation' => 'OR',
+            ['key' => '_delivery_status', 'value' => 'processing', 'compare' => '='],
+            ['key' => '_delivery_status', 'compare' => 'NOT EXISTS'],
+            ['key' => '_delivery_status', 'value' => '', 'compare' => '='],
+        ];
+    } elseif (in_array($status, ['packed', 'out-for-delivery', 'dispatched'], true)) {
+        $args['status'] = $operational_wc_statuses;
+        $args['meta_query'] = [[
+            'key'     => '_delivery_status',
+            'value'   => $status,
+            'compare' => '=',
+        ]];
+    } elseif ($status && $status !== 'all') {
+        $allowed_statuses = array_map(static function ($wc_status) {
+            return str_replace('wc-', '', $wc_status);
+        }, array_keys(wc_get_order_statuses()));
+        if (!in_array($status, $allowed_statuses, true)) {
+            return new WP_Error('invalid_order_status', 'Unsupported order status.', ['status' => 400]);
+        }
+        $args['status'] = [$status];
+    }
+
+    $date_query = [];
+    $after = $request->get_param('after');
+    $before = $request->get_param('before');
+    if ($after && ($timestamp = strtotime($after)) !== false) {
+        $date_query[] = ['column' => 'date_created_gmt', 'after' => gmdate('Y-m-d H:i:s', $timestamp), 'inclusive' => true];
+    }
+    if ($before && ($timestamp = strtotime($before)) !== false) {
+        $date_query[] = ['column' => 'date_created_gmt', 'before' => gmdate('Y-m-d H:i:s', $timestamp), 'inclusive' => true];
+    }
+    if (!empty($date_query)) {
+        $args['date_query'] = array_merge(['relation' => 'AND'], $date_query);
+    }
+
+    try {
+        $result = wc_get_orders($args);
+        $orders = [];
+        $controller = new WC_REST_Orders_Controller();
+        $wc_request = new WP_REST_Request('GET');
+        $wc_request->set_param('context', 'view');
+        foreach (($result->orders ?? []) as $order) {
+            $prepared = $controller->prepare_object_for_response($order, $wc_request);
+            if (!is_wp_error($prepared)) {
+                $order_data = $prepared->get_data();
+                $orders[] = array_intersect_key($order_data, array_flip([
+                    'id', 'number', 'status', 'total', 'date_created', 'date_created_gmt',
+                    'date_completed', 'date_completed_gmt', 'customer_id', 'billing', 'shipping',
+                    'line_items', 'meta_data', 'payment_method', 'payment_method_title',
+                    'shipping_total', 'discount_total',
+                ]));
+            }
+        }
+
+        return new WP_REST_Response([
+            'success'    => true,
+            'orders'     => $orders,
+            'total'      => (int) ($result->total ?? count($orders)),
+            'total_pages'=> (int) ($result->max_num_pages ?? 1),
+        ], 200);
+    } catch (Throwable $error) {
+        mumbai_log('Employee order query failed: ' . $error->getMessage());
+        return new WP_Error('employee_orders_unavailable', 'Could not load employee orders.', ['status' => 500]);
+    }
 }
 
 /** Return one customer's order history page and line items without a global cap. */

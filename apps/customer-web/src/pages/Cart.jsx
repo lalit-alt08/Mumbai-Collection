@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours } from "../services/storeApi";
-import { getProductById } from "../services/productService";
+import { getProductById, getProductsByIds } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
@@ -438,46 +438,48 @@ function Cart() {
       return;
     }
 
-    Promise.allSettled(
-      cart.items.map(async (item) => {
-        try {
-          const prod = await getProductById(item.id);
-          if (prod) {
-            const isOutOfStock =
-              prod.stock_status === "outofstock" ||
-              (prod.manage_stock &&
-                prod.stock_quantity !== null &&
-                (Number(prod.stock_quantity) < item.quantity || Number(prod.stock_quantity) <= 0));
-            const maxStock =
-              prod.manage_stock && prod.stock_quantity !== null
-                ? Math.max(0, Number(prod.stock_quantity))
-                : prod.stock_status === "outofstock"
-                ? 0
-                : 99;
+    const productIds = [...new Set(cart.items.map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+    const idBatches = [];
+    for (let index = 0; index < productIds.length; index += 12) {
+      idBatches.push(productIds.slice(index, index + 12));
+    }
 
-            return {
+    Promise.allSettled(idBatches.map((ids) => getProductsByIds(ids, { freshStock: true })))
+      .then((batches) => {
+        if (!isMounted) return;
+        const productsById = new Map();
+        for (const batch of batches) {
+          if (batch.status !== "fulfilled") continue;
+          for (const product of batch.value) productsById.set(Number(product.id), product);
+        }
+
+        const nextMap = {};
+        for (const item of cart.items) {
+          const prod = productsById.get(Number(item.id));
+          if (prod) {
+            const backordersAllowed = prod.backorders_allowed === true;
+            const availableStock = prod.manage_stock && prod.stock_quantity !== null
+              ? Math.max(0, Number(prod.stock_quantity))
+              : prod.stock_status === "outofstock" ? 0 : null;
+            const maxStock = backordersAllowed ? 99 : (availableStock ?? 99);
+            const isOutOfStock = !backordersAllowed && maxStock === 0;
+            const isQuantityShort = !backordersAllowed && item.quantity > maxStock;
+
+            const stockInfo = {
               key: item.key,
               id: item.id,
               isOutOfStock,
+              isQuantityShort,
               maxStock,
+              availableStock: backordersAllowed ? null : maxStock,
+              backordersAllowed,
             };
+            nextMap[item.key] = stockInfo;
+            nextMap[item.id] = stockInfo;
           }
-        } catch {
-          // ignore individual fetch errors
         }
-        return null;
-      })
-    ).then((results) => {
-      if (!isMounted) return;
-      const nextMap = {};
-      for (const res of results) {
-        if (res.status === "fulfilled" && res.value) {
-          nextMap[res.value.key] = res.value;
-          nextMap[res.value.id] = res.value;
-        }
-      }
-      setStockCheckMap(nextMap);
-    });
+        setStockCheckMap(nextMap);
+      });
 
     return () => {
       isMounted = false;
@@ -487,7 +489,7 @@ function Cart() {
   const outOfStockItems = (cart?.items || []).filter((item) => {
     const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
     if (liveStock && typeof liveStock.isOutOfStock === "boolean") {
-      return liveStock.isOutOfStock;
+      return liveStock.isOutOfStock || liveStock.isQuantityShort;
     }
     return (
       item.quantity_limits?.maximum === 0 ||
@@ -501,8 +503,13 @@ function Cart() {
   const handleRemoveAllOutOfStock = async () => {
     if (outOfStockItems.length === 0) return;
     for (const item of outOfStockItems) {
+      const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
       try {
-        await removeCartItem(item.key);
+        if (liveStock?.maxStock > 0 && item.quantity > liveStock.maxStock) {
+          await updateCartItem(item.key, liveStock.maxStock);
+        } else {
+          await removeCartItem(item.key);
+        }
       } catch {
         // continue
       }
@@ -646,10 +653,10 @@ function Cart() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs sm:text-[13px] font-bold text-rose-200 leading-snug">
-                    {outOfStockItems.length} item{outOfStockItems.length > 1 ? "s" : ""} sold out in your cart
+                    {outOfStockItems.length} item{outOfStockItems.length > 1 ? "s" : ""} need{outOfStockItems.length === 1 ? "s" : ""} a stock update
                   </p>
                   <p className="text-[11px] text-rose-400 leading-tight">
-                    Please remove unavailable items to proceed to checkout.
+                    Reduce quantities to available stock or remove unavailable items before checkout.
                   </p>
                 </div>
               </div>
@@ -659,7 +666,7 @@ function Cart() {
                 className="flex items-center gap-1.5 rounded-xl bg-rose-900/60 border border-rose-700/60 px-3 py-1.5 text-xs font-bold text-rose-200 shadow-xs hover:bg-rose-800/60 transition active:scale-95 cursor-pointer flex-shrink-0"
               >
                 <Trash2 size={13} />
-                Remove All
+                Fix Items
               </button>
             </div>
           )}
@@ -682,6 +689,8 @@ function Cart() {
                   item={{
                     ...item,
                     isOutOfStock: isItemOutOfStock,
+                  availableStock: liveStock?.availableStock,
+                  backordersAllowed: liveStock?.backordersAllowed,
                   }}
                   updatingKey={updatingKey}
                   onDecrease={handleDecreaseQuantity}

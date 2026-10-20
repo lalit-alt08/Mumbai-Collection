@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import {
   Search,
@@ -33,9 +33,15 @@ function TrackOrder() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [isPolling, setIsPolling] = useState(false);
 
   const pollTimerRef = useRef(null);
+  const pollCountRef = useRef(0);
+  const requestControllerRef = useRef(null);
+  const requestSequenceRef = useRef(0);
+  const activeOrderIdRef = useRef(activeOrderId);
+  const orderRef = useRef(order);
+  activeOrderIdRef.current = activeOrderId;
+  orderRef.current = order;
 
   // Sync state if URL param or query param changes
   useEffect(() => {
@@ -46,68 +52,103 @@ function TrackOrder() {
   }, [urlOrderId]);
 
   // Fetch Order Details
-  const fetchOrder = async (idToFetch, isBackground = false) => {
+  const fetchOrder = useCallback(async (idToFetch, isBackground = false) => {
     if (!idToFetch) return;
+
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    const requestSequence = ++requestSequenceRef.current;
+    const isCurrentRequest = () =>
+      requestSequence === requestSequenceRef.current &&
+      idToFetch === activeOrderIdRef.current &&
+      !controller.signal.aborted;
 
     try {
       if (!isBackground) {
         setLoading(true);
         setError("");
+        setIsStatusStale(false);
+        setOrder(null);
       }
 
-      const res = await getOrderById(idToFetch);
+      const res = await getOrderById(idToFetch, { signal: controller.signal });
+      if (!isCurrentRequest()) return;
 
       if (res?.success && res?.order) {
         setOrder(res.order);
         setError("");
+        setIsStatusStale(false);
       } else {
         setError(res?.message || "Order not found.");
         setOrder(null);
+        setIsStatusStale(false);
       }
     } catch (err) {
+      if (controller.signal.aborted || err.code === "ERR_CANCELED" || !isCurrentRequest()) return;
+
       const status = err.response?.status;
       if (status === 403) {
         setError("You are not authorized to view this order. Please log in to the account that placed this order.");
+        setOrder(null);
+        setIsStatusStale(false);
       } else if (status === 404) {
         setError(`Order #${idToFetch} could not be found.`);
+        setOrder(null);
+        setIsStatusStale(false);
       } else if (status === 401) {
         setError("Please log in to track your orders.");
+        setOrder(null);
+        setIsStatusStale(false);
       } else {
-        if (!isBackground) {
+        if (isBackground && orderRef.current) {
+          setIsStatusStale(true);
+        } else if (!isBackground) {
           setError(err.response?.data?.message || err.message || "Failed to retrieve order tracking information.");
+          setOrder(null);
         }
       }
-      if (!isBackground) {
-        setOrder(null);
-      }
     } finally {
-      if (!isBackground) {
+      if (requestSequence === requestSequenceRef.current) {
+        requestControllerRef.current = null;
+      }
+      if (!isBackground && isCurrentRequest()) {
         setLoading(false);
       }
     }
-  };
+  }, []);
 
   // Initial fetch on activeOrderId change
   useEffect(() => {
     if (activeOrderId) {
       fetchOrder(activeOrderId, false);
     }
-  }, [activeOrderId]);
 
-  // Visibility-aware polling (every 20 seconds while order is actively being fulfilled)
+    return () => {
+      requestControllerRef.current?.abort();
+      requestControllerRef.current = null;
+      requestSequenceRef.current += 1;
+    };
+  }, [activeOrderId, fetchOrder]);
+
+  // Visibility-aware polling (about every 30 seconds while the order is active).
   useEffect(() => {
-    if (!activeOrderId || !order) return;
+    const currentOrder = orderRef.current;
+    if (!activeOrderId || !currentOrder) {
+      setIsPolling(false);
+      return;
+    }
 
     const isTerminalState =
-      order.status === "completed" ||
-      order.status === "cancelled" ||
-      order.status === "refunded" ||
-      order.status === "failed";
+      currentOrder.status === "completed" ||
+      currentOrder.status === "cancelled" ||
+      currentOrder.status === "refunded" ||
+      currentOrder.status === "failed";
 
     if (isTerminalState) {
       setIsPolling(false);
       if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
+        clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
       return;
@@ -115,19 +156,29 @@ function TrackOrder() {
 
     setIsPolling(true);
 
-    const startPolling = () => {
+    const scheduleNextPoll = () => {
       if (!pollTimerRef.current && !document.hidden) {
-        pollTimerRef.current = setInterval(() => {
-          if (!document.hidden) {
-            fetchOrder(activeOrderId, true);
-          }
-        }, 20000);
+        pollCountRef.current += 1;
+        // Adaptive polling interval: 30s initial, 60s medium, 120s long-stay
+        const baseInterval =
+          pollCountRef.current <= 3
+            ? 30000
+            : pollCountRef.current <= 10
+            ? 60000
+            : 120000;
+        const jitterMs = Math.floor(Math.random() * 5000);
+        pollTimerRef.current = setTimeout(async () => {
+          pollTimerRef.current = null;
+          if (document.hidden) return;
+          await fetchOrder(activeOrderId, true);
+          scheduleNextPoll();
+        }, baseInterval + jitterMs);
       }
     };
 
     const stopPolling = () => {
       if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
+        clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
     };
@@ -136,19 +187,19 @@ function TrackOrder() {
       if (document.hidden) {
         stopPolling();
       } else {
-        fetchOrder(activeOrderId, true);
-        startPolling();
+        pollCountRef.current = 0; // Reset backoff counter when customer returns to tab
+        void fetchOrder(activeOrderId, true).finally(scheduleNextPoll);
       }
     };
 
-    startPolling();
+    scheduleNextPoll();
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [activeOrderId, order?.status]);
+  }, [activeOrderId, order?.status, fetchOrder]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -271,15 +322,8 @@ function TrackOrder() {
             </button>
           </div>
 
-          {/* Right Status Badge / Live Sync Indicator */}
+          {/* Order Reference */}
           <div className="flex items-center gap-2.5">
-            {isPolling && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-400 border border-emerald-500/30">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                Live Sync
-              </span>
-            )}
-
             {order ? (
               <span className="rounded-full bg-[#111F36] px-3 py-1.5 text-xs font-extrabold text-[#42D6E8] border border-[#1E3252] shadow-xs">
                 Order #{order.order_number || order.id}

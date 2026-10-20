@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AlertTriangle, PackageX, Loader2, ArrowLeft, Trash2 } from "lucide-react";
+import { PackageX, Loader2, ArrowLeft, Trash2 } from "lucide-react";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import { cleanProductTitle } from "../../utils/productUtils";
 
@@ -30,9 +30,16 @@ function StockNotificationModal({
 
   if (!isOpen) return null;
 
-  const totalCartCount = Array.isArray(cartItems) ? cartItems.length : 0;
   const shortageCount = Array.isArray(items) ? items.length : 0;
-  const hasRemainingItems = totalCartCount > shortageCount;
+  const hasRemainingItems = Array.isArray(cartItems) && cartItems.some((cartItem) => {
+    const affected = items.find((item) =>
+      (item?.key && item.key === cartItem.key) ||
+      (item?.id && Number(item.id) === Number(cartItem.id)) ||
+      (item?.name && item.name === cartItem.name)
+    );
+    if (!affected) return true;
+    return Number(affected.available) > 0;
+  });
 
   return (
     <div
@@ -62,12 +69,12 @@ function StockNotificationModal({
               id="stock-alert-title"
               className="text-[17px] sm:text-[19px] font-black leading-tight text-[#F1F5F9]"
             >
-              {shortageCount > 1 ? "Some Items Are Sold Out" : "Item Sold Out"}
+              {shortageCount > 1 ? "Stock Needs Updating" : "Stock Changed"}
             </h3>
             <p className="mt-1 text-xs sm:text-[13px] text-[#8FA4BE] leading-snug">
               {hasRemainingItems
-                ? "The following item(s) are no longer available. You can remove them and continue with the rest of your order:"
-                : "The following item(s) in your cart are no longer available in stock:"}
+                ? "Some quantities exceed the available stock. Update them and continue with the rest of your order:"
+                : "Please review the stock availability for these cart items:"}
             </p>
           </div>
         </div>
@@ -118,7 +125,7 @@ function StockNotificationModal({
                   </h4>
                   <div className="mt-1 flex items-center gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1 rounded-full bg-rose-950/60 border border-rose-800/60 px-2 py-0.5 text-[10px] font-extrabold text-rose-300">
-                      Sold Out
+                      {available > 0 ? "Limited Stock" : "Sold Out"}
                     </span>
                     <span className="text-[11px] text-[#8FA4BE] font-medium">
                       Qty in cart: {requested}
@@ -148,7 +155,7 @@ function StockNotificationModal({
               ) : (
                 <>
                   <Trash2 size={16} />
-                  Remove Sold Out & Continue
+              Update Cart & Continue
                 </>
               )}
             </button>

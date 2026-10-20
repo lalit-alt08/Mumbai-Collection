@@ -71,6 +71,7 @@ router.post(
 // POST /api/payments/cancel (Customer Dismisses Checkout / Explicit Cancel)
 router.post(
   "/cancel",
+  requireAuth("customer"),
   validateRequest({ body: schemas.paymentCancel }),
   statusCheckLimiter,
   cancelPaymentOrder

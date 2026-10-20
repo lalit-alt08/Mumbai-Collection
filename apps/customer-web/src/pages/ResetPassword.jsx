@@ -125,8 +125,18 @@ function ResetPassword() {
         {/* Invalid token */}
 
         {!token ? (
-          <div className="rounded-2xl border border-rose-900/60 bg-rose-950/40 p-5 text-sm font-medium text-rose-300">
-            This password reset link is invalid.
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl border border-rose-900/60 bg-rose-950/40 p-5 text-sm font-medium text-rose-300">
+              This password reset link is invalid or has expired.
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/forgot-password")}
+              className="flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[15px] font-bold text-[#061220] shadow-md transition-all hover:bg-[#2CC4D8] active:scale-[0.98] cursor-pointer"
+            >
+              Reset with Email OTP
+              <ArrowRight size={18} />
+            </button>
           </div>
         ) : (
           <form

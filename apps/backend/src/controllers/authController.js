@@ -564,13 +564,14 @@ export const hashOtp = (otp) => {
 
 export const sendOtp = async (req, res) => {
   try {
-    const { phone, purpose } = req.body;
-    if (!phone || !["verify_phone", "reset_password"].includes(purpose)) {
-      return res.status(400).json({ success: false, message: "Invalid phone or purpose." });
+    const rawTarget = req.body.phone || req.body.email;
+    const { purpose } = req.body;
+    if (!rawTarget || !["verify_phone", "reset_password"].includes(purpose)) {
+      return res.status(400).json({ success: false, message: "Invalid phone, email or purpose." });
     }
 
     let cleanPhone = "";
-    const rawInput = String(phone || "").trim();
+    const rawInput = String(rawTarget || "").trim();
     const isEmailInput = rawInput.includes("@");
     if (isEmailInput) {
       cleanPhone = rawInput.toLowerCase();
@@ -589,7 +590,7 @@ export const sendOtp = async (req, res) => {
     }
 
     if (process.env.NODE_ENV !== "production") {
-      const inputMasked = `...${String(phone).trim().slice(-4)}`;
+      const inputMasked = `...${String(rawTarget).trim().slice(-4)}`;
       const cleanMasked = `...${cleanPhone.slice(-4)}`;
       console.log(
         `[OTP Flow] input: ${inputMasked} | normalized: ${cleanMasked} | purpose: ${purpose}`
@@ -668,9 +669,6 @@ export const sendOtp = async (req, res) => {
 
     const targetEmail = storeResponse.data?.email || userEmail;
     const targetName = storeResponse.data?.name || userName || "Valued Customer";
-    const cooldownKey = `otp_cooldown:${cleanPhone}`;
-    const lastCooldown = serverCache.get(cooldownKey);
-    const now = Date.now();
 
     // Uniform response for reset_password prevents account enumeration.
     // If in cooldown or user not found, cooldown/suppression is enforced silently without leaking account existence.
@@ -678,7 +676,7 @@ export const sendOtp = async (req, res) => {
       if (storeResponse.data?.rate_limited === true || storeResponse.data?.user_found === false || !targetEmail) {
         return res.status(200).json({
           success: true,
-          message: storeResponse.data?.message || "If the number is registered, an OTP has been sent.",
+          message: storeResponse.data?.message || (isEmailInput ? "If an account is registered with this email, an OTP has been sent." : "If the number is registered, an OTP has been sent."),
         });
       }
     }
@@ -730,7 +728,7 @@ export const sendOtp = async (req, res) => {
     if (purpose === "reset_password") {
       return res.status(200).json({
         success: true,
-        message: storeResponse.data.message || "If the number is registered, an OTP has been sent.",
+        message: storeResponse.data?.message || (isEmailInput ? "If an account is registered with this email, an OTP has been sent." : "If the number is registered, an OTP has been sent."),
       });
     }
 
@@ -767,12 +765,13 @@ export const sendOtp = async (req, res) => {
 
 export const verifyOtp = async (req, res) => {
   try {
-    const { phone, otp, purpose } = req.body;
-    if (!phone || !otp || !purpose) {
+    const rawTarget = req.body.phone || req.body.email;
+    const { otp, purpose } = req.body;
+    if (!rawTarget || !otp || !purpose) {
       return res.status(400).json({ success: false, message: "Missing parameters." });
     }
 
-    const rawPhone = String(phone || "").trim();
+    const rawPhone = String(rawTarget || "").trim();
     const isEmail = rawPhone.includes("@");
     let cleanPhone = "";
     if (isEmail) {
@@ -861,12 +860,13 @@ export const verifyOtp = async (req, res) => {
 
 export const resetPasswordOtp = async (req, res) => {
   try {
-    const { phone, reset_token, new_password } = req.body;
-    if (!phone || !reset_token || !new_password) {
+    const rawTarget = req.body.phone || req.body.email;
+    const { reset_token, new_password } = req.body;
+    if (!rawTarget || !reset_token || !new_password) {
       return res.status(400).json({ success: false, message: "Missing parameters." });
     }
 
-    const rawPhone = String(phone || "").trim();
+    const rawPhone = String(rawTarget || "").trim();
     const isEmail = rawPhone.includes("@");
     let cleanPhone = "";
     if (isEmail) {

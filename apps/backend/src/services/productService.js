@@ -1,5 +1,9 @@
 import api from "../config/woocommerce.js";
 import { logger } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
+
+const CATALOG_PRODUCT_FIELDS =
+  "id,name,slug,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count";
 
 export const fetchProducts = async (page = 1, per_page = 50) => {
   const pageNum = Math.max(1, Number(page) || 1);
@@ -8,6 +12,7 @@ export const fetchProducts = async (page = 1, per_page = 50) => {
     status: "publish",
     page: pageNum,
     per_page: perPageNum,
+    _fields: CATALOG_PRODUCT_FIELDS,
   });
 
   if (!Array.isArray(response.data)) {
@@ -60,6 +65,7 @@ export const fetchProductsByIds = async (rawIds = []) => {
     include: ids.join(","),
     orderby: "include",
     per_page: ids.length,
+    _fields: CATALOG_PRODUCT_FIELDS,
   });
 
   if (!Array.isArray(response.data)) {
@@ -82,6 +88,7 @@ export const fetchRelatedProducts = async (
     category: categoryId,
     exclude: currentProductId,
     per_page: 10,
+    _fields: CATALOG_PRODUCT_FIELDS,
   });
 
   if (!Array.isArray(response.data)) {
@@ -96,6 +103,7 @@ export const searchProducts = async (search) => {
     status: "publish",
     search,
     per_page: 20,
+    _fields: CATALOG_PRODUCT_FIELDS,
   });
 
   if (!Array.isArray(response.data)) {
@@ -112,15 +120,23 @@ export const fetchProductsByCategory = async (
 
   // If a slug was passed (e.g. "art", "toys", "playstation"), resolve its numeric category ID
   if (isNaN(Number(categoryId))) {
-    try {
-      const catRes = await api.get("products/categories", {
-        slug: categoryId,
-      });
-      if (Array.isArray(catRes.data) && catRes.data.length > 0) {
-        targetCategory = catRes.data[0].id;
+    const slugKey = `category:slug_to_id:${String(categoryId).trim().toLowerCase()}`;
+    const cachedId = serverCache.get(slugKey);
+    if (cachedId) {
+      targetCategory = cachedId;
+    } else {
+      try {
+        const catRes = await api.get("products/categories", {
+          slug: categoryId,
+          _fields: "id,slug",
+        });
+        if (Array.isArray(catRes.data) && catRes.data.length > 0 && catRes.data[0].id) {
+          targetCategory = catRes.data[0].id;
+          serverCache.set(slugKey, targetCategory, 86400000); // 24 hours TTL
+        }
+      } catch (err) {
+        logger.warn({ categoryId, err: err.message }, "Category slug resolution failed");
       }
-    } catch (err) {
-      logger.warn({ categoryId, err: err.message }, "Category slug resolution failed");
     }
   }
 
@@ -129,6 +145,7 @@ export const fetchProductsByCategory = async (
     category: targetCategory,
     page: Number(page) || 1,
     per_page: Number(per_page) || 20,
+    _fields: CATALOG_PRODUCT_FIELDS,
   });
 
   if (!Array.isArray(response.data)) {
@@ -153,6 +170,7 @@ export const fetchCategories = async () => {
   const response = await api.get("products/categories", {
     per_page: 100,
     hide_empty: false,
+    _fields: "id,name,slug,count,menu_order,image",
   });
 
   if (!Array.isArray(response.data)) {
