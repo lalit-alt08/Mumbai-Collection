@@ -57,7 +57,10 @@ export const getOrders = async (params = {}) => {
 };
 
 export const updateOrderStatus = async (id, status) => {
-  const res = await api.patch(`/orders/${id}/status`, { status });
+  // The backend validates the transition with WooCommerce before saving it;
+  // allow enough time for that read + write instead of aborting at the normal
+  // 12-second read timeout.
+  const res = await api.patch(`/orders/${id}/status`, { status }, { timeout: 35000 });
   return res.data;
 };
 

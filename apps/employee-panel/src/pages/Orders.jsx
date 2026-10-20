@@ -178,6 +178,8 @@ function Orders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const requestIdRef = useRef(0);
   const pollTimerRef = useRef(null);
+  const eventRefreshTimerRef = useRef(null);
+  const updatingIdsRef = useRef(new Set());
   const knownOrderIdsRef = useRef(null);
   const [updatingIds, setUpdatingIds] = useState(() => new Set());
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
@@ -293,6 +295,17 @@ function Orders() {
 
     let eventSource = null;
     let isReconnecting = false;
+    const scheduleEventRefresh = () => {
+      // Coalesce bursts of order events into one list request instead of
+      // asking WooCommerce for the full list once per rapid status change.
+      if (eventRefreshTimerRef.current) {
+        clearTimeout(eventRefreshTimerRef.current);
+      }
+      eventRefreshTimerRef.current = setTimeout(() => {
+        eventRefreshTimerRef.current = null;
+        fetchOrderList(true);
+      }, 700);
+    };
 
     // Connect to real-time Server-Sent Events stream for instantaneous order notifications
     const setupEventSource = () => {
@@ -312,11 +325,10 @@ function Orders() {
           try {
             const data = JSON.parse(event.data);
             if (data?.event === "ORDER_CREATED" || data?.event === "ORDER_STATUS_UPDATED") {
-              // Refetch from authoritative authenticated API to safely load complete order data
-              fetchOrderList(true);
+              scheduleEventRefresh();
             }
           } catch (_) {
-            fetchOrderList(true);
+            scheduleEventRefresh();
           }
         });
 
@@ -362,6 +374,10 @@ function Orders() {
       if (eventSource) {
         eventSource.close();
         eventSource = null;
+      }
+      if (eventRefreshTimerRef.current) {
+        clearTimeout(eventRefreshTimerRef.current);
+        eventRefreshTimerRef.current = null;
       }
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -426,7 +442,10 @@ function Orders() {
 
   const handleStatusUpdate = async (orderId, newStatus) => {
     // Prevent duplicate concurrent requests on the same order
-    if (updatingIds.has(orderId)) return;
+    if (updatingIdsRef.current.has(orderId)) return;
+    // A ref locks synchronously; React state alone may not update before a
+    // second rapid click in the same render.
+    updatingIdsRef.current.add(orderId);
 
     // Snapshot previous state for precise rollback on failure
     const previousOrder = orders.find((o) => o.id === orderId);
@@ -545,6 +564,7 @@ function Orders() {
         "error"
       );
     } finally {
+      updatingIdsRef.current.delete(orderId);
       // React-safe Set update to remove in-flight status
       setUpdatingIds((prev) => {
         const next = new Set(prev);
