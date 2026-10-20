@@ -653,10 +653,10 @@ function Cart() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs sm:text-[13px] font-bold text-rose-200 leading-snug">
-                    {outOfStockItems.length} item{outOfStockItems.length > 1 ? "s" : ""} need{outOfStockItems.length === 1 ? "s" : ""} a stock update
+                    Some cart quantities are no longer available
                   </p>
                   <p className="text-[11px] text-rose-400 leading-tight">
-                    Reduce quantities to available stock or remove unavailable items before checkout.
+                    The highlighted item shows how many are available. Adjust its quantity to continue.
                   </p>
                 </div>
               </div>
@@ -666,7 +666,7 @@ function Cart() {
                 className="flex items-center gap-1.5 rounded-xl bg-rose-900/60 border border-rose-700/60 px-3 py-1.5 text-xs font-bold text-rose-200 shadow-xs hover:bg-rose-800/60 transition active:scale-95 cursor-pointer flex-shrink-0"
               >
                 <Trash2 size={13} />
-                Fix Items
+                Adjust quantities
               </button>
             </div>
           )}
@@ -689,8 +689,8 @@ function Cart() {
                   item={{
                     ...item,
                     isOutOfStock: isItemOutOfStock,
-                  availableStock: liveStock?.availableStock,
-                  backordersAllowed: liveStock?.backordersAllowed,
+                    availableStock: liveStock?.availableStock,
+                    backordersAllowed: liveStock?.backordersAllowed,
                   }}
                   updatingKey={updatingKey}
                   onDecrease={handleDecreaseQuantity}
@@ -710,8 +710,6 @@ function Cart() {
             delivery={delivery}
             tax={tax}
             total={total}
-            canCheckout={itemsTotal >= MIN_ORDER_VALUE && !hasOutOfStockItems}
-            hasOutOfStock={hasOutOfStockItems}
             shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
             minOrderValue={MIN_ORDER_VALUE}
             storeHours={storeHours}
@@ -724,7 +722,6 @@ function Cart() {
             totalAmount={total}
             standaloneBar={true}
             hasOutOfStock={hasOutOfStockItems}
-            shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
             onStoreClosed={() => setStoreHours((prev) => ({ ...(prev || {}), is_open: false }))}
           />
         </div>

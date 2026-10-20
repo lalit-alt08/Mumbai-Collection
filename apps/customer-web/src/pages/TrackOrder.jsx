@@ -24,7 +24,7 @@ function TrackOrder() {
   const { orderId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const urlOrderId = orderId || searchParams.get("id") || "";
 
@@ -68,7 +68,6 @@ function TrackOrder() {
       if (!isBackground) {
         setLoading(true);
         setError("");
-        setIsStatusStale(false);
         setOrder(null);
       }
 
@@ -78,11 +77,9 @@ function TrackOrder() {
       if (res?.success && res?.order) {
         setOrder(res.order);
         setError("");
-        setIsStatusStale(false);
       } else {
         setError(res?.message || "Order not found.");
         setOrder(null);
-        setIsStatusStale(false);
       }
     } catch (err) {
       if (controller.signal.aborted || err.code === "ERR_CANCELED" || !isCurrentRequest()) return;
@@ -91,18 +88,15 @@ function TrackOrder() {
       if (status === 403) {
         setError("You are not authorized to view this order. Please log in to the account that placed this order.");
         setOrder(null);
-        setIsStatusStale(false);
       } else if (status === 404) {
         setError(`Order #${idToFetch} could not be found.`);
         setOrder(null);
-        setIsStatusStale(false);
       } else if (status === 401) {
         setError("Please log in to track your orders.");
         setOrder(null);
-        setIsStatusStale(false);
       } else {
         if (isBackground && orderRef.current) {
-          setIsStatusStale(true);
+          // Keep the last successful order visible if a background refresh fails.
         } else if (!isBackground) {
           setError(err.response?.data?.message || err.message || "Failed to retrieve order tracking information.");
           setOrder(null);
@@ -121,7 +115,15 @@ function TrackOrder() {
   // Initial fetch on activeOrderId change
   useEffect(() => {
     if (activeOrderId) {
-      fetchOrder(activeOrderId, false);
+      if (authLoading) return;
+
+      if (!user) {
+        setOrder(null);
+        setError("Please sign in to the account that placed this order to view its tracking details.");
+        setLoading(false);
+      } else {
+        fetchOrder(activeOrderId, false);
+      }
     }
 
     return () => {
@@ -129,13 +131,12 @@ function TrackOrder() {
       requestControllerRef.current = null;
       requestSequenceRef.current += 1;
     };
-  }, [activeOrderId, fetchOrder]);
+  }, [activeOrderId, authLoading, user, fetchOrder]);
 
   // Visibility-aware polling (about every 30 seconds while the order is active).
   useEffect(() => {
     const currentOrder = orderRef.current;
     if (!activeOrderId || !currentOrder) {
-      setIsPolling(false);
       return;
     }
 
@@ -146,15 +147,12 @@ function TrackOrder() {
       currentOrder.status === "failed";
 
     if (isTerminalState) {
-      setIsPolling(false);
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
       return;
     }
-
-    setIsPolling(true);
 
     const scheduleNextPoll = () => {
       if (!pollTimerRef.current && !document.hidden) {
@@ -363,7 +361,7 @@ function TrackOrder() {
         )}
 
         {/* Loading Spinner */}
-        {loading && (
+        {(authLoading || loading) && (
           <div className="flex flex-col items-center justify-center py-16 text-[#8FA4BE] gap-3">
             <Loader2 size={32} className="animate-spin text-[#42D6E8]" />
             <p className="text-xs font-bold text-[#F1F5F9]">Connecting to Mumbai Collection live dispatch...</p>
@@ -380,10 +378,10 @@ function TrackOrder() {
             <p className="text-xs text-rose-300 leading-relaxed">{error}</p>
             <div className="pt-2">
               <Link
-                to="/account/orders"
+                to={user ? "/account/orders" : "/login"}
                 className="inline-flex items-center gap-1 text-xs font-bold text-[#42D6E8] hover:underline"
               >
-                &larr; View all your active orders
+                {user ? "← View all your active orders" : "Sign in to view this order"}
               </Link>
             </div>
           </div>

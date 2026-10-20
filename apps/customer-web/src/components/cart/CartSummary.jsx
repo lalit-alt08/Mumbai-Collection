@@ -7,10 +7,8 @@ function CartSummary({
   delivery,
   tax,
   total,
-  canCheckout = true,
   shortfall = 0,
   minOrderValue = 500,
-  hasOutOfStock = false,
   storeHours,
   onCheckout,
 }) {
@@ -27,7 +25,7 @@ function CartSummary({
       )}
 
       {/* Minimum Order Value Alert (Subtotal < ₹500) */}
-      {!canCheckout && (
+      {itemsTotal < minOrderValue && (
         <div className="rounded-[22px] border border-amber-800/60 bg-amber-950/30 p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.2)] animate-in fade-in duration-200">
           <div className="flex items-start gap-3.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-black font-black text-xs shadow-xs">

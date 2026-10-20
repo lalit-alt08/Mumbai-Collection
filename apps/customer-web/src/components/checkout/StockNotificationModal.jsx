@@ -30,7 +30,6 @@ function StockNotificationModal({
 
   if (!isOpen) return null;
 
-  const shortageCount = Array.isArray(items) ? items.length : 0;
   const hasRemainingItems = Array.isArray(cartItems) && cartItems.some((cartItem) => {
     const affected = items.find((item) =>
       (item?.key && item.key === cartItem.key) ||
@@ -69,12 +68,12 @@ function StockNotificationModal({
               id="stock-alert-title"
               className="text-[17px] sm:text-[19px] font-black leading-tight text-[#F1F5F9]"
             >
-              {shortageCount > 1 ? "Stock Needs Updating" : "Stock Changed"}
+              Availability Changed
             </h3>
             <p className="mt-1 text-xs sm:text-[13px] text-[#8FA4BE] leading-snug">
               {hasRemainingItems
-                ? "Some quantities exceed the available stock. Update them and continue with the rest of your order:"
-                : "Please review the stock availability for these cart items:"}
+                ? "Some quantities exceed what is available. Reduce them to continue with the rest of your order:"
+                : "Please review the available quantity for this item:"}
             </p>
           </div>
         </div>
@@ -155,7 +154,7 @@ function StockNotificationModal({
               ) : (
                 <>
                   <Trash2 size={16} />
-              Update Cart & Continue
+                  Continue with available items
                 </>
               )}
             </button>
