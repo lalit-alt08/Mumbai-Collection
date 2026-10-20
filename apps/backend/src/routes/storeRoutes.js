@@ -163,7 +163,15 @@ async function proxyStoreApi(req, res) {
       });
     }
 
-    if (!sessionData.isPhoneVerified) {
+    const payloadPhone =
+      req.body?.billing_address?.phone ||
+      req.body?.shipping_address?.phone ||
+      req.body?.phone;
+    const rawDigits = typeof payloadPhone === "string" ? payloadPhone.replace(/\D/g, "") : "";
+    const cleanPhone = rawDigits.length === 12 && rawDigits.startsWith("91") ? rawDigits.slice(2) : rawDigits;
+    const isPayloadPhoneValid = /^[6-9]\d{9}$/.test(cleanPhone);
+
+    if (!sessionData.isPhoneVerified && !isPayloadPhoneValid) {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
@@ -394,7 +402,15 @@ const resolveCheckoutCustomer = async (req, res, next) => {
       });
     }
 
-    if (!sessionData.isPhoneVerified) {
+    const payloadPhone =
+      req.body?.billing_address?.phone ||
+      req.body?.shipping_address?.phone ||
+      req.body?.phone;
+    const rawDigits = typeof payloadPhone === "string" ? payloadPhone.replace(/\D/g, "") : "";
+    const cleanPhone = rawDigits.length === 12 && rawDigits.startsWith("91") ? rawDigits.slice(2) : rawDigits;
+    const isPayloadPhoneValid = /^[6-9]\d{9}$/.test(cleanPhone);
+
+    if (!sessionData.isPhoneVerified && !isPayloadPhoneValid) {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
