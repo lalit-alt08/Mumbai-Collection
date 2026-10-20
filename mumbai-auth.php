@@ -1378,6 +1378,14 @@ function mumbai_is_user_phone_verified($user_id) {
     if (is_array($profile) && !empty($profile['phone'])) {
         return true;
     }
+    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+    if (is_array($addresses)) {
+        foreach ($addresses as $addr) {
+            if (!empty($addr['phone'])) {
+                return true;
+            }
+        }
+    }
     return false;
 }
 
@@ -1663,6 +1671,9 @@ function mumbai_save_address(WP_REST_Request $request)
         $addresses[] = $new_address;
     }
     update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
+    if (!empty($phone)) {
+        update_user_meta($user_id, 'billing_phone', $phone);
+    }
     return [
         'success'   => true,
         'message'   => ucfirst($type) . ' address saved successfully.',
@@ -1799,6 +1810,9 @@ function mumbai_update_address(WP_REST_Request $request)
         );
     }
     update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
+    if (!empty($phone)) {
+        update_user_meta($user_id, 'billing_phone', $phone);
+    }
     return [
         'success'   => true,
         'message'   => 'Address updated successfully.',

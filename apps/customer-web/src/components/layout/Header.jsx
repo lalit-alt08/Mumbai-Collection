@@ -33,7 +33,12 @@ function Header() {
   }
 
   return (
-    <header className="sticky top-[var(--network-banner-height,0px)] z-50 w-full px-3 pt-4 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top] duration-200">
+    <header
+      className="sticky top-[var(--network-banner-height,0px)] z-50 w-full px-3 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top] duration-200"
+      style={{
+        paddingTop: "max(1rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))",
+      }}
+    >
       <div className="relative mx-auto max-w-7xl">
         {/* ================= SEARCH BAR & CONTROLS ROW ================= */}
         <div className={`relative flex items-center gap-2.5 sm:gap-3 md:gap-3.5 lg:gap-4 ${isRecentlyViewedPage ? "justify-end" : ""}`}>
