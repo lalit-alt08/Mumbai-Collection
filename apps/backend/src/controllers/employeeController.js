@@ -1,4 +1,5 @@
 import api from "../config/woocommerce.js";
+import wp from "../services/wordpress.js";
 import { uploadMedia, deleteMediaIfUnreferenced } from "../services/wordpressMediaService.js";
 import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
@@ -6,11 +7,12 @@ import { logAuditEvent } from "../utils/auditLogger.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { classifyDeliveryLocation } from "../utils/locationClassifier.js";
 import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
-import { logError } from "../utils/logger.js";
+import { logError, logger } from "../utils/logger.js";
 import { acquireLock, releaseLock } from "../services/paymentIntentService.js";
 import { sendRefundEmail } from "../services/brevoService.js";
 import { fetchStockCounts } from "./adminProductController.js";
 import { publishOrderEvent } from "../services/orderNotificationService.js";
+import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
 import {
   getOrderDeliveredTimestamp,
   isOrderStatusLocked,
@@ -80,7 +82,15 @@ export const filterAndPaginateEmployeeOrders = (orders, { status, location, sear
   const effectiveStatus = status === "active" ? null : status;
 
   if (status === "active") {
-    filtered = filtered.filter((order) => !["completed", "cancelled"].includes(getEffectiveOrderStatus(order)));
+    const activeStatuses = new Set([
+      "pending",
+      "processing",
+      "on-hold",
+      "packed",
+      "out-for-delivery",
+      "dispatched",
+    ]);
+    filtered = filtered.filter((order) => activeStatuses.has(getEffectiveOrderStatus(order)));
   } else if (["processing", "packed", "out-for-delivery", "dispatched"].includes(status)) {
     filtered = filtered.filter((order) => {
       const current = getEffectiveOrderStatus(order);
@@ -230,6 +240,7 @@ export const getEmployeeOrders = async (req, res) => {
       per_page: 100,
       orderby: "date",
       order: "desc",
+      _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
     };
 
     // Server-side date boundary filtering across Asia/Kolkata store timezone
@@ -257,12 +268,25 @@ export const getEmployeeOrders = async (req, res) => {
 
     // Direct Single-Page Server Query optimization:
     // When querying standard WC statuses with no custom location filter and no sub-status overrides
-    const isCustomStatus = ["active", "packed", "out-for-delivery", "dispatched"].includes(status);
+    const isCustomStatus = ["active", "processing", "packed", "out-for-delivery", "dispatched"].includes(status);
     const hasCustomLocation = location && location !== "all";
+
+    if (isCustomStatus) {
+      // Narrow WooCommerce SQL query to relevant operational statuses only
+      queryParams.status = status === "active"
+        ? "pending,processing,on-hold,completed"
+        : ["out-for-delivery", "dispatched"].includes(status)
+        ? "processing,on-hold,completed"
+        : "pending,processing,on-hold";
+    } else if (status && status !== "all") {
+      // Standard WooCommerce statuses can be filtered directly without scanning pages.
+      queryParams.status = status;
+    }
 
     let orders = [];
     let totalOrders = 0;
     let totalPages = 1;
+    let isCustomStatusFallback = false;
 
     if (!isCustomStatus && !hasCustomLocation) {
       // Direct server-side pagination via WooCommerce SQL
@@ -275,18 +299,44 @@ export const getEmployeeOrders = async (req, res) => {
       totalOrders = Number(directResponse.headers?.["x-wp-total"]) || batch.length;
       totalPages = Number(directResponse.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
       orders = batch;
-    } else {
-      // For custom quick-commerce sub-statuses or delivery location facet filters:
-      // Fetch matching batches from WooCommerce (if search is provided, WC filters in SQL first)
+    } else if (isCustomStatus && !hasCustomLocation && !cleanSearch) {
+      // Ask WooCommerce to filter by _delivery_status and paginate in its own
+      // database query, so older matching orders are not hidden by a scan cap.
+      try {
+        const response = await wp.get("/wp-json/mumbai-auth/v1/employee/orders", {
+          params: {
+            status,
+            page: pageNum,
+            per_page: limit,
+            ...(queryParams.after ? { after: queryParams.after } : {}),
+            ...(queryParams.before ? { before: queryParams.before } : {}),
+          },
+        });
+        const payload = response.data || {};
+        orders = Array.isArray(payload.orders) ? payload.orders : [];
+        totalOrders = Number(payload.total) || 0;
+        totalPages = Number(payload.total_pages) || 1;
+      } catch (error) {
+        const code = error.response?.data?.code;
+        // Older plugin versions and non-HPOS sites use the compatible REST
+        // fallback below until the internal route/HPOS query is available.
+        if (error.response?.status !== 404 && code !== "hpos_required") throw error;
+        logger.warn({ code, status: error.response?.status }, "[Employee Orders] Falling back to WooCommerce REST pagination");
+        isCustomStatusFallback = true;
+      }
+    }
+
+    if (isCustomStatusFallback || hasCustomLocation || (isCustomStatus && cleanSearch)) {
+      // Location and phone/name search use the existing exact matcher. Walk the
+      // narrowed WooCommerce result set fully so these filtered totals stay correct.
       const allOrders = [];
-      const maxPages = cleanSearch ? 5 : 20;
       let currentPage = 1;
-      while (currentPage <= maxPages) {
+      while (true) {
         const response = await api.get("orders", { ...queryParams, page: currentPage });
         const batch = Array.isArray(response.data) ? response.data : [];
         allOrders.push(...batch);
-        const totalPagesFromWoo = Number(response.headers?.["x-wp-totalpages"]) || 1;
-        if (currentPage >= totalPagesFromWoo || batch.length === 0) break;
+        const totalPagesHeader = Number(response.headers?.["x-wp-totalpages"]);
+        if (batch.length === 0 || (totalPagesHeader > 0 && currentPage >= totalPagesHeader) || (totalPagesHeader <= 0 && batch.length < queryParams.per_page)) break;
         currentPage += 1;
       }
 
@@ -457,6 +507,7 @@ export const updateOrderStatus = async (req, res) => {
     serverCache.invalidatePrefix("employee:overview");
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
+    await invalidateOrderDetailCache(id);
 
     // Structured operational audit log
     logAuditEvent({
@@ -643,6 +694,7 @@ export const getEmployeeOverview = async (req, res) => {
         per_page: 100,
         orderby: "date",
         order: "desc",
+        _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
       }).catch(() => ({ data: [] })),
 
       // Exact count of all orders received today in store timezone (Asia/Kolkata)
@@ -651,6 +703,7 @@ export const getEmployeeOverview = async (req, res) => {
         before: todayBounds?.before,
         dates_are_gmt: true,
         per_page: 1,
+        _fields: "id",
       }).catch(() => ({ headers: { "x-wp-total": 0 }, data: [] })),
 
       // Exact count of orders completed today in store timezone (Asia/Kolkata)
@@ -660,6 +713,7 @@ export const getEmployeeOverview = async (req, res) => {
         before: todayBounds?.before,
         dates_are_gmt: true,
         per_page: 1,
+        _fields: "id",
       }).catch(() => ({ headers: { "x-wp-total": 0 }, data: [] })),
 
       // 10 most recent orders for activity logs
@@ -667,6 +721,7 @@ export const getEmployeeOverview = async (req, res) => {
         per_page: 10,
         orderby: "date",
         order: "desc",
+        _fields: "id,number,status,total,date_created,billing,shipping,line_items,payment_method,payment_method_title",
       }).catch(() => ({ data: [] })),
 
       // Accurate live stock counts (cached for 60s)
@@ -676,6 +731,7 @@ export const getEmployeeOverview = async (req, res) => {
       api.get("products", {
         stock_status: "lowstock",
         per_page: 6,
+        _fields: "id,name,images,stock_quantity,stock_status,price",
       }).catch(() => ({ data: [] })),
     ]);
 
@@ -778,7 +834,7 @@ export const getEmployeeOverview = async (req, res) => {
       },
     };
 
-    serverCache.set("employee:overview", responsePayload, 60000);
+    serverCache.set("employee:overview", responsePayload, 90000);
 
     if (typeof res.set === "function") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");

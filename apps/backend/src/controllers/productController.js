@@ -20,7 +20,7 @@ export const getAllProducts = async (req, res) => {
     const result = await serverCache.getOrFetch(
       cacheKey,
       () => fetchProducts(page, perPage),
-      15000
+      300000 // 5-minute catalog TTL reduces redundant post-hydration load
     );
 
     const prods = Array.isArray(result)
@@ -72,8 +72,8 @@ export const getProductById = async (req, res) => {
     const isFreshRequest = req.query?.refresh === "1";
     const product = isFreshRequest
       ? await fetchProductById(productId)
-      : await serverCache.getOrFetch(cacheKey, () => fetchProductById(productId), 15000);
-    if (isFreshRequest) serverCache.set(cacheKey, product, 15000);
+      : await serverCache.getOrFetch(cacheKey, () => fetchProductById(productId), 300000);
+    if (isFreshRequest) serverCache.set(cacheKey, product, 300000);
 
     res.json(transformMediaUrls(product, req));
   } catch (error) {
@@ -102,12 +102,16 @@ export const getProductsByIds = async (req, res) => {
     }
 
     const cacheKey = `catalog:products:ids:${ids.join(",")}`;
-    const products = await serverCache.getOrFetch(
-      cacheKey,
-      () => fetchProductsByIds(ids),
-      30000
-    );
-    const availableProducts = (Array.isArray(products) ? products : []).filter((product) => {
+    const freshStock = req.query.fresh === "1";
+    const products = freshStock
+      ? await fetchProductsByIds(ids)
+      : await serverCache.getOrFetch(
+          cacheKey,
+          () => fetchProductsByIds(ids),
+          30000
+        );
+    const selectedProducts = (Array.isArray(products) ? products : []);
+    const availableProducts = freshStock ? selectedProducts : selectedProducts.filter((product) => {
       if (product.stock_status === "outofstock") return false;
       if (product.manage_stock === true) {
         const quantity = Number(product.stock_quantity);
@@ -161,7 +165,7 @@ export const searchAllProducts = async (req, res) => {
     const products = await serverCache.getOrFetch(
       cacheKey,
       () => searchProducts(q),
-      30000
+      120000 // 2 minutes TTL
     );
 
     res.json(transformMediaUrls(products, req));
@@ -185,7 +189,7 @@ export const getProductsByCategory = async (req, res) => {
     const result = await serverCache.getOrFetch(
       cacheKey,
       () => fetchProductsByCategory(categoryId, { page, per_page: perPage }),
-      15000
+      300000 // 5 minutes TTL
     );
 
     if (result && Array.isArray(result.products)) {

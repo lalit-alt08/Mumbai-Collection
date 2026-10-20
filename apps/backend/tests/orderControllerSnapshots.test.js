@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import api from "../src/config/woocommerce.js";
 import { getCustomerOrders, getOrderById } from "../src/controllers/orderController.js";
+import { invalidateOrderDetailCache } from "../src/services/orderDetailCache.js";
 import { ERROR_CODE_HTTP_STATUS } from "../src/utils/errorCodes.js";
 
 const fixturesPath = fileURLToPath(new URL("./fixtures/orderSnapshots.json", import.meta.url));
@@ -130,6 +131,7 @@ test("Phase 1: orderController Snapshot Diff and Error Code Coverage", async (t)
   });
 
   await t.test("7. getOrderById: Success matches baseline snapshot exactly", async () => {
+    await invalidateOrderDetailCache("101");
     api.get = async (endpoint) => {
       if (endpoint.startsWith("orders/")) {
         return {
@@ -155,6 +157,7 @@ test("Phase 1: orderController Snapshot Diff and Error Code Coverage", async (t)
   });
 
   await t.test("8. getOrderById: Upstream Error matches baseline snapshot", async () => {
+    await invalidateOrderDetailCache("101");
     api.get = async () => {
       const err = new Error("Database error");
       err.response = { status: 500 };

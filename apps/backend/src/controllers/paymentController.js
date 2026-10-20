@@ -50,14 +50,17 @@ import {
   createRazorpayOrder,
   verifyPaymentSignature,
   fetchRazorpayPayment,
+  fetchRazorpayOrder,
   getPublicKeyId,
   verifyWebhookSignature,
   fetchRazorpayOrderPayments,
   refundRazorpayPayment,
 } from "../services/razorpayService.js";
+import { getRedisClient, isRedisActive } from "../config/redis.js";
 import { alertStaffAnomaly } from "../services/alertService.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { publishOrderEvent } from "../services/orderNotificationService.js";
+import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 const MIN_ORDER_VALUE_INR = 500;
@@ -77,6 +80,112 @@ export const _resetPaymentStoreHoursFallbackForTesting = () => {
 let _finalizePaymentOverrideForTesting = null;
 export const _setFinalizeHandlerForTesting = (fn) => {
   _finalizePaymentOverrideForTesting = fn;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-Server Distributed Coordination Helpers (Redis & Shared DB)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Acquires a distributed checkout concurrency lock across servers.
+ * Uses Redis distributed mutex (SET NX PX) if Redis is active.
+ * If Redis is not active, uses shared database lock (wp_mumbai_locks via acquireLock).
+ * Prevents dual checkout creation across multiple server processes.
+ */
+const acquireCheckoutConcurrencyLock = async (userId, cartFingerprint, timeoutMs = 3000) => {
+  const lockKey = `create_order_lock:${userId}:${cartFingerprint}`;
+  const workerId = `proc_${process.pid}_${crypto.randomUUID()}`;
+  const redis = getRedisClient();
+
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (redis && isRedisActive()) {
+      try {
+        const res = await redis.set(lockKey, workerId, "PX", 5000, "NX");
+        if (res === "OK") {
+          return { acquired: true, key: lockKey, workerId, driver: "redis" };
+        }
+      } catch (err) {
+        logger.warn({ err: err.message }, "[Payment Lock] Redis lock attempt warning; checking shared DB lock");
+      }
+    } else {
+      const dbAcquired = await acquireLock(lockKey, workerId, 300);
+      if (dbAcquired) {
+        return { acquired: true, key: lockKey, workerId, driver: "db" };
+      }
+    }
+    await new Promise((r) => setTimeout(r, 80));
+  }
+
+  return { acquired: false, key: lockKey, workerId, driver: null };
+};
+
+/**
+ * Releases the distributed checkout concurrency lock.
+ */
+const releaseCheckoutConcurrencyLock = async (lockHandle) => {
+  if (!lockHandle || !lockHandle.acquired) return;
+  const { key, workerId, driver } = lockHandle;
+  const redis = getRedisClient();
+
+  if (driver === "redis" && redis && isRedisActive()) {
+    try {
+      const current = await redis.get(key);
+      if (current === workerId) {
+        await redis.del(key);
+      }
+    } catch (_) {}
+  } else if (driver === "db") {
+    try {
+      await releaseLock(key, workerId);
+    } catch (_) {}
+  }
+  serverCache.delete(key);
+};
+
+/**
+ * Retrieves the active checkout order ID across servers.
+ * Checks Redis first, then serverCache.
+ */
+const getActiveCartIntentId = async (userId, cartFingerprint) => {
+  const cacheKey = `active_cart_intent:${userId}:${cartFingerprint}`;
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      const rzpOrderId = await redis.get(cacheKey);
+      if (rzpOrderId) return rzpOrderId;
+    } catch (_) {}
+  }
+  return serverCache.get(cacheKey) || null;
+};
+
+/**
+ * Sets the active checkout order ID across shared servers.
+ */
+const setActiveCartIntentId = async (userId, cartFingerprint, rzpOrderId, ttlSeconds = 900) => {
+  const cacheKey = `active_cart_intent:${userId}:${cartFingerprint}`;
+  serverCache.set(cacheKey, rzpOrderId, ttlSeconds * 1000);
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      await redis.set(cacheKey, rzpOrderId, "EX", ttlSeconds);
+    } catch (_) {}
+  }
+};
+
+/**
+ * Deletes the active checkout order ID across servers.
+ */
+const deleteActiveCartIntentId = async (userId, cartFingerprint) => {
+  if (!userId || !cartFingerprint) return;
+  const cacheKey = `active_cart_intent:${userId}:${cartFingerprint}`;
+  serverCache.delete(cacheKey);
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      await redis.del(cacheKey);
+    } catch (_) {}
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -332,22 +441,10 @@ export const createOrder = async (req, res) => {
     }
 
     const cartFingerprint = computeCartFingerprint(cart);
-    const userCartIntentKey = `active_cart_intent:${userId}:${cartFingerprint}`;
-    const concurrencyLockKey = `create_order_lock:${userId}:${cartFingerprint}`;
 
-    // Acquire brief in-memory mutex to serialize concurrent clicks for identical cart
-    let lockAcquired = false;
-    const startWait = Date.now();
-    while (Date.now() - startWait < 3000) {
-      if (!serverCache.get(concurrencyLockKey)) {
-        serverCache.set(concurrencyLockKey, true, 4000); // 4-second safety lock
-        lockAcquired = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 80));
-    }
-
-    if (!lockAcquired) {
+    // Acquire shared distributed mutex across servers (Redis / DB)
+    const lockHandle = await acquireCheckoutConcurrencyLock(userId, cartFingerprint, 3000);
+    if (!lockHandle.acquired) {
       return res.status(409).json({
         success: false,
         code: "CHECKOUT_IN_PROGRESS",
@@ -356,8 +453,8 @@ export const createOrder = async (req, res) => {
     }
 
     try {
-      // 7a. Reuse existing active unpaid payment intent for identical cart & user
-      const existingRzpOrderId = serverCache.get(userCartIntentKey);
+      // 7a. Reuse existing active unpaid payment intent across servers
+      const existingRzpOrderId = await getActiveCartIntentId(userId, cartFingerprint);
       if (existingRzpOrderId) {
         const existingIntent = await paymentIntentService.getPaymentIntent(existingRzpOrderId);
         if (
@@ -405,50 +502,47 @@ export const createOrder = async (req, res) => {
         }
       }
 
-      // ── 7b. Check live stock for every cart line (Pre-Payment Guard) ────────
-      // Parallelize live stock checks with Promise.allSettled to eliminate N+1 waterfall latency
-      const stockResults = await Promise.allSettled(
-        (cart.items || []).map(async (item) => {
-          try {
-            const prodRes = await api.get(`products/${item.id}`);
-            const prod = prodRes?.data;
-            if (prod && typeof prod.manage_stock !== "undefined") {
-              const isShort =
-                (prod.manage_stock && typeof prod.stock_quantity === "number" && prod.stock_quantity < item.quantity && !prod.backorders_allowed) ||
-                (prod.stock_status === "outofstock" && !prod.backorders_allowed);
-              if (isShort) {
-                return {
-                  isShort: true,
-                  id: item.id,
-                  key: item.key,
-                  name: item.name || prod.name || `Product #${item.id}`,
-                  requested: item.quantity,
-                  available:
-                    prod.manage_stock && typeof prod.stock_quantity === "number"
-                      ? Math.max(0, prod.stock_quantity)
-                      : 0,
-                };
-              }
-            }
-          } catch (stockErr) {
-            logger.warn({ product_id: item.id, err: stockErr.message }, "[Payment] Notice: Pre-checkout stock check upstream error");
+      // ── 7b. Check live stock for cart lines (Batched Pre-Payment Guard) ────────
+      const cartItemIds = [...new Set((cart.items || []).map((item) => Number(item.id)).filter(Boolean))];
+      let productsMap = new Map();
+      if (cartItemIds.length > 0) {
+        try {
+          const batchRes = await api.get("products", {
+            include: cartItemIds.join(","),
+            per_page: Math.min(100, cartItemIds.length),
+            _fields: "id,name,manage_stock,stock_quantity,stock_status,backorders_allowed",
+          });
+          const list = Array.isArray(batchRes?.data) ? batchRes.data : (batchRes?.data ? [batchRes.data] : []);
+          for (const p of list) {
+            if (p && p.id) productsMap.set(Number(p.id), p);
           }
-          return { isShort: false };
-        })
-      );
+        } catch (batchErr) {
+          logger.warn({ err: batchErr.message }, "[Payment] Notice: Batched pre-checkout stock check upstream error");
+        }
+      }
 
       const stockShortages = [];
       const stockShortageDetails = [];
-      for (const r of stockResults) {
-        if (r.status === "fulfilled" && r.value?.isShort) {
-          stockShortages.push(r.value.name);
-          stockShortageDetails.push({
-            id: r.value.id,
-            key: r.value.key,
-            name: r.value.name,
-            requested: r.value.requested,
-            available: r.value.available,
-          });
+      for (const item of cart.items || []) {
+        const prod = productsMap.get(Number(item.id));
+        if (prod && typeof prod.manage_stock !== "undefined") {
+          const isShort =
+            (prod.manage_stock && typeof prod.stock_quantity === "number" && prod.stock_quantity < item.quantity && !prod.backorders_allowed) ||
+            (prod.stock_status === "outofstock" && !prod.backorders_allowed);
+          if (isShort) {
+            const name = item.name || prod.name || `Product #${item.id}`;
+            stockShortages.push(name);
+            stockShortageDetails.push({
+              id: item.id,
+              key: item.key,
+              name,
+              requested: item.quantity,
+              available:
+                prod.manage_stock && typeof prod.stock_quantity === "number"
+                  ? Math.max(0, prod.stock_quantity)
+                  : 0,
+            });
+          }
         }
       }
 
@@ -564,7 +658,7 @@ export const createOrder = async (req, res) => {
           message: "Unable to initialize payment session. Please try again in a moment.",
         });
       }
-      serverCache.set(userCartIntentKey, rzpOrder.id, 15 * 60 * 1000);
+      await setActiveCartIntentId(userId, cartFingerprint, rzpOrder.id, 15 * 60);
 
       logger.info(
         { customer_id: userId, razorpay_order_id: rzpOrder.id, amount: amountInPaise },
@@ -580,7 +674,7 @@ export const createOrder = async (req, res) => {
         key_id: getPublicKeyId(),
       });
     } finally {
-      serverCache.delete(concurrencyLockKey);
+      await releaseCheckoutConcurrencyLock(lockHandle);
     }
   } catch (error) {
     logError(req, error, "[Payment] Unhandled error during createOrder");
@@ -751,6 +845,7 @@ export const finalizePaymentAndCreateOrder = async ({
                 { key: "_payment_verified_at", value: new Date().toISOString() },
               ],
             });
+            await invalidateOrderDetailCache(legacyOrder.id);
             return {
               success: true,
               order_id: legacyOrder.id,
@@ -836,31 +931,35 @@ export const finalizePaymentAndCreateOrder = async ({
     }
 
     if (lineItems.length > 0) {
-      const stockResults = await Promise.allSettled(
-        lineItems.map(async (item) => {
-          try {
-            const prodRes = await api.get(`products/${item.product_id}`);
-            const prod = prodRes?.data;
-            if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
-              if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
-                logger.error(
-                  { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
-                  "[Payment Finalize] Stock depleted between checkout initiation and capture"
-                );
-                return false;
-              }
-            }
-          } catch (_) {
-            // Upstream product check network blip should not strand a captured payment
+      const lineItemProductIds = [...new Set(lineItems.map((item) => Number(item.product_id)).filter(Boolean))];
+      let productsMap = new Map();
+      if (lineItemProductIds.length > 0) {
+        try {
+          const batchRes = await api.get("products", {
+            include: lineItemProductIds.join(","),
+            per_page: Math.min(100, lineItemProductIds.length),
+            _fields: "id,manage_stock,stock_quantity,stock_status,backorders_allowed",
+          });
+          const list = Array.isArray(batchRes?.data) ? batchRes.data : (batchRes?.data ? [batchRes.data] : []);
+          for (const p of list) {
+            if (p && p.id) productsMap.set(Number(p.id), p);
           }
-          return true;
-        })
-      );
+        } catch (_) {
+          // Upstream product check network blip should not strand a captured payment
+        }
+      }
 
-      for (const r of stockResults) {
-        if (r.status === "fulfilled" && r.value === false) {
-          stockValid = false;
-          break;
+      for (const item of lineItems) {
+        const prod = productsMap.get(Number(item.product_id));
+        if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
+          if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
+            logger.error(
+              { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
+              "[Payment Finalize] Stock depleted between checkout initiation and capture"
+            );
+            stockValid = false;
+            break;
+          }
         }
       }
     }
@@ -1018,7 +1117,80 @@ export const finalizePaymentAndCreateOrder = async ({
       };
     }
 
-    // 10. Post-Creation Cleanup (ONLY after WooCommerce order is securely created)
+    // 9c. FINANCIAL INTEGRITY GUARD: Verify created WooCommerce order total matches captured payment
+    const wcTotalPaise = Math.round(Number(createdOrder.total || 0) * 100);
+    const capturedPaise = Number(rzpPayment.amount);
+
+    if (wcTotalPaise !== capturedPaise) {
+      logger.error(
+        {
+          rzpOrderId,
+          rzpPaymentId,
+          wcOrderId: createdOrder.id,
+          wcTotalPaise,
+          capturedPaise,
+          discrepancyPaise: wcTotalPaise - capturedPaise,
+        },
+        "[Payment Finalize] CRITICAL: WooCommerce order total does NOT match captured Razorpay payment!"
+      );
+
+      // Immediately hold order so fulfillment/dispatch is blocked
+      try {
+        await api.put(`orders/${createdOrder.id}`, {
+          status: "on-hold",
+          customer_note: "Order placed on hold for verification: payment amount discrepancy detected.",
+        });
+        await invalidateOrderDetailCache(createdOrder.id);
+        await api.post(`orders/${createdOrder.id}/notes`, {
+          note: `[AUDIT ALERT] Total Mismatch: Captured Razorpay payment is ₹${(capturedPaise / 100).toFixed(2)}, but WooCommerce order total was calculated as ₹${(wcTotalPaise / 100).toFixed(2)} (difference of ₹${((wcTotalPaise - capturedPaise) / 100).toFixed(2)}). Hold for administrative review.`,
+          customer_note: false,
+        });
+      } catch (holdErr) {
+        logger.error({ err: holdErr.message, wcOrderId: createdOrder.id }, "[Payment Finalize] Failed to set order to on-hold after total mismatch");
+      }
+
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "amount_mismatch",
+        rzpPaymentId,
+        wcOrderId: createdOrder.id,
+        capturedAmountPaise: capturedPaise,
+        errorReason: `Total mismatch: WooCommerce ₹${(wcTotalPaise / 100).toFixed(2)} vs Paid ₹${(capturedPaise / 100).toFixed(2)}`,
+      });
+
+      await alertStaffAnomaly({
+        type: "PAYMENT_AMOUNT_MISMATCH",
+        severity: "critical",
+        rzpOrderId,
+        rzpPaymentId,
+        wcOrderId: createdOrder.id,
+        message: `CRITICAL: Captured payment (₹${(capturedPaise / 100).toFixed(2)}) differs from WooCommerce order total (₹${(wcTotalPaise / 100).toFixed(2)}). Order placed on-hold for review.`,
+        details: {
+          capturedAmountPaise: capturedPaise,
+          wcTotalPaise,
+          wcOrderId: createdOrder.id,
+          differencePaise: wcTotalPaise - capturedPaise,
+        },
+      });
+
+      await releaseCheckoutStock(reservationId);
+      await paymentIntentService.clearCustomerWcCart(intent.customer_id);
+
+      if (intent?.customer_id && intent?.cart_fingerprint) {
+        await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
+      }
+
+      return {
+        success: true,
+        order_id: createdOrder.id,
+        order_number: createdOrder.number || createdOrder.id,
+        orderStatus: "on-hold",
+        message: "Payment captured, but an amount discrepancy was detected. Your order has been placed on hold for support review.",
+        _flagged: true,
+      };
+    }
+
+    // 10. Post-Creation Cleanup (ONLY after WooCommerce order is securely created and total verified)
     await updatePaymentIntentStatus({
       rzpOrderId,
       toStatus: "order_created",
@@ -1036,8 +1208,9 @@ export const finalizePaymentAndCreateOrder = async ({
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
     serverCache.delete("product_stock_counts");
+    serverCache.invalidatePrefix("catalog:products:");
     if (intent?.customer_id && intent?.cart_fingerprint) {
-      serverCache.delete(`active_cart_intent:${intent.customer_id}:${intent.cart_fingerprint}`);
+      await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
     }
 
     if (Array.isArray(createdOrder.line_items)) {
@@ -1504,6 +1677,7 @@ export const reconcileOrder = async (req, res) => {
           { key: "_payment_method_detail", value: capturedPayment.method || "online" },
         ],
       });
+      await invalidateOrderDetailCache(wcOrder.id);
 
       // Publish minimal real-time event for employee dashboard
       publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: wcOrder.id, status: "processing" });
@@ -1512,6 +1686,7 @@ export const reconcileOrder = async (req, res) => {
       serverCache.invalidatePrefix("admin:analytics");
       serverCache.invalidatePrefix("admin:customers");
       serverCache.delete("product_stock_counts");
+      serverCache.invalidatePrefix("catalog:products:");
 
       logger.info(
         { orderId, payment_id: capturedPayment.id },
@@ -1566,15 +1741,67 @@ export const cancelPaymentOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "razorpay_order_id is required." });
     }
 
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required to cancel checkout session.",
+      });
+    }
+
     const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id);
     if (!intent) {
       return res.status(200).json({ success: true, message: "No active checkout intent found." });
     }
 
+    // 1. Authorize: Intent must belong to the requesting authenticated customer
+    if (intent.customer_id && Number(intent.customer_id) !== Number(userId)) {
+      logger.warn(
+        { rzpOrderId: razorpay_order_id, requestingUser: userId, intentCustomer: intent.customer_id },
+        "[Payment Cancel] Unauthorized cancellation attempt: user does not own payment intent"
+      );
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to cancel this checkout session.",
+      });
+    }
+
+    // 2. State Guard: Cannot cancel a payment that is already completed or processing
+    if (intent.status === "paid" || intent.status === "order_created") {
+      logger.warn(
+        { rzpOrderId: razorpay_order_id, status: intent.status },
+        "[Payment Cancel] Rejection: attempt to cancel an already finalized or paid intent"
+      );
+      return res.status(409).json({
+        success: false,
+        code: "CHECKOUT_ALREADY_PAID",
+        message: "Cannot cancel a checkout session that has already been paid or completed.",
+      });
+    }
+
+    // 3. Upstream Gateway Guard: Confirm payment hasn't already been captured on Razorpay
+    try {
+      const rzpOrder = await fetchRazorpayOrder(razorpay_order_id);
+      if (rzpOrder && (rzpOrder.status === "paid" || (rzpOrder.amount_paid && rzpOrder.amount_paid > 0))) {
+        logger.warn(
+          { rzpOrderId: razorpay_order_id, rzpStatus: rzpOrder.status, amount_paid: rzpOrder.amount_paid },
+          "[Payment Cancel] Upstream Razorpay order already marked paid/captured. Refusing cancellation and stock release."
+        );
+        return res.status(409).json({
+          success: false,
+          code: "PAYMENT_ALREADY_CAPTURED",
+          message: "Payment has already been processed by the gateway. This session cannot be cancelled.",
+        });
+      }
+    } catch (rzpErr) {
+      logger.warn({ rzpOrderId: razorpay_order_id, err: rzpErr.message }, "[Payment Cancel] Warning checking Razorpay status");
+    }
+
+    // 4. Safe Cancellation & Stock Release
     if (intent.status === "created") {
       const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id;
       if (reservationId) {
-        await releaseCheckoutStock(reservationId);
+        await (paymentIntentService.releaseCheckoutStock || releaseCheckoutStock)(reservationId);
       }
 
       await updatePaymentIntentStatus({
@@ -1584,7 +1811,7 @@ export const cancelPaymentOrder = async (req, res) => {
       });
 
       if (intent.customer_id && intent.cart_fingerprint) {
-        serverCache.delete(`active_cart_intent:${intent.customer_id}:${intent.cart_fingerprint}`);
+        await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
       }
     }
 

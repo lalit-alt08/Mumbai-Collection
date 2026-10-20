@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
-import { updateCheckout, removeCartItem } from "../../services/storeApi";
+import { updateCheckout, updateCartItem, removeCartItem } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment, checkPaymentStatus, cancelPaymentOrder } from "../../services/paymentService.js";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api.js";
@@ -151,7 +151,13 @@ function BillingForm({
           }
           if (targetKey) {
             try {
-              await removeCartItem(targetKey);
+              const available = Number(item.available);
+              const requested = Number(item.requested);
+              if (Number.isFinite(available) && available > 0 && available < requested) {
+                await updateCartItem(targetKey, available);
+              } else {
+                await removeCartItem(targetKey);
+              }
             } catch {
               // continue with remaining
             }
@@ -755,7 +761,13 @@ function BillingForm({
             ? errData.out_of_stock_details
             : Array.isArray(errData?.out_of_stock_items) && errData.out_of_stock_items.length > 0
             ? errData.out_of_stock_items.map((name) => ({ name }))
-            : [{ name: "An item in your cart" }];
+            : [];
+
+        if (shortageDetails.length === 0) {
+          setError(errData?.message || "Stock changed while you were checking out. Please review your cart before trying again.");
+          navigate("/cart");
+          return;
+        }
 
         setStockAlertItems(shortageDetails);
         setStockAlertOpen(true);

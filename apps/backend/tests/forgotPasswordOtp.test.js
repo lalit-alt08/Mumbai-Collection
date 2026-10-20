@@ -859,4 +859,93 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     await runAuthMiddleware();
     assert.strictEqual(meCallCount, 3);
   });
+
+  // 20. End-to-End Email OTP Reset: sendOtp, verifyOtp, resetPasswordOtp with email payload
+  await suite.test("20. Full Email OTP flow: sendOtp, verifyOtp, resetPasswordOtp using email payload", async () => {
+    let capturedStore = null;
+    let capturedVerify = null;
+    let capturedReset = null;
+
+    wp.post = async (url, data) => {
+      if (url.includes("/otp/store")) {
+        capturedStore = data;
+        return {
+          data: {
+            success: true,
+            user_found: true,
+            email: "shopper@example.com",
+            name: "Shopper Jane",
+            message: "If an account is registered with this email, an OTP has been sent.",
+          },
+        };
+      }
+      if (url.includes("/otp/verify")) {
+        capturedVerify = data;
+        return {
+          data: {
+            success: true,
+            message: "OTP verified. Proceed to reset password.",
+            reset_token: "reset_token_email_flow_987654",
+          },
+        };
+      }
+      if (url.includes("/otp/reset-password")) {
+        capturedReset = data;
+        return {
+          data: {
+            success: true,
+            message: "Password reset successfully.",
+            user_id: 88,
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    // Step 1: Send OTP with email
+    const sendRes = await simulateHandler(sendOtp, {
+      body: { email: "shopper@example.com", purpose: "reset_password" },
+    });
+    assert.strictEqual(sendRes.status, 200);
+    assert.strictEqual(sendRes.data.success, true);
+    assert.strictEqual(capturedStore.phone, "shopper@example.com");
+    assert.strictEqual(capturedStore.purpose, "reset_password");
+
+    // Step 2: Verify OTP with email
+    const verifyRes = await simulateHandler(verifyOtp, {
+      body: { email: "shopper@example.com", otp: "654321", purpose: "reset_password" },
+    });
+    assert.strictEqual(verifyRes.status, 200);
+    assert.strictEqual(verifyRes.data.success, true);
+    assert.strictEqual(verifyRes.data.reset_token, "reset_token_email_flow_987654");
+    assert.strictEqual(capturedVerify.phone, "shopper@example.com");
+
+    // Step 3: Reset password with email
+    const resetRes = await simulateHandler(resetPasswordOtp, {
+      body: {
+        email: "shopper@example.com",
+        reset_token: verifyRes.data.reset_token,
+        new_password: "MySecurePassword2026!",
+      },
+    });
+    assert.strictEqual(resetRes.status, 200);
+    assert.strictEqual(resetRes.data.success, true);
+    assert.strictEqual(capturedReset.phone, "shopper@example.com");
+    assert.strictEqual(capturedReset.reset_token, "reset_token_email_flow_987654");
+    assert.strictEqual(capturedReset.new_password, "MySecurePassword2026!");
+  });
+
+  // Cleanup connections after all tests
+  suite.after(async () => {
+    try {
+      const { redisClient, subscriberClient } = await import("../src/config/redis.js");
+      if (redisClient && typeof redisClient.disconnect === "function") {
+        redisClient.disconnect();
+      }
+      if (subscriberClient && typeof subscriberClient.disconnect === "function") {
+        subscriberClient.disconnect();
+      }
+    } catch (_) {}
+  });
 });
+

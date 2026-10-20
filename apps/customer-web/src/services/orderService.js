@@ -18,7 +18,7 @@ export const getMyOrders = async ({ page = 1, per_page = 10, email } = {}) => {
   return response.data;
 };
 
-export const getOrderById = async (id) => {
-  const response = await API.get(`/${id}`);
+export const getOrderById = async (id, { signal } = {}) => {
+  const response = await API.get(`/${id}`, { signal });
   return response.data;
 };

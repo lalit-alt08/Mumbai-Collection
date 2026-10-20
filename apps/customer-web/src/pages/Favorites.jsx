@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Heart, ShoppingBag, ArrowLeft, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFavorites } from "../context/FavoritesContext";
@@ -5,7 +6,13 @@ import ProductCard from "../components/product/ProductCard";
 
 function Favorites() {
   const navigate = useNavigate();
-  const { favorites, loading } = useFavorites();
+  const { favorites, loading, loadFullFavorites } = useFavorites();
+
+  useEffect(() => {
+    if (typeof loadFullFavorites === "function") {
+      loadFullFavorites();
+    }
+  }, [loadFullFavorites]);
 
   return (
     <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 pt-4 pb-28 sm:px-6 md:pt-6 md:pb-16">

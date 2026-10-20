@@ -20,12 +20,12 @@ export const getProductById = async (id, { refresh = false } = {}) => {
   return response.data;
 };
 
-export const getProductsByIds = async (ids = []) => {
+export const getProductsByIds = async (ids = [], { freshStock = false } = {}) => {
   const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 12);
   if (productIds.length === 0) return [];
 
   const response = await catalogClient.get("/products/by-ids", {
-    params: { ids: productIds.join(",") },
+    params: { ids: productIds.join(","), ...(freshStock ? { fresh: "1" } : {}) },
   });
   return Array.isArray(response.data) ? response.data : [];
 };

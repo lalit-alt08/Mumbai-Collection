@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import {
+  getFavoriteIds,
   getFavorites,
   addFavorite as addFavApi,
   removeFavorite as removeFavApi,
@@ -14,6 +15,7 @@ export const FavoritesProvider = ({ children }) => {
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Fast lightweight ID sync across all pages (zero catalog product loading)
   const fetchFavorites = useCallback(async () => {
     if (!user) {
       setFavoriteIds(new Set());
@@ -22,18 +24,38 @@ export const FavoritesProvider = ({ children }) => {
     }
 
     try {
+      const res = await getFavoriteIds();
+      if (res?.success) {
+        const ids = new Set((res.productIds || []).map(Number));
+        setFavoriteIds(ids);
+      }
+    } catch {
+      // Failed to load customer favorite IDs
+    }
+  }, [user]);
+
+  // Full catalog details fetch (strictly called when customer opens /favorites page)
+  const loadFullFavorites = useCallback(async () => {
+    if (!user) {
+      setFavorites([]);
+      return [];
+    }
+
+    try {
       setLoading(true);
       const res = await getFavorites();
-      if (res.success) {
+      if (res?.success) {
         const ids = new Set((res.productIds || []).map(Number));
         setFavoriteIds(ids);
         setFavorites(res.favorites || []);
+        return res.favorites || [];
       }
     } catch {
-      // Failed to load customer favorites
+      // Failed to load full customer favorites
     } finally {
       setLoading(false);
     }
+    return [];
   }, [user]);
 
   useEffect(() => {
@@ -110,6 +132,7 @@ export const FavoritesProvider = ({ children }) => {
         loading,
         isFavorited,
         toggleFavorite,
+        loadFullFavorites,
         refreshFavorites: fetchFavorites,
       }}
     >

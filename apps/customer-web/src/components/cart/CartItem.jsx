@@ -9,12 +9,21 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
     : price;
 
   const isUpdating = updatingKey === item.key;
-  const maxLimit = typeof item.quantity_limits?.maximum === "number" ? item.quantity_limits.maximum : 99;
-  const isOutOfStock =
+  const maxLimit = item.backordersAllowed
+    ? 99
+    : typeof item.availableStock === "number"
+    ? item.availableStock
+    : typeof item.quantity_limits?.maximum === "number" ? item.quantity_limits.maximum : 99;
+  const isFullyOutOfStock = !item.backordersAllowed && (
     maxLimit === 0 ||
-    item.stock_status === "outofstock" ||
-    item.is_in_stock === false ||
-    Boolean(item.isOutOfStock);
+    (typeof item.availableStock !== "number" && (
+      item.stock_status === "outofstock" ||
+      item.is_in_stock === false ||
+      Boolean(item.isOutOfStock)
+    ))
+  );
+  const isQuantityShort = !item.backordersAllowed && maxLimit > 0 && item.quantity > maxLimit;
+  const isOutOfStock = isFullyOutOfStock || isQuantityShort;
   const isMaxReached = item.quantity >= maxLimit && maxLimit > 0;
 
   return (
@@ -46,9 +55,13 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           <h2 className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#F1F5F9]">
             {cleanProductTitle(item.name)}
           </h2>
-          {isOutOfStock ? (
+          {isFullyOutOfStock ? (
             <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-rose-950/40 px-2 py-0.5 text-[10px] font-extrabold text-rose-300 border border-rose-800/60">
               ● Out of Stock
+            </span>
+          ) : isQuantityShort ? (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-950/40 px-2 py-0.5 text-[10px] font-extrabold text-amber-300 border border-amber-800/60">
+              Only {maxLimit} available — reduce quantity
             </span>
           ) : isMaxReached ? (
             <span className="text-[10px] font-bold text-amber-400">
@@ -103,9 +116,9 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               onClick={() => onIncrease(item)}
               aria-label="Increase quantity"
               title={
-                isOutOfStock
+                isFullyOutOfStock
                   ? "Item is out of stock"
-                  : isMaxReached
+                  : isQuantityShort || isMaxReached
                   ? `Only ${maxLimit} available in stock`
                   : "Increase quantity"
               }

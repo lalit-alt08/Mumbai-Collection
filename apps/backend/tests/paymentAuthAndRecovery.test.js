@@ -9,7 +9,7 @@ process.env.CUSTOMER_ORIGIN = "http://localhost:5173";
 
 const { default: app } = await import("../src/app.js");
 const { default: api } = await import("../src/config/woocommerce.js");
-const { default: paymentIntentService } = await import("../src/services/paymentIntentService.js");
+const { default: paymentIntentService, _setWpClientForTesting } = await import("../src/services/paymentIntentService.js");
 const { _setRazorpayInstanceForTesting } = await import("../src/services/razorpayService.js");
 const { serverCache } = await import("../src/utils/memoryCache.js");
 const { _setAnomalyHandlerForTesting } = await import("../src/services/alertService.js");
@@ -22,6 +22,20 @@ const generateHmacSignature = (orderId, paymentId) => {
     .digest("hex");
 };
 
+const createValidCustomerSession = (arg1 = 101, arg2 = "customer@example.com") => {
+  const userId = typeof arg1 === "object" ? (arg1.userId || 101) : arg1;
+  const email = typeof arg1 === "object" ? (arg1.email || "customer@example.com") : arg2;
+  const token = `token_${userId}_${Math.random().toString(36).slice(2)}`;
+  _setSessionCacheForTesting(token, {
+    userId,
+    roles: ["customer"],
+    email,
+    isPhoneVerified: true,
+    timestamp: Date.now(),
+  });
+  return `mumbai_customer_auth=${token}`;
+};
+
 test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Router)", async (t) => {
   let server;
   let baseUrl;
@@ -30,15 +44,24 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
 
   const originalApiPost = api.post;
   const originalApiGet = api.get;
+  const originalApiPut = api.put;
   const originalAcquireLock = paymentIntentService.acquireLock;
   const originalReleaseLock = paymentIntentService.releaseLock;
   const originalClearCart = paymentIntentService.clearCustomerWcCart;
+  const originalReserveStock = paymentIntentService.reserveCheckoutStock;
+  const originalReleaseStock = paymentIntentService.releaseCheckoutStock;
 
   t.before(async () => {
     _setAnomalyHandlerForTesting(() => {});
+    _setWpClientForTesting({
+      post: async () => ({ data: { success: true } }),
+      get: async () => ({ data: { success: true } }),
+    });
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
     paymentIntentService.clearCustomerWcCart = async () => true;
+    paymentIntentService.reserveCheckoutStock = async () => ({ success: true });
+    paymentIntentService.releaseCheckoutStock = async () => true;
 
     server = http.createServer(app);
     await new Promise((resolve) => server.listen(0, resolve));
@@ -49,11 +72,17 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
   t.after(async () => {
     api.post = originalApiPost;
     api.get = originalApiGet;
+    api.put = originalApiPut;
     paymentIntentService.acquireLock = originalAcquireLock;
     paymentIntentService.releaseLock = originalReleaseLock;
     paymentIntentService.clearCustomerWcCart = originalClearCart;
+    paymentIntentService.reserveCheckoutStock = originalReserveStock;
+    paymentIntentService.releaseCheckoutStock = originalReleaseStock;
     _setRazorpayInstanceForTesting(null);
     _setAnomalyHandlerForTesting(null);
+    _setWpClientForTesting(null);
+    const { closeRedis } = await import("../src/config/redis.js");
+    await closeRedis();
     await new Promise((resolve) => server.close(resolve));
   });
 
@@ -71,6 +100,7 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
             id: 7001,
             number: "7001",
             status: "processing",
+            total: "750.00",
             line_items: body.line_items || [],
           },
         };
@@ -80,6 +110,10 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
 
     api.get = async (path) => {
       return { data: [] };
+    };
+
+    api.put = async (path, body) => {
+      return { data: { id: 7001, ...body } };
     };
   });
 
@@ -339,5 +373,194 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
 
     // Crucial check: wcOrdersCreated must still be exactly 1!
     assert.equal(wcOrdersCreated, 1, "Replaying valid signature must NOT create a second order!");
+  });
+
+  // 6. Point 1: POST /api/payments/cancel requires signed-in customer (401 when no session)
+  await t.test("6. POST /api/payments/cancel rejects with 401 when unauthenticated", async () => {
+    const res = await fetch(`${baseUrl}/api/payments/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ razorpay_order_id: "order_cancel_unauth" }),
+    });
+    assert.equal(res.status, 401);
+  });
+
+  // 7. Point 1: POST /api/payments/cancel denies user canceling someone else's intent (403)
+  await t.test("7. POST /api/payments/cancel rejects with 403 when user does not own checkout intent", async () => {
+    const rzpOrderId = "order_cancel_other_user";
+    serverCache.set(`payment_intent:${rzpOrderId}`, {
+      customer_id: 999, // Owned by user 999
+      status: "created",
+      amount_in_paise: 50000,
+    });
+
+    const sessionCookie = await createValidCustomerSession({ userId: 101, email: "user101@example.com" });
+    const res = await fetch(`${baseUrl}/api/payments/cancel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: sessionCookie,
+      },
+      body: JSON.stringify({ razorpay_order_id: rzpOrderId }),
+    });
+
+    assert.equal(res.status, 403);
+    const body = await res.json();
+    assert.equal(body.success, false);
+    assert.equal(body.message, "You are not authorized to cancel this checkout session.");
+  });
+
+  // 8. Point 1: POST /api/payments/cancel denies cancellation when intent is already paid (409)
+  await t.test("8. POST /api/payments/cancel rejects with 409 when intent is already paid or completed", async () => {
+    const rzpOrderId = "order_cancel_already_paid";
+    serverCache.set(`payment_intent:${rzpOrderId}`, {
+      customer_id: 101,
+      status: "paid",
+      amount_in_paise: 50000,
+    });
+
+    const sessionCookie = await createValidCustomerSession({ userId: 101, email: "user101@example.com" });
+    const res = await fetch(`${baseUrl}/api/payments/cancel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: sessionCookie,
+      },
+      body: JSON.stringify({ razorpay_order_id: rzpOrderId }),
+    });
+
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.equal(body.code, "CHECKOUT_ALREADY_PAID");
+  });
+
+  // 9. Point 1: POST /api/payments/cancel succeeds for own created intent and releases reserved stock
+  await t.test("9. POST /api/payments/cancel succeeds for own unpaid intent and releases stock", async () => {
+    const rzpOrderId = "order_cancel_legit";
+    let stockReleasedId = null;
+    paymentIntentService.releaseCheckoutStock = async (resId) => {
+      stockReleasedId = resId;
+      return true;
+    };
+
+    serverCache.set(`payment_intent:${rzpOrderId}`, {
+      customer_id: 101,
+      status: "created",
+      amount_in_paise: 50000,
+      stock_reservation_id: "res_cancel_test_123",
+      cart_fingerprint: "fp_cancel_101",
+    });
+
+    _setRazorpayInstanceForTesting({
+      orders: {
+        fetch: async () => ({
+          id: rzpOrderId,
+          status: "created",
+          amount_paid: 0,
+        }),
+      },
+    });
+
+    const sessionCookie = await createValidCustomerSession({ userId: 101, email: "user101@example.com" });
+    const res = await fetch(`${baseUrl}/api/payments/cancel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: sessionCookie,
+      },
+      body: JSON.stringify({ razorpay_order_id: rzpOrderId }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(stockReleasedId, "res_cancel_test_123");
+  });
+
+  // 10. Point 3: Order total mismatch between WooCommerce and captured payment flags order on-hold
+  await t.test("10. Order total mismatch between WooCommerce and captured payment puts order on-hold", async () => {
+    const rzpOrderId = "order_mismatch_audit_101";
+    const paymentId = "pay_mismatch_audit_101";
+    const validSignature = generateHmacSignature(rzpOrderId, paymentId);
+
+    // Mock anomaly tracker
+    let reportedAnomaly = null;
+    _setAnomalyHandlerForTesting((anomaly) => {
+      reportedAnomaly = anomaly;
+    });
+
+    // Intent says customer paid ₹750 (75000 paise)
+    serverCache.set(`payment_intent:${rzpOrderId}`, {
+      customer_id: 101,
+      amount_in_paise: 75000,
+      currency: "INR",
+      status: "created",
+      cart_fingerprint: "cart_fp_mismatch",
+      checkout_payload: {
+        customer_id: 101,
+        billing: { first_name: "Amit", last_name: "Shah", email: "amit@example.com" },
+        shipping: { first_name: "Amit", last_name: "Shah" },
+        line_items: [{ product_id: 10, quantity: 1 }],
+      },
+    });
+
+    // Razorpay reports 75000 captured
+    _setRazorpayInstanceForTesting({
+      payments: {
+        fetch: async () => ({
+          id: paymentId,
+          order_id: rzpOrderId,
+          status: "captured",
+          currency: "INR",
+          amount: 75000,
+        }),
+      },
+    });
+
+    // BUT WooCommerce order creation calculates total as ₹800.00 (80000 paise - difference of ₹50!)
+    let orderPlacedOnHold = false;
+    api.post = async (path, body) => {
+      if (path === "orders") {
+        return {
+          data: {
+            id: 8888,
+            number: "8888",
+            status: "processing",
+            total: "800.00", // Mismatch with 75000 captured!
+            line_items: body.line_items || [],
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    api.put = async (path, body) => {
+      if (path === "orders/8888" && body.status === "on-hold") {
+        orderPlacedOnHold = true;
+      }
+      return { data: { id: 8888, ...body } };
+    };
+
+    const sessionCookie = await createValidCustomerSession({ userId: 101, email: "amit@example.com" });
+    const res = await fetch(`${baseUrl}/api/payments/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        razorpay_order_id: rzpOrderId,
+        razorpay_payment_id: paymentId,
+        razorpay_signature: validSignature,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.orderStatus, "on-hold", "Order must be placed on-hold due to amount mismatch");
+    assert.equal(body._flagged, true);
+    assert.equal(orderPlacedOnHold, true, "WooCommerce API must receive update putting order on-hold");
+    assert.ok(reportedAnomaly, "Staff anomaly must be alerted");
+    assert.equal(reportedAnomaly.type, "PAYMENT_AMOUNT_MISMATCH");
   });
 });

@@ -317,22 +317,25 @@ async function proxyStoreApi(req, res) {
             }
 
             if (prod && typeof prod.manage_stock !== "undefined") {
-              const isShort =
-                (prod.manage_stock &&
-                  typeof prod.stock_quantity === "number" &&
-                  (prod.stock_quantity < item.quantity || prod.stock_quantity <= 0) &&
-                  !prod.backorders_allowed) ||
-                (prod.stock_status === "outofstock" && !prod.backorders_allowed);
+              const backordersAllowed = Boolean(prod.backorders_allowed);
+              const managesStock = prod.manage_stock === true && typeof prod.stock_quantity === "number";
+              const isDepleted = !backordersAllowed && (
+                prod.stock_status === "outofstock" ||
+                (managesStock && prod.stock_quantity <= 0)
+              );
+              const isQuantityShort = !backordersAllowed && managesStock && prod.stock_quantity > 0 && prod.stock_quantity < item.quantity;
+              const isShort = isDepleted || isQuantityShort;
 
-              item.is_in_stock = !isShort;
-              item.stock_status = isShort ? "outofstock" : "instock";
-              item.isOutOfStock = isShort;
+              item.is_in_stock = !isDepleted;
+              item.stock_status = isDepleted ? "outofstock" : "instock";
+              item.isOutOfStock = isDepleted;
+              item.isQuantityShort = isQuantityShort;
               if (isShort) {
                 if (!item.quantity_limits) item.quantity_limits = {};
                 item.quantity_limits.maximum =
-                  prod.manage_stock && typeof prod.stock_quantity === "number"
+                  managesStock
                     ? Math.max(0, prod.stock_quantity)
-                    : 0;
+                    : isDepleted ? 0 : 99;
               }
             }
           } catch (enrichErr) {

@@ -67,22 +67,47 @@ export const deleteAccount = async () => {
 };
 
 export const sendOtp = async (phone, purpose = "verify_phone") => {
-  const { data } = await API.post("/otp/send", { phone, purpose });
+  const trimmed = typeof phone === "string" ? phone.trim() : phone;
+  const { data } = await API.post("/otp/send", {
+    phone: trimmed,
+    email: typeof trimmed === "string" && trimmed.includes("@") ? trimmed : undefined,
+    purpose,
+  });
   return data;
 };
 
 export const verifyOtp = async (phone, otp, purpose = "verify_phone") => {
-  const { data } = await API.post("/otp/verify", { phone, otp, purpose });
+  const trimmed = typeof phone === "string" ? phone.trim() : phone;
+  const { data } = await API.post("/otp/verify", {
+    phone: trimmed,
+    email: typeof trimmed === "string" && trimmed.includes("@") ? trimmed : undefined,
+    otp: typeof otp === "string" ? otp.trim() : otp,
+    purpose,
+  });
   return data;
 };
 
 export const resetPasswordOtp = async (phone, reset_token, new_password) => {
+  const trimmed = typeof phone === "string" ? phone.trim() : phone;
   const { data } = await API.post("/otp/reset-password", {
-    phone,
+    phone: trimmed,
+    email: typeof trimmed === "string" && trimmed.includes("@") ? trimmed : undefined,
     reset_token,
     new_password,
   });
   return data;
+};
+
+export const sendPasswordResetOtp = async (email) => {
+  return sendOtp(email, "reset_password");
+};
+
+export const verifyPasswordResetOtp = async (email, otp) => {
+  return verifyOtp(email, otp, "reset_password");
+};
+
+export const resetPasswordWithOtp = async (email, reset_token, new_password) => {
+  return resetPasswordOtp(email, reset_token, new_password);
 };
 
 /**

@@ -5,6 +5,7 @@ import Footer from "../components/layout/Footer";
 import FloatingCartBar from "../components/layout/FloatingCartBar";
 import BottomNav from "../components/layout/BottomNav";
 import NetworkBanner from "../components/common/NetworkBanner";
+import InstallPrompt from "../components/common/InstallPrompt";
 
 function MainLayout() {
   const location = useLocation();
@@ -91,6 +92,7 @@ function MainLayout() {
       {isFooterVisible && <Footer />}
 
       <FloatingCartBar />
+      <InstallPrompt />
       <BottomNav />
     </div>
   );

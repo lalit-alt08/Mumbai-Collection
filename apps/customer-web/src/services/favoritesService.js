@@ -14,7 +14,15 @@ const api = axios.create({
 attachStaleConnectionRetry(api);
 
 /**
- * Fetch all favorites for logged-in customer
+ * Fetch strictly favorite product IDs for fast badge/heart checking (zero product hydration)
+ */
+export const getFavoriteIds = async () => {
+  const res = await api.get("/ids");
+  return res.data;
+};
+
+/**
+ * Fetch all favorites with full product details for logged-in customer (for /favorites page)
  */
 export const getFavorites = async () => {
   const res = await api.get("");
@@ -46,6 +54,7 @@ export const checkFavoriteStatus = async (productId) => {
 };
 
 export default {
+  getFavoriteIds,
   getFavorites,
   addFavorite,
   removeFavorite,

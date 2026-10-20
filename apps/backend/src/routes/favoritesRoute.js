@@ -1,6 +1,7 @@
 import express from "express";
 import {
   getFavorites,
+  getFavoriteIds,
   addFavorite,
   removeFavorite,
   checkFavoriteStatus,
@@ -11,6 +12,7 @@ import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 const router = express.Router();
 
 // All favorite actions are scoped strictly to the authenticated customer session
+router.get("/ids", requireAuth("customer"), getFavoriteIds);
 router.get("/", requireAuth("customer"), getFavorites);
 router.post("/:productId", validateRequest({ params: schemas.productIdParam }), requireAuth("customer"), addFavorite);
 router.delete("/:productId", validateRequest({ params: schemas.productIdParam }), requireAuth("customer"), removeFavorite);
