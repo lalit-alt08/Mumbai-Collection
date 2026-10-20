@@ -68,7 +68,6 @@ function TrackOrder() {
       if (!isBackground) {
         setLoading(true);
         setError("");
-        setIsStatusStale(false);
         setOrder(null);
       }
 
@@ -78,11 +77,9 @@ function TrackOrder() {
       if (res?.success && res?.order) {
         setOrder(res.order);
         setError("");
-        setIsStatusStale(false);
       } else {
         setError(res?.message || "Order not found.");
         setOrder(null);
-        setIsStatusStale(false);
       }
     } catch (err) {
       if (controller.signal.aborted || err.code === "ERR_CANCELED" || !isCurrentRequest()) return;
@@ -91,18 +88,15 @@ function TrackOrder() {
       if (status === 403) {
         setError("You are not authorized to view this order. Please log in to the account that placed this order.");
         setOrder(null);
-        setIsStatusStale(false);
       } else if (status === 404) {
         setError(`Order #${idToFetch} could not be found.`);
         setOrder(null);
-        setIsStatusStale(false);
       } else if (status === 401) {
         setError("Please log in to track your orders.");
         setOrder(null);
-        setIsStatusStale(false);
       } else {
         if (isBackground && orderRef.current) {
-          setIsStatusStale(true);
+          // Keep the last successful order visible if a background refresh fails.
         } else if (!isBackground) {
           setError(err.response?.data?.message || err.message || "Failed to retrieve order tracking information.");
           setOrder(null);
@@ -135,7 +129,6 @@ function TrackOrder() {
   useEffect(() => {
     const currentOrder = orderRef.current;
     if (!activeOrderId || !currentOrder) {
-      setIsPolling(false);
       return;
     }
 
@@ -146,15 +139,12 @@ function TrackOrder() {
       currentOrder.status === "failed";
 
     if (isTerminalState) {
-      setIsPolling(false);
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
       return;
     }
-
-    setIsPolling(true);
 
     const scheduleNextPoll = () => {
       if (!pollTimerRef.current && !document.hidden) {

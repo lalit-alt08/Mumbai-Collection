@@ -83,7 +83,6 @@ function BillingForm({
   totalAmount,
   standaloneBar = false,
   hasOutOfStock = false,
-  shortfall = 0,
 }) {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
@@ -375,7 +374,7 @@ function BillingForm({
     }
 
     if (hasOutOfStock) {
-      setError("Please remove sold out items from your cart to proceed.");
+      setError("Reduce the highlighted item quantities to continue.");
       return;
     }
 
@@ -399,8 +398,7 @@ function BillingForm({
     }
 
     if (itemsSubtotal < 500) {
-      const shortfall = Math.max(0, 500 - itemsSubtotal);
-      setError(`Add ₹${shortfall} more to reach the minimum order value of ₹500.`);
+      // CartSummary already explains the minimum and the exact amount needed.
       return;
     }
 
@@ -813,14 +811,6 @@ function BillingForm({
     }
   };
 
-  if (loadingAddresses && !standaloneBar) {
-    return (
-      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
-      </div>
-    );
-  }
-
   const finalTotal =
     totalAmount !== undefined && totalAmount !== null
       ? totalAmount
@@ -838,6 +828,22 @@ function BillingForm({
       ) / 100;
 
   const isBelowMin = itemsSubtotal < 500;
+  useEffect(() => {
+    if (/minimum.*order value|^add ₹/i.test(error)) {
+      if (isBelowMin) {
+        const currentShortfall = Math.max(0, 500 - itemsSubtotal);
+        setError(`Add ₹${currentShortfall} more to reach the minimum order value of ₹500.`);
+      } else {
+        setError("");
+      }
+      return;
+    }
+
+    if (!hasOutOfStock && /sold out|stock|highlighted item quantities/i.test(error)) {
+      setError("");
+    }
+  }, [error, hasOutOfStock, isBelowMin, itemsSubtotal]);
+
   const isStoreClosed = storeHours && storeHours.is_open === false;
   const pending = getPendingPayment();
   const hasActivePendingPayment = Boolean(
@@ -851,6 +857,14 @@ function BillingForm({
     isBelowMin ||
     (paymentMethod === "online" && hasActivePendingPayment) ||
     (isAuthenticated && addresses.length > 0 && !selectedAddress);
+
+  if (loadingAddresses && !standaloneBar) {
+    return (
+      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -1493,7 +1507,7 @@ function BillingForm({
                 ) : isStoreClosed ? (
                   <span className="truncate">Store Closed</span>
                 ) : hasOutOfStock ? (
-                  <span className="truncate">Item Sold Out</span>
+                  <span className="truncate">Review quantities</span>
                 ) : isBelowMin ? (
                   <span className="truncate">Min. ₹500 Order</span>
                 ) : !isAuthenticated ? (
