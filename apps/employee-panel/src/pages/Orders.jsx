@@ -227,6 +227,8 @@ function Orders() {
   const [totalOrders, setTotalOrders] = useState(0);
   const perPage = 20;
 
+  const abortControllerRef = useRef(null);
+
   // Debounce search input by 400ms
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -239,22 +241,31 @@ function Orders() {
   }, [searchQuery]);
 
   const fetchOrderList = async (isBackground = false) => {
+    let controller = null;
+    if (!isBackground) {
+      abortControllerRef.current?.abort();
+      controller = new AbortController();
+      abortControllerRef.current = controller;
+    }
     const requestId = ++requestIdRef.current;
     try {
       if (!isBackground) {
         setLoading(true);
         setError("");
       }
-      const res = await getOrders({
-        status: activeTab !== "all" ? activeTab : undefined,
-        search: debouncedSearch || undefined,
-        location: locationFilter !== "all" ? locationFilter : undefined,
-        date_filter: dateFilter !== "all" ? dateFilter : undefined,
-        date_from: dateFilter === "custom" ? customDateRange.start || undefined : undefined,
-        date_to: dateFilter === "custom" ? customDateRange.end || undefined : undefined,
-        page,
-        per_page: perPage,
-      });
+      const res = await getOrders(
+        {
+          status: activeTab !== "all" ? activeTab : undefined,
+          search: debouncedSearch || undefined,
+          location: locationFilter !== "all" ? locationFilter : undefined,
+          date_filter: dateFilter !== "all" ? dateFilter : undefined,
+          date_from: dateFilter === "custom" ? customDateRange.start || undefined : undefined,
+          date_to: dateFilter === "custom" ? customDateRange.end || undefined : undefined,
+          page,
+          per_page: perPage,
+        },
+        controller ? { signal: controller.signal } : {}
+      );
       if (res.success) {
         if (requestId !== requestIdRef.current) return;
         const incomingOrders = res.orders || [];
@@ -274,12 +285,21 @@ function Orders() {
         if (!isBackground) setError("");
       }
     } catch (err) {
+      if (
+        controller?.signal?.aborted ||
+        err.name === "CanceledError" ||
+        err.code === "ERR_CANCELED" ||
+        err.message?.toLowerCase().includes("canceled") ||
+        err.message?.toLowerCase().includes("aborted")
+      ) {
+        return;
+      }
       if (requestId !== requestIdRef.current) return;
       if (!isBackground) {
         setError(err.response?.data?.message || err.message || "Failed to load orders from server.");
       }
     } finally {
-      if (requestId === requestIdRef.current && !isBackground) {
+      if (requestId === requestIdRef.current && !controller?.signal?.aborted && !isBackground) {
         setLoading(false);
       }
     }
@@ -371,6 +391,7 @@ function Orders() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      abortControllerRef.current?.abort();
       if (eventSource) {
         eventSource.close();
         eventSource = null;

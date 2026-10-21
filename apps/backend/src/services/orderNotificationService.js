@@ -1,6 +1,7 @@
 import EventEmitter from "events";
 import { getRedisClient, getRedisSubscriber, isRedisActive, isRedisSubscriberActive } from "../config/redis.js";
 import { logger } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 export const ORDER_EVENTS_CHANNEL = "orders:events";
 
@@ -55,6 +56,9 @@ export const initRedisOrderSubscriber = () => {
  */
 export const broadcastToEmployeeClients = (payload) => {
   if (!payload || !payload.event || !payload.orderId) return;
+
+  serverCache.invalidatePrefix("employee:orders_scan");
+  serverCache.invalidatePrefix("employee:overview");
 
   const dataString = `event: order_event\ndata: ${JSON.stringify(payload)}\n\n`;
 

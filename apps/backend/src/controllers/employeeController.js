@@ -299,15 +299,16 @@ export const getEmployeeOrders = async (req, res) => {
       totalOrders = Number(directResponse.headers?.["x-wp-total"]) || batch.length;
       totalPages = Number(directResponse.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
       orders = batch;
-    } else if (isCustomStatus && !hasCustomLocation && !cleanSearch) {
-      // Ask WooCommerce to filter by _delivery_status and paginate in its own
-      // database query, so older matching orders are not hidden by a scan cap.
+    } else if (isCustomStatus && !hasCustomLocation) {
+      // Ask WooCommerce HPOS to filter by status/delivery_status/search and paginate
+      // in its own database query without scanning REST pages.
       try {
         const response = await wp.get("/wp-json/mumbai-auth/v1/employee/orders", {
           params: {
             status,
             page: pageNum,
             per_page: limit,
+            ...(cleanSearch ? { search: cleanSearch } : {}),
             ...(queryParams.after ? { after: queryParams.after } : {}),
             ...(queryParams.before ? { before: queryParams.before } : {}),
           },
@@ -326,18 +327,35 @@ export const getEmployeeOrders = async (req, res) => {
       }
     }
 
-    if (isCustomStatusFallback || hasCustomLocation || (isCustomStatus && cleanSearch)) {
-      // Location and phone/name search use the existing exact matcher. Walk the
-      // narrowed WooCommerce result set fully so these filtered totals stay correct.
-      const allOrders = [];
-      let currentPage = 1;
-      while (true) {
-        const response = await api.get("orders", { ...queryParams, page: currentPage });
-        const batch = Array.isArray(response.data) ? response.data : [];
-        allOrders.push(...batch);
-        const totalPagesHeader = Number(response.headers?.["x-wp-totalpages"]);
-        if (batch.length === 0 || (totalPagesHeader > 0 && currentPage >= totalPagesHeader) || (totalPagesHeader <= 0 && batch.length < queryParams.per_page)) break;
-        currentPage += 1;
+    if (isCustomStatusFallback || hasCustomLocation) {
+      // Location and fallback search walk recent WooCommerce orders.
+      // We cap the scan at MAX_SCAN_PAGES to prevent unbounded WooCommerce load
+      // and cache the scanned set briefly (30s) so pagination and location toggles
+      // don't repeatedly hammer WooCommerce.
+      const scanCacheKey = `employee:orders_scan:${queryParams.status || "all"}:${queryParams.after || ""}:${queryParams.before || ""}:${cleanSearch || ""}`;
+      let allOrders = serverCache.get(scanCacheKey);
+
+      if (!allOrders) {
+        allOrders = [];
+        let currentPage = 1;
+        const MAX_SCAN_PAGES = 5; // Scan up to 500 recent orders maximum
+
+        while (currentPage <= MAX_SCAN_PAGES) {
+          const response = await api.get("orders", { ...queryParams, page: currentPage });
+          const batch = Array.isArray(response.data) ? response.data : [];
+          allOrders.push(...batch);
+          const totalPagesHeader = Number(response.headers?.["x-wp-totalpages"]);
+          if (
+            batch.length === 0 ||
+            (totalPagesHeader > 0 && currentPage >= totalPagesHeader) ||
+            (totalPagesHeader <= 0 && batch.length < queryParams.per_page)
+          ) {
+            break;
+          }
+          currentPage += 1;
+        }
+
+        serverCache.set(scanCacheKey, allOrders, 30000);
       }
 
       const paginated = filterAndPaginateEmployeeOrders(allOrders, {
@@ -505,6 +523,7 @@ export const updateOrderStatus = async (req, res) => {
 
     // Invalidate cached overview/analytics/customers immediately upon status transition
     serverCache.invalidatePrefix("employee:overview");
+    serverCache.invalidatePrefix("employee:orders_scan");
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
     await invalidateOrderDetailCache(id);

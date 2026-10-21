@@ -42,10 +42,15 @@ function Dashboard() {
   const isFetchingRef = useRef(false);
   const pollTimerRef = useRef(null);
   const prevToPackCountRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Authenticated Overview Fetcher
   const fetchOverview = async (isBackground = false) => {
     if (isFetchingRef.current) return;
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       isFetchingRef.current = true;
@@ -53,7 +58,7 @@ function Dashboard() {
         setLoading(true);
         setError(null);
       }
-      const res = await getOverview();
+      const res = await getOverview({ signal: controller.signal });
       if (res && res.success) {
         const payload = res.data || res;
         const currentToPack = payload.summary?.ordersToPack ?? payload.ordersToPack;
@@ -71,12 +76,15 @@ function Dashboard() {
         setError(res?.message || "Failed to load operations dashboard.");
       }
     } catch (err) {
+      if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+        return;
+      }
       if (!isBackground) {
         setError(err.response?.data?.message || err.message || "Network error loading operations dashboard.");
       }
     } finally {
       isFetchingRef.current = false;
-      if (!isBackground) {
+      if (!isBackground && !controller.signal.aborted) {
         setLoading(false);
       }
     }
@@ -118,6 +126,7 @@ function Dashboard() {
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      abortControllerRef.current?.abort();
     };
   }, []);
 

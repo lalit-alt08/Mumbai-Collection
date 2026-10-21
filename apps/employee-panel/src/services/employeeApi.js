@@ -45,14 +45,14 @@ api.interceptors.response.use(
 );
 
 // Overview / Operational Dashboard
-export const getOverview = async () => {
-  const res = await api.get("/overview");
+export const getOverview = async (config = {}) => {
+  const res = await api.get("/overview", config);
   return res.data;
 };
 
 // Orders Management
-export const getOrders = async (params = {}) => {
-  const res = await api.get("/orders", { params });
+export const getOrders = async (params = {}, config = {}) => {
+  const res = await api.get("/orders", { ...config, params });
   return res.data;
 };
 
@@ -74,7 +74,7 @@ export const getEmployeeOrders = getOrders;
 export const updateEmployeeOrderStatus = updateOrderStatus;
 
 // Inventory & Products Management
-export const getProducts = async (params = {}) => {
+export const getProducts = async (params = {}, config = {}) => {
   const cleanParams = {};
 
   if (params.page !== undefined && params.page !== null) {
@@ -109,7 +109,7 @@ export const getProducts = async (params = {}) => {
     }
   }
 
-  const res = await api.get("/products", { params: cleanParams });
+  const res = await api.get("/products", { ...config, params: cleanParams });
   return res.data;
 };
 
@@ -153,8 +153,8 @@ export const deleteMedia = async (mediaId) => {
   return res.data;
 };
 
-export const getCategories = async () => {
-  const res = await api.get("/categories");
+export const getCategories = async (config = {}) => {
+  const res = await api.get("/categories", config);
   return res.data;
 };
 
@@ -185,8 +185,8 @@ export const reorderCategories = async (categoryIds, headers = {}) => {
   return res.data;
 };
 
-export const getBanners = async () => {
-  const res = await api.get("/banners");
+export const getBanners = async (config = {}) => {
+  const res = await api.get("/banners", config);
   return res.data;
 };
 

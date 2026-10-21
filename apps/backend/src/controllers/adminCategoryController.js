@@ -10,6 +10,14 @@ import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
  */
 export const getAdminCategories = async (req, res) => {
   try {
+    const cached = serverCache.get("admin:categories");
+    if (cached) {
+      return res.json({
+        success: true,
+        categories: transformMediaUrls(cached, req),
+      });
+    }
+
     const response = await api.get("products/categories", {
       per_page: 100,
       hide_empty: false,
@@ -41,6 +49,8 @@ export const getAdminCategories = async (req, res) => {
           }
         : null,
     }));
+
+    serverCache.set("admin:categories", formattedCategories, 300000);
 
     res.json({
       success: true,
@@ -114,6 +124,7 @@ export const createCategory = async (req, res) => {
 
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("admin:categories");
 
     logAuditEvent({
       req,
@@ -226,6 +237,7 @@ export const updateCategory = async (req, res) => {
 
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("admin:categories");
 
     logAuditEvent({
       req,
@@ -372,6 +384,7 @@ export const reorderCategories = async (req, res) => {
 
     // Invalidate catalog cache so public categories immediately reflect new merchandising order
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("admin:categories");
 
     logAuditEvent({
       req,

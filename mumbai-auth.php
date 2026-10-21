@@ -605,6 +605,7 @@ add_action('rest_api_init', function () {
             'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
             'after'    => ['sanitize_callback' => 'sanitize_text_field'],
             'before'   => ['sanitize_callback' => 'sanitize_text_field'],
+            'search'   => ['sanitize_callback' => 'sanitize_text_field'],
         ],
     ]);
 
@@ -4754,6 +4755,11 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
     }
     if (!empty($date_query)) {
         $args['date_query'] = array_merge(['relation' => 'AND'], $date_query);
+    }
+
+    $search = sanitize_text_field((string) $request->get_param('search'));
+    if ($search !== '') {
+        $args['s'] = $search;
     }
 
     try {

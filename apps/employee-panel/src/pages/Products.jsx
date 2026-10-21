@@ -299,18 +299,26 @@ function Products() {
     };
   }, [isCategoryDropdownOpen]);
 
+  const abortControllerRef = useRef(null);
+
   const fetchProductList = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const currentRequestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError("");
-      const res = await getProducts({
-        page,
-        per_page: perPage,
-        search: debouncedSearch || undefined,
-        stock_status: stockFilter !== "all" ? stockFilter : undefined,
-        category: categoryFilter !== "all" ? categoryFilter : undefined,
-      });
+      const res = await getProducts(
+        {
+          page,
+          per_page: perPage,
+          search: debouncedSearch || undefined,
+          stock_status: stockFilter !== "all" ? stockFilter : undefined,
+          category: categoryFilter !== "all" ? categoryFilter : undefined,
+        },
+        { signal: controller.signal }
+      );
 
       // Ignore responses from outdated / superseded requests
       if (currentRequestId !== requestIdRef.current) {
@@ -326,12 +334,15 @@ function Products() {
         setTotalPages(res.totalPages !== undefined ? res.totalPages : (Math.ceil((res.total || 1) / perPage) || 1));
       }
     } catch (err) {
+      if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+        return;
+      }
       if (currentRequestId !== requestIdRef.current) {
         return;
       }
       setError(err.response?.data?.message || err.message || "Failed to load catalog products.");
     } finally {
-      if (currentRequestId === requestIdRef.current) {
+      if (currentRequestId === requestIdRef.current && !controller.signal.aborted) {
         setLoading(false);
       }
     }
@@ -339,6 +350,9 @@ function Products() {
 
   useEffect(() => {
     fetchProductList();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [page, perPage, debouncedSearch, stockFilter, categoryFilter]);
 
   const handleCopySku = (product, e) => {
