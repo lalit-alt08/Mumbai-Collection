@@ -35,13 +35,18 @@ function Category() {
   }, [categoryName]);
 
   useEffect(() => {
+    const controller = new AbortController();
     let isMounted = true;
     const loadInitialProducts = async () => {
       try {
         setLoading(true);
         setPage(1);
-        const data = await getProductsByCategory(categoryId, { page: 1, per_page: PER_PAGE });
-        if (isMounted) {
+        const data = await getProductsByCategory(
+          categoryId,
+          { page: 1, per_page: PER_PAGE },
+          { signal: controller.signal }
+        );
+        if (isMounted && !controller.signal.aborted) {
           const prods = Array.isArray(data)
             ? data
             : Array.isArray(data?.products)
@@ -68,16 +73,18 @@ function Category() {
             }
           }
         }
-      } catch {
+      } catch (err) {
+        if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         // Handled by loading state
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted && !controller.signal.aborted) setLoading(false);
       }
     };
 
     loadInitialProducts();
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [categoryId]);
 

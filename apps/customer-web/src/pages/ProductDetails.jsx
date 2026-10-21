@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getProductById } from "../services/productService";
 import { recordRecentlyViewedProduct } from "../utils/recentlyViewedProducts.js";
@@ -17,20 +17,38 @@ function ProductDetails() {
   const [loading, setLoading] = useState(true);
   useLiveProductStock(product, setProduct);
 
+  const abortControllerRef = useRef(null);
+  const activeIdRef = useRef(id);
+  activeIdRef.current = id;
+
   useEffect(() => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const currentId = id;
+
     const loadProduct = async () => {
       setLoading(true);
       try {
-        const data = await getProductById(id);
+        const data = await getProductById(currentId, { signal: controller.signal });
+        if (controller.signal.aborted || activeIdRef.current !== currentId) return;
         setProduct(data);
-      } catch {
+      } catch (err) {
+        if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
+        if (activeIdRef.current !== currentId) return;
         setProduct(null);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted && activeIdRef.current === currentId) {
+          setLoading(false);
+        }
       }
     };
 
     loadProduct();
+
+    return () => {
+      controller.abort();
+    };
   }, [id]);
 
   useEffect(() => {

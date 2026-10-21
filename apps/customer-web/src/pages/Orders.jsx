@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -45,8 +45,17 @@ function Orders() {
 
   const hasMore = page < totalPages;
   const userEmail = user?.email || "";
+  const abortControllerRef = useRef(null);
 
   const fetchOrders = async (targetPage = 1, isLoadMore = false) => {
+    let controller = null;
+    if (!isLoadMore) {
+      abortControllerRef.current?.abort();
+      controller = new AbortController();
+      abortControllerRef.current = controller;
+    }
+    const currentSignal = isLoadMore ? undefined : controller?.signal;
+
     try {
       if (isLoadMore) {
         setLoadingMore(true);
@@ -55,7 +64,14 @@ function Orders() {
         setError("");
       }
 
-      const data = await getMyOrders({ page: targetPage, per_page: 10, email: userEmail });
+      const data = await getMyOrders({
+        page: targetPage,
+        per_page: 10,
+        email: userEmail,
+        signal: currentSignal,
+      });
+
+      if (controller?.signal?.aborted) return;
 
       if (data.success && Array.isArray(data.orders)) {
         if (isLoadMore) {
@@ -82,10 +98,12 @@ function Orders() {
         }
       }
     } catch (err) {
+      if (controller?.signal?.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
       if (!isLoadMore) {
         setError("Unable to load your orders right now. Please try again.");
       }
     } finally {
+      if (controller?.signal?.aborted) return;
       if (isLoadMore) {
         setLoadingMore(false);
       } else {
@@ -96,6 +114,9 @@ function Orders() {
 
   useEffect(() => {
     fetchOrders(1, false);
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [userEmail]);
 
   useEffect(() => {

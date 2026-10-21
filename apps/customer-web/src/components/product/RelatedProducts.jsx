@@ -23,6 +23,7 @@ function RelatedProducts({ product }) {
     .join(",");
 
   useEffect(() => {
+    const controller = new AbortController();
     let isMounted = true;
     setProducts([]);
 
@@ -32,12 +33,13 @@ function RelatedProducts({ product }) {
       try {
         const curatedIds = configuredIdsKey ? configuredIdsKey.split(",").map(Number) : [];
         if (curatedIds.length > 0) {
-          const curatedProducts = await getProductsByIds(curatedIds);
+          const curatedProducts = await getProductsByIds(curatedIds, { signal: controller.signal });
+          if (controller.signal.aborted || !isMounted) return;
           const productById = new Map(curatedProducts.map((item) => [Number(item.id), item]));
           const orderedCurated = curatedIds
             .map((id) => productById.get(id))
             .filter((item) => item && !getProductStock(item).isOutOfStock);
-          if (isMounted && orderedCurated.length > 0) {
+          if (isMounted && !controller.signal.aborted && orderedCurated.length > 0) {
             setProducts(orderedCurated.slice(0, 6));
             return;
           }
@@ -46,14 +48,16 @@ function RelatedProducts({ product }) {
         if (!primaryCategoryId) return;
         const data = await getRelatedProducts(
           primaryCategoryId,
-          productId
+          productId,
+          { signal: controller.signal }
         );
-        if (isMounted) {
+        if (isMounted && !controller.signal.aborted) {
           const inStock = (Array.isArray(data) ? data : [])
             .filter((item) => !getProductStock(item).isOutOfStock);
           setProducts(inStock.slice(0, 6));
         }
-      } catch {
+      } catch (err) {
+        if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         if (isMounted) setProducts([]);
       }
     };
@@ -61,6 +65,7 @@ function RelatedProducts({ product }) {
     loadRelatedProducts();
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [productId, primaryCategoryId, configuredIdsKey]);
 

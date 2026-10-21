@@ -10,11 +10,11 @@ const API = axios.create({
 
 attachStaleConnectionRetry(API);
 
-export const getMyOrders = async ({ page = 1, per_page = 10, email } = {}) => {
+export const getMyOrders = async ({ page = 1, per_page = 10, email, signal } = {}) => {
   const params = { page, per_page };
   if (email) params.email = email;
 
-  const response = await API.get("", { params });
+  const response = await API.get("", { params, signal });
   return response.data;
 };
 

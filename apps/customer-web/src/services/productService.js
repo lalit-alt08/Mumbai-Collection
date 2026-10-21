@@ -8,24 +8,26 @@ const catalogClient = axios.create({
 });
 attachStaleConnectionRetry(catalogClient);
 
-export const getProducts = async (params = {}) => {
-  const response = await catalogClient.get("/products", { params });
+export const getProducts = async (params = {}, options = {}) => {
+  const response = await catalogClient.get("/products", { ...options, params });
   return response.data;
 };
 
-export const getProductById = async (id, { refresh = false } = {}) => {
+export const getProductById = async (id, { refresh = false, signal } = {}) => {
   const response = await catalogClient.get(`/products/${id}`, {
     params: refresh ? { refresh: "1" } : undefined,
+    signal,
   });
   return response.data;
 };
 
-export const getProductsByIds = async (ids = [], { freshStock = false } = {}) => {
+export const getProductsByIds = async (ids = [], { freshStock = false, signal } = {}) => {
   const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 12);
   if (productIds.length === 0) return [];
 
   const response = await catalogClient.get("/products/by-ids", {
     params: { ids: productIds.join(","), ...(freshStock ? { fresh: "1" } : {}) },
+    signal,
   });
   return Array.isArray(response.data) ? response.data : [];
 };
@@ -45,11 +47,13 @@ export const getLiveProductStockByIds = async (ids = []) => {
 
 export const getRelatedProducts = async (
   categoryId,
-  currentProductId
+  currentProductId,
+  options = {}
 ) => {
   const response = await catalogClient.get(
     "/products/related",
     {
+      ...options,
       params: {
         categoryId,
         currentProductId,
@@ -71,21 +75,21 @@ export const searchProducts = async (query, options = {}) => {
   return response.data;
 };
 
-export const getProductsByCategory = async (categoryId, params = {}) => {
+export const getProductsByCategory = async (categoryId, params = {}, options = {}) => {
   const response = await catalogClient.get(
     `/products/category/${categoryId}`,
-    { params }
+    { ...options, params }
   );
 
   return response.data;
 };
 
-export const getCategories = async () => {
-  const response = await catalogClient.get("/products/categories");
+export const getCategories = async (options = {}) => {
+  const response = await catalogClient.get("/products/categories", options);
   return response.data;
 };
 
-export const getBanners = async () => {
-  const response = await catalogClient.get("/banners");
+export const getBanners = async (options = {}) => {
+  const response = await catalogClient.get("/banners", options);
   return response.data;
 };
