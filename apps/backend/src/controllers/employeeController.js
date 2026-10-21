@@ -240,7 +240,7 @@ export const getEmployeeOrders = async (req, res) => {
       per_page: 100,
       orderby: "date",
       order: "desc",
-      _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+      _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
     };
 
     // Server-side date boundary filtering across Asia/Kolkata store timezone
@@ -408,6 +408,11 @@ export const getEmployeeOrders = async (req, res) => {
         total: o.total,
         shipping_total: o.shipping_total || "0.00",
         discount_total: o.discount_total || "0.00",
+        total_tax: o.total_tax || "0.00",
+        fee_total: Array.isArray(o.fee_lines)
+          ? o.fee_lines.reduce((sum, f) => sum + (Number(f.total) || 0), 0).toFixed(2)
+          : "0.00",
+        customer_note: o.customer_note || "",
         payment_method: o.payment_method_title || "Cash on Delivery",
         customer_name: formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, "Guest Customer"),
         phone: o.billing?.phone || o.shipping?.phone || "",
@@ -713,7 +718,7 @@ export const getEmployeeOverview = async (req, res) => {
         per_page: 100,
         orderby: "date",
         order: "desc",
-        _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+        _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
       }).catch(() => ({ data: [] })),
 
       // Exact count of all orders received today in store timezone (Asia/Kolkata)
@@ -740,7 +745,7 @@ export const getEmployeeOverview = async (req, res) => {
         per_page: 10,
         orderby: "date",
         order: "desc",
-        _fields: "id,number,status,total,date_created,billing,shipping,line_items,payment_method,payment_method_title",
+        _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
       }).catch(() => ({ data: [] })),
 
       // Accurate live stock counts (cached for 60s)

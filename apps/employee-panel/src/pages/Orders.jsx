@@ -66,7 +66,7 @@ const DATE_FILTERS = [
   { id: "today", label: "Today" },
   { id: "yesterday", label: "Yesterday" },
   { id: "7days", label: "Last 7 Days" },
-  { id: "custom", label: "Custom 📅" },
+  { id: "custom", label: "Custom Range..." },
 ];
 
 /**
@@ -172,6 +172,8 @@ function Orders() {
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
   const dateDropdownRef = useRef(null);
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  const locationDropdownRef = useRef(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -210,16 +212,32 @@ function Orders() {
       if (dateDropdownRef.current && !dateDropdownRef.current.contains(event.target)) {
         setIsDateDropdownOpen(false);
       }
+      if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target)) {
+        setIsLocationDropdownOpen(false);
+      }
     };
-    if (isStatusDropdownOpen || isDateDropdownOpen) {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (isStatusDropdownOpen) {
+          setIsStatusDropdownOpen(false);
+        } else if (selectedOrder) {
+          setSelectedOrder(null);
+        }
+        setIsDateDropdownOpen(false);
+        setIsLocationDropdownOpen(false);
+      }
+    };
+    if (isStatusDropdownOpen || isDateDropdownOpen || isLocationDropdownOpen || selectedOrder) {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("touchstart", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isStatusDropdownOpen, isDateDropdownOpen]);
+  }, [isStatusDropdownOpen, isDateDropdownOpen, isLocationDropdownOpen, selectedOrder]);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -988,55 +1006,117 @@ function Orders() {
           {/* Filters (Desktop): Location + Date */}
           <div className="flex items-center gap-2 shrink-0">
             {/* Location Selector Dropdown (Desktop) */}
-            <div className="relative">
-              <select
-                value={locationFilter}
-                onChange={(e) => {
-                  setLocationFilter(e.target.value);
-                  setPage(1);
+            <div className="relative" ref={locationDropdownRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLocationDropdownOpen((open) => !open);
+                  setIsDateDropdownOpen(false);
                 }}
-                className={`appearance-none rounded-xl border py-1.5 pl-7 pr-7 text-xs font-bold outline-none transition cursor-pointer ${
+                aria-haspopup="listbox"
+                aria-expanded={isLocationDropdownOpen}
+                aria-label={`Delivery location: ${LOCATION_OPTIONS.find((loc) => loc.id === locationFilter)?.label || "All Locations"}`}
+                className={`inline-flex min-w-[158px] items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold outline-none transition cursor-pointer shadow-2xs ${
                   locationFilter !== "all"
-                    ? "border-purple-300 bg-purple-50 text-purple-700 font-extrabold shadow-2xs"
-                    : "border-gray-200 bg-gray-50/80 text-gray-800 hover:bg-gray-100 focus:border-purple-500"
-                }`}
+                    ? "border-purple-300 bg-purple-50 text-purple-800"
+                    : "border-gray-200 bg-gray-50/80 text-gray-800 hover:bg-gray-100"
+                } ${isLocationDropdownOpen ? "ring-2 ring-purple-500/15 border-purple-400" : ""}`}
               >
-                {LOCATION_OPTIONS.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.label}
-                  </option>
-                ))}
-              </select>
-              <MapPin
-                size={12}
-                className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${
-                  locationFilter !== "all" ? "text-purple-600" : "text-gray-400"
-                }`}
-              />
-              <ChevronDown
-                size={13}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
+                <span className="flex min-w-0 items-center gap-2">
+                  <MapPin size={14} className={locationFilter !== "all" ? "text-purple-600" : "text-gray-400"} />
+                  <span className="truncate">{LOCATION_OPTIONS.find((loc) => loc.id === locationFilter)?.label || "All Locations"}</span>
+                </span>
+                <ChevronDown size={14} className={`shrink-0 text-gray-400 transition-transform ${isLocationDropdownOpen ? "rotate-180 text-purple-600" : ""}`} />
+              </button>
+              {isLocationDropdownOpen && (
+                <div
+                  role="listbox"
+                  aria-label="Delivery location"
+                  className="absolute right-0 top-full z-50 mt-1.5 max-h-72 w-56 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-xl animate-in fade-in zoom-in-95 duration-100"
+                >
+                  {LOCATION_OPTIONS.map((loc) => {
+                    const selected = locationFilter === loc.id;
+                    return (
+                      <button
+                        key={loc.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => {
+                          setLocationFilter(loc.id);
+                          setPage(1);
+                          setIsLocationDropdownOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-xs transition cursor-pointer ${
+                          selected ? "bg-purple-50 font-extrabold text-purple-900" : "text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${loc.dot}`} />
+                          <span className="truncate">{loc.label}</span>
+                        </span>
+                        {selected && <Check size={14} className="shrink-0 text-purple-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Date Selector Dropdown (Desktop) */}
-            <div className="relative">
-              <select
-                value={dateFilter}
-                onChange={(e) => handleDateFilterSelect(e.target.value)}
-                className="appearance-none rounded-xl border border-gray-200 bg-gray-50/80 py-1.5 pl-8 pr-7 text-xs font-bold text-gray-800 outline-none hover:bg-gray-100 focus:border-emerald-500 transition cursor-pointer"
+            <div className="relative" ref={dateDropdownRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDateDropdownOpen((open) => !open);
+                  setIsLocationDropdownOpen(false);
+                }}
+                aria-haspopup="listbox"
+                aria-expanded={isDateDropdownOpen}
+                aria-label={`Date filter: ${getActiveDateLabel()}`}
+                className={`inline-flex min-w-[174px] items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold text-gray-800 outline-none transition cursor-pointer shadow-2xs ${
+                  isDateDropdownOpen ? "border-emerald-400 ring-2 ring-emerald-500/15" : "border-gray-200 bg-gray-50/80 hover:bg-gray-100"
+                }`}
               >
-                <option value="today">Today ({formatDateLabel(todayDateString)})</option>
-                <option value="yesterday">Yesterday ({formatDateLabel(yesterdayDateString)})</option>
-                <option value="7days">Last 7 Days</option>
-                <option value="custom">
-                  {customDateRange.start && customDateRange.end
-                    ? `Custom: ${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`
-                    : "Custom Range..."}
-                </option>
-              </select>
-              <Calendar size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-600 pointer-events-none" />
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <span className="flex min-w-0 items-center gap-2">
+                  <Calendar size={14} className="shrink-0 text-emerald-600" />
+                  <span className="truncate">{getActiveDateLabel()}</span>
+                </span>
+                <ChevronDown size={14} className={`shrink-0 text-gray-400 transition-transform ${isDateDropdownOpen ? "rotate-180 text-emerald-600" : ""}`} />
+              </button>
+              {isDateDropdownOpen && (
+                <div
+                  role="listbox"
+                  aria-label="Date filter"
+                  className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white p-1 shadow-xl animate-in fade-in zoom-in-95 duration-100"
+                >
+                  {DATE_FILTERS.map((filter) => {
+                    const selected = dateFilter === filter.id;
+                    const label = filter.id === "today"
+                      ? `Today (${formatDateLabel(todayDateString)})`
+                      : filter.id === "yesterday"
+                      ? `Yesterday (${formatDateLabel(yesterdayDateString)})`
+                      : filter.id === "custom" && customDateRange.start && customDateRange.end
+                      ? `Custom: ${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`
+                      : filter.label;
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => handleDateFilterSelect(filter.id)}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-xs transition cursor-pointer ${
+                          selected ? "bg-emerald-50 font-extrabold text-emerald-900" : "text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <span className="truncate">{label}</span>
+                        {selected && <Check size={14} className="shrink-0 text-emerald-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1566,8 +1646,14 @@ function Orders() {
 
       {/* Order Details Drawer / Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="flex max-h-[92vh] sm:max-h-[95vh] h-full w-full max-w-full sm:max-w-xl flex-col bg-white shadow-2xl rounded-t-[28px] sm:rounded-3xl border border-gray-100 overflow-hidden">
+        <div
+          onClick={() => setSelectedOrder(null)}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex max-h-[92vh] sm:max-h-[95vh] h-full w-full max-w-full sm:max-w-xl flex-col bg-white shadow-2xl rounded-t-[28px] sm:rounded-3xl border border-gray-100 overflow-hidden"
+          >
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-gray-100 p-4 sm:p-6 shrink-0 bg-white">
               <div className="min-w-0 flex-1 pr-3">
@@ -1808,25 +1894,88 @@ function Orders() {
                 </div>
               </div>
 
+              {/* Customer Delivery Instructions (if provided) */}
+              {Boolean(selectedOrder.customer_note && String(selectedOrder.customer_note).trim()) && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/75 p-3.5 sm:p-4 space-y-1.5 shadow-2xs">
+                  <h4 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                    <Receipt size={14} className="text-amber-600 shrink-0" />
+                    <span>Customer Delivery Instructions</span>
+                  </h4>
+                  <p className="text-xs text-amber-950 font-medium whitespace-pre-wrap leading-relaxed">
+                    "{String(selectedOrder.customer_note).trim()}"
+                  </p>
+                </div>
+              )}
+
               {/* Order Financials */}
-              <div className="rounded-2xl border border-gray-200 bg-gray-50/75 p-4 space-y-2 text-xs">
-                <div className="flex justify-between text-gray-600">
-                  <span>Payment Method:</span>
-                  <span className="font-bold text-gray-900 uppercase">
-                    {selectedOrder.payment_method_title || selectedOrder.payment_method || "COD"}
-                  </span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>Shipping:</span>
-                  <span className="font-bold text-gray-900">
-                    ₹{selectedOrder.shipping_total || "0.00"}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-black text-gray-900">
-                  <span>Total Amount:</span>
-                  <span className="text-emerald-600">₹{selectedOrder.total || 0}</span>
-                </div>
-              </div>
+              {(() => {
+                const itemsSubtotal = (selectedOrder.items || []).reduce(
+                  (sum, item) => sum + (Number(item.total) || 0),
+                  0
+                );
+                const discountTotal = Number(selectedOrder.discount_total) || 0;
+                const shippingTotal = Number(selectedOrder.shipping_total) || 0;
+                const taxTotal = Number(selectedOrder.total_tax) || 0;
+                const feeTotal = Number(selectedOrder.fee_total) || 0;
+                const orderTotal = Number(selectedOrder.total) || 0;
+                const calculatedSubtotal =
+                  itemsSubtotal > 0
+                    ? itemsSubtotal
+                    : Math.max(0, orderTotal - shippingTotal - taxTotal - feeTotal + discountTotal);
+
+                return (
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50/75 p-4 space-y-2 text-xs">
+                    <div className="flex justify-between text-gray-600">
+                      <span>Payment Method:</span>
+                      <span className="font-bold text-gray-900 uppercase">
+                        {selectedOrder.payment_method_title || selectedOrder.payment_method || "COD"}
+                      </span>
+                    </div>
+
+                    <div className="border-t border-gray-200/60 my-1" />
+
+                    <div className="flex justify-between text-gray-600">
+                      <span>Items Subtotal:</span>
+                      <span className="font-semibold text-gray-900">
+                        ₹{calculatedSubtotal.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {discountTotal > 0 && (
+                      <div className="flex justify-between text-emerald-700 font-semibold">
+                        <span>Discount / Coupon:</span>
+                        <span>-₹{discountTotal.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between text-gray-600">
+                      <span>Delivery / Shipping:</span>
+                      <span className="font-semibold text-gray-900">
+                        {shippingTotal > 0 ? `₹${shippingTotal.toFixed(2)}` : "Free Delivery"}
+                      </span>
+                    </div>
+
+                    {taxTotal > 0 && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>Taxes:</span>
+                        <span className="font-semibold text-gray-900">₹{taxTotal.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {feeTotal > 0 && (
+                      <div className="flex justify-between text-gray-600">
+                        <span>Additional Fees:</span>
+                        <span className="font-semibold text-gray-900">₹{feeTotal.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-black text-gray-900">
+                      <span>Total Amount:</span>
+                      <span className="text-emerald-600">₹{selectedOrder.total || "0.00"}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Footer Quick Dispatch */}

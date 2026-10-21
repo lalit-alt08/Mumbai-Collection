@@ -4829,7 +4829,7 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
                     'id', 'number', 'status', 'total', 'date_created', 'date_created_gmt',
                     'date_completed', 'date_completed_gmt', 'customer_id', 'billing', 'shipping',
                     'line_items', 'meta_data', 'payment_method', 'payment_method_title',
-                    'shipping_total', 'discount_total',
+                    'shipping_total', 'discount_total', 'total_tax', 'customer_note', 'fee_lines',
                 ]));
             }
         }
