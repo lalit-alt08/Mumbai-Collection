@@ -440,13 +440,13 @@ function Addresses() {
           <div
             className={`mb-6 flex items-center justify-between gap-3 rounded-2xl p-4 text-sm font-semibold animate-[slideUp_0.2s_ease-out] ${
               feedback.type === "success"
-                ? "bg-[#132B45] text-[#67E8F9] border border-[#1E3252]"
+                ? "bg-[#132B45] text-emerald-300 border border-emerald-500"
                 : "bg-rose-950/40 text-rose-300 border border-rose-900/60"
             }`}
           >
             <div className="flex items-center gap-2.5">
               {feedback.type === "success" ? (
-                <CheckCircle2 size={18} className="shrink-0 text-[#42D6E8]" />
+                <CheckCircle2 size={18} className="shrink-0 text-emerald-400" />
               ) : (
                 <AlertCircle size={18} className="shrink-0 text-rose-400" />
               )}

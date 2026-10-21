@@ -504,13 +504,13 @@ function ProfileSetup() {
             className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-xs font-bold shadow-xs border animate-in fade-in duration-200 ${
               message.type === "error"
                 ? "bg-rose-950/40 text-rose-300 border-rose-900/60"
-                : "bg-[#132B45] text-[#67E8F9] border-[#1E3252]"
+                : "bg-[#132B45] text-emerald-300 border-emerald-500"
             }`}
           >
             {message.type === "error" ? (
               <AlertCircle size={16} className="shrink-0 text-rose-400" />
             ) : (
-              <CheckCircle2 size={16} className="shrink-0 text-[#42D6E8]" />
+              <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
             )}
             <span>{message.text}</span>
           </div>

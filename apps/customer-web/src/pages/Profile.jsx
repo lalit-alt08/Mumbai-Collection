@@ -536,7 +536,7 @@ function Profile() {
 
         {/* SUCCESS */}
         {success && (
-          <div className="mb-4 rounded-xl border border-[#1E3252] bg-[#132B45] p-3 text-xs font-semibold text-[#67E8F9]">
+          <div className="mb-4 rounded-xl border border-emerald-500 bg-[#132B45] p-3 text-xs font-semibold text-emerald-300">
             {success}
           </div>
         )}
