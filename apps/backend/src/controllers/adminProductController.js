@@ -183,10 +183,35 @@ export const getAdminProducts = async (req, res) => {
       stockCountsPromise,
     ]);
 
-    const products = Array.isArray(response.data) ? response.data : [];
+    let products = Array.isArray(response.data) ? response.data : [];
+    let totalProducts = Number(response.headers?.["x-wp-total"]) || products.length;
+    let totalPages = Number(response.headers?.["x-wp-totalpages"]) || Math.ceil(totalProducts / limit) || 1;
 
-    const totalProducts = Number(response.headers?.["x-wp-total"]) || products.length;
-    const totalPages = Number(response.headers?.["x-wp-totalpages"]) || Math.ceil(totalProducts / limit) || 1;
+    // Resilient fallback: If lowstock was requested but returned 0 products while known lowstock items exist
+    // (e.g. unpatched upstream WordPress/WooCommerce plugin query), query instock and extract low stock items.
+    if (cleanStockStatus === "lowstock" && products.length === 0 && (stockCounts?.lowstock || 0) > 0) {
+      try {
+        const fallbackRes = await api.get("products", {
+          ...queryParams,
+          stock_status: "instock",
+          per_page: Math.max(limit, 50),
+          page: 1,
+        });
+        const fallbackItems = Array.isArray(fallbackRes.data)
+          ? fallbackRes.data.filter((p) => {
+              const q = Number(p.stock_quantity);
+              return p.manage_stock && Number.isFinite(q) && q > 0 && q <= 5;
+            })
+          : [];
+        if (fallbackItems.length > 0) {
+          products = fallbackItems.slice((pageNum - 1) * limit, pageNum * limit);
+          totalProducts = fallbackItems.length;
+          totalPages = Math.ceil(totalProducts / limit) || 1;
+        }
+      } catch (fallbackErr) {
+        // Fallback failed silently, preserve original empty list
+      }
+    }
 
     const formatted = products.map((p) => ({
       id: p.id,

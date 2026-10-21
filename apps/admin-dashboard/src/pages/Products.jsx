@@ -32,6 +32,7 @@ function Products() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
+  const [stockCounts, setStockCounts] = useState(null);
 
   // Pagination & Per-Page state (20 / 50 / 100)
   const [page, setPage] = useState(1);
@@ -104,6 +105,9 @@ function Products() {
 
       if (res.success) {
         setProducts(res.products || []);
+        if (res.counts) {
+          setStockCounts(res.counts);
+        }
         setTotalProducts(res.total !== undefined ? res.total : res.products?.length || 0);
         setTotalPages(
           res.totalPages !== undefined
@@ -279,13 +283,24 @@ function Products() {
                 setStockFilter(tab.id);
                 setPage(1);
               }}
-              className={`whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer active:scale-95 ${
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer active:scale-95 ${
                 stockFilter === tab.id
                   ? "bg-[#1E1E1E] text-white shadow-sm font-extrabold"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              {stockCounts?.[tab.id] !== undefined && (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                    stockFilter === tab.id
+                      ? "bg-white/20 text-white"
+                      : "bg-gray-200 text-gray-600"
+                  }`}
+                >
+                  {stockCounts[tab.id]}
+                </span>
+              )}
             </button>
           ))}
         </div>

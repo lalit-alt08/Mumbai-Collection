@@ -3385,6 +3385,12 @@ function mumbai_wc_rest_product_object_query($args, $request) {
     if ($stock_status === 'lowstock') {
         unset($args['stock_status']);
 
+        // Clear stock_status on WP_REST_Request so WC_REST_Products_Controller
+        // does not append '_stock_status = lowstock' to meta_query after this filter returns.
+        if (is_object($request) && method_exists($request, 'set_param')) {
+            $request->set_param('stock_status', null);
+        }
+
         if (!isset($args['meta_query']) || !is_array($args['meta_query'])) {
             $args['meta_query'] = [];
         }
@@ -3415,6 +3421,53 @@ function mumbai_wc_rest_product_object_query($args, $request) {
     }
 
     return $args;
+}
+
+/**
+ * Strips invalid '_stock_status = lowstock' clause if added by WooCommerce core
+ * and enforces low stock meta boundaries on the WP_Query.
+ */
+add_action('pre_get_posts', 'mumbai_strip_lowstock_meta_query', 20, 1);
+function mumbai_strip_lowstock_meta_query($query) {
+    $meta_query = $query->get('meta_query');
+    if (is_array($meta_query)) {
+        $found = false;
+        foreach ($meta_query as $key => $clause) {
+            if (is_array($clause) && isset($clause['key']) && $clause['key'] === '_stock_status' && isset($clause['value']) && $clause['value'] === 'lowstock') {
+                unset($meta_query[$key]);
+                $found = true;
+            }
+        }
+        if ($found) {
+            $has_stock_condition = false;
+            foreach ($meta_query as $clause) {
+                if (is_array($clause) && isset($clause['key']) && $clause['key'] === '_stock') {
+                    $has_stock_condition = true;
+                    break;
+                }
+            }
+            if (!$has_stock_condition) {
+                $meta_query[] = [
+                    'key'     => '_manage_stock',
+                    'value'   => 'yes',
+                    'compare' => '=',
+                ];
+                $meta_query[] = [
+                    'key'     => '_stock',
+                    'value'   => 0,
+                    'type'    => 'NUMERIC',
+                    'compare' => '>',
+                ];
+                $meta_query[] = [
+                    'key'     => '_stock',
+                    'value'   => 5,
+                    'type'    => 'NUMERIC',
+                    'compare' => '<=',
+                ];
+            }
+            $query->set('meta_query', array_values($meta_query));
+        }
+    }
 }
 
 add_filter('posts_search', 'mumbai_extend_product_search_to_sku', 20, 2);
