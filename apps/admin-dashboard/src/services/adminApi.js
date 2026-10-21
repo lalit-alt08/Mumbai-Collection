@@ -40,13 +40,13 @@ api.interceptors.response.use(
   }
 );
 
-export const getOverview = async (params = {}) => {
-  const res = await api.get("/overview", { params });
+export const getOverview = async (params = {}, config = {}) => {
+  const res = await api.get("/overview", { params, ...config });
   return res.data;
 };
 
-export const getProducts = async (params = {}) => {
-  const res = await api.get("/products", { params });
+export const getProducts = async (params = {}, config = {}) => {
+  const res = await api.get("/products", { params, ...config });
   return res.data;
 };
 
@@ -77,23 +77,23 @@ export const uploadProductImage = async (file) => {
   return res.data;
 };
 
-export const getCustomers = async (params = {}) => {
-  const res = await api.get("/customers", { params });
+export const getCustomers = async (params = {}, config = {}) => {
+  const res = await api.get("/customers", { params, ...config });
   return res.data;
 };
 
-export const getCustomerOrders = async (customerId, params = {}) => {
-  const res = await api.get(`/customers/${customerId}/orders`, { params });
+export const getCustomerOrders = async (customerId, params = {}, config = {}) => {
+  const res = await api.get(`/customers/${customerId}/orders`, { params, ...config });
   return res.data;
 };
 
-export const getAnalytics = async (params = {}) => {
-  const res = await api.get("/analytics", { params });
+export const getAnalytics = async (params = {}, config = {}) => {
+  const res = await api.get("/analytics", { params, ...config });
   return res.data;
 };
 
-export const getAnalyticsReport = async (params = {}) => {
-  const res = await api.get("/analytics/report", { params });
+export const getAnalyticsReport = async (params = {}, config = {}) => {
+  const res = await api.get("/analytics/report", { params, ...config });
   return res.data;
 };
 

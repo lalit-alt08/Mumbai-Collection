@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { getProductsByIds, getRelatedProducts } from "../../services/productService";
 import { getProductStock } from "../../utils/productUtils";
 import ProductCard from "./ProductCard";
+import { useLiveProductStock } from "../../hooks/useLiveProductStock";
 
 function RelatedProducts({ product }) {
   const [products, setProducts] = useState([]);
+  useLiveProductStock(products, setProducts);
 
   const productId = product?.id;
   const primaryCategoryId =

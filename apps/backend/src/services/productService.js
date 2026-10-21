@@ -79,6 +79,25 @@ export const fetchProductsByIds = async (rawIds = []) => {
   );
 };
 
+export const fetchProductStockByIds = async (rawIds = []) => {
+  const ids = [...new Set(rawIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 100);
+  if (ids.length === 0) return [];
+
+  const response = await api.get("products", {
+    status: "publish",
+    include: ids.join(","),
+    orderby: "include",
+    per_page: ids.length,
+    _fields: "id,manage_stock,stock_quantity,stock_status,backorders_allowed",
+  });
+
+  if (!Array.isArray(response.data)) {
+    throw new Error("Invalid WooCommerce product stock response");
+  }
+
+  return response.data;
+};
+
 export const fetchRelatedProducts = async (
   categoryId,
   currentProductId

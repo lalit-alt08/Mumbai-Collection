@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { searchProducts } from "../../services/productService";
 import { cleanProductTitle } from "../../utils/productUtils";
+import { useLiveProductStock } from "../../hooks/useLiveProductStock";
 
 function SearchBar() {
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState([]);
+  useLiveProductStock(products, setProducts);
   const [isLoading, setIsLoading] = useState(false);
   const location = useLocation();
   const isHomePage = location.pathname === "/";

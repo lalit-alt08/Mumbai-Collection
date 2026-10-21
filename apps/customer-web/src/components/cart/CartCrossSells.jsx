@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { getProductsByIds } from "../../services/productService";
 import ProductCard from "../product/ProductCard";
+import { useLiveProductStock } from "../../hooks/useLiveProductStock";
 
 function CartCrossSells({ items = [] }) {
   const [products, setProducts] = useState([]);
+  useLiveProductStock(products, setProducts);
   const cartIdsKey = [...new Set(items.map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0))]
     .slice(0, 12)
     .join(",");

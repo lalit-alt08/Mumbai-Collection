@@ -5,6 +5,7 @@ import ProductCard from "../components/product/ProductCard";
 import categories from "../data/category.js";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
 import { reshuffleCategoryProducts } from "../utils/productUtils";
+import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
 const PER_PAGE = 20;
 
@@ -19,6 +20,7 @@ function Category() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [categoryTitle, setCategoryTitle] = useState("");
+  useLiveProductStock(products, setProducts);
 
   const staticCategory = categories.find(
     (c) => String(c.id) === String(categoryId) || c.slug?.toLowerCase() === String(categoryId).toLowerCase()

@@ -900,7 +900,10 @@ export const finalizePaymentAndCreateOrder = async ({
       }
     } catch (_) {}
 
-    // 8. Revalidate Stock for Line Items (Safety Check in parallel)
+    // 8. Renew the durable stock hold before finalization. The successful
+    // reservation is authoritative: WooCommerce's REST stock_quantity includes
+    // this checkout's own hold and can therefore report 0 when the customer
+    // legitimately reserved the last units.
     const lineItems = intent.checkout_payload?.line_items || [];
     let stockValid = true;
 
@@ -927,40 +930,6 @@ export const finalizePaymentAndCreateOrder = async ({
           status: 503,
           message: "Payment was received, but inventory confirmation is temporarily unavailable. We are safely retrying your order.",
         };
-      }
-    }
-
-    if (lineItems.length > 0) {
-      const lineItemProductIds = [...new Set(lineItems.map((item) => Number(item.product_id)).filter(Boolean))];
-      let productsMap = new Map();
-      if (lineItemProductIds.length > 0) {
-        try {
-          const batchRes = await api.get("products", {
-            include: lineItemProductIds.join(","),
-            per_page: Math.min(100, lineItemProductIds.length),
-            _fields: "id,manage_stock,stock_quantity,stock_status,backorders_allowed",
-          });
-          const list = Array.isArray(batchRes?.data) ? batchRes.data : (batchRes?.data ? [batchRes.data] : []);
-          for (const p of list) {
-            if (p && p.id) productsMap.set(Number(p.id), p);
-          }
-        } catch (_) {
-          // Upstream product check network blip should not strand a captured payment
-        }
-      }
-
-      for (const item of lineItems) {
-        const prod = productsMap.get(Number(item.product_id));
-        if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
-          if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
-            logger.error(
-              { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
-              "[Payment Finalize] Stock depleted between checkout initiation and capture"
-            );
-            stockValid = false;
-            break;
-          }
-        }
       }
     }
 

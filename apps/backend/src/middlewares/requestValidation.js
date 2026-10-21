@@ -270,6 +270,9 @@ export const schemas = {
     ids: z.string().trim().min(1).max(131).regex(/^\d+(,\d+){0,11}$/),
     fresh: z.enum(["0", "1"]).optional(),
   }),
+  productStockIds: z.object({
+    ids: z.string().trim().min(1).max(1200).regex(/^\d+(,\d+){0,99}$/),
+  }),
 };
 
 export const validateRequest = ({ body, query, params } = {}) => (req, res, next) => {

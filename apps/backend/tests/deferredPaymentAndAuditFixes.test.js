@@ -603,6 +603,73 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     }
   });
 
+  await t.test("6.3. a paid checkout that reserved the last units is not rejected by WooCommerce's held-stock response", async () => {
+    const rzpOrderId = "order_last_units_103";
+    const rzpPaymentId = "pay_last_units_103";
+    const validSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${rzpOrderId}|${rzpPaymentId}`)
+      .digest("hex");
+
+    await paymentIntentService.storePaymentIntent(rzpOrderId, {
+      rzp_order_id: rzpOrderId,
+      customer_id: 42,
+      amount_in_paise: 50000,
+      stock_reservation_id: "reservation_last_units_103",
+      checkout_payload: { line_items: [{ product_id: 101, quantity: 3 }] },
+    });
+
+    const rzp = getRazorpayInstance();
+    const originalPaymentsFetch = rzp.payments.fetch;
+    const originalRefund = rzp.payments.refund;
+    let productStockWasQueried = false;
+    let orderCreated = false;
+    rzp.payments.fetch = async () => ({
+      id: rzpPaymentId,
+      order_id: rzpOrderId,
+      status: "captured",
+      amount: 50000,
+      currency: "INR",
+    });
+    rzp.payments.refund = async () => {
+      throw new Error("This valid reservation must not be refunded");
+    };
+    api.get = async (path) => {
+      if (path === "products") {
+        productStockWasQueried = true;
+        return { data: [{ id: 101, manage_stock: true, stock_quantity: 0, stock_status: "outofstock" }] };
+      }
+      return { data: [] };
+    };
+    api.post = async (path, payload) => {
+      if (path === "orders") {
+        orderCreated = true;
+        assert.equal(payload.line_items[0].quantity, 3);
+        return { data: { id: 7803, total: "500.00", status: "processing" } };
+      }
+      return { data: {} };
+    };
+
+    try {
+      const result = await finalizePaymentAndCreateOrder({
+        rzpOrderId,
+        rzpPaymentId,
+        rzpSignature: validSignature,
+        expectedCustomerId: 42,
+        source: "browser",
+      });
+
+      assert.equal(result.success, true);
+      assert.equal(result.order_id, 7803);
+      assert.equal(orderCreated, true);
+      assert.equal(productStockWasQueried, false, "the own-hold-adjusted stock endpoint must not override the reservation result");
+      assert.equal(stockReservationRequest?.reservation_id, "reservation_last_units_103");
+    } finally {
+      rzp.payments.fetch = originalPaymentsFetch;
+      rzp.payments.refund = originalRefund;
+    }
+  });
+
   // ───────────────────────────────────────────────────────────────────────────
   // 7. VerifyPayment Status Code & String Status Resilience
   // ───────────────────────────────────────────────────────────────────────────

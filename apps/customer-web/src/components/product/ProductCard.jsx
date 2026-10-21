@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getProductById } from "../../services/productService";
 import { Heart } from "lucide-react";
 import {
@@ -26,6 +26,10 @@ function ProductCard({ product }) {
   const [stockOverride, setStockOverride] = useState(null);
   const [cartError, setCartError] = useState("");
 
+  useEffect(() => {
+    setStockOverride(null);
+  }, [product?.id, product?.manage_stock, product?.stock_quantity, product?.stock_status]);
+
   const primaryImage = product?.images?.[0];
   const cardImageUrl = getCatalogImageUrl(primaryImage);
   const cardImageAlt = primaryImage?.alt || primaryImage?.name || product?.name || "Product image";
@@ -49,12 +53,7 @@ function ProductCard({ product }) {
     try {
       const latestProduct = await getProductById(product.id, { refresh: true });
       if (latestProduct) {
-        setStockOverride((prev) => {
-          if (prev?.isAuthoritativeZero && latestProduct.stock_quantity > 0) {
-            return prev;
-          }
-          return latestProduct;
-        });
+        setStockOverride(latestProduct);
       }
     } catch {
       // Keep the current stock display if the refresh itself is unavailable.

@@ -4,10 +4,12 @@ import { ArrowLeft } from "lucide-react";
 import ProductCard from "../components/product/ProductCard";
 import { getProductsByIds } from "../services/productService";
 import { getRecentlyViewedProductIds } from "../utils/recentlyViewedProducts.js";
+import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
 function RecentlyViewed() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  useLiveProductStock(products, setProducts);
 
   useEffect(() => {
     let isMounted = true;

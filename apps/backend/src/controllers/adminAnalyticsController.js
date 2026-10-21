@@ -354,15 +354,14 @@ export const getAdminAnalytics = async (req, res) => {
       }
     }
 
+    // Always query real-time MySQL SQL summary first (even on refresh); fall back to WooCommerce REST loop only if WP custom endpoint is offline
     let summaryRes = null;
-    if (!isRefresh) {
-      try {
-        summaryRes = await wp.get("/wp-json/mumbai-auth/v1/admin/analytics-summary", {
-          headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
-          timeout: 5000,
-        });
-      } catch (_) {}
-    }
+    try {
+      summaryRes = await wp.get("/wp-json/mumbai-auth/v1/admin/analytics-summary", {
+        headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
+        timeout: 7000,
+      });
+    } catch (_) {}
 
     let responsePayload = null;
 

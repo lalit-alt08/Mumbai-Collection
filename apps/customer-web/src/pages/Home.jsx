@@ -3,10 +3,10 @@ import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
-import { getProducts, getCategories, getProductsByIds } from "../services/productService";
+import { getProducts, getCategories } from "../services/productService";
 import { CheckCircle2, X, ChevronRight } from "lucide-react";
 import { reshuffleCategoryProducts } from "../utils/productUtils";
-import { getRecentlyViewedProductIds } from "../utils/recentlyViewedProducts.js";
+import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
 // In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
 let cachedHomeData = {
@@ -18,13 +18,13 @@ let cachedHomeData = {
 function Home() {
   const location = useLocation();
   const [products, setProducts] = useState(() => cachedHomeData.products || []);
-  const [recentProducts, setRecentProducts] = useState([]);
   const [categories, setCategories] = useState(() => cachedHomeData.categories || []);
   // Instant hydration: If cached data exists in memory, skip initial loading skeleton
   const [loading, setLoading] = useState(() => !cachedHomeData.products);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
   // Unique shuffle seed per visit/mount: stable during user interaction, fresh on every refresh
   const [shuffleSeed] = useState(() => Math.random());
+  useLiveProductStock(products, setProducts);
 
   useEffect(() => {
     const prevBg = document.body.style.backgroundColor;
@@ -58,14 +58,12 @@ function Home() {
         ]);
 
         if (isMounted) {
-          let catalogList = cachedHomeData.products || [];
           if (productsData.status === "fulfilled") {
             const list = Array.isArray(productsData.value)
               ? productsData.value
               : Array.isArray(productsData.value?.products)
               ? productsData.value.products
               : [];
-            catalogList = list;
             if (list.length > 0 || !cachedHomeData.products) {
               setProducts(list);
               cachedHomeData.products = list;
@@ -83,23 +81,6 @@ function Home() {
             }
           }
 
-          const recentIds = getRecentlyViewedProductIds().slice(0, 3);
-          const catalogById = new Map(catalogList.map((product) => [String(product.id), product]));
-          const missingRecentIds = recentIds.filter((id) => !catalogById.has(String(id)));
-          let fetchedRecentProducts = [];
-          if (missingRecentIds.length > 0) {
-            try {
-              fetchedRecentProducts = await getProductsByIds(missingRecentIds);
-            } catch {
-              // Still show recent products already present in the first catalog page.
-            }
-          }
-          const recentById = new Map(fetchedRecentProducts.map((product) => [String(product.id), product]));
-          setRecentProducts(
-            recentIds
-              .map((id) => catalogById.get(String(id)) || recentById.get(String(id)))
-              .filter(Boolean)
-          );
           cachedHomeData.timestamp = Date.now();
         }
       } catch {
@@ -182,24 +163,6 @@ function Home() {
 
       {/* Hero Promotional Banner */}
       <HeroBanner />
-
-      {recentProducts.length > 0 && (
-        <section className="space-y-2.5 md:space-y-3.5" aria-label="Recently viewed products">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base sm:text-lg md:text-xl font-extrabold text-white tracking-tight">Recently Viewed</h2>
-            <Link to="/recently-viewed" className="shrink-0 text-xs md:text-sm font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9]">
-              View All <ChevronRight size={14} className="inline" />
-            </Link>
-          </div>
-          <div className="flex overflow-x-auto pb-2 pt-1 -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 scroll-px-3.5 sm:scroll-px-5 scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x snap-mandatory gap-3.5 sm:gap-4">
-            {recentProducts.map((product) => (
-              <div key={product.id} className="w-[160px] sm:w-[175px] md:w-[210px] shrink-0 snap-start flex flex-col">
-                <ProductCard product={product} />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* Desktop Only: Shop by Category Grid */}
       <CategoryGrid categories={categories} />

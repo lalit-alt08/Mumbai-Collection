@@ -6,7 +6,7 @@ import {
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
 import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 import {
   cleanProductTitle,
@@ -24,6 +24,10 @@ function ProductInfo({ product }) {
   const [stockOverride, setStockOverride] = useState(null);
   const [cartError, setCartError] = useState("");
 
+  useEffect(() => {
+    setStockOverride(null);
+  }, [product?.id, product?.manage_stock, product?.stock_quantity, product?.stock_status]);
+
   const cartItem = cart?.items?.find(
     (item) => Number(item.id) === Number(product.id)
   );
@@ -40,12 +44,7 @@ function ProductInfo({ product }) {
     try {
       const latestProduct = await getProductById(product.id, { refresh: true });
       if (latestProduct) {
-        setStockOverride((prev) => {
-          if (prev?.isAuthoritativeZero && latestProduct.stock_quantity > 0) {
-            return prev;
-          }
-          return latestProduct;
-        });
+        setStockOverride(latestProduct);
       }
     } catch {
       // Keep the current stock display if the refresh itself is unavailable.

@@ -52,6 +52,8 @@ function Analytics() {
   const [appliedProduct, setAppliedProduct] = useState(null);
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const searchRequestId = useRef(0);
+  const productSearchAbortRef = useRef(null);
+  const reportAbortRef = useRef(null);
 
   useEffect(() => {
     if (productQuery.trim().length < 2 || productQuery === selectedProduct?.name) {
@@ -59,42 +61,66 @@ function Analytics() {
       return undefined;
     }
     const timer = setTimeout(async () => {
+      productSearchAbortRef.current?.abort();
+      const controller = new AbortController();
+      productSearchAbortRef.current = controller;
       const requestId = ++searchRequestId.current;
       try {
         setProductSearchLoading(true);
-        const result = await getProducts({ search: productQuery.trim(), page: 1, per_page: 10 });
-        if (requestId === searchRequestId.current) setProductOptions(result.products || []);
-      } catch {
+        const result = await getProducts(
+          { search: productQuery.trim(), page: 1, per_page: 10 },
+          { signal: controller.signal }
+        );
+        if (requestId === searchRequestId.current && !controller.signal.aborted) {
+          setProductOptions(result.products || []);
+        }
+      } catch (err) {
+        if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         if (requestId === searchRequestId.current) setProductOptions([]);
       } finally {
-        if (requestId === searchRequestId.current) setProductSearchLoading(false);
+        if (requestId === searchRequestId.current && !controller.signal.aborted) {
+          setProductSearchLoading(false);
+        }
       }
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      productSearchAbortRef.current?.abort();
+    };
   }, [productQuery, selectedProduct]);
 
   useEffect(() => {
+    reportAbortRef.current?.abort();
+    const controller = new AbortController();
+    reportAbortRef.current = controller;
     let active = true;
     const load = async () => {
       try {
         setLoading(true);
         setError("");
-        const result = await getAnalyticsReport({
-          date_from: appliedRange.from,
-          date_to: appliedRange.to,
-          product_id: appliedProduct?.id,
-          refresh: refreshTick ? "true" : undefined,
-        });
-        if (active && result?.success) setReport(result.data);
-        else if (active) throw new Error(result?.message || "Unable to load report.");
+        const result = await getAnalyticsReport(
+          {
+            date_from: appliedRange.from,
+            date_to: appliedRange.to,
+            product_id: appliedProduct?.id,
+            refresh: refreshTick ? "true" : undefined,
+          },
+          { signal: controller.signal }
+        );
+        if (active && !controller.signal.aborted && result?.success) setReport(result.data);
+        else if (active && !controller.signal.aborted) throw new Error(result?.message || "Unable to load report.");
       } catch (requestError) {
-        if (active) setError(requestError.response?.data?.message || requestError.message || "Unable to load sales report.");
+        if (!active || controller.signal.aborted || requestError.name === "CanceledError" || requestError.code === "ERR_CANCELED") return;
+        setError(requestError.response?.data?.message || requestError.message || "Unable to load sales report.");
       } finally {
-        if (active) setLoading(false);
+        if (active && !controller.signal.aborted) setLoading(false);
       }
     };
     load();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [appliedRange, appliedProduct, refreshTick]);
 
   const daily = report?.daily || EMPTY_ARRAY;

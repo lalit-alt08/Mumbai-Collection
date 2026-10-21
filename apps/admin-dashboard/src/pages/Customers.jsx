@@ -83,6 +83,8 @@ function Customers() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const requestIdRef = useRef(0);
+  const abortControllerRef = useRef(null);
+  const ordersAbortControllerRef = useRef(null);
   const [sortBy, setSortBy] = useState("ltv_desc");
   const [selectedLocation, setSelectedLocation] = useState("all");
 
@@ -146,17 +148,23 @@ function Customers() {
 
   // Fetch Customers with server pagination, sorting & search
   const fetchCustomerList = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const requestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError("");
-      const res = await getCustomers({
-        page,
-        per_page: perPage,
-        search: debouncedSearch.trim() || undefined,
-        location: selectedLocation !== "all" ? selectedLocation : undefined,
-        sort: sortBy,
-      });
+      const res = await getCustomers(
+        {
+          page,
+          per_page: perPage,
+          search: debouncedSearch.trim() || undefined,
+          location: selectedLocation !== "all" ? selectedLocation : undefined,
+          sort: sortBy,
+        },
+        { signal: controller.signal }
+      );
 
       if (res.success && Array.isArray(res.customers)) {
         if (requestId !== requestIdRef.current) return;
@@ -169,44 +177,62 @@ function Customers() {
         setTotalCustomers(0);
       }
     } catch (err) {
+      if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+        return;
+      }
       if (requestId !== requestIdRef.current) return;
       setError("Failed to load customers directory. Please refresh.");
       setCustomers([]);
     } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
+      if (requestId === requestIdRef.current && !controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchCustomerList();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [page, debouncedSearch, selectedLocation, sortBy]);
 
   useEffect(() => {
     if (!selectedCustomer?.id) return undefined;
+    ordersAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    ordersAbortControllerRef.current = controller;
     let active = true;
     const loadOrders = async () => {
       try {
         setCustomerOrdersLoading(true);
         setCustomerOrdersError("");
-        const result = await getCustomerOrders(selectedCustomer.id, {
-          page: customerOrdersPage,
-          per_page: 10,
-          email: selectedCustomer.email && selectedCustomer.email !== "N/A" ? selectedCustomer.email : undefined,
-        });
-        if (!active) return;
+        const result = await getCustomerOrders(
+          selectedCustomer.id,
+          {
+            page: customerOrdersPage,
+            per_page: 10,
+            email: selectedCustomer.email && selectedCustomer.email !== "N/A" ? selectedCustomer.email : undefined,
+          },
+          { signal: controller.signal }
+        );
+        if (!active || controller.signal.aborted) return;
         setCustomerOrders(result.orders || []);
         setCustomerOrdersTotal(result.total || 0);
         setCustomerOrdersTotalPages(result.totalPages || 1);
       } catch (requestError) {
-        if (!active) return;
+        if (!active || controller.signal.aborted || requestError.name === "CanceledError" || requestError.code === "ERR_CANCELED") return;
         setCustomerOrders([]);
         setCustomerOrdersError(requestError.response?.data?.message || "Unable to load this customer’s order history.");
       } finally {
-        if (active) setCustomerOrdersLoading(false);
+        if (active && !controller.signal.aborted) setCustomerOrdersLoading(false);
       }
     };
     loadOrders();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [selectedCustomer?.id, customerOrdersPage]);
 
   const openCustomerProfile = (customer) => {

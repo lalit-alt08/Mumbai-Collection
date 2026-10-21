@@ -8,12 +8,14 @@ import ProductInfo from "../components/product/ProductInfo";
 import ProductDescription from "../components/product/ProductDescription";
 import ProductReviews from "../components/product/ProductReviews";
 import RelatedProducts from "../components/product/RelatedProducts";
+import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
 function ProductDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
+  useLiveProductStock(product, setProduct);
 
   useEffect(() => {
     const loadProduct = async () => {

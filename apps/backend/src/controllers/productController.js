@@ -2,6 +2,7 @@ import {
   fetchProducts,
   fetchProductById,
   fetchProductsByIds,
+  fetchProductStockByIds,
   fetchRelatedProducts,
   searchProducts,
   fetchProductsByCategory,
@@ -124,6 +125,25 @@ export const getProductsByIds = async (req, res) => {
   } catch (error) {
     logError(req, error, "Get selected products error");
     return res.status(500).json({ success: false, message: "Failed to fetch selected products." });
+  }
+};
+
+export const getLiveProductStock = async (req, res) => {
+  try {
+    const ids = [...new Set(String(req.query.ids || "").split(",").map(Number))].sort((a, b) => a - b);
+    const cacheKey = `catalog:stock:${ids.join(",")}`;
+    const stock = await serverCache.getOrFetch(cacheKey, () => fetchProductStockByIds(ids), 5000);
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    return res.json((Array.isArray(stock) ? stock : []).map((product) => ({
+      id: product.id,
+      manage_stock: product.manage_stock,
+      stock_quantity: product.stock_quantity,
+      stock_status: product.stock_status,
+      backorders_allowed: product.backorders_allowed,
+    })));
+  } catch (error) {
+    logError(req, error, "Get live product stock error");
+    return res.status(502).json({ success: false, message: "Unable to refresh product availability." });
   }
 };
 

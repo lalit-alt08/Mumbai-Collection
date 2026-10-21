@@ -30,6 +30,19 @@ export const getProductsByIds = async (ids = [], { freshStock = false } = {}) =>
   return Array.isArray(response.data) ? response.data : [];
 };
 
+export const getLiveProductStockByIds = async (ids = []) => {
+  const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (productIds.length === 0) return [];
+  const batches = [];
+  for (let index = 0; index < productIds.length; index += 100) {
+    batches.push(productIds.slice(index, index + 100));
+  }
+  const responses = await Promise.all(batches.map((batch) => catalogClient.get("/products/stock", {
+    params: { ids: batch.join(",") },
+  })));
+  return responses.flatMap((response) => Array.isArray(response.data) ? response.data : []);
+};
+
 export const getRelatedProducts = async (
   categoryId,
   currentProductId

@@ -56,6 +56,7 @@ function Products() {
   const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
   const isDeletingRef = useRef(false);
   const requestIdRef = useRef(0);
+  const abortControllerRef = useRef(null);
 
   // Toast Notification state
   const [toast, setToast] = useState(null);
@@ -79,16 +80,22 @@ function Products() {
   }, [searchQuery]);
 
   const fetchProductList = async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     const currentRequestId = ++requestIdRef.current;
     try {
       setLoading(true);
       setError("");
-      const res = await getProducts({
-        page,
-        per_page: perPage,
-        search: debouncedSearch || undefined,
-        stock_status: stockFilter !== "all" ? stockFilter : undefined,
-      });
+      const res = await getProducts(
+        {
+          page,
+          per_page: perPage,
+          search: debouncedSearch || undefined,
+          stock_status: stockFilter !== "all" ? stockFilter : undefined,
+        },
+        { signal: controller.signal }
+      );
 
       // Ignore responses from outdated / superseded requests
       if (currentRequestId !== requestIdRef.current) {
@@ -105,12 +112,15 @@ function Products() {
         );
       }
     } catch (err) {
+      if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+        return;
+      }
       if (currentRequestId !== requestIdRef.current) {
         return;
       }
       setError(err.response?.data?.message || err.message || "Failed to load catalog products.");
     } finally {
-      if (currentRequestId === requestIdRef.current) {
+      if (currentRequestId === requestIdRef.current && !controller.signal.aborted) {
         setLoading(false);
       }
     }
@@ -118,6 +128,9 @@ function Products() {
 
   useEffect(() => {
     fetchProductList();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [page, perPage, debouncedSearch, stockFilter]);
 
   const handleCopySku = (product, e) => {
