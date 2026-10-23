@@ -473,6 +473,11 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_delete_account',
         'permission_callback' => 'mumbai_internal_permission',
     ]);
+    register_rest_route('mumbai-auth/v1', '/check-phone', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_check_phone_availability',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
       // Homepage banner endpoints
     register_rest_route('mumbai-auth/v1', '/banners', [
        'methods'             => 'GET',
@@ -2048,21 +2053,18 @@ function mumbai_save_profile(WP_REST_Request $request)
     $old_billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
     $clean_old_billing = mumbai_normalize_phone($old_billing_phone);
 
-    // Primary Phone Rule: If already set, it cannot be changed (locked).
-    // If not set yet, require it and save it once.
-    if (!empty($clean_old_billing)) {
-        $clean_phone = $clean_old_billing;
-    } else {
-        $clean_phone = mumbai_normalize_phone($phone);
-        if (!preg_match('/^[6-9][0-9]{9}$/', $clean_phone)) {
+    // Primary Phone Rule: Rigorously enforce uniqueness across all customer accounts.
+    $incoming_phone = mumbai_normalize_phone($phone);
+    if (!empty($incoming_phone)) {
+        if (!preg_match('/^[6-9][0-9]{9}$/', $incoming_phone)) {
             return new WP_Error(
                 'invalid_phone',
-                'A valid 10-digit primary mobile number is required.',
+                'A valid 10-digit primary mobile number starting with 6, 7, 8, or 9 is required.',
                 ['status' => 400]
             );
         }
 
-        $existing_phone_user = mumbai_get_user_by_phone($clean_phone);
+        $existing_phone_user = mumbai_get_user_by_phone($incoming_phone);
         if ($existing_phone_user && (int) $existing_phone_user->ID !== (int) $user_id) {
             return new WP_Error(
                 'phone_exists',
@@ -2071,9 +2073,18 @@ function mumbai_save_profile(WP_REST_Request $request)
             );
         }
 
+        $clean_phone = $incoming_phone;
         update_user_meta($user_id, 'billing_phone', $clean_phone);
         update_user_meta($user_id, '_mumbai_verified_phone', $clean_phone);
         update_user_meta($user_id, '_mumbai_is_phone_verified', 1);
+    } elseif (!empty($clean_old_billing)) {
+        $clean_phone = $clean_old_billing;
+    } else {
+        return new WP_Error(
+            'invalid_phone',
+            'A valid 10-digit primary mobile number is required.',
+            ['status' => 400]
+        );
     }
 
     $password = $request->get_param('password');
@@ -2652,7 +2663,91 @@ function mumbai_get_user_by_phone($phone) {
     );
     $user_id = (int) $wpdb->get_var($sql);
 
+    // Fallback 1: Check users table for user_login match (e.g. registered with phone)
+    if (!$user_id) {
+        $user_by_login = $wpdb->get_var($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->users}
+             WHERE user_login = %s OR user_login = %s OR user_login = %s
+             ORDER BY ID ASC LIMIT 1",
+            $clean_phone,
+            '+91' . $clean_phone,
+            '91' . $clean_phone
+        ));
+        if ($user_by_login) {
+            $user_id = (int) $user_by_login;
+        }
+    }
+
+    // Fallback 2: Check _mumbai_user_profile meta
+    if (!$user_id) {
+        $like_phone = '%' . $wpdb->esc_like('"phone";s:10:"' . $clean_phone . '"') . '%';
+        $user_by_profile = $wpdb->get_var($wpdb->prepare(
+            "SELECT user_id FROM {$wpdb->usermeta}
+             WHERE meta_key = '_mumbai_user_profile' AND meta_value LIKE %s
+             ORDER BY user_id ASC LIMIT 1",
+            $like_phone
+        ));
+        if ($user_by_profile) {
+            $user_id = (int) $user_by_profile;
+        }
+    }
+
+    // Fallback 3: Check indexed customer search table if available
+    if (!$user_id) {
+        $table_search = $wpdb->prefix . 'mumbai_customer_search';
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table_search}'") === $table_search) {
+            $user_by_search = $wpdb->get_var($wpdb->prepare(
+                "SELECT customer_id FROM {$table_search}
+                 WHERE phone_digits = %s
+                 ORDER BY customer_id ASC LIMIT 1",
+                $clean_phone
+            ));
+            if ($user_by_search) {
+                $user_id = (int) $user_by_search;
+            }
+        }
+    }
+
     return $user_id > 0 ? get_user_by('id', $user_id) : null;
+}
+
+/**
+ * REST Endpoint: Check phone number availability across all accounts
+ */
+function mumbai_check_phone_availability(WP_REST_Request $request) {
+    $raw_phone = sanitize_text_field($request->get_param('phone'));
+    $user_id = absint($request->get_header('X-Mumbai-User-ID'));
+    if (empty($raw_phone)) {
+        return new WP_Error(
+            'missing_phone',
+            'Phone number is required.',
+            ['status' => 400]
+        );
+    }
+    $clean_phone = mumbai_normalize_phone($raw_phone);
+    if (!preg_match('/^[6-9][0-9]{9}$/', $clean_phone)) {
+        return rest_ensure_response([
+            'success'   => false,
+            'available' => false,
+            'exists'    => false,
+            'message'   => 'Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.',
+        ]);
+    }
+    $existing_user = mumbai_get_user_by_phone($clean_phone);
+    if ($existing_user && (int) $existing_user->ID !== (int) $user_id) {
+        return rest_ensure_response([
+            'success'   => true,
+            'available' => false,
+            'exists'    => true,
+            'message'   => 'This mobile number is already registered to another account. Please use a different number.',
+        ]);
+    }
+    return rest_ensure_response([
+        'success'   => true,
+        'available' => true,
+        'exists'    => false,
+        'message'   => 'Mobile number is available.',
+    ]);
 }
 
 function mumbai_otp_store(WP_REST_Request $request) {

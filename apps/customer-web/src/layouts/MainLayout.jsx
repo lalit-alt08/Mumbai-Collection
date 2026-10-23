@@ -12,6 +12,10 @@ function MainLayout() {
   const path = location.pathname;
 
   const hideHeaderPages = [
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
     "/cart",
     "/checkout",
     "/order-success",
@@ -87,7 +91,7 @@ function MainLayout() {
         }`}
         style={
           isHeaderHidden
-            ? { paddingTop: "env(safe-area-inset-top, 0px)" }
+            ? { paddingTop: "var(--safe-area-top, env(safe-area-inset-top, 0px))" }
             : undefined
         }
       >

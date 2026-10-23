@@ -24,6 +24,48 @@ const getProfileCookieOptions = (req) => {
   };
 };
 
+export const checkPhoneAvailability = async (req, res) => {
+  try {
+    const rawPhone = String(req.query.phone || req.body?.phone || "").trim();
+    if (!rawPhone) {
+      return res.status(400).json({
+        success: false,
+        available: false,
+        message: "Phone number is required.",
+      });
+    }
+
+    const response = await axios.get(
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/check-phone`,
+      {
+        params: { phone: rawPhone },
+        headers: {
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+          ...(req.wpUserId ? { "X-Mumbai-User-ID": String(req.wpUserId) } : {}),
+        },
+        httpsAgent,
+        timeout: 8000,
+      }
+    );
+
+    if (typeof res.set === "function") {
+      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      res.set("Pragma", "no-cache");
+    }
+
+    res.json(response.data);
+  } catch (error) {
+    logError(req, error, "Check phone availability error");
+    const status = error.response?.status || 500;
+    const data = error.response?.data || {
+      success: false,
+      available: false,
+      message: "Unable to check phone availability.",
+    };
+    res.status(status).json(data);
+  }
+};
+
 export const getProfile = async (req, res) => {
   try {
     const response = await axios.get(

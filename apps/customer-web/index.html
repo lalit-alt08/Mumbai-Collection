@@ -46,6 +46,19 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var isStandalone =
+            window.navigator.standalone === true ||
+            (window.matchMedia &&
+              window.matchMedia("(display-mode: standalone)").matches);
+          if (isStandalone) {
+            document.documentElement.classList.add("is-standalone");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -36,7 +36,7 @@ function Header() {
     <header
       className="sticky top-[var(--network-banner-height,0px)] z-50 w-full px-3 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top] duration-200"
       style={{
-        paddingTop: "max(1rem, calc(env(safe-area-inset-top, 0px) + 0.5rem))",
+        paddingTop: "max(12px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 8px))",
       }}
     >
       <div className="relative mx-auto max-w-7xl">

@@ -19,6 +19,7 @@ import {
   Eye,
   EyeOff,
   Check,
+  Loader2,
 } from "lucide-react";
 import {
   DELIVERY_REGIONS,
@@ -50,6 +51,71 @@ function ProfileSetup() {
     phone: defaultPhone,
   });
   const [confirmPhone, setConfirmPhone] = useState(defaultPhone);
+  const [phoneChecking, setPhoneChecking] = useState(false);
+  const [phoneAvailable, setPhoneAvailable] = useState(null);
+  const phoneCheckTimeoutRef = useRef(null);
+
+  const verifyPhoneAvailability = async (phoneToCheck) => {
+    const raw = String(phoneToCheck || "").replace(/\D/g, "");
+    if (raw.length !== 10) {
+      setPhoneAvailable(null);
+      return null;
+    }
+    if (!/^[6-9]\d{9}$/.test(raw)) {
+      setErrors((prev) => ({
+        ...prev,
+        phone: "Mobile number must start with 6, 7, 8, or 9.",
+      }));
+      setPhoneAvailable(false);
+      return false;
+    }
+
+    try {
+      setPhoneChecking(true);
+      const res = await axios.get(`${API_URL}/profile/check-phone`, {
+        params: { phone: raw },
+        withCredentials: true,
+      });
+
+      if (res.data?.exists) {
+        setErrors((prev) => ({
+          ...prev,
+          phone: "This mobile number is already registered to another account. Please use a different number.",
+        }));
+        setPhoneAvailable(false);
+        return false;
+      } else if (res.data?.available) {
+        setPhoneAvailable(true);
+        setErrors((prev) => {
+          if (!prev.phone) return prev;
+          const copy = { ...prev };
+          delete copy.phone;
+          return copy;
+        });
+        return true;
+      } else if (res.data?.message) {
+        setErrors((prev) => ({
+          ...prev,
+          phone: res.data.message,
+        }));
+        setPhoneAvailable(false);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      if (err.response?.status === 409 || err.response?.data?.exists) {
+        setErrors((prev) => ({
+          ...prev,
+          phone: "This mobile number is already registered to another account. Please use a different number.",
+        }));
+        setPhoneAvailable(false);
+        return false;
+      }
+      return true;
+    } finally {
+      setPhoneChecking(false);
+    }
+  };
 
   // Mandatory Password
   const [password, setPassword] = useState("");
@@ -188,6 +254,17 @@ function ProfileSetup() {
       });
       setMessage({ type: "", text: "" });
       return;
+    }
+    if (name === "phone") {
+      setPhoneAvailable(null);
+      if (phoneCheckTimeoutRef.current) {
+        clearTimeout(phoneCheckTimeoutRef.current);
+      }
+      if (value.length === 10 && /^[6-9]\d{9}$/.test(value)) {
+        phoneCheckTimeoutRef.current = setTimeout(() => {
+          verifyPhoneAvailability(value);
+        }, 350);
+      }
     }
     setForm((prev) => ({
       ...prev,
@@ -345,6 +422,31 @@ function ProfileSetup() {
       return;
     }
 
+    if (phoneAvailable === false) {
+      setErrors((prev) => ({
+        ...prev,
+        phone: "This mobile number is already registered to another account. Please use a different number.",
+      }));
+      const inputElem = document.querySelector('[name="phone"]');
+      if (inputElem) {
+        inputElem.focus();
+        inputElem.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
+
+    if (phoneAvailable === null && cleanPhone.length === 10) {
+      const isAvailable = await verifyPhoneAvailability(cleanPhone);
+      if (!isAvailable) {
+        const inputElem = document.querySelector('[name="phone"]');
+        if (inputElem) {
+          inputElem.focus();
+          inputElem.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        return;
+      }
+    }
+
     setErrors({});
 
     try {
@@ -430,9 +532,14 @@ function ProfileSetup() {
         status === 409 ||
         lower.includes("phone") ||
         lower.includes("mobile") ||
-        lower.includes("number")
+        lower.includes("number") ||
+        lower.includes("already registered") ||
+        lower.includes("already exists")
       ) {
         targetField = "phone";
+        if (status === 409 || lower.includes("already")) {
+          setPhoneAvailable(false);
+        }
       } else if (lower.includes("password")) {
         targetField = "password";
       } else if (
@@ -734,18 +841,49 @@ function ProfileSetup() {
                       name="phone"
                       value={form.phone}
                       onChange={handleChange}
+                      onBlur={() => {
+                        if (form.phone.length === 10) {
+                          verifyPhoneAvailability(form.phone);
+                        }
+                      }}
                       required
-                      className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-11 pr-9 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
                         errors.phone
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                          : phoneAvailable === true
+                            ? "border-emerald-500/70 bg-[#080F1C] ring-1 ring-emerald-500/30 focus:border-emerald-400"
+                            : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                       }`}
                     />
+                    {phoneChecking && (
+                      <Loader2
+                        size={15}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#42D6E8]"
+                      />
+                    )}
+                    {!phoneChecking && phoneAvailable === true && !errors.phone && (
+                      <CheckCircle2
+                        size={15}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400"
+                      />
+                    )}
                   </div>
-                  {errors.phone && (
+                  {phoneChecking && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-[#42D6E8]">
+                      <Loader2 size={12} className="shrink-0 animate-spin text-[#42D6E8]" />
+                      <span>Checking number availability...</span>
+                    </p>
+                  )}
+                  {!phoneChecking && errors.phone && (
                     <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
                       <AlertCircle size={12} className="shrink-0 text-rose-400" />
                       <span>{errors.phone}</span>
+                    </p>
+                  )}
+                  {!phoneChecking && phoneAvailable === true && !errors.phone && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                      <CheckCircle2 size={12} className="shrink-0 text-emerald-400" />
+                      <span>Mobile number is available</span>
                     </p>
                   )}
                 </div>

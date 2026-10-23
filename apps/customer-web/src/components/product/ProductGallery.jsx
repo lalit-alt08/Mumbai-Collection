@@ -117,7 +117,7 @@ function ProductGallery({ product }) {
   return (
     <div className="relative flex w-full flex-col bg-white pb-6 pt-0 lg:rounded-[24px] lg:pt-8 shadow-[0_8px_30px_rgba(0,0,0,0.03)] rounded-b-[32px] border border-gray-100/80">
       {/* Floating Action Icons */}
-      <div className="absolute left-4 right-4 top-4 z-10 flex items-center justify-between lg:left-6 lg:right-6 lg:top-6">
+      <div className="absolute left-4 right-4 z-10 flex items-center justify-between lg:left-6 lg:right-6" style={{ top: "max(1rem, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 0.5rem))" }}>
         <button
           type="button"
           onClick={handleBack}
