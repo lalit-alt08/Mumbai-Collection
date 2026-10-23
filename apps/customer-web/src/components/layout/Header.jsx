@@ -23,6 +23,12 @@ function Header() {
     ) || 0;
 
   const isRecentlyViewedPage = location.pathname === "/recently-viewed";
+  const isHomePage = location.pathname === "/";
+  // Seamlessly mix the page color all the way to the top status bar with no visible border
+  const headerBgClass = isHomePage
+    ? "bg-gradient-to-b from-[#1B3459] via-[#162A48] to-[#132238]"
+    : "bg-[#0B1425]";
+
   // Clean, razor-sharp, solid midnight surface with crisp high-contrast border
   const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
 
@@ -32,7 +38,7 @@ function Header() {
 
   return (
     <header
-      className="sticky top-[var(--network-banner-height,0px)] z-50 w-full px-3 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top] duration-200"
+      className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 pb-2.5 sm:px-4 sm:pt-5 sm:pb-3 md:px-8 md:pt-6 md:pb-3.5 transition-[top] duration-200`}
       style={{
         paddingTop: "max(12px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 8px))",
       }}
