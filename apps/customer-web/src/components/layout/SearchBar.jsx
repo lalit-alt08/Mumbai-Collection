@@ -11,7 +11,6 @@ function SearchBar() {
   useLiveProductStock(products, setProducts);
   const [isLoading, setIsLoading] = useState(false);
   const location = useLocation();
-  const isHomePage = location.pathname === "/";
 
   const searchRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -68,21 +67,20 @@ function SearchBar() {
     };
   }, [query]);
 
-  const surfaceClasses = isHomePage
-    ? "bg-[#0E1A2E]/90 border border-[#1E3252]/50"
-    : "bg-[#0B1425]/95 border border-[#1E3252]/50";
+  // Clean, razor-sharp, solid midnight surface with crisp high-contrast border
+  const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
 
   return (
     <div ref={searchRef} className="w-full">
       {/* Search Input Capsule */}
       <div
-        className={`w-full rounded-full ${surfaceClasses} backdrop-blur-md shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all duration-200 focus-within:border-[#42D6E8]/70 focus-within:shadow-[0_4px_20px_rgba(66,214,232,0.15)]`}
+        className={`w-full rounded-full ${surfaceClasses} shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all duration-200 hover:border-[#385A8A] focus-within:border-[#42D6E8] focus-within:ring-2 focus-within:ring-[#42D6E8]/20`}
       >
         <div className="relative flex items-center w-full h-11 px-3.5 sm:px-4">
           {/* Cyan Outline Search Icon */}
           <Search
             size={18}
-            strokeWidth={2.2}
+            strokeWidth={2.3}
             className="text-[#42D6E8] shrink-0 pointer-events-none transition-colors"
           />
 
@@ -102,9 +100,9 @@ function SearchBar() {
               text-xs
               sm:text-sm
               md:text-[14px]
-              font-medium
+              font-semibold
               text-white
-              placeholder:text-[#8FA4BE]
+              placeholder:text-[#94A3B8]
               focus:outline-none
               focus:ring-0
             "

@@ -22,11 +22,9 @@ function Header() {
       0
     ) || 0;
 
-  const isHomePage = location.pathname === "/";
   const isRecentlyViewedPage = location.pathname === "/recently-viewed";
-  const surfaceClasses = isHomePage
-    ? "bg-[#0E1A2E]/90 border border-[#1E3252]/50"
-    : "bg-[#0B1425]/95 border border-[#1E3252]/50";
+  // Clean, razor-sharp, solid midnight surface with crisp high-contrast border
+  const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
 
   if (isAuthPage) {
     return null;
@@ -53,7 +51,7 @@ function Header() {
           <Link
             to="/cart"
             aria-label="Cart"
-            className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} backdrop-blur-md text-[#42D6E8] shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
+            className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
           >
             <ShoppingCart size={21} strokeWidth={2.1} />
 
@@ -69,7 +67,7 @@ function Header() {
         <Link
           to={user ? "/account" : "/login"}
           aria-label={user ? "Account" : "Login"}
-          className={`hidden md:flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} backdrop-blur-md text-[#42D6E8] shadow-[0_4px_20px_rgba(0,0,0,0.35)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
+          className={`hidden md:flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
         >
           <User size={19} strokeWidth={2.2} />
         </Link>
