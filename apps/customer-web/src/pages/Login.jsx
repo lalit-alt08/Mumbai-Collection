@@ -5,6 +5,7 @@ import axios from "axios";
 import API_URL from "../config/api.js";
 import { login } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
+import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
 
 
 function Login() {
@@ -111,7 +112,7 @@ function Login() {
       <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-10 md:py-12 md:shadow-lg">
         <div className="w-full">
           {/* Header */}
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[32px]">
               Sign In
             </h1>
@@ -220,6 +221,22 @@ function Login() {
               {!loading && <ArrowRight size={20} />}
             </button>
           </form>
+
+          {/* Divider */}
+          <div className="relative my-6 flex items-center justify-center">
+            <div className="w-full border-t border-[#1E3252]/80" />
+            <span className="absolute bg-[#0B1425] md:bg-[#111F36] px-3 text-[11px] font-bold uppercase tracking-wider text-[#6E84A3]">
+              or sign in with Google
+            </span>
+          </div>
+
+          {/* Google Sign In */}
+          <div>
+            <GoogleAuthButton
+              mode="signin"
+              onError={(msg) => setError(msg)}
+            />
+          </div>
 
           {/* Footer */}
           <p className="mt-8 text-center text-[14px] text-[#8FA4BE]">

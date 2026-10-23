@@ -3,11 +3,19 @@ import assert from "node:assert/strict";
 import {
   getOrderDateIST,
   getOrderTimestampDate,
+  getISTDateString,
+  shiftDateOnly,
   resolveTabFromStatusParam,
   getCleanCustomerName,
 } from "../src/utils/orderDate.js";
 
 describe("Employee Panel Orders: Timezone & URL Filter Suite", () => {
+  test("IST calendar dates and date shifting do not depend on device timezone", () => {
+    assert.equal(getISTDateString(new Date("2026-09-06T18:31:00.000Z")), "2026-09-07");
+    assert.equal(shiftDateOnly("2026-03-01", -1), "2026-02-28");
+    assert.equal(shiftDateOnly("2026-09-07", -6), "2026-09-01");
+  });
+
   describe("1. Timezone Date Handling in Asia/Kolkata", () => {
     test("UTC order crossing midnight into IST 'today' is resolved to current IST date", () => {
       // Order #275 created at 2026-09-06 18:48:32 UTC (12:18:32 AM IST on 2026-09-07)

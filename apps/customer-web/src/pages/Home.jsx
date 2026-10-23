@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
 import CategoryGrid from "../components/category/CategoryGrid";
@@ -14,6 +14,17 @@ let cachedHomeData = {
   categories: null,
   timestamp: 0,
 };
+let homeDataRequest = null;
+const HOME_RESUME_REFRESH_COOLDOWN_MS = 15_000;
+
+function fetchHomeSnapshot() {
+  if (!homeDataRequest) {
+    homeDataRequest = Promise.allSettled([getProducts(), getCategories()]).finally(() => {
+      homeDataRequest = null;
+    });
+  }
+  return homeDataRequest;
+}
 
 function Home() {
   const location = useLocation();
@@ -22,6 +33,7 @@ function Home() {
   // Instant hydration: If cached data exists in memory, skip initial loading skeleton
   const [loading, setLoading] = useState(() => !cachedHomeData.products);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
+  const lastHomeFetchAt = useRef(0);
   // Unique shuffle seed per visit/mount: stable during user interaction, fresh on every refresh
   const [shuffleSeed] = useState(() => Math.random());
   useLiveProductStock(products, setProducts);
@@ -45,17 +57,16 @@ function Home() {
 
   useEffect(() => {
     let isMounted = true;
-    const loadHomeData = async () => {
+    const loadHomeData = async ({ force = false } = {}) => {
+      if (!force && Date.now() - lastHomeFetchAt.current < HOME_RESUME_REFRESH_COOLDOWN_MS) return;
+      lastHomeFetchAt.current = Date.now();
       try {
         // Only trigger skeleton if we have no prior cache
         if (!cachedHomeData.products) {
           setLoading(true);
         }
 
-        const [productsData, categoriesData] = await Promise.allSettled([
-          getProducts(),
-          getCategories(),
-        ]);
+        const [productsData, categoriesData] = await fetchHomeSnapshot();
 
         if (isMounted) {
           if (productsData.status === "fulfilled") {
@@ -64,10 +75,8 @@ function Home() {
               : Array.isArray(productsData.value?.products)
               ? productsData.value.products
               : [];
-            if (list.length > 0 || !cachedHomeData.products) {
-              setProducts(list);
-              cachedHomeData.products = list;
-            }
+            setProducts(list);
+            cachedHomeData.products = list;
           }
           if (categoriesData.status === "fulfilled") {
             const catList = Array.isArray(categoriesData.value)
@@ -75,10 +84,8 @@ function Home() {
               : Array.isArray(categoriesData.value?.categories)
               ? categoriesData.value.categories
               : [];
-            if (catList.length > 0 || !cachedHomeData.categories) {
-              setCategories(catList);
-              cachedHomeData.categories = catList;
-            }
+            setCategories(catList);
+            cachedHomeData.categories = catList;
           }
 
           cachedHomeData.timestamp = Date.now();
@@ -90,9 +97,18 @@ function Home() {
       }
     };
 
-    loadHomeData();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") loadHomeData();
+    };
+    const refreshOnPageShow = () => loadHomeData();
+
+    loadHomeData({ force: true });
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("pageshow", refreshOnPageShow);
     return () => {
       isMounted = false;
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("pageshow", refreshOnPageShow);
     };
   }, []);
 

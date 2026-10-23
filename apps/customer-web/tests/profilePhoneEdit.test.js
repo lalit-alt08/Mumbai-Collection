@@ -6,16 +6,14 @@ test("Customer Profile Phone Flow Test Suite", async (t) => {
     // Current verified profile state
     let serverProfile = {
       full_name: "Rahul Sharma",
-      age: 26,
       phone: "9820123456",
       verified_phone: "9820123456",
       is_phone_verified: true,
     };
 
-    // User attempts to edit form and send updated name/age along with an arbitrary/tampered phone
+    // User attempts to edit form and send updated name along with an arbitrary/tampered phone
     const clientPayload = {
       full_name: "Rahul M. Sharma",
-      age: 27,
       phone: "9999988888", // Form submitted with different phone
     };
 
@@ -26,7 +24,6 @@ test("Customer Profile Phone Flow Test Suite", async (t) => {
       return {
         ...currentProfile,
         full_name: payload.full_name,
-        age: payload.age,
         phone: enforcedPhone,
         is_phone_verified: currentProfile.is_phone_verified,
       };
@@ -35,7 +32,6 @@ test("Customer Profile Phone Flow Test Suite", async (t) => {
     const result = executeSaveProfile(clientPayload, serverProfile);
 
     assert.equal(result.full_name, "Rahul M. Sharma");
-    assert.equal(result.age, 27);
     assert.equal(result.phone, "9820123456", "Phone must remain the verified phone on normal profile update");
     assert.equal(result.is_phone_verified, true, "Verification state must remain intact");
   });
@@ -43,7 +39,6 @@ test("Customer Profile Phone Flow Test Suite", async (t) => {
   await t.test("2. Verified phone remains verified when other profile fields change", () => {
     let profile = {
       full_name: "Ananya Desai",
-      age: 24,
       phone: "9123456780",
       verified_phone: "9123456780",
       is_phone_verified: true,
@@ -52,7 +47,6 @@ test("Customer Profile Phone Flow Test Suite", async (t) => {
     // Form save payload from Profile.jsx edit mode
     const formSaveData = {
       full_name: "Ananya Patel",
-      age: 25,
       phone: profile.phone,
     };
 
@@ -126,7 +120,6 @@ test("Customer Profile Phone Flow Test Suite", async (t) => {
 
     let localProfile = {
       full_name: "Pooja Mehta",
-      age: 28,
       phone: "9820123456",
       verified_phone: "9820123456",
     };

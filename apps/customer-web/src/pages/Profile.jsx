@@ -7,7 +7,6 @@ import { useAuth } from "../context/AuthContext";
 import {
   User,
   Mail,
-  Calendar,
   Phone,
   Pencil,
   X,
@@ -46,9 +45,7 @@ function Profile() {
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
-    age: "",
     phone: "",
-    secondary_phone: "",
   });
 
   const getCleanDisplayName = (fullName, firstName, lastName, fallback = "Your Name") => {
@@ -107,12 +104,10 @@ function Profile() {
       const isVerified = response.data.is_phone_verified === true;
       const verifiedPhone = response.data.verified_phone || user?.verified_phone || "";
       const currentPhone = profileData.phone || response.data.billing_phone || user?.phone || "";
-      const secondaryPhone = profileData.secondary_phone || response.data.secondary_phone || user?.secondary_phone || "";
 
       const mergedProfile = {
         ...profileData,
         phone: currentPhone,
-        secondary_phone: secondaryPhone,
       };
 
       setProfile(mergedProfile);
@@ -130,7 +125,6 @@ function Profile() {
           name: rawFullName || `${loadedFirst} ${loadedLast}`.trim(),
           full_name: rawFullName || `${loadedFirst} ${loadedLast}`.trim(),
           phone: currentPhone,
-          secondary_phone: secondaryPhone,
           verified_phone: verifiedPhone,
           is_phone_verified: isVerified && !!verifiedPhone && currentPhone === verifiedPhone,
         });
@@ -139,9 +133,7 @@ function Profile() {
       setForm({
         first_name: loadedFirst,
         last_name: loadedLast,
-        age: profileData.age || "",
         phone: currentPhone,
-        secondary_phone: secondaryPhone,
       });
     } catch (error) {
       if (error.response?.status === 401) {
@@ -168,7 +160,7 @@ function Profile() {
   }, []);
 
   // ==============================
-  // INPUT CHANGE (NAME, AGE & SECONDARY PHONE)
+  // INPUT CHANGE (NAME & PHONE)
   // ==============================
 
   const handleChange = (e) => {
@@ -177,7 +169,7 @@ function Profile() {
     if (name === "phone" && (profile?.phone || user?.phone)) return;
 
     let nextValue = value;
-    if (name === "phone" || name === "secondary_phone") {
+    if (name === "phone") {
       let digits = value.replace(/\D/g, "");
       if (digits.length === 12 && digits.startsWith("91")) {
         digits = digits.slice(2);
@@ -217,9 +209,7 @@ function Profile() {
     setForm({
       first_name: loadedFirst,
       last_name: loadedLast,
-      age: profile?.age || "",
       phone: profile?.phone || user?.phone || "",
-      secondary_phone: profile?.secondary_phone || user?.secondary_phone || "",
     });
 
     setError("");
@@ -241,9 +231,7 @@ function Profile() {
     setForm({
       first_name: loadedFirst,
       last_name: loadedLast,
-      age: profile?.age || "",
       phone: profile?.phone || user?.phone || "",
-      secondary_phone: profile?.secondary_phone || user?.secondary_phone || "",
     });
 
     setError("");
@@ -279,28 +267,12 @@ function Profile() {
       newFieldErrors.last_name = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
     }
 
-    if (!form.age) {
-      newFieldErrors.age = "Age is required.";
-    } else if (Number(form.age) < 13 || Number(form.age) > 120) {
-      newFieldErrors.age = "Please enter a valid age (13 - 120).";
-    }
-
     // Validate primary phone only if user is setting it for the first time
     if (!profile?.phone && (!form.phone || !isValidIndianPhone(form.phone))) {
       newFieldErrors.phone = "Please enter a valid 10-digit primary Indian mobile number.";
     }
 
-    // Validate secondary phone if provided
-    const cleanSecondary = form.secondary_phone ? form.secondary_phone.replace(/\D/g, "").slice(0, 10) : "";
     const effectivePrimary = (profile?.phone || form.phone || "").replace(/\D/g, "").slice(0, 10);
-
-    if (form.secondary_phone && cleanSecondary.length > 0) {
-      if (!isValidIndianPhone(cleanSecondary)) {
-        newFieldErrors.secondary_phone = "Please enter a valid 10-digit alternative mobile number.";
-      } else if (cleanSecondary === effectivePrimary) {
-        newFieldErrors.secondary_phone = "Alternative mobile number cannot be the same as your primary mobile number.";
-      }
-    }
 
     if (Object.keys(newFieldErrors).length > 0) {
       setFieldErrors(newFieldErrors);
@@ -328,9 +300,7 @@ function Profile() {
           first_name: cleanFirst,
           last_name: cleanLast,
           full_name: cleanFullName,
-          age: Number(form.age),
           phone: cleanPhone,
-          secondary_phone: cleanSecondary,
         },
         {
           withCredentials: true,
@@ -338,12 +308,6 @@ function Profile() {
       );
 
       const returnedProfile = response.data?.profile || {};
-      const finalSecondary =
-        returnedProfile.secondary_phone !== undefined && returnedProfile.secondary_phone !== null
-          ? returnedProfile.secondary_phone
-          : (response.data?.secondary_phone !== undefined && response.data?.secondary_phone !== null
-            ? response.data.secondary_phone
-            : cleanSecondary);
 
       const updatedProfile = {
         ...profile,
@@ -351,9 +315,7 @@ function Profile() {
         first_name: cleanFirst,
         last_name: cleanLast,
         full_name: cleanFullName,
-        age: Number(form.age),
         phone: cleanPhone,
-        secondary_phone: finalSecondary,
       };
 
       setProfile(updatedProfile);
@@ -365,16 +327,13 @@ function Profile() {
           name: cleanFullName,
           full_name: cleanFullName,
           phone: cleanPhone,
-          secondary_phone: finalSecondary,
         });
       }
 
       setForm({
         first_name: cleanFirst,
         last_name: cleanLast,
-        age: updatedProfile.age || "",
         phone: updatedProfile.phone || "",
-        secondary_phone: finalSecondary || "",
       });
 
       setEditing(false);
@@ -401,18 +360,14 @@ function Profile() {
         lower.includes("primary") ||
         lower.includes("mobile number is already") ||
         lower.includes("phone number is already") ||
-        (lower.includes("phone") && !lower.includes("secondary") && !lower.includes("alternative")) ||
-        (lower.includes("mobile") && !lower.includes("secondary") && !lower.includes("alternative"))
+        lower.includes("phone") ||
+        lower.includes("mobile")
       ) {
         targetField = "phone";
-      } else if (lower.includes("secondary") || lower.includes("alternative")) {
-        targetField = "secondary_phone";
       } else if (lower.includes("first name")) {
         targetField = "first_name";
       } else if (lower.includes("last name")) {
         targetField = "last_name";
-      } else if (lower.includes("age")) {
-        targetField = "age";
       }
 
       if (targetField) {
@@ -652,39 +607,6 @@ function Profile() {
                 </div>
               </div>
 
-              {/* AGE */}
-              <div>
-                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.age ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                  Age
-                </label>
-                <div className="relative">
-                  <Calendar
-                    size={15}
-                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.age ? "text-rose-400" : "text-[#6E84A3]"}`}
-                  />
-                  <input
-                    type="number"
-                    name="age"
-                    value={form.age}
-                    onChange={handleChange}
-                    min="13"
-                    max="120"
-                    placeholder="Enter your age"
-                    className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#F1F5F9] outline-none transition ${
-                      fieldErrors.age
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                        : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                    }`}
-                  />
-                </div>
-                {fieldErrors.age && (
-                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                    <span>{fieldErrors.age}</span>
-                  </p>
-                )}
-              </div>
-
               {/* PRIMARY PHONE */}
               <div>
                 <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
@@ -720,42 +642,6 @@ function Profile() {
                     Primary mobile cannot be changed from this page.
                   </p>
                 ) : null}
-              </div>
-
-              {/* SECONDARY MOBILE */}
-              <div>
-                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.secondary_phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                  Secondary Mobile
-                </label>
-                <div className="relative flex items-center">
-                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.secondary_phone ? "text-rose-400" : "text-[#6E84A3]"}`}>
-                    +91
-                  </span>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    maxLength={15}
-                    name="secondary_phone"
-                    value={form.secondary_phone}
-                    onChange={handleChange}
-                    placeholder="Enter secondary mobile"
-                    className={`h-11 w-full rounded-xl border pl-11 pr-3.5 text-sm outline-none transition font-semibold ${
-                      fieldErrors.secondary_phone
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#F1F5F9]"
-                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                    }`}
-                  />
-                </div>
-                {fieldErrors.secondary_phone ? (
-                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                    <span>{fieldErrors.secondary_phone}</span>
-                  </p>
-                ) : (
-                  <p className="mt-1 text-[11px] text-[#6E84A3]">
-                    Used by our delivery team if your primary mobile is unreachable.
-                  </p>
-                )}
               </div>
 
               {/* EMAIL */}
@@ -836,21 +722,6 @@ function Profile() {
                 </span>
               </div>
 
-              {/* AGE */}
-              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
-                    <Calendar size={17} />
-                  </div>
-                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE]">
-                    Age
-                  </span>
-                </div>
-                <span className={`text-right text-[15px] sm:text-base font-semibold ${profile?.age ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
-                  {profile?.age || "Not provided"}
-                </span>
-              </div>
-
               {/* PRIMARY MOBILE */}
               <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
                 <div className="flex items-center gap-3 min-w-0">
@@ -864,23 +735,6 @@ function Profile() {
                 <span className={`text-right text-[15px] sm:text-base font-semibold font-mono whitespace-nowrap ${(profile?.phone || user?.phone) ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
                   {(profile?.phone || user?.phone)
                     ? formatPhoneNumber(profile?.phone || user?.phone)
-                    : "Not provided"}
-                </span>
-              </div>
-
-              {/* SECONDARY MOBILE */}
-              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
-                    <Phone size={17} />
-                  </div>
-                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE] whitespace-nowrap">
-                    Secondary Mobile
-                  </span>
-                </div>
-                <span className={`text-right text-[15px] sm:text-base font-semibold font-mono whitespace-nowrap ${(profile?.secondary_phone || user?.secondary_phone) ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
-                  {(profile?.secondary_phone || user?.secondary_phone)
-                    ? formatPhoneNumber(profile?.secondary_phone || user?.secondary_phone)
                     : "Not provided"}
                 </span>
               </div>

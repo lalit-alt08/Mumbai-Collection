@@ -60,12 +60,7 @@ export const matchesEmployeeOrderSearch = (order, search) => {
   const email = normalizeOrderSearchValue(billing.email || shipping.email);
   const orderNumber = normalizeOrderSearchValue(order?.number || order?.id);
   const phoneQuery = query.replace(/\D/g, "");
-  const altPhone =
-    order?.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value ||
-    order?.secondary_phone ||
-    billing?.secondary_phone ||
-    shipping?.secondary_phone;
-  const phones = [billing.phone, shipping.phone, altPhone]
+  const phones = [billing.phone, shipping.phone]
     .filter(Boolean)
     .map((value) => String(value).replace(/\D/g, ""));
 
@@ -299,13 +294,14 @@ export const getEmployeeOrders = async (req, res) => {
       totalOrders = Number(directResponse.headers?.["x-wp-total"]) || batch.length;
       totalPages = Number(directResponse.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
       orders = batch;
-    } else if (isCustomStatus && !hasCustomLocation) {
-      // Ask WooCommerce HPOS to filter by status/delivery_status/search and paginate
-      // in its own database query without scanning REST pages.
+    } else if ((isCustomStatus && !hasCustomLocation) || hasCustomLocation) {
+      // Ask the protected WooCommerce endpoint to filter status, location, date,
+      // and search before pagination instead of scanning a fixed number of orders.
       try {
         const response = await wp.get("/wp-json/mumbai-auth/v1/employee/orders", {
           params: {
             status,
+            ...(hasCustomLocation ? { location } : {}),
             page: pageNum,
             per_page: limit,
             ...(cleanSearch ? { search: cleanSearch } : {}),
@@ -320,25 +316,31 @@ export const getEmployeeOrders = async (req, res) => {
       } catch (error) {
         const code = error.response?.data?.code;
         // Older plugin versions and non-HPOS sites use the compatible REST
-        // fallback below until the internal route/HPOS query is available.
+        // fallback for custom delivery statuses only. Location filtering must
+        // stay database-side; scanning every WooCommerce order would be both
+        // expensive and liable to time out on a large store.
         if (error.response?.status !== 404 && code !== "hpos_required") throw error;
+        if (hasCustomLocation) {
+          const locationError = new Error("Location filtering requires the updated WooCommerce plugin with HPOS enabled. Please contact an administrator.");
+          locationError.response = { status: 503 };
+          throw locationError;
+        }
         logger.warn({ code, status: error.response?.status }, "[Employee Orders] Falling back to WooCommerce REST pagination");
         isCustomStatusFallback = true;
       }
     }
 
-    if (isCustomStatusFallback || hasCustomLocation) {
-      // Location and fallback search walk recent WooCommerce orders.
-      // We cap the scan at MAX_SCAN_PAGES to prevent unbounded WooCommerce load
-      // and cache the scanned set briefly (30s) so pagination and location toggles
-      // don't repeatedly hammer WooCommerce.
+    if (isCustomStatusFallback) {
+      // Compatibility path for custom delivery statuses on older/non-HPOS
+      // WordPress installations. Location filters never use this path: they
+      // must be handled by the server-side endpoint above.
       const scanCacheKey = `employee:orders_scan:${queryParams.status || "all"}:${queryParams.after || ""}:${queryParams.before || ""}:${cleanSearch || ""}`;
       let allOrders = serverCache.get(scanCacheKey);
 
       if (!allOrders) {
         allOrders = [];
         let currentPage = 1;
-        const MAX_SCAN_PAGES = 5; // Scan up to 500 recent orders maximum
+        const MAX_SCAN_PAGES = 5;
 
         while (currentPage <= MAX_SCAN_PAGES) {
           const response = await api.get("orders", { ...queryParams, page: currentPage });
@@ -416,22 +418,12 @@ export const getEmployeeOrders = async (req, res) => {
         payment_method: o.payment_method_title || "Cash on Delivery",
         customer_name: formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, "Guest Customer"),
         phone: o.billing?.phone || o.shipping?.phone || "",
-        secondary_phone:
-          o.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value ||
-          o.billing?.secondary_phone ||
-          o.shipping?.secondary_phone ||
-          "",
         meta_data: o.meta_data || [],
         customer: {
           id: o.customer_id,
           name: formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, "Guest Customer"),
           email: o.billing?.email || "",
           phone: o.billing?.phone || "",
-          secondary_phone:
-            o.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value ||
-            o.billing?.secondary_phone ||
-            o.shipping?.secondary_phone ||
-            "",
           address: addressParts.length > 0 ? addressParts.join(", ") : "Vasai, Maharashtra",
         },
         billing: o.billing || {},

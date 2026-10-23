@@ -28,6 +28,18 @@ export const register = async (userData) => {
   return data;
 };
 
+export const googleLogin = async (payload) => {
+  const body =
+    typeof payload === "string" ? { credential: payload } : payload;
+  const { data } = await API.post("/google-login", {
+    ...body,
+    context: "customer",
+  }, {
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+  });
+  return data;
+};
+
 export const getCurrentUser = async () => {
   const { data } = await API.get("/me", {
     params: { context: "customer" },
@@ -66,23 +78,24 @@ export const deleteAccount = async () => {
   return data;
 };
 
-export const sendOtp = async (phone, purpose = "verify_phone") => {
-  const trimmed = typeof phone === "string" ? phone.trim() : phone;
+export const sendOtp = async (target, purpose = "verify_phone", extra = {}) => {
+  const trimmed = typeof target === "string" ? target.trim() : target;
+  const isEmail = typeof trimmed === "string" && trimmed.includes("@");
   const { data } = await API.post("/otp/send", {
-    phone: trimmed,
-    email: typeof trimmed === "string" && trimmed.includes("@") ? trimmed : undefined,
     purpose,
+    ...(isEmail ? { email: trimmed } : { phone: trimmed }),
+    ...extra,
   });
   return data;
 };
 
-export const verifyOtp = async (phone, otp, purpose = "verify_phone") => {
-  const trimmed = typeof phone === "string" ? phone.trim() : phone;
+export const verifyOtp = async (target, otp, purpose = "verify_phone") => {
+  const trimmed = typeof target === "string" ? target.trim() : target;
+  const isEmail = typeof trimmed === "string" && trimmed.includes("@");
   const { data } = await API.post("/otp/verify", {
-    phone: trimmed,
-    email: typeof trimmed === "string" && trimmed.includes("@") ? trimmed : undefined,
-    otp: typeof otp === "string" ? otp.trim() : otp,
     purpose,
+    otp: typeof otp === "string" ? otp.trim() : otp,
+    ...(isEmail ? { email: trimmed } : { phone: trimmed }),
   });
   return data;
 };

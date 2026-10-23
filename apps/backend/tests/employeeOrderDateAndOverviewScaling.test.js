@@ -55,6 +55,15 @@ describe("Backend: IST Date Boundaries & Order Querying Suite", () => {
     assert.equal(getISTDateBoundaries(null, null, null, referenceISTDate), null);
     assert.equal(getISTDateBoundaries("", null, null, referenceISTDate), null);
     assert.equal(getISTDateBoundaries("custom", null, null, referenceISTDate), null);
+    assert.equal(getISTDateBoundaries("custom", "2026-02-30", "2026-03-01", referenceISTDate), null);
+    assert.equal(getISTDateBoundaries("custom", "2026-08-21", "2026-08-20", referenceISTDate), null);
+  });
+
+  test("date shifting and IST day boundaries are independent of host timezone", () => {
+    const justAfterISTMidnight = new Date("2026-09-06T18:31:00.000Z");
+    const today = getISTDateBoundaries("today", null, null, justAfterISTMidnight);
+    assert.equal(today.startDate, "2026-09-07");
+    assert.equal(getISTDateBoundaries("7days", null, null, justAfterISTMidnight).startDate, "2026-09-01");
   });
 });
 

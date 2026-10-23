@@ -4,6 +4,11 @@ const boundedString = (max = 500) => z.string().trim().max(max);
 const positiveId = z.coerce.number().int().positive();
 const numericString = (max = 32) => z.string().trim().regex(/^\d+(\.\d+)?$/).max(max);
 const integerString = (max = 16) => z.string().trim().regex(/^\d+$/).max(max);
+const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}, "Enter a valid calendar date (YYYY-MM-DD).");
 const indianMobile = z.string().trim().regex(/^(?:\+?91[\s-]?)?[6-9]\d{9}$/, "Enter a valid 10-digit Indian mobile number.");
 
 const email = z.string().trim().max(254).email().refine((value) => {
@@ -42,36 +47,49 @@ const personName = (max = 100) =>
 
 export const schemas = {
   login: z.object({ email, password: loginPassword, context }),
-  register: z.object({
-    email,
-    password: strongPassword,
-    first_name: personName(100).optional(),
-    last_name: personName(100).optional(),
-    firstName: personName(100).optional(),
-    lastName: personName(100).optional(),
-    name: personName(200).optional(),
-    context,
-  }),
+  register: z
+    .object({
+      email,
+      otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
+      first_name: personName(100).optional(),
+      last_name: personName(100).optional(),
+      firstName: personName(100).optional(),
+      lastName: personName(100).optional(),
+      name: personName(200).optional(),
+      context,
+    }),
   forgotPassword: z.object({ email }),
   resetPassword: z.object({ token: z.string().trim().min(1).max(512), password: strongPassword }),
-  googleLogin: z.object({ credential: z.string().trim().min(1).max(10000) }),
-  otpSend: z.object({
-    phone: z.string().trim().min(3).max(254).optional(),
-    email: email.optional(),
-    purpose: z.enum(["verify_phone", "reset_password"]),
-  }).refine((data) => !!(data.phone || data.email), {
-    message: "Email or phone number is required.",
-    path: ["phone"],
-  }),
-  otpVerify: z.object({
-    phone: z.string().trim().min(3).max(254).optional(),
-    email: email.optional(),
-    otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
-    purpose: z.enum(["verify_phone", "reset_password"]),
-  }).refine((data) => !!(data.phone || data.email), {
-    message: "Email or phone number is required.",
-    path: ["phone"],
-  }),
+  googleLogin: z
+    .object({
+      credential: z.string().trim().min(1).max(10000).optional(),
+      code: z.string().trim().min(1).max(4096).optional(),
+    })
+    .refine((data) => Boolean(data.credential) !== Boolean(data.code), {
+      message: "Provide either a Google ID credential or an authorization code, but not both.",
+      path: ["credential"],
+    }),
+  otpSend: z
+    .object({
+      phone: z.string().trim().min(3).max(254).optional(),
+      email: email.optional(),
+      purpose: z.enum(["verify_phone", "reset_password", "register"]),
+    })
+    .refine((data) => !!(data.phone || data.email), {
+      message: "Email or phone number is required.",
+      path: ["phone"],
+    }),
+  otpVerify: z
+    .object({
+      phone: z.string().trim().min(3).max(254).optional(),
+      email: email.optional(),
+      otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
+      purpose: z.enum(["verify_phone", "reset_password", "register"]),
+    })
+    .refine((data) => !!(data.phone || data.email), {
+      message: "Email or phone number is required.",
+      path: ["phone"],
+    }),
   otpResetPassword: z.object({
     phone: z.string().trim().min(3).max(254).optional(),
     email: email.optional(),
@@ -177,7 +195,6 @@ export const schemas = {
       last_name: boundedString(100).optional(),
       email: email.optional(),
       phone: boundedString(20).optional(),
-      secondary_phone: boundedString(30).optional().nullable(),
       address_1: boundedString(200).optional(),
       address_2: boundedString(200).optional(),
       city: boundedString(100).optional(),
@@ -189,7 +206,6 @@ export const schemas = {
       first_name: boundedString(100).optional(),
       last_name: boundedString(100).optional(),
       phone: boundedString(20).optional(),
-      secondary_phone: boundedString(30).optional().nullable(),
       address_1: boundedString(200).optional(),
       address_2: boundedString(200).optional(),
       city: boundedString(100).optional(),
@@ -232,9 +248,8 @@ export const schemas = {
     lastName: personName(100).optional(),
     name: personName(200).optional(),
     full_name: personName(200).optional(),
-    age: z.union([z.number().int().min(1).max(120), integerString(3)]).optional(),
     phone: indianMobile.optional(),
-    secondary_phone: indianMobile.optional().nullable(),
+    password: strongPassword.optional(),
   }),
   idParam: z.object({ id: positiveId }),
   addressIdParam: z.object({
@@ -256,15 +271,24 @@ export const schemas = {
     format: boundedString(32).optional(),
     paginated: z.enum(["0", "1", "true", "false"]).optional(),
     search: boundedString(100).optional(),
+    refresh: z.enum(["0", "1", "true", "false"]).optional(),
+    sort: z.enum(["ltv_desc", "ltv_asc", "orders_desc", "recent", "name_asc"]).optional(),
     status: boundedString(64).optional(),
     location: boundedString(100).optional(),
     category: boundedString(100).optional(),
     stock_status: z.enum(["all", "instock", "outofstock", "onbackorder", "lowstock"]).optional(),
-    date_filter: boundedString(32).optional(),
-    dateFilter: boundedString(32).optional(),
-    date_from: boundedString(32).optional(),
-    date_to: boundedString(32).optional(),
-    refresh: z.enum(["0", "1", "true", "false"]).optional(),
+    date_filter: z.enum(["all", "today", "yesterday", "7days", "custom"]).optional(),
+    dateFilter: z.enum(["all", "today", "yesterday", "7days", "custom"]).optional(),
+    date_from: dateOnly.optional(),
+    date_to: dateOnly.optional(),
+  }).superRefine((query, ctx) => {
+    const filter = query.date_filter || query.dateFilter;
+    if (filter === "custom" && (!query.date_from || !query.date_to)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["date_from"], message: "Both custom date boundaries are required." });
+    }
+    if (query.date_from && query.date_to && query.date_from > query.date_to) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["date_to"], message: "End date must be on or after start date." });
+    }
   }),
   productsByIds: z.object({
     ids: z.string().trim().min(1).max(131).regex(/^\d+(,\d+){0,11}$/),

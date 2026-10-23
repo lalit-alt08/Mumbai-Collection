@@ -172,7 +172,7 @@ function Account() {
                     Personal Information
                   </h3>
                   <p className="text-xs font-semibold text-[#8FA4BE] mt-0.5">
-                    Name, age, phone & security
+                    Name, phone & security
                   </p>
                 </div>
               </div>

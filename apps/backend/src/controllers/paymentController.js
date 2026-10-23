@@ -55,6 +55,7 @@ import {
   verifyWebhookSignature,
   fetchRazorpayOrderPayments,
   refundRazorpayPayment,
+  isRefundFullySettled,
 } from "../services/razorpayService.js";
 import { getRedisClient, isRedisActive } from "../config/redis.js";
 import { alertStaffAnomaly } from "../services/alertService.js";
@@ -619,7 +620,6 @@ export const createOrder = async (req, res) => {
         checkout_payload: {
           stock_reservation_id: stockReservationId,
           customer_id: Number(userId),
-          secondary_phone: billing_address.secondary_phone || shipping_address.secondary_phone || null,
           billing: {
             first_name: billing_address.first_name || "",
             last_name: billing_address.last_name || "",
@@ -961,7 +961,20 @@ export const finalizePaymentAndCreateOrder = async ({
         });
         if (refund?.id) {
           refundId = refund.id;
-          refundConfirmed = true;
+          let paymentData = null;
+          if (refund.status !== "processed" || Number(refund.amount || 0) < Number(rzpPayment.amount || 0)) {
+            try {
+              paymentData = await fetchRazorpayPayment(rzpPaymentId);
+            } catch (_) {}
+          }
+          if (isRefundFullySettled(refund, rzpPayment.amount, paymentData)) {
+            refundConfirmed = true;
+          } else {
+            logger.warn(
+              { rzpOrderId, rzpPaymentId, refundId: refund.id, refundStatus: refund.status },
+              "[Payment Finalize] Refund returned pending/partial — remaining in refund_pending for reconciler"
+            );
+          }
         }
       } catch (refundErr) {
         logger.error(
@@ -1019,12 +1032,6 @@ export const finalizePaymentAndCreateOrder = async ({
         { key: "_payment_verified_at", value: new Date().toISOString() },
         { key: "_payment_method_detail", value: rzpPayment.method || "online" },
         { key: "_cart_fingerprint", value: intent.cart_fingerprint || "" },
-        ...(intent.checkout_payload?.secondary_phone
-          ? [
-              { key: "_secondary_phone", value: intent.checkout_payload.secondary_phone },
-              { key: "Alternative Contact", value: `+91 ${intent.checkout_payload.secondary_phone}` },
-            ]
-          : []),
       ],
     };
 
@@ -1348,17 +1355,33 @@ export const checkPaymentStatus = async (req, res) => {
     }
 
     // 1b. Check if payment intent reached a terminal refunded status
-    if (intent && (intent.status === "refunded" || intent.status === "refund_pending")) {
+    if (intent && intent.status === "refunded") {
       return res.json({
         success: false,
         paid: false,
         terminal: true,
         refunded: true,
+        refund_status: "completed",
         error_reason: intent.error_reason || "ITEM_OUT_OF_STOCK",
         refund_id: intent.refund_id || null,
         message: intent.error_reason === "ITEM_OUT_OF_STOCK"
           ? "An item in your order went out of stock during payment. Your payment was automatically refunded."
           : "Payment was refunded.",
+      });
+    }
+
+    if (intent && intent.status === "refund_pending") {
+      return res.json({
+        success: false,
+        paid: false,
+        terminal: true,
+        refunded: false,
+        refund_status: "pending",
+        error_reason: intent.error_reason || "ITEM_OUT_OF_STOCK",
+        refund_id: intent.refund_id || null,
+        message: intent.error_reason === "ITEM_OUT_OF_STOCK"
+          ? "An item in your order went out of stock during payment. Your refund is being processed and will reflect in 5-7 business days."
+          : "Your refund is being processed and will reflect in 5-7 business days.",
       });
     }
 
@@ -1544,6 +1567,126 @@ export const handleWebhook = async (req, res) => {
           });
         } catch (bgError) {
           logger.error({ err: bgError.message, eventId, rzpOrderId }, "[Payment Webhook] Unhandled error during background webhook processing");
+          await updateWebhookEventStatus({ eventId, status: "failed" });
+        }
+      });
+
+      return;
+    }
+
+    if (event === "refund.processed" || event === "refund.failed") {
+      const refundEntity = req.body?.payload?.refund?.entity;
+      const paymentEntity = req.body?.payload?.payment?.entity;
+      const rzpPaymentId = refundEntity?.payment_id || paymentEntity?.id;
+      let rzpOrderId = paymentEntity?.order_id || refundEntity?.notes?.rzp_order_id;
+
+      // Fast ACK to gateway (< 50ms)
+      res.status(200).json({
+        success: true,
+        received: true,
+        message: `Refund ${event} webhook received and queued for processing.`,
+      });
+
+      setImmediate(async () => {
+        try {
+          if (!rzpOrderId && rzpPaymentId) {
+            try {
+              const paymentData = await fetchRazorpayPayment(rzpPaymentId);
+              rzpOrderId = paymentData?.order_id;
+            } catch (fetchErr) {
+              logger.warn({ rzpPaymentId, err: fetchErr.message }, "[Payment Webhook] Could not resolve order ID for refund event");
+            }
+          }
+
+          if (!rzpOrderId) {
+            logger.warn({ event, refundId: refundEntity?.id, rzpPaymentId }, "[Payment Webhook] Missing order ID for refund event");
+            await updateWebhookEventStatus({ eventId, status: "orphan" });
+            return;
+          }
+
+          if (event === "refund.processed") {
+            const isFullRefund = paymentEntity?.refund_status === "full" ||
+              (paymentEntity?.amount && paymentEntity?.amount_refunded && Number(paymentEntity.amount_refunded) >= Number(paymentEntity.amount));
+
+            if (isFullRefund) {
+              await updatePaymentIntentStatus({
+                rzpOrderId,
+                toStatus: "refunded",
+                refundId: refundEntity?.id || "refund_webhook",
+              });
+
+              // Release stock hold if present
+              try {
+                const intent = await getPaymentIntent(rzpOrderId);
+                const reservationId = intent?.raw?.stock_reservation_id ||
+                  intent?.checkout_payload?.stock_reservation_id ||
+                  intent?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
+                if (reservationId) {
+                  await releaseCheckoutStock(reservationId);
+                }
+              } catch (stockErr) {
+                logger.warn({ rzpOrderId, err: stockErr.message }, "[Payment Webhook] Failed to release stock on refund.processed webhook");
+              }
+
+              logger.info({ rzpOrderId, refundId: refundEntity?.id }, "[Payment Webhook] Payment marked fully refunded via refund.processed webhook");
+            } else {
+              // Partial refund: MUST NOT mark as "refunded" because that drops it from reconciliation.
+              // Keep it in refund_pending so remaining funds are reconciled and recovered.
+              const amountRefunded = Number(paymentEntity?.amount_refunded || refundEntity?.amount || 0);
+              const totalAmount = Number(paymentEntity?.amount || 0);
+              await updatePaymentIntentStatus({
+                rzpOrderId,
+                toStatus: "refund_pending",
+                refundId: refundEntity?.id || "partial_refund_webhook",
+                errorReason: `PARTIAL_REFUND_WEBHOOK: ${amountRefunded}/${totalAmount} paise refunded`,
+              });
+
+              await alertStaffAnomaly({
+                type: "PARTIAL_REFUND_WEBHOOK",
+                severity: "warning",
+                rzpOrderId,
+                rzpPaymentId,
+                message: `Partial refund webhook received for ${rzpOrderId}: ₹${(amountRefunded / 100).toFixed(2)} of ₹${(totalAmount / 100).toFixed(2)} refunded. Intent kept in refund_pending for reconciliation.`,
+                details: {
+                  refund_id: refundEntity?.id,
+                  amount_refunded: amountRefunded,
+                  total_amount: totalAmount,
+                },
+              });
+
+              logger.warn(
+                { rzpOrderId, refundId: refundEntity?.id, amountRefunded, totalAmount },
+                "[Payment Webhook] Partial refund webhook received — kept in refund_pending for recovery"
+              );
+            }
+            await updateWebhookEventStatus({ eventId, status: "processed" });
+          } else if (event === "refund.failed") {
+            const failReason = refundEntity?.error_description || "Gateway refund processing failed";
+            await updatePaymentIntentStatus({
+              rzpOrderId,
+              toStatus: "refund_failed",
+              incrementAttempts: true,
+              errorReason: `REFUND_WEBHOOK_FAILED: ${failReason}`,
+            });
+
+            await alertStaffAnomaly({
+              type: "REFUND_WEBHOOK_FAILED",
+              severity: "critical",
+              rzpOrderId,
+              rzpPaymentId,
+              message: `Razorpay refund failed: ${failReason}`,
+              details: {
+                refund_id: refundEntity?.id,
+                error_code: refundEntity?.error_code,
+                error_description: refundEntity?.error_description,
+              },
+            });
+
+            logger.error({ rzpOrderId, refundId: refundEntity?.id, failReason }, "[Payment Webhook] Refund failed event processed");
+            await updateWebhookEventStatus({ eventId, status: "processed" });
+          }
+        } catch (err) {
+          logger.error({ err: err.message, eventId, rzpOrderId }, "[Payment Webhook] Unhandled error during refund webhook processing");
           await updateWebhookEventStatus({ eventId, status: "failed" });
         }
       });

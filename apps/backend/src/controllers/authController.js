@@ -217,7 +217,7 @@ export const logout = async (req, res) => {
 
 export const register = async (req, res) => {
   try {
-    const { password } = req.body;
+    const { otp } = req.body;
     const email = String(req.body.email || "").trim().toLowerCase();
     const { firstName, lastName } = parseFirstAndLastName(req.body);
 
@@ -235,6 +235,45 @@ export const register = async (req, res) => {
       });
     }
 
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Email verification code is required to create an account.",
+      });
+    }
+
+    const otpHash = hashOtp(otp);
+    try {
+      const verifyRes = await wp.post(
+        "/wp-json/mumbai-auth/v1/otp/verify",
+        {
+          phone: email,
+          purpose: "register",
+          otp_hash: otpHash,
+          user_id: 0,
+        },
+        {
+          headers: {
+            "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+          },
+        }
+      );
+      if (!verifyRes.data?.success) {
+        return res.status(400).json({
+          success: false,
+          message: verifyRes.data?.message || "Invalid or expired verification code.",
+        });
+      }
+    } catch (verifyErr) {
+      const errStatus = verifyErr.response?.status || 400;
+      const errMsg = verifyErr.response?.data?.message || "Invalid or expired verification code.";
+      return res.status(errStatus).json({
+        success: false,
+        message: errMsg,
+      });
+    }
+
+    const effectivePassword = `${crypto.randomBytes(24).toString("hex")}!Aa1`;
     const cleanFullName = `${firstName} ${lastName}`;
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
@@ -245,8 +284,11 @@ export const register = async (req, res) => {
       first_name: firstName,
       last_name: lastName,
       email,
-      password,
+      password: effectivePassword,
     });
+
+    // A newly registered account should be visible immediately in the admin directory.
+    serverCache.invalidatePrefix("admin:customers");
 
     const regData = response.data;
     let authUser = regData?.user;
@@ -259,7 +301,7 @@ export const register = async (req, res) => {
       try {
         const loginResponse = await wp.post("/wp-json/mumbai-auth/v1/login", {
           email,
-          password,
+          password: effectivePassword,
         });
         const loginData = loginResponse.data;
         if (loginData?.success && loginData.session && loginData.cookie_name) {
@@ -394,32 +436,46 @@ export const me = async (req, res) => {
     let userDetails = {
       id: userId,
       roles,
-      name: "",
-      username: "",
-      email: "",
+      name: response.data?.name || response.data?.display_name || "",
+      username: response.data?.username || "",
+      email: response.data?.email || "",
+      phone: response.data?.phone || "",
     };
 
-    try {
-      const customerRes = await wcApi.get(`customers/${userId}`);
-      if (customerRes.data) {
-        const c = customerRes.data;
-        const fullName = formatCustomerDisplayName(c.first_name, c.last_name, "");
-        const isSystemUsername = (c.username || "").toLowerCase() === "mumbaicollection" || (c.username || "").toLowerCase() === "mumbai collection";
-        userDetails.first_name = c.first_name || "";
-        userDetails.last_name = c.last_name || "";
-        userDetails.name = fullName || (!isSystemUsername ? c.username : "") || "";
-        userDetails.username = (!isSystemUsername ? c.username : "") || "";
-        userDetails.email = c.email || "";
-        userDetails.phone = response.data?.phone || c.billing?.phone || "";
+    // Skip heavy WooCommerce customer lookup for administrators and staff
+    const isStaffOrAdmin =
+      context === "admin" ||
+      context === "employee" ||
+      roles.includes("administrator") ||
+      roles.includes("employee");
+
+    if (!isStaffOrAdmin && context === "customer") {
+      try {
+        const customerRes = await wcApi.get(`customers/${userId}`);
+        if (customerRes.data) {
+          const c = customerRes.data;
+          const fullName = formatCustomerDisplayName(c.first_name, c.last_name, "");
+          const isSystemUsername =
+            (c.username || "").toLowerCase() === "mumbaicollection" ||
+            (c.username || "").toLowerCase() === "mumbai collection";
+          userDetails.first_name = c.first_name || "";
+          userDetails.last_name = c.last_name || "";
+          userDetails.name =
+            fullName || (!isSystemUsername ? c.username : "") || userDetails.name;
+          userDetails.username =
+            (!isSystemUsername ? c.username : "") || userDetails.username;
+          userDetails.email = c.email || userDetails.email;
+          userDetails.phone =
+            response.data?.phone || c.billing?.phone || userDetails.phone;
+        }
+      } catch (wcErr) {
+        // Fallback: If customer endpoint returns 404, keep default user details
       }
-    } catch (wcErr) {
-      // Fallback: If customer endpoint returns 404 (e.g. administrator/shop_manager), keep default user details
     }
 
     if (!userDetails.phone && response.data?.phone) {
       userDetails.phone = response.data.phone;
     }
-    userDetails.secondary_phone = response.data?.secondary_phone || "";
     userDetails.is_phone_verified = response.data?.is_phone_verified === true;
     userDetails.verified_phone = response.data?.verified_phone || "";
 
@@ -429,7 +485,6 @@ export const me = async (req, res) => {
       current_user_id: userId,
       roles,
       user: userDetails,
-      secondary_phone: response.data?.secondary_phone || "",
       is_phone_verified: response.data?.is_phone_verified === true,
       verified_phone: response.data?.verified_phone || "",
     });
@@ -445,10 +500,13 @@ export const me = async (req, res) => {
 
 export const googleLogin = async (req, res) => {
   try {
-    const { credential } = req.body;
+    const { credential, code } = req.body;
     
-    if (!credential) {
-      return res.status(400).json({ success: false, message: "Google credential is required" });
+    if (Boolean(credential) === Boolean(code)) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide either a Google ID credential or an authorization code.",
+      });
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -456,13 +514,46 @@ export const googleLogin = async (req, res) => {
       return res.status(500).json({ success: false, message: "Google Auth is not configured on the server" });
     }
 
-    const client = new OAuth2Client(clientId);
-    
-    const ticket = await client.verifyIdToken({
-      idToken: credential,
-      audience: clientId,
-    });
-    
+    let ticket;
+
+    if (credential) {
+      const client = new OAuth2Client(clientId);
+      ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+    } else {
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const origin = req.headers.origin;
+      if (!clientSecret) {
+        return res.status(500).json({
+          success: false,
+          message: "Google authorization-code exchange is not configured on the server.",
+        });
+      }
+      if (!origin || req.headers["x-requested-with"] !== "XMLHttpRequest") {
+        return res.status(403).json({
+          success: false,
+          message: "Google sign-in request could not be verified. Please try again.",
+        });
+      }
+
+      // Popup authorization-code flow: exchange the one-time code server-side,
+      // then verify Google's signed ID token before using any identity claims.
+      const client = new OAuth2Client(clientId, clientSecret, origin);
+      const tokenResponse = await client.getToken({ code, redirect_uri: origin });
+      if (!tokenResponse.tokens?.id_token) {
+        return res.status(400).json({
+          success: false,
+          message: "Google did not return a verifiable identity token.",
+        });
+      }
+      ticket = await client.verifyIdToken({
+        idToken: tokenResponse.tokens.id_token,
+        audience: clientId,
+      });
+    }
+
     const payload = ticket.getPayload();
     if (!payload || !payload.email || !payload.sub) {
       return res.status(400).json({ success: false, message: "Invalid Google token payload" });
@@ -497,6 +588,16 @@ export const googleLogin = async (req, res) => {
 
     const data = response.data;
 
+    // Defense in depth: WordPress must only return the account belonging to
+    // the verified Google email. Never issue a session for a mismatched user.
+    const returnedEmail = String(data?.user?.email || "").trim().toLowerCase();
+    if (!data?.success || !returnedEmail || returnedEmail !== email.trim().toLowerCase()) {
+      return res.status(502).json({
+        success: false,
+        message: "Google sign-in could not safely match your account. Please contact support.",
+      });
+    }
+
     // Role verification: ensure user has appropriate permissions for the requested panel context
     const userRoles = Array.isArray(data.user?.roles) ? data.user.roles : [];
 
@@ -530,19 +631,24 @@ export const googleLogin = async (req, res) => {
       res.cookie(cookieConfig.nonce, data.rest_nonce, cookieOptions);
     }
 
+    if (data.is_new_user) {
+      serverCache.invalidatePrefix("admin:customers");
+    }
+
     res.json({
       success: data.success,
       message: data.message,
       user: data.user,
+      is_new_user: data.is_new_user === true,
       context,
     });
   } catch (error) {
-    if (error.response?.status === 403) {
-      return res.status(403).json({
+    if (error.response?.status === 403 || error.response?.status === 409) {
+      return res.status(error.response.status).json({
         success: false,
         message:
           error.response?.data?.message ||
-          "Automatic Google login is disabled for staff and administrator accounts. Please log in with your email and password.",
+          "This Google account cannot be safely linked to the requested store account. Please sign in another way or contact support.",
       });
     }
 
@@ -566,14 +672,22 @@ export const sendOtp = async (req, res) => {
   try {
     const rawTarget = req.body.phone || req.body.email;
     const { purpose } = req.body;
-    if (!rawTarget || !["verify_phone", "reset_password"].includes(purpose)) {
+    if (!rawTarget || !["verify_phone", "reset_password", "register"].includes(purpose)) {
       return res.status(400).json({ success: false, message: "Invalid phone, email or purpose." });
     }
 
     let cleanPhone = "";
     const rawInput = String(rawTarget || "").trim();
     const isEmailInput = rawInput.includes("@");
-    if (isEmailInput) {
+    if (purpose === "register") {
+      if (!isEmailInput) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid email address.",
+        });
+      }
+      cleanPhone = rawInput.toLowerCase();
+    } else if (isEmailInput) {
       cleanPhone = rawInput.toLowerCase();
     } else if (purpose === "verify_phone") {
       const normalized = normalizePhoneNumber(rawInput);
@@ -667,8 +781,8 @@ export const sendOtp = async (req, res) => {
       });
     }
 
-    const targetEmail = storeResponse.data?.email || userEmail;
-    const targetName = storeResponse.data?.name || userName || "Valued Customer";
+    const targetEmail = storeResponse.data?.email || (purpose === "register" ? cleanPhone : userEmail);
+    const targetName = storeResponse.data?.name || req.body.first_name || req.body.name || userName || "Valued Customer";
 
     // Uniform response for reset_password prevents account enumeration.
     // If in cooldown or user not found, cooldown/suppression is enforced silently without leaking account existence.
@@ -724,7 +838,14 @@ export const sendOtp = async (req, res) => {
       });
     }
 
-    // Uniform response for reset_password prevents account enumeration
+    // Purpose-specific responses
+    if (purpose === "register") {
+      return res.status(200).json({
+        success: true,
+        message: "Verification code sent to your email address.",
+      });
+    }
+
     if (purpose === "reset_password") {
       return res.status(200).json({
         success: true,
@@ -745,6 +866,13 @@ export const sendOtp = async (req, res) => {
       logError(req, error, "Send OTP error");
     }
     const status = error.response?.status || 500;
+    if (status === 409) {
+      return res.status(409).json({
+        success: false,
+        code: error.response?.data?.code || "email_exists",
+        message: error.response?.data?.message || "An account with this email already exists. Please sign in.",
+      });
+    }
     if (status === 429) {
       const headerRetry = error.response?.headers?.["retry-after"];
       const bodyRetry = error.response?.data?.retryAfter || error.response?.data?.retry_after;
@@ -767,8 +895,8 @@ export const verifyOtp = async (req, res) => {
   try {
     const rawTarget = req.body.phone || req.body.email;
     const { otp, purpose } = req.body;
-    if (!rawTarget || !otp || !purpose) {
-      return res.status(400).json({ success: false, message: "Missing parameters." });
+    if (!rawTarget || !otp || !purpose || !["verify_phone", "reset_password", "register"].includes(purpose)) {
+      return res.status(400).json({ success: false, message: "Missing or invalid parameters." });
     }
 
     const rawPhone = String(rawTarget || "").trim();

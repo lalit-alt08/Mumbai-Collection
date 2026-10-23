@@ -20,28 +20,40 @@ test("request validation accepts valid auth and rejects malformed credentials", 
   assert.equal(invalid.response.body.code, "VALIDATION_ERROR");
 });
 
+test("Google auth accepts one ID credential or authorization code, not access tokens", () => {
+  assert.equal(runValidation(schemas.googleLogin, { credential: "signed-id-token" }).nextCalled, true);
+  assert.equal(runValidation(schemas.googleLogin, { code: "one-time-code" }).nextCalled, true);
+  assert.equal(runValidation(schemas.googleLogin, { access_token: "api-access-token" }).nextCalled, false);
+  assert.equal(runValidation(schemas.googleLogin, { credential: "signed-id-token", code: "one-time-code" }).nextCalled, false);
+});
+
 test("registration rejects malformed email shapes and profile rejects invalid Indian mobile numbers", () => {
   for (const email of ["name@gmail", "name@gmail..com", ".name@gmail.com", "name@-gmail.com"]) {
-    assert.equal(runValidation(schemas.register, { email, password: "StrongPassword123!" }).nextCalled, false, email);
+    assert.equal(runValidation(schemas.register, { email, otp: "123456" }).nextCalled, false, email);
   }
-  assert.equal(runValidation(schemas.register, { email: "NAME@gmail.com", password: "StrongPassword123!" }).nextCalled, true);
+  assert.equal(runValidation(schemas.register, { email: "NAME@gmail.com", otp: "123456" }).nextCalled, true);
+  assert.equal(
+    runValidation(schemas.register, { email: "name@gmail.com", password: "StrongPassword123!" }).nextCalled,
+    false,
+    "password alone must never bypass email OTP verification"
+  );
   assert.equal(runValidation(schemas.profile, { phone: "9876543210" }).nextCalled, true);
   assert.equal(runValidation(schemas.profile, { phone: "12345" }).nextCalled, false);
 });
 
-test("registration and reset password enforce strong password requirements (8+ chars, upper, lower, number, special)", () => {
+test("profile and reset password enforce strong password requirements (8+ chars, upper, lower, number, special)", () => {
   // Missing uppercase
-  assert.equal(runValidation(schemas.register, { email: "test@example.com", password: "mumbai@123" }).nextCalled, false);
+  assert.equal(runValidation(schemas.profile, { phone: "9876543210", password: "mumbai@123" }).nextCalled, false);
   // Missing lowercase
-  assert.equal(runValidation(schemas.register, { email: "test@example.com", password: "MUMBAI@123" }).nextCalled, false);
+  assert.equal(runValidation(schemas.profile, { phone: "9876543210", password: "MUMBAI@123" }).nextCalled, false);
   // Missing number
-  assert.equal(runValidation(schemas.register, { email: "test@example.com", password: "Mumbai@Password" }).nextCalled, false);
+  assert.equal(runValidation(schemas.profile, { phone: "9876543210", password: "Mumbai@Password" }).nextCalled, false);
   // Missing special character
-  assert.equal(runValidation(schemas.register, { email: "test@example.com", password: "MumbaiPass123" }).nextCalled, false);
+  assert.equal(runValidation(schemas.profile, { phone: "9876543210", password: "MumbaiPass123" }).nextCalled, false);
   // Too short
-  assert.equal(runValidation(schemas.register, { email: "test@example.com", password: "Mu1!" }).nextCalled, false);
-  // Valid strong password
-  assert.equal(runValidation(schemas.register, { email: "test@example.com", password: "StrongPassword123!" }).nextCalled, true);
+  assert.equal(runValidation(schemas.profile, { phone: "9876543210", password: "Mu1!" }).nextCalled, false);
+  // Valid optional profile password
+  assert.equal(runValidation(schemas.profile, { phone: "9876543210", password: "StrongPassword123!" }).nextCalled, true);
   assert.equal(runValidation(schemas.resetPassword, { token: "tok_123", password: "StrongPassword123!" }).nextCalled, true);
 });
 
@@ -60,6 +72,14 @@ test("request validation enforces positive IDs, enums, and pagination bounds", (
   assert.equal(runValidation(schemas.pagination, { page: "1", per_page: "1000" }, "query").nextCalled, false);
 });
 
+test("order date filters reject malformed ranges and accept valid IST date-only ranges", () => {
+  assert.equal(runValidation(schemas.pagination, { date_filter: "7days" }, "query").nextCalled, true);
+  assert.equal(runValidation(schemas.pagination, { date_filter: "custom", date_from: "2026-02-30", date_to: "2026-03-01" }, "query").nextCalled, false);
+  assert.equal(runValidation(schemas.pagination, { date_filter: "custom", date_from: "2026-10-20" }, "query").nextCalled, false);
+  assert.equal(runValidation(schemas.pagination, { date_filter: "custom", date_from: "2026-10-21", date_to: "2026-10-20" }, "query").nextCalled, false);
+  assert.equal(runValidation(schemas.pagination, { date_filter: "custom", date_from: "2026-10-20", date_to: "2026-10-21" }, "query").nextCalled, true);
+});
+
 test("logging sanitizers redact credentials, tokens, cookies, and idempotency keys", () => {
   const value = sanitizeLogValue({ password: "secret", otp: "123456", cookie: "session", idempotencyKey: "raw-key", safe: "ok" });
   assert.deepEqual(value, { password: "[REDACTED]", otp: "[REDACTED]", cookie: "[REDACTED]", idempotencyKey: "[REDACTED]", safe: "ok" });
@@ -71,6 +91,7 @@ test("logging sanitizers redact credentials, tokens, cookies, and idempotency ke
 test("request validation strips unauthorized/injected keys (mass assignment protection)", () => {
   const regResult = runValidation(schemas.register, {
     email: "customer@example.com",
+    otp: "123456",
     password: "StrongPassword123!",
     first_name: "Test",
     role: "administrator",

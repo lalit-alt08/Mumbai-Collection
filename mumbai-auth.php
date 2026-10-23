@@ -601,6 +601,7 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'mumbai_internal_server_permission',
         'args'                => [
             'status'   => ['sanitize_callback' => 'sanitize_key'],
+            'location' => ['sanitize_callback' => 'sanitize_key'],
             'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
             'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
             'after'    => ['sanitize_callback' => 'sanitize_text_field'],
@@ -794,17 +795,39 @@ function mumbai_sso(WP_REST_Request $request)
     }
 
     $user = null;
+    $is_new_user = false;
 
     // 1. Try finding by Google Sub
     $users_by_sub = get_users([
         'meta_key'   => '_google_sub',
         'meta_value' => $google_sub,
-        'number'     => 1,
+        'number'     => 2,
         'fields'     => 'all',
     ]);
 
+    // A Google identity must map to exactly one WordPress account. Do not guess
+    // if old/corrupt metadata has attached the same identity to multiple users.
+    if (count($users_by_sub) > 1) {
+        return new WP_Error(
+            'sso_identity_conflict',
+            'This Google account is linked to more than one store account. Please contact support.',
+            ['status' => 409]
+        );
+    }
+
     if (!empty($users_by_sub)) {
         $user = $users_by_sub[0];
+
+        // The stable Google subject and the verified email must both identify
+        // the same account. Never sign into an account when these disagree.
+        $mapped_email = strtolower(sanitize_email($user->user_email));
+        if (!$mapped_email || !hash_equals($mapped_email, $email)) {
+            return new WP_Error(
+                'sso_identity_email_mismatch',
+                'The Google account does not match the email linked to this store account. Please contact support.',
+                ['status' => 403]
+            );
+        }
     }
 
     // 2. Try finding by email (for first-time linking)
@@ -826,15 +849,29 @@ function mumbai_sso(WP_REST_Request $request)
                 }
             }
 
+            // Never replace a different Google identity already linked to this
+            // email account. Re-linking should require an explicit recovery flow.
+            $existing_google_sub = (string) get_user_meta($candidate_user->ID, '_google_sub', true);
+            if ($existing_google_sub !== '' && !hash_equals($existing_google_sub, $google_sub)) {
+                return new WP_Error(
+                    'sso_account_already_linked',
+                    'This store account is already linked to a different Google account. Please sign in another way or contact support.',
+                    ['status' => 409]
+                );
+            }
+
             // First time linking existing account to Google
             $user = $candidate_user;
-            update_user_meta($user->ID, '_google_sub', $google_sub);
-            mumbai_log("Linked Google Sub to existing user {$user->ID}");
+            if ($existing_google_sub === '') {
+                update_user_meta($user->ID, '_google_sub', $google_sub);
+                mumbai_log("Linked Google Sub to existing user {$user->ID}");
+            }
         }
     }
 
     // 3. Create new user if no match found
     if (!$user) {
+        $is_new_user = true;
         $email_prefix = current(explode('@', $email));
         $username = sanitize_user($email_prefix, true);
         if (empty($username)) {
@@ -863,7 +900,20 @@ function mumbai_sso(WP_REST_Request $request)
             'nickname'     => $name ? $name : $username,
         ]);
 
+        $name_parts = preg_split('/\s+/', trim($name));
+        $first_name = !empty($name_parts[0]) ? $name_parts[0] : '';
+        $last_name  = count($name_parts) > 1 ? implode(' ', array_slice($name_parts, 1)) : '';
+        if ($first_name) {
+            update_user_meta($user_id, 'first_name', $first_name);
+            update_user_meta($user_id, 'billing_first_name', $first_name);
+        }
+        if ($last_name) {
+            update_user_meta($user_id, 'last_name', $last_name);
+            update_user_meta($user_id, 'billing_last_name', $last_name);
+        }
+
         update_user_meta($user_id, '_google_sub', $google_sub);
+        mumbai_sync_customer_search_index($user_id);
 
         $user = get_user_by('id', $user_id);
         mumbai_log("New user registered via SSO: {$user_id}");
@@ -894,9 +944,12 @@ function mumbai_sso(WP_REST_Request $request)
     return [
         'success'     => true,
         'message'     => 'SSO successful.',
+        'is_new_user' => $is_new_user,
         'user'        => [
             'id'                => $user->ID,
             'name'              => $user->display_name,
+            'first_name'        => (string) get_user_meta($user->ID, 'first_name', true),
+            'last_name'         => (string) get_user_meta($user->ID, 'last_name', true),
             'email'             => $user->user_email,
             'username'          => $user->user_login,
             'roles'             => array_values((array) $user->roles),
@@ -1052,6 +1105,7 @@ function mumbai_register(WP_REST_Request $request)
         $clean_phone = mumbai_normalize_phone($phone);
         update_user_meta($user_id, 'billing_phone', $clean_phone);
     }
+    mumbai_sync_customer_search_index($user_id);
 
     // Check if email was pre-allowlisted for employee access
     $allowlist = get_option('_mumbai_employee_allowlist', []);
@@ -1445,7 +1499,6 @@ function mumbai_me()
             $billing_full = trim("{$billing_first} {$billing_last}");
             $display_name = $full ?: ($billing_full ?: trim((string) $user->display_name));
         }
-        $secondary_phone = (string) get_user_meta($user->ID, '_mumbai_secondary_phone', true);
     }
 
     return [
@@ -1458,7 +1511,6 @@ function mumbai_me()
         'is_phone_verified'  => $is_phone_verified,
         'is_suspended'       => $is_suspended,
         'phone'              => $phone,
-        'secondary_phone'    => isset($secondary_phone) ? $secondary_phone : '',
         'verified_phone'     => $verified_phone,
     ];
 }
@@ -1888,17 +1940,14 @@ function mumbai_get_profile(WP_REST_Request $request)
         );
     }
     $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
-    $secondary_phone = (string) get_user_meta($user_id, '_mumbai_secondary_phone', true);
     $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
     $is_phone_verified = mumbai_is_user_phone_verified($user_id);
 
     $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
     if (!is_array($profile)) {
         $profile = [
-            'full_name'       => '',
-            'age'             => '',
-            'phone'           => '',
-            'secondary_phone' => '',
+            'full_name' => '',
+            'phone'     => '',
         ];
     }
     if (empty($profile['full_name'])) {
@@ -1917,7 +1966,9 @@ function mumbai_get_profile(WP_REST_Request $request)
     if (!empty($billing_phone)) {
         $profile['phone'] = $billing_phone;
     }
-    $profile['secondary_phone'] = $secondary_phone;
+
+    // Strip legacy fields from existing stored user profiles so they never leak in responses
+    unset($profile['age'], $profile['secondary_phone']);
 
     return [
         'success'           => true,
@@ -1925,7 +1976,6 @@ function mumbai_get_profile(WP_REST_Request $request)
         'is_phone_verified' => $is_phone_verified,
         'verified_phone'    => $verified_phone,
         'billing_phone'     => $billing_phone,
-        'secondary_phone'   => $secondary_phone,
     ];
 }
 /*
@@ -1946,9 +1996,7 @@ function mumbai_save_profile(WP_REST_Request $request)
     $first_name      = sanitize_text_field($request->get_param('first_name'));
     $last_name       = sanitize_text_field($request->get_param('last_name'));
     $full_name       = sanitize_text_field($request->get_param('full_name'));
-    $age             = absint($request->get_param('age'));
     $phone           = sanitize_text_field($request->get_param('phone'));
-    $secondary_phone = sanitize_text_field($request->get_param('secondary_phone'));
 
     if (empty($first_name) || empty($last_name)) {
         if (!empty($full_name)) {
@@ -2028,41 +2076,16 @@ function mumbai_save_profile(WP_REST_Request $request)
         update_user_meta($user_id, '_mumbai_is_phone_verified', 1);
     }
 
-    if (!$age) {
-        return new WP_Error(
-            'missing_fields',
-            'Age is required.',
-            ['status' => 400]
-        );
-    }
-    if ($age < 13 || $age > 120) {
-        return new WP_Error(
-            'invalid_age',
-            'Please enter a valid age.',
-            ['status' => 400]
-        );
-    }
-
-    // Optional Secondary / Alternate Phone processing
-    $clean_secondary = '';
-    if (!empty($secondary_phone)) {
-        $clean_secondary = mumbai_normalize_phone($secondary_phone);
-        if (!$clean_secondary) {
-            return new WP_Error(
-                'invalid_secondary_phone',
-                'Please enter a valid 10-digit alternative mobile number.',
-                ['status' => 400]
-            );
+    $password = $request->get_param('password');
+    $password_changed = false;
+    if (!empty($password)) {
+        $pw_check = mumbai_validate_password($password);
+        if ($pw_check !== true) {
+            return new WP_Error('weak_password', $pw_check, ['status' => 400]);
         }
-        if ($clean_secondary === $clean_phone) {
-            return new WP_Error(
-                'duplicate_phone',
-                'Alternative mobile number cannot be the same as your primary mobile number.',
-                ['status' => 400]
-            );
-        }
+        wp_set_password($password, $user_id);
+        $password_changed = true;
     }
-    update_user_meta($user_id, '_mumbai_secondary_phone', $clean_secondary);
 
     wp_update_user([
         'ID'           => $user_id,
@@ -2079,24 +2102,49 @@ function mumbai_save_profile(WP_REST_Request $request)
         'first_name'      => $first_name,
         'last_name'       => $last_name,
         'full_name'       => $clean_full_name,
-        'age'             => $age,
         'phone'           => $clean_phone,
-        'secondary_phone' => $clean_secondary,
     ];
     update_user_meta($user_id, '_mumbai_user_profile', $profile);
+
+    // Update indexed directory fields before reporting the profile save as successful.
+    mumbai_sync_customer_search_index($user_id);
 
     $is_phone_verified = mumbai_is_user_phone_verified($user_id);
     $current_verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
 
-    return [
+    $response = [
         'success'           => true,
         'message'           => 'Profile saved successfully.',
         'profile'           => $profile,
         'is_phone_verified' => $is_phone_verified,
         'verified_phone'    => $current_verified_phone,
         'billing_phone'     => (string) get_user_meta($user_id, 'billing_phone', true),
-        'secondary_phone'   => $clean_secondary,
     ];
+
+    if ($password_changed) {
+        // Password changes invalidate cookies signed with the previous hash.
+        // Issue a fresh logged-in cookie so the customer can finish profile and
+        // address setup without being unexpectedly signed out mid-flow.
+        wp_set_current_user($user_id);
+        $expiration = time() + (30 * DAY_IN_SECONDS);
+        $session_manager = WP_Session_Tokens::get_instance($user_id);
+        $session_token = $session_manager->create($expiration);
+
+        wp_set_auth_cookie($user_id, true, is_ssl(), $session_token);
+        $logged_in_cookie = wp_generate_auth_cookie(
+            $user_id,
+            $expiration,
+            'logged_in',
+            $session_token
+        );
+        $_COOKIE[LOGGED_IN_COOKIE] = $logged_in_cookie;
+
+        $response['session'] = $logged_in_cookie;
+        $response['cookie_name'] = LOGGED_IN_COOKIE;
+        $response['rest_nonce'] = wp_create_nonce('wp_rest');
+    }
+
+    return $response;
 }
 /*
  * ─────────────────────────────────────────────
@@ -2126,7 +2174,6 @@ function mumbai_check_profile_complete(WP_REST_Request $request)
 
     $profile_complete =
         !empty($profile['full_name']) &&
-        !empty($profile['age']) &&
         !empty($profile['phone']);
     $has_address = false;
     foreach ($addresses as $address) {
@@ -2139,6 +2186,10 @@ function mumbai_check_profile_complete(WP_REST_Request $request)
         }
     }
     $complete = $profile_complete && $has_address;
+
+    // Strip legacy fields from existing stored user profiles so they never leak in responses
+    unset($profile['age'], $profile['secondary_phone']);
+
     return [
         'success'           => true,
         'complete'          => $complete,
@@ -2610,8 +2661,38 @@ function mumbai_otp_store(WP_REST_Request $request) {
     $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
     $user_id = (int) $request->get_param('user_id');
 
-    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password'])) {
+    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password', 'register'])) {
         return new WP_Error('invalid_params', 'Missing required parameters.', ['status' => 400]);
+    }
+
+    if ($purpose === 'register') {
+        if (!is_email($phone)) {
+            return new WP_Error('invalid_email', 'Please enter a valid email address.', ['status' => 400]);
+        }
+        $existing = get_user_by('email', $phone);
+        if ($existing) {
+            return new WP_Error('email_exists', 'An account with this email already exists. Please sign in.', ['status' => 409]);
+        }
+        $norm_email = strtolower(trim($phone));
+        $last_request = (int) get_transient('_mumbai_last_reg_otp_' . md5($norm_email));
+        if ($last_request && (time() - $last_request) < 60) {
+            return new WP_Error('rate_limit', 'Please wait 60 seconds before requesting a new code.', ['status' => 429]);
+        }
+
+        set_transient('_mumbai_last_reg_otp_' . md5($norm_email), time(), 60);
+        set_transient('_mumbai_reg_otp_' . md5($norm_email), [
+            'hash'     => $otp_hash,
+            'expires'  => time() + 300,
+            'attempts' => 0,
+        ], 300);
+
+        return [
+            'success'    => true,
+            'message'    => 'Verification code sent.',
+            'user_found' => false,
+            'email'      => $phone,
+            'name'       => '',
+        ];
     }
 
     $generic_success = [
@@ -2678,6 +2759,13 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
     $phone = sanitize_text_field($request->get_param('phone'));
     $user_id = (int) $request->get_param('user_id');
 
+    if ($purpose === 'register') {
+        if ($phone) {
+            delete_transient('_mumbai_reg_otp_' . md5(strtolower(trim($phone))));
+        }
+        return ['success' => true];
+    }
+
     $user = null;
     if ($purpose === 'reset_password') {
         if (is_email($phone)) {
@@ -2706,8 +2794,34 @@ function mumbai_otp_verify(WP_REST_Request $request) {
     $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
     $user_id = (int) $request->get_param('user_id');
 
-    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password'])) {
+    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password', 'register'])) {
         return new WP_Error('invalid_params', 'Missing required parameters.', ['status' => 400]);
+    }
+
+    if ($purpose === 'register') {
+        $norm_email = strtolower(trim($phone));
+        $transient_key = '_mumbai_reg_otp_' . md5($norm_email);
+        $stored = get_transient($transient_key);
+
+        if (!$stored || !is_array($stored) || empty($stored['hash'])) {
+            return new WP_Error('expired_otp', 'Verification code has expired or was not requested.', ['status' => 400]);
+        }
+        if (($stored['attempts'] ?? 0) >= 5) {
+            delete_transient($transient_key);
+            return new WP_Error('too_many_attempts', 'Too many invalid attempts. Please request a new code.', ['status' => 429]);
+        }
+        if (!hash_equals((string) $stored['hash'], (string) $otp_hash)) {
+            $stored['attempts'] = ($stored['attempts'] ?? 0) + 1;
+            set_transient($transient_key, $stored, 300);
+            return new WP_Error('invalid_otp', 'Invalid verification code.', ['status' => 400]);
+        }
+
+        delete_transient($transient_key);
+        return [
+            'success'  => true,
+            'message'  => 'Email verified successfully.',
+            'verified' => true,
+        ];
     }
 
     $user = null;
@@ -3986,10 +4100,381 @@ function mumbai_save_store_hours(WP_REST_Request $request) {
  * ─────────────────────────────────────────────
  */
 
+/** Name of the materialized per-customer order-metrics table. */
+function mumbai_customer_metrics_table_name() {
+    global $wpdb;
+    return $wpdb->prefix . 'mumbai_customer_metrics';
+}
+
+function mumbai_customer_search_table_name() {
+    global $wpdb;
+    return $wpdb->prefix . 'mumbai_customer_search';
+}
+
+/** Create the customer metrics table and begin a resumable historical backfill. */
+function mumbai_upgrade_customer_metrics_table() {
+    global $wpdb;
+    $table = mumbai_customer_metrics_table_name();
+    $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
+    if ((int) get_option('mumbai_customer_metrics_schema_version', 0) < 1 || !$table_exists) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset_collate = $wpdb->get_charset_collate();
+        dbDelta("CREATE TABLE {$table} (
+            customer_id BIGINT UNSIGNED NOT NULL,
+            orders_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            lifetime_spent DECIMAL(26,8) NOT NULL DEFAULT 0,
+            last_order_date_gmt DATETIME NULL,
+            last_order_id BIGINT UNSIGNED NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY  (customer_id),
+            KEY lifetime_spent (lifetime_spent),
+            KEY orders_count (orders_count),
+            KEY last_order_date_gmt (last_order_date_gmt)
+        ) {$charset_collate};");
+        update_option('mumbai_customer_metrics_schema_version', 1, false);
+        if (!$table_exists) {
+            delete_option('mumbai_customer_metrics_backfill_complete');
+            delete_option('mumbai_customer_metrics_backfill_last_customer_id');
+        }
+    }
+
+    $search_table = mumbai_customer_search_table_name();
+    $search_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $search_table)) === $search_table;
+    if ((int) get_option('mumbai_customer_search_schema_version', 0) < 1 || !$search_table_exists) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset_collate = $wpdb->get_charset_collate();
+        dbDelta("CREATE TABLE {$search_table} (
+            customer_id BIGINT UNSIGNED NOT NULL,
+            display_name VARCHAR(191) NOT NULL DEFAULT '',
+            email VARCHAR(191) NOT NULL DEFAULT '',
+            username VARCHAR(60) NOT NULL DEFAULT '',
+            phone_digits VARCHAR(32) NOT NULL DEFAULT '',
+            location_key VARCHAR(32) NOT NULL DEFAULT 'unassigned',
+            search_text TEXT NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY  (customer_id),
+            KEY display_name (display_name),
+            KEY email (email),
+            KEY username (username),
+            KEY phone_digits (phone_digits),
+            KEY location_key (location_key),
+            FULLTEXT KEY search_text_fulltext (search_text)
+        ) {$charset_collate};");
+        update_option('mumbai_customer_search_schema_version', 1, false);
+        if (!$search_table_exists) {
+            delete_option('mumbai_customer_search_backfill_complete');
+            delete_option('mumbai_customer_search_backfill_last_user_id');
+        }
+    }
+
+    if (!get_option('mumbai_customer_metrics_backfill_complete') && !wp_next_scheduled('mumbai_customer_metrics_backfill_batch')) {
+        wp_schedule_single_event(time() + 10, 'mumbai_customer_metrics_backfill_batch');
+    }
+    if (!get_option('mumbai_customer_search_backfill_complete') && !wp_next_scheduled('mumbai_customer_search_backfill_batch')) {
+        wp_schedule_single_event(time() + 10, 'mumbai_customer_search_backfill_batch');
+    }
+}
+add_action('init', 'mumbai_upgrade_customer_metrics_table', 31);
+
+function mumbai_get_customer_location_key($city, $postcode, $address) {
+    $city = strtolower(trim((string) $city));
+    $postcode = preg_replace('/\D/', '', (string) $postcode);
+    $address = strtolower((string) $address);
+    if (strpos($city, 'vasai') !== false) {
+        if (strpos($city, 'east') !== false || strpos($city, '(e)') !== false) return 'vasai-east';
+        if (strpos($city, 'west') !== false || strpos($city, '(w)') !== false) return 'vasai-west';
+    }
+    if (strpos($city, 'nalasopara') !== false || strpos($city, 'nallasopara') !== false || strpos($city, 'sopara') !== false) {
+        if (strpos($city, 'east') !== false || strpos($city, '(e)') !== false) return 'nalasopara-east';
+        if (strpos($city, 'west') !== false || strpos($city, '(w)') !== false) return 'nalasopara-west';
+    }
+    $postcode_locations = [
+        '401201' => 'vasai-west', '401202' => 'vasai-east', '401208' => 'vasai-east',
+        '401203' => 'nalasopara-west', '401209' => 'nalasopara-east',
+    ];
+    if (isset($postcode_locations[$postcode])) return $postcode_locations[$postcode];
+    $rules = [
+        'vasai-east' => ['evershine', 'navghar'],
+        'vasai-west' => ['chulna', 'babola', 'ambadi', 'vasai station west', 'vasai (w)', 'vasai west'],
+        'nalasopara-east' => ['achole', 'moregaon', 'central park nalasopara', 'nalasopara (e)', 'nallasopara (e)', 'nalasopara east', 'nallasopara east'],
+        'nalasopara-west' => ['patankar park', 'sopara west', 'nalasopara (w)', 'nallasopara (w)', 'nalasopara west', 'nallasopara west'],
+    ];
+    foreach ($rules as $key => $keywords) {
+        foreach ($keywords as $keyword) {
+            if (strpos($address, $keyword) !== false) return $key;
+        }
+    }
+    return 'unassigned';
+}
+
+/** Keep one searchable, indexed record per customer instead of scanning many usermeta rows. */
+function mumbai_sync_customer_search_index($user_id) {
+    global $wpdb;
+    $user_id = absint($user_id);
+    $user = $user_id ? get_userdata($user_id) : false;
+    $table = mumbai_customer_search_table_name();
+    if (!$user) {
+        if ($user_id) $wpdb->delete($table, ['customer_id' => $user_id], ['%d']);
+        return true;
+    }
+
+    $first = (string) get_user_meta($user_id, 'first_name', true);
+    $last = (string) get_user_meta($user_id, 'last_name', true);
+    $phone = (string) (get_user_meta($user_id, 'billing_phone', true) ?: get_user_meta($user_id, '_mumbai_verified_phone', true));
+    $city = (string) get_user_meta($user_id, 'billing_city', true);
+    $state = (string) get_user_meta($user_id, 'billing_state', true);
+    $postcode = (string) get_user_meta($user_id, 'billing_postcode', true);
+    $address = implode(' ', array_filter([
+        get_user_meta($user_id, 'billing_address_1', true),
+        get_user_meta($user_id, 'billing_address_2', true),
+        $city,
+        $state,
+        $postcode,
+    ]));
+    $display_name = trim($first . ' ' . $last) ?: (string) $user->display_name;
+    $phone_digits = preg_replace('/\D/', '', $phone);
+    $search_text = strtolower(implode(' ', array_filter([
+        $display_name, $user->user_email, $user->user_login, $phone, $address,
+    ])));
+    return $wpdb->replace($table, [
+        'customer_id' => $user_id,
+        'display_name' => $display_name,
+        'email' => strtolower((string) $user->user_email),
+        'username' => strtolower((string) $user->user_login),
+        'phone_digits' => $phone_digits,
+        'location_key' => mumbai_get_customer_location_key($city, $postcode, $address),
+        'search_text' => $search_text,
+        'updated_at' => current_time('mysql', true),
+    ], ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s']);
+}
+
+function mumbai_schedule_customer_search_index_update($user_id, $meta_id = null, $meta_key = null) {
+    if ($meta_key !== null && !in_array($meta_key, [
+        'first_name', 'last_name', 'billing_phone', '_mumbai_verified_phone',
+        'billing_city', 'billing_state', 'billing_postcode', 'billing_address_1', 'billing_address_2',
+    ], true)) {
+        return;
+    }
+    wp_schedule_single_event(time() + 5, 'mumbai_sync_customer_search_index_event', [absint($user_id)]);
+}
+function mumbai_schedule_customer_search_index_from_meta($meta_id, $user_id, $meta_key) {
+    mumbai_schedule_customer_search_index_update($user_id, $meta_id, $meta_key);
+}
+add_action('user_register', 'mumbai_schedule_customer_search_index_update', 10, 1);
+add_action('profile_update', 'mumbai_schedule_customer_search_index_update', 10, 1);
+add_action('added_user_meta', 'mumbai_schedule_customer_search_index_from_meta', 10, 3);
+add_action('updated_user_meta', 'mumbai_schedule_customer_search_index_from_meta', 10, 3);
+add_action('deleted_user_meta', 'mumbai_schedule_customer_search_index_from_meta', 10, 3);
+add_action('mumbai_sync_customer_search_index_event', 'mumbai_sync_customer_search_index', 10, 1);
+add_action('deleted_user', function ($user_id) {
+    global $wpdb;
+    $wpdb->delete(mumbai_customer_search_table_name(), ['customer_id' => absint($user_id)], ['%d']);
+}, 10, 1);
+
+function mumbai_customer_search_backfill_batch() {
+    global $wpdb;
+    $batch_size = 250;
+    $last_id = (int) get_option('mumbai_customer_search_backfill_last_user_id', 0);
+    $user_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT ID FROM {$wpdb->users} WHERE ID > %d ORDER BY ID ASC LIMIT %d",
+        $last_id,
+        $batch_size
+    ));
+    if (!empty($wpdb->last_error)) {
+        wp_schedule_single_event(time() + 30, 'mumbai_customer_search_backfill_batch');
+        return;
+    }
+    if (empty($user_ids)) {
+        update_option('mumbai_customer_search_backfill_complete', 1, false);
+        delete_option('mumbai_customer_search_backfill_last_user_id');
+        return;
+    }
+    $user_ids = array_map('absint', $user_ids);
+    update_meta_cache('user', $user_ids);
+    $write_failed = false;
+    foreach ($user_ids as $user_id) {
+        if (mumbai_sync_customer_search_index($user_id) === false) $write_failed = true;
+    }
+    if ($write_failed) {
+        wp_schedule_single_event(time() + 30, 'mumbai_customer_search_backfill_batch');
+        return;
+    }
+    update_option('mumbai_customer_search_backfill_last_user_id', max($user_ids), false);
+    wp_schedule_single_event(time() + 15, 'mumbai_customer_search_backfill_batch');
+}
+add_action('mumbai_customer_search_backfill_batch', 'mumbai_customer_search_backfill_batch');
+
+/** Recalculate exactly one customer's metrics after one of their orders changes. */
+function mumbai_refresh_customer_metrics($customer_id) {
+    global $wpdb;
+    $customer_id = absint($customer_id);
+    $table_orders = $wpdb->prefix . 'wc_orders';
+    $table_metrics = mumbai_customer_metrics_table_name();
+    if (!$customer_id || $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) !== $table_orders ||
+        $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_metrics)) !== $table_metrics) {
+        return;
+    }
+
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    $row = $wpdb->get_row($wpdb->prepare(
+        "SELECT COUNT(id) AS orders_count,
+                COALESCE(SUM(total_amount), 0) AS lifetime_spent,
+                MAX(date_created_gmt) AS last_order_date_gmt,
+                MAX(id) AS last_order_id
+         FROM {$table_orders}
+         WHERE customer_id = %d AND status NOT IN {$invalid_statuses_sql}",
+        $customer_id
+    ), ARRAY_A);
+
+    if (!$row || (int) $row['orders_count'] === 0) {
+        $wpdb->delete($table_metrics, ['customer_id' => $customer_id], ['%d']);
+        return;
+    }
+
+    $wpdb->replace($table_metrics, [
+        'customer_id'          => $customer_id,
+        'orders_count'         => (int) $row['orders_count'],
+        'lifetime_spent'       => $row['lifetime_spent'],
+        'last_order_date_gmt'  => $row['last_order_date_gmt'],
+        'last_order_id'        => $row['last_order_id'],
+        'updated_at'           => current_time('mysql', true),
+    ], ['%d', '%d', '%s', '%s', '%d', '%s']);
+}
+
+/** Populate metrics in bounded batches; safe to resume after a request interruption. */
+function mumbai_customer_metrics_backfill_batch() {
+    global $wpdb;
+    $table_orders = $wpdb->prefix . 'wc_orders';
+    $table_metrics = mumbai_customer_metrics_table_name();
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) !== $table_orders ||
+        $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_metrics)) !== $table_metrics) {
+        return;
+    }
+
+    $batch_size = 200;
+    $last_id = (int) get_option('mumbai_customer_metrics_backfill_last_customer_id', 0);
+    $customer_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT DISTINCT customer_id FROM {$table_orders}
+         WHERE customer_id > %d ORDER BY customer_id ASC LIMIT %d",
+        $last_id,
+        $batch_size
+    ));
+
+    if (!empty($wpdb->last_error)) {
+        wp_schedule_single_event(time() + 30, 'mumbai_customer_metrics_backfill_batch');
+        return;
+    }
+
+    if (empty($customer_ids)) {
+        update_option('mumbai_customer_metrics_backfill_complete', 1, false);
+        delete_option('mumbai_customer_metrics_backfill_last_customer_id');
+        return;
+    }
+
+    $customer_ids = array_map('absint', $customer_ids);
+    $placeholders = implode(',', array_fill(0, count($customer_ids), '%d'));
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    $query = $wpdb->prepare(
+        "SELECT customer_id, COUNT(id) AS orders_count,
+                COALESCE(SUM(total_amount), 0) AS lifetime_spent,
+                MAX(date_created_gmt) AS last_order_date_gmt,
+                MAX(id) AS last_order_id
+         FROM {$table_orders}
+         WHERE customer_id IN ({$placeholders}) AND status NOT IN {$invalid_statuses_sql}
+         GROUP BY customer_id",
+        ...$customer_ids
+    );
+    $rows = $wpdb->get_results($query, ARRAY_A) ?: [];
+    if (!empty($wpdb->last_error)) {
+        wp_schedule_single_event(time() + 30, 'mumbai_customer_metrics_backfill_batch');
+        return;
+    }
+    $table_metrics = mumbai_customer_metrics_table_name();
+    $write_failed = false;
+    foreach ($rows as $row) {
+        if ($wpdb->replace($table_metrics, [
+            'customer_id'          => (int) $row['customer_id'],
+            'orders_count'         => (int) $row['orders_count'],
+            'lifetime_spent'       => $row['lifetime_spent'],
+            'last_order_date_gmt'  => $row['last_order_date_gmt'],
+            'last_order_id'        => $row['last_order_id'],
+            'updated_at'           => current_time('mysql', true),
+        ], ['%d', '%d', '%s', '%s', '%d', '%s']) === false) {
+            $write_failed = true;
+        }
+    }
+
+    if ($write_failed) {
+        wp_schedule_single_event(time() + 30, 'mumbai_customer_metrics_backfill_batch');
+        return;
+    }
+
+    update_option('mumbai_customer_metrics_backfill_last_customer_id', max($customer_ids), false);
+    wp_schedule_single_event(time() + 15, 'mumbai_customer_metrics_backfill_batch');
+}
+add_action('mumbai_customer_metrics_backfill_batch', 'mumbai_customer_metrics_backfill_batch');
+
+/**
+ * Keep customer metrics current. Capture the pre-save owner so reassigned orders
+ * refresh both the old and new customer's summary.
+ */
+function mumbai_capture_order_customer_before_save($order, $data_store = null) {
+    global $wpdb, $mumbai_order_customer_before_save;
+    if (!($order instanceof WC_Order) || !$order->get_id()) {
+        return;
+    }
+    $table_orders = $wpdb->prefix . 'wc_orders';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) !== $table_orders) {
+        return;
+    }
+    $old_customer_id = $wpdb->get_var($wpdb->prepare("SELECT customer_id FROM {$table_orders} WHERE id = %d", $order->get_id()));
+    $mumbai_order_customer_before_save[(int) $order->get_id()] = absint($old_customer_id);
+}
+add_action('woocommerce_before_order_object_save', 'mumbai_capture_order_customer_before_save', 5, 2);
+
+function mumbai_refresh_order_customer_metrics_after_save($order, $data_store = null) {
+    global $mumbai_order_customer_before_save;
+    if (!($order instanceof WC_Order)) {
+        return;
+    }
+    $order_id = absint($order->get_id());
+    $old_customer_id = (int) ($mumbai_order_customer_before_save[$order_id] ?? 0);
+    unset($mumbai_order_customer_before_save[$order_id]);
+    $new_customer_id = absint($order->get_customer_id());
+    if ($old_customer_id && $old_customer_id !== $new_customer_id) {
+        mumbai_refresh_customer_metrics($old_customer_id);
+    }
+    if ($new_customer_id) {
+        mumbai_refresh_customer_metrics($new_customer_id);
+    }
+}
+add_action('woocommerce_after_order_object_save', 'mumbai_refresh_order_customer_metrics_after_save', 30, 2);
+
+function mumbai_capture_deleted_order_customer($order_id) {
+    global $wpdb;
+    global $mumbai_deleted_order_customers;
+    $table_orders = $wpdb->prefix . 'wc_orders';
+    $order_id = absint($order_id);
+    $customer_id = absint($wpdb->get_var($wpdb->prepare("SELECT customer_id FROM {$table_orders} WHERE id = %d", $order_id)));
+    if ($customer_id) {
+        $mumbai_deleted_order_customers[$order_id] = $customer_id;
+    }
+}
+add_action('woocommerce_before_delete_order', 'mumbai_capture_deleted_order_customer', 10, 1);
+
+function mumbai_refresh_deleted_order_customer_metrics($order_id) {
+    global $mumbai_deleted_order_customers;
+    $customer_id = absint($mumbai_deleted_order_customers[absint($order_id)] ?? 0);
+    unset($mumbai_deleted_order_customers[absint($order_id)]);
+    if ($customer_id) {
+        mumbai_refresh_customer_metrics($customer_id);
+    }
+}
+add_action('woocommerce_delete_order', 'mumbai_refresh_deleted_order_customer_metrics', 10, 1);
+
 /**
  * REST Callback: Get registered customers list (Admin internal endpoint)
- * Scalable database-level sorting, pagination, location filtering, and LTV calculation.
- * Handles 10,000+ customers in single-digit milliseconds.
+ * Database-paginated customer search and ordering backed by precomputed metrics.
  */
 function mumbai_admin_get_customers(WP_REST_Request $request) {
     global $wpdb;
@@ -4007,6 +4492,15 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
     $table_usermeta = $wpdb->usermeta;
     $table_orders   = $wpdb->prefix . 'wc_orders';
     $has_hpos       = ($wpdb->get_var("SHOW TABLES LIKE '{$table_orders}'") === $table_orders);
+    if (!$has_hpos) {
+        return new WP_Error('customer_metrics_unavailable', 'Customer order metrics require the WooCommerce HPOS orders table. Enable HPOS or restore the orders table, then retry.', ['status' => 503]);
+    }
+    $table_customer_metrics = mumbai_customer_metrics_table_name();
+    $metrics_ready = (bool) get_option('mumbai_customer_metrics_backfill_complete') &&
+        $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_customer_metrics)) === $table_customer_metrics;
+    $table_customer_search = mumbai_customer_search_table_name();
+    $search_index_ready = (bool) get_option('mumbai_customer_search_backfill_complete') &&
+        $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_customer_search)) === $table_customer_search;
 
     $cap_key = $wpdb->prefix . 'capabilities';
     $where_clauses = [
@@ -4025,20 +4519,51 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
 
     // Search filter across display name, email, login, and usermeta
     if (!empty($search)) {
-        $like = '%' . $wpdb->esc_like(trim($search)) . '%';
-        $where_clauses[] = $wpdb->prepare(
-            "(u.display_name LIKE %s 
-              OR u.user_email LIKE %s 
-              OR u.user_login LIKE %s 
-              OR u.ID IN (
-                  SELECT DISTINCT sm.user_id 
-                  FROM {$table_usermeta} sm 
-                  WHERE sm.meta_key IN ('first_name', 'last_name', 'billing_phone', '_mumbai_verified_phone', '_mumbai_secondary_phone', 'billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode')
-                    AND sm.meta_value LIKE %s
-              )
-            )",
-            $like, $like, $like, $like
-        );
+        $normalized_search = strtolower(trim($search));
+        if ($search_index_ready) {
+            $phone_search = preg_replace('/\D/', '', $normalized_search);
+            if (strlen($phone_search) > 10 && substr($phone_search, 0, 2) === '91') {
+                $phone_search = substr($phone_search, 2);
+            } elseif (strlen($phone_search) === 11 && substr($phone_search, 0, 1) === '0') {
+                $phone_search = substr($phone_search, 1);
+            }
+            $tokens = preg_split('/[^\p{L}\p{N}]+/u', $normalized_search, -1, PREG_SPLIT_NO_EMPTY);
+            $tokens = array_values(array_filter($tokens, static function ($token) {
+                return function_exists('mb_strlen') ? mb_strlen($token) >= 3 : strlen($token) >= 3;
+            }));
+            if (!empty($tokens)) {
+                $boolean_search = implode(' ', array_map(static function ($token) {
+                    return '+' . preg_replace('/[^\p{L}\p{N}]/u', '', $token) . '*';
+                }, $tokens));
+                $search_match = $wpdb->prepare(
+                    "MATCH(search_text) AGAINST (%s IN BOOLEAN MODE)",
+                    $boolean_search
+                );
+                if ($phone_search !== '') {
+                    $search_match = '(' . $search_match . ' OR phone_digits LIKE ' . $wpdb->prepare('%s', $wpdb->esc_like($phone_search) . '%') . ')';
+                }
+                $where_clauses[] = "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE {$search_match})";
+            } else {
+                $prefix = $wpdb->esc_like($normalized_search) . '%';
+                $phone_prefix = preg_replace('/\D/', '', $normalized_search);
+                $where_clauses[] = $wpdb->prepare(
+                    "u.ID IN (SELECT customer_id FROM {$table_customer_search}
+                     WHERE display_name LIKE %s OR email LIKE %s OR username LIKE %s OR phone_digits LIKE %s)",
+                    $prefix, $prefix, $prefix,
+                    $phone_prefix !== '' ? $wpdb->esc_like($phone_prefix) . '%' : $prefix
+                );
+            }
+        } else {
+            // Safe compatibility path while the indexed customer search table is backfilling.
+            $like = '%' . $wpdb->esc_like($normalized_search) . '%';
+            $where_clauses[] = $wpdb->prepare(
+                "(u.display_name LIKE %s OR u.user_email LIKE %s OR u.user_login LIKE %s
+                  OR u.ID IN (SELECT DISTINCT sm.user_id FROM {$table_usermeta} sm
+                    WHERE sm.meta_key IN ('first_name', 'last_name', 'billing_phone', '_mumbai_verified_phone', 'billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode')
+                    AND sm.meta_value LIKE %s))",
+                $like, $like, $like, $like
+            );
+        }
     }
 
     // Location facet filter
@@ -4053,30 +4578,43 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
 
     $loc_key = strtolower(trim($location));
     if (!empty($loc_key) && $loc_key !== 'all' && isset($location_keywords_map[$loc_key])) {
-        $keywords = $location_keywords_map[$loc_key];
-        $loc_clauses = [];
-        $loc_params  = [];
-        foreach ($keywords as $kw) {
-            $loc_clauses[] = "loc_m.meta_value LIKE %s";
-            $loc_params[]  = '%' . $wpdb->esc_like($kw) . '%';
+        if ($search_index_ready) {
+            $canonical_location = str_replace('nallasopara', 'nalasopara', $loc_key);
+            $where_clauses[] = $wpdb->prepare(
+                "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE location_key = %s)",
+                $canonical_location
+            );
+        } else {
+            $keywords = $location_keywords_map[$loc_key];
+            $loc_clauses = [];
+            $loc_params  = [];
+            foreach ($keywords as $kw) {
+                $loc_clauses[] = "loc_m.meta_value LIKE %s";
+                $loc_params[]  = '%' . $wpdb->esc_like($kw) . '%';
+            }
+            $loc_inner = implode(' OR ', $loc_clauses);
+            $where_clauses[] = $wpdb->prepare(
+                "u.ID IN (
+                    SELECT DISTINCT loc_m.user_id FROM {$table_usermeta} loc_m
+                    WHERE loc_m.meta_key IN ('billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode', 'billing_state')
+                      AND ({$loc_inner})
+                )",
+                ...$loc_params
+            );
         }
-        $loc_inner = implode(' OR ', $loc_clauses);
-        $where_clauses[] = $wpdb->prepare(
-            "u.ID IN (
-                SELECT DISTINCT loc_m.user_id 
-                FROM {$table_usermeta} loc_m 
-                WHERE loc_m.meta_key IN ('billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode', 'billing_state')
-                  AND ({$loc_inner})
-            )",
-            ...$loc_params
-        );
     }
 
     $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
 
     // HPOS order metrics are linked only by customer_id. Email matching could
     // incorrectly reattach orders from a deleted account to a later account.
-    if ($has_hpos) {
+    if ($metrics_ready) {
+        $join_orders_sql = "LEFT JOIN (
+            SELECT customer_id, orders_count, lifetime_spent,
+                   last_order_date_gmt AS last_order_date, last_order_id
+            FROM {$table_customer_metrics}
+        ) ord ON ord.customer_id = u.ID";
+    } else {
         $join_orders_sql = "LEFT JOIN (
             SELECT 
                 ord_u.uid,
@@ -4097,8 +4635,6 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
             WHERE ord_u.uid IS NOT NULL AND ord_u.uid > 0
             GROUP BY ord_u.uid
         ) ord ON ord.uid = u.ID";
-    } else {
-        $join_orders_sql = "";
     }
 
     // Server-side sorting
@@ -4204,7 +4740,6 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
             'first_name'      => $first_name,
             'last_name'       => $last_name,
             'phone'           => $phone,
-            'secondary_phone' => (string) get_user_meta($user_id, '_mumbai_secondary_phone', true),
             'location'        => "{$city}, {$state}",
             'full_address'    => $full_address,
             'registered_at'   => $u['user_registered'] ? date('c', strtotime($u['user_registered'])) : null,
@@ -4732,9 +5267,139 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
 }
 
 /**
- * Fetch employee orders directly from WooCommerce with DB-side status filtering
- * and pagination. This endpoint is internal-only and requires HPOS because the
- * delivery status is stored in WooCommerce order metadata.
+ * Normalize and persist the delivery location assigned to a WooCommerce order.
+ * This makes location filters database-side and paginatable instead of requiring
+ * the Node API to scan a bounded number of recent orders.
+ */
+function mumbai_get_order_delivery_location_key($order) {
+    if (!($order instanceof WC_Order)) {
+        return 'unassigned';
+    }
+
+    $shipping_city = (string) $order->get_shipping_city();
+    $billing_city = (string) $order->get_billing_city();
+    $raw_city = strtolower(trim($shipping_city !== '' ? $shipping_city : $billing_city));
+
+    if ($raw_city !== '') {
+        if (strpos($raw_city, 'vasai') !== false) {
+            if (strpos($raw_city, 'east') !== false || strpos($raw_city, '(e)') !== false || strpos($raw_city, '-east') !== false) {
+                return 'vasai-east';
+            }
+            if (strpos($raw_city, 'west') !== false || strpos($raw_city, '(w)') !== false || strpos($raw_city, '-west') !== false) {
+                return 'vasai-west';
+            }
+        }
+        if (strpos($raw_city, 'nalasopara') !== false || strpos($raw_city, 'nallasopara') !== false || strpos($raw_city, 'sopara') !== false) {
+            if (strpos($raw_city, 'east') !== false || strpos($raw_city, '(e)') !== false || strpos($raw_city, '-east') !== false) {
+                return 'nalasopara-east';
+            }
+            if (strpos($raw_city, 'west') !== false || strpos($raw_city, '(w)') !== false || strpos($raw_city, '-west') !== false) {
+                return 'nalasopara-west';
+            }
+        }
+    }
+
+    $shipping_postcode = (string) $order->get_shipping_postcode();
+    $billing_postcode = (string) $order->get_billing_postcode();
+    $raw_postcode = preg_replace('/\\D/', '', $shipping_postcode !== '' ? $shipping_postcode : $billing_postcode);
+    $postcode_locations = [
+        '401201' => 'vasai-west',
+        '401202' => 'vasai-east',
+        '401208' => 'vasai-east',
+        '401203' => 'nalasopara-west',
+        '401209' => 'nalasopara-east',
+    ];
+    if (isset($postcode_locations[$raw_postcode])) {
+        return $postcode_locations[$raw_postcode];
+    }
+
+    $combined_address = strtolower(implode(' ', array_filter([
+        $order->get_shipping_address_1(),
+        $order->get_shipping_address_2(),
+        $order->get_billing_address_1(),
+        $order->get_billing_address_2(),
+    ])));
+    $address_rules = [
+        'vasai-east' => ['evershine', 'navghar'],
+        'vasai-west' => ['chulna', 'babola', 'ambadi', 'vasai station west', 'vasai (w)', 'vasai west'],
+        'nalasopara-east' => ['achole', 'moregaon', 'central park nalasopara', 'nalasopara (e)', 'nallasopara (e)', 'nalasopara east', 'nallasopara east'],
+        'nalasopara-west' => ['patankar park', 'sopara west', 'nalasopara (w)', 'nallasopara (w)', 'nalasopara west', 'nallasopara west'],
+    ];
+    foreach ($address_rules as $location_key => $keywords) {
+        foreach ($keywords as $keyword) {
+            if (strpos($combined_address, $keyword) !== false) {
+                return $location_key;
+            }
+        }
+    }
+
+    return 'unassigned';
+}
+
+function mumbai_sync_order_delivery_location($order, $data_store = null) {
+    static $syncing = false;
+    if ($syncing || !($order instanceof WC_Order)) {
+        return;
+    }
+
+    $location_key = mumbai_get_order_delivery_location_key($order);
+    if ($order->get_meta('_mumbai_delivery_location_key', true) === $location_key) {
+        return;
+    }
+
+    $syncing = true;
+    $order->update_meta_data('_mumbai_delivery_location_key', $location_key);
+    $order->save_meta_data();
+    $syncing = false;
+}
+add_action('woocommerce_after_order_object_save', 'mumbai_sync_order_delivery_location', 20, 2);
+
+/** Batch old orders into location metadata so the indexed filter covers history. */
+function mumbai_schedule_order_location_backfill() {
+    if (get_option('mumbai_order_location_backfill_complete') || wp_next_scheduled('mumbai_order_location_backfill_batch')) {
+        return;
+    }
+    wp_schedule_single_event(time() + 10, 'mumbai_order_location_backfill_batch');
+}
+add_action('init', 'mumbai_schedule_order_location_backfill', 30);
+
+function mumbai_order_location_backfill_batch() {
+    if (!function_exists('wc_get_orders') || !class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') ||
+        !Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+        return;
+    }
+
+    $batch_size = 250;
+    $orders = wc_get_orders([
+        'type'       => 'shop_order',
+        'limit'      => $batch_size,
+        'page'       => 1,
+        'paginate'   => false,
+        'orderby'    => 'id',
+        'order'      => 'ASC',
+        'return'     => 'objects',
+        'meta_query' => [[
+            'key'     => '_mumbai_delivery_location_key',
+            'compare' => 'NOT EXISTS',
+        ]],
+    ]);
+
+    foreach ($orders as $order) {
+        mumbai_sync_order_delivery_location($order);
+    }
+
+    if (count($orders) >= $batch_size) {
+        wp_schedule_single_event(time() + 15, 'mumbai_order_location_backfill_batch');
+        return;
+    }
+
+    update_option('mumbai_order_location_backfill_complete', 1, false);
+}
+add_action('mumbai_order_location_backfill_batch', 'mumbai_order_location_backfill_batch');
+
+/**
+ * Fetch employee orders with DB-side status, location, and date filtering and
+ * pagination. This internal endpoint requires HPOS for supported query semantics.
  */
 function mumbai_employee_get_orders(WP_REST_Request $request) {
     if (!function_exists('wc_get_orders') || !class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') || !class_exists('WC_REST_Orders_Controller')) {
@@ -4749,8 +5414,18 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
     }
 
     $status = sanitize_key((string) $request->get_param('status'));
+    $location = sanitize_key((string) $request->get_param('location'));
     $page = max(1, absint($request->get_param('page') ?: 1));
     $limit = min(100, max(1, absint($request->get_param('per_page') ?: 20)));
+
+    $allowed_locations = ['vasai-east', 'vasai-west', 'nalasopara-east', 'nalasopara-west', 'unassigned'];
+    if ($location !== '' && $location !== 'all' && !in_array($location, $allowed_locations, true)) {
+        return new WP_Error('invalid_order_location', 'Unsupported delivery location.', ['status' => 400]);
+    }
+
+    if ($location !== '' && $location !== 'all' && !get_option('mumbai_order_location_backfill_complete')) {
+        return new WP_Error('order_location_indexing', 'Order locations are being indexed. Please retry shortly.', ['status' => 503]);
+    }
 
     $args = [
         'type'     => 'shop_order',
@@ -4795,6 +5470,21 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
             return new WP_Error('invalid_order_status', 'Unsupported order status.', ['status' => 400]);
         }
         $args['status'] = [$status];
+    }
+
+    if ($location !== '' && $location !== 'all') {
+        $existing_meta_query = $args['meta_query'] ?? [];
+        $args['meta_query'] = [
+            'relation' => 'AND',
+            [
+                'key'     => '_mumbai_delivery_location_key',
+                'value'   => $location,
+                'compare' => '=',
+            ],
+        ];
+        if (!empty($existing_meta_query)) {
+            $args['meta_query'][] = $existing_meta_query;
+        }
     }
 
     $date_query = [];
@@ -5655,7 +6345,7 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
     }
 
     $sql = "SELECT * FROM {$table} 
-         WHERE ((status IN ('paid', 'refund_pending', 'refund_failed') AND updated_at < %s)
+         WHERE ((status IN ('paid', 'refund_pending', 'refund_failed', 'quarantined') AND updated_at < %s)
             OR (status = 'created' AND created_at < %s))" . $watermark_where . "
          ORDER BY updated_at ASC LIMIT %d OFFSET %d";
 

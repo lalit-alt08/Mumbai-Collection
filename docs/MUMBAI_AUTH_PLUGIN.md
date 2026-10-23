@@ -22,7 +22,7 @@
 ```
 
 1. **Authentication & Sessions**: Handles login, registration, password resets, and session verification (`/me`). Node.js proxies authentication and caches validated sessions in-memory for 60 seconds.
-2. **Customer Profiles & Addresses**: Stores customer metadata (full name, phone verification status, age, saved delivery addresses) directly in WordPress user meta.
+2. **Customer Profiles & Addresses**: Stores customer metadata (full name, phone verification status, saved delivery addresses) directly in WordPress user meta.
 3. **Store Operating Hours**: Persists IST-based operating schedules and manual override modes into WordPress options table (`mumbai_store_hours_config`).
 4. **Customer Suspension**: Persists suspension state, reasons, and expiry in WordPress user meta (`_mumbai_is_suspended`, `_mumbai_suspended_until`).
 
@@ -36,7 +36,7 @@
 | /register | POST | Registers new user account with default customer role |
 | /logout | POST | Invalidates server-side WordPress session |
 | /me | GET | Validates session cookie, returns user ID, email, roles, phone verification, and suspension status |
-| /profile | GET / PUT | Retrieves or updates customer full name, phone, and age |
+| /profile | GET / PUT | Retrieves or updates customer full name and phone |
 | /profile/complete | GET | Checks whether mandatory profile fields are completed |
 | /addresses | GET / POST | Retrieves or creates saved shipping addresses |
 | /addresses/:id | PUT / DELETE | Updates or deletes a saved shipping address |

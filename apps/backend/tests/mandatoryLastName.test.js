@@ -125,7 +125,6 @@ test("Mandatory Last Name & Deduplication Test Suite", async (t) => {
       body: {
         first_name: "Lalit",
         last_name: "   ",
-        age: 25,
         phone: "9876543210",
       },
     };

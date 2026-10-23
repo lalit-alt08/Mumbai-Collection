@@ -218,7 +218,7 @@ export const clearCustomerWcCart = async (userId) => {
 /**
  * Updates status of a payment intent using compare-and-set in WordPress MySQL.
  */
-export const updatePaymentIntentStatus = async ({
+const _updatePaymentIntentStatusImpl = async ({
   rzpOrderId,
   fromStatus,
   toStatus,
@@ -453,14 +453,14 @@ export const findWcOrderByRazorpayOrderId = async (rzpOrderId) => {
   }
 };
 
-export default {
+const serviceWrapper = {
   storePaymentIntent,
   getPaymentIntent,
   deletePaymentIntent,
   acquireLock,
   releaseLock,
   clearCustomerWcCart,
-  updatePaymentIntentStatus,
+  updatePaymentIntentStatus: null,
   storeWebhookEvent,
   updateWebhookEventStatus,
   fetchOrphanWebhookEvents,
@@ -468,5 +468,17 @@ export default {
   fetchReconciliationList,
   getReconciliationWatermark,
   setReconciliationWatermark,
+  reserveCheckoutStock,
+  releaseCheckoutStock,
 };
+
+export const updatePaymentIntentStatus = (params) => {
+  if (serviceWrapper.updatePaymentIntentStatus && serviceWrapper.updatePaymentIntentStatus !== updatePaymentIntentStatus) {
+    return serviceWrapper.updatePaymentIntentStatus(params);
+  }
+  return _updatePaymentIntentStatusImpl(params);
+};
+serviceWrapper.updatePaymentIntentStatus = updatePaymentIntentStatus;
+
+export default serviceWrapper;
 

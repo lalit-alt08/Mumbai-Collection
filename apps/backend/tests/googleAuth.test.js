@@ -6,6 +6,7 @@ import axios from "axios";
 
 // Mock environment variables
 process.env.GOOGLE_CLIENT_ID = "test-client-id";
+process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
 process.env.WORDPRESS_URL = "http://mock-wordpress";
 process.env.MUMBAI_INTERNAL_API_KEY = "test-internal-key";
 
@@ -41,10 +42,12 @@ const simulateRequest = async (body, headers = {}) => {
 
 test("Google Auth Controller Tests", async (t) => {
   const originalVerifyIdToken = OAuth2Client.prototype.verifyIdToken;
+  const originalGetToken = OAuth2Client.prototype.getToken;
   const originalAxiosPost = axios.post;
 
   t.afterEach(() => {
     OAuth2Client.prototype.verifyIdToken = originalVerifyIdToken;
+    OAuth2Client.prototype.getToken = originalGetToken;
     axios.post = originalAxiosPost;
   });
 
@@ -96,6 +99,98 @@ test("Google Auth Controller Tests", async (t) => {
     const response = await simulateRequest({ credential: "bad-token" });
     assert.strictEqual(response.status, 400);
     assert.strictEqual(response.data.message, "Invalid Google token payload");
+  });
+
+  await t.test("Exchanges an authorization code server-side and verifies its ID token", async () => {
+    OAuth2Client.prototype.getToken = async ({ code, redirect_uri }) => {
+      assert.strictEqual(code, "one-time-google-code");
+      assert.strictEqual(redirect_uri, "http://localhost:5173");
+      return { tokens: { id_token: "verified-id-token" } };
+    };
+    OAuth2Client.prototype.verifyIdToken = async ({ idToken, audience }) => {
+      assert.strictEqual(idToken, "verified-id-token");
+      assert.strictEqual(audience, "test-client-id");
+      return {
+        getPayload: () => ({
+          sub: "google-code-user",
+          email: "code-user@example.com",
+          name: "Code User",
+          email_verified: true,
+        }),
+      };
+    };
+    axios.post = async (_url, data) => {
+      assert.strictEqual(data.google_sub, "google-code-user");
+      assert.strictEqual(data.email, "code-user@example.com");
+      return {
+        data: {
+          success: true,
+          session: "code-session",
+          cookie_name: "logged_in",
+          user: { id: 8, email: "code-user@example.com", roles: ["customer"] },
+        },
+      };
+    };
+
+    const response = await simulateRequest(
+      { code: "one-time-google-code" },
+      { origin: "http://localhost:5173", "x-requested-with": "XMLHttpRequest" }
+    );
+    assert.strictEqual(response.status, 200);
+    assert.ok(response.cookies["mumbai_customer_auth"]);
+  });
+
+  await t.test("Rejects access-token-only requests", async () => {
+    const response = await simulateRequest({ access_token: "untrusted-access-token" });
+    assert.strictEqual(response.status, 400);
+    assert.strictEqual(response.data.success, false);
+  });
+
+  await t.test("Does not issue a session if WordPress returns a different email account", async () => {
+    OAuth2Client.prototype.verifyIdToken = async () => ({
+      getPayload: () => ({
+        sub: "google-123",
+        email: "verified@example.com",
+        name: "Verified User",
+        email_verified: true,
+      }),
+    });
+
+    axios.post = async () => ({
+      data: {
+        success: true,
+        session: "must-not-be-issued",
+        cookie_name: "logged_in",
+        user: { id: 7, email: "different@example.com", roles: ["customer"] },
+      },
+    });
+
+    const response = await simulateRequest({ credential: "valid-token" });
+    assert.strictEqual(response.status, 502);
+    assert.strictEqual(response.data.success, false);
+    assert.deepStrictEqual(Object.keys(response.cookies), []);
+  });
+
+  await t.test("Forwards WordPress identity-conflict status without creating a session", async () => {
+    OAuth2Client.prototype.verifyIdToken = async () => ({
+      getPayload: () => ({
+        sub: "google-123",
+        email: "test@example.com",
+        name: "Test User",
+        email_verified: true,
+      }),
+    });
+
+    axios.post = async () => {
+      const error = new Error("Identity conflict");
+      error.response = { status: 409, data: { message: "This account is already linked." } };
+      throw error;
+    };
+
+    const response = await simulateRequest({ credential: "valid-token" });
+    assert.strictEqual(response.status, 409);
+    assert.strictEqual(response.data.message, "This account is already linked.");
+    assert.deepStrictEqual(Object.keys(response.cookies), []);
   });
 
   await t.test("Unverified email returns 400", async () => {

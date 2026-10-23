@@ -17,7 +17,18 @@ export const getISTDateBoundaries = (filter, customFrom, customTo, referenceDate
     month: "2-digit",
     day: "2-digit",
   });
-  const todayStr = formatter.format(referenceDate); // "YYYY-MM-DD"
+  const formatISTDate = (date) => {
+    const parts = Object.fromEntries(formatter.formatToParts(date).map(({ type, value }) => [type, value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  const todayStr = formatISTDate(referenceDate);
+
+  const isValidDateOnly = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  };
 
   // Helper to create a Date in IST and get UTC ISO string
   const getStartOfISTDay = (dateStr) => {
@@ -30,9 +41,9 @@ export const getISTDateBoundaries = (filter, customFrom, customTo, referenceDate
 
   // Helper to shift IST days
   const shiftISTDays = (baseDateStr, days) => {
-    const baseDate = new Date(`${baseDateStr}T12:00:00+05:30`);
-    baseDate.setDate(baseDate.getDate() + days);
-    return formatter.format(baseDate);
+    const [year, month, day] = baseDateStr.split("-").map(Number);
+    const shifted = new Date(Date.UTC(year, month - 1, day + days));
+    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
   };
 
   switch (filter) {
@@ -66,11 +77,11 @@ export const getISTDateBoundaries = (filter, customFrom, customTo, referenceDate
     }
 
     case "custom": {
-      if (!customFrom) {
+      const fromStr = String(customFrom || "").trim();
+      const toStr = String(customTo || "").trim();
+      if (!isValidDateOnly(fromStr) || !isValidDateOnly(toStr) || fromStr > toStr) {
         return null;
       }
-      const fromStr = String(customFrom).trim();
-      const toStr = customTo ? String(customTo).trim() : todayStr;
 
       return {
         after: getStartOfISTDay(fromStr),

@@ -147,7 +147,7 @@ function Customers() {
   }, [searchQuery]);
 
   // Fetch Customers with server pagination, sorting & search
-  const fetchCustomerList = async () => {
+  const fetchCustomerList = async ({ forceRefresh = false } = {}) => {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -162,6 +162,7 @@ function Customers() {
           search: debouncedSearch.trim() || undefined,
           location: selectedLocation !== "all" ? selectedLocation : undefined,
           sort: sortBy,
+          refresh: forceRefresh ? "1" : undefined,
         },
         { signal: controller.signal }
       );
@@ -181,7 +182,7 @@ function Customers() {
         return;
       }
       if (requestId !== requestIdRef.current) return;
-      setError("Failed to load customers directory. Please refresh.");
+      setError(err.response?.data?.message || err.message || "Failed to load customers directory. Please refresh.");
       setCustomers([]);
     } finally {
       if (requestId === requestIdRef.current && !controller.signal.aborted) {
@@ -291,7 +292,7 @@ function Customers() {
         </div>
 
         <button
-          onClick={fetchCustomerList}
+          onClick={() => fetchCustomerList({ forceRefresh: true })}
           disabled={loading}
           className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:border-[#FF8A00] hover:text-[#FF8A00] hover:bg-amber-50/40 transition active:scale-95 disabled:opacity-50"
         >
@@ -323,6 +324,9 @@ function Customers() {
               >
                 <X size={13} />
               </button>
+            )}
+            {searchQuery.trim().length === 1 && (
+              <p className="px-2 pt-1 text-[10px] font-medium text-gray-400">Type one more character to search.</p>
             )}
           </div>
 
@@ -437,7 +441,7 @@ function Customers() {
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-700 flex items-center justify-between">
           <span>{error}</span>
           <button
-            onClick={fetchCustomerList}
+            onClick={() => fetchCustomerList({ forceRefresh: true })}
             className="underline font-bold hover:text-rose-900"
           >
             Retry
@@ -657,6 +661,7 @@ function Customers() {
             <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 bg-gray-50/40 text-xs">
               <span className="text-gray-500 font-medium text-[11px]">
                 Page <strong className="text-gray-900">{page}</strong> of <strong className="text-gray-900">{totalPages}</strong>
+                <span className="ml-1">· {totalCustomers.toLocaleString("en-IN")} customers</span>
               </span>
 
               <div className="flex items-center gap-1.5">
@@ -755,14 +760,6 @@ function Customers() {
                       <span className="text-gray-400">Not provided</span>
                     )}
                   </div>
-                  {selectedCustomer.secondary_phone && (
-                    <div>
-                      <span className="text-gray-400 block text-[10px] font-bold uppercase">Backup Mobile</span>
-                      <a href={`tel:${selectedCustomer.secondary_phone}`} className="font-bold text-[#7C3AED] hover:underline inline-flex items-center gap-1">
-                        <Phone size={12} /> +91 {selectedCustomer.secondary_phone}
-                      </a>
-                    </div>
-                  )}
                   <div className="sm:col-span-2">
                     <span className="text-gray-400 block text-[10px] font-bold uppercase">Delivery Address</span>
                     <span className="font-medium text-gray-700 leading-relaxed block mt-0.5">

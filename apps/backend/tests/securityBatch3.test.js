@@ -799,16 +799,15 @@ test("Security Batch 3 Regression Test Suite", async (suite) => {
     const validProfile = {
       firstName: "Aarav",
       lastName: "Patel",
-      age: 28,
       phone: "+919820123456",
     };
     const parsedProf = schemas.profile.parse(validProfile);
     assert.equal(parsedProf.firstName, "Aarav");
-    assert.equal(parsedProf.age, 28);
+    assert.equal(parsedProf.phone, "+919820123456");
 
-    // 11D. Profile with invalid age rejects
+    // 11D. Profile with invalid phone rejects
     assert.throws(() => {
-      schemas.profile.parse({ ...validProfile, age: 999 });
+      schemas.profile.parse({ ...validProfile, phone: "invalid_phone" });
     });
   });
 

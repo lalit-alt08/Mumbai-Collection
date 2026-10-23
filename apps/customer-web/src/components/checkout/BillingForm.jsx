@@ -445,14 +445,11 @@ function BillingForm({
       const cleanPincode =
         (selectedAddress.pincode || "").replace(/\D/g, "") || "";
 
-      const secondaryPhone = (selectedAddress.secondary_phone || user?.secondary_phone || "").replace(/\D/g, "").slice(0, 10);
-
       const billingAddress = {
         first_name: firstName,
         last_name: lastName,
         email: userEmail,
         phone: userPhone,
-        secondary_phone: secondaryPhone || undefined,
         address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
         city: selectedAddress.city || "Vasai West",
@@ -465,7 +462,6 @@ function BillingForm({
         first_name: firstName,
         last_name: lastName,
         phone: userPhone,
-        secondary_phone: secondaryPhone || undefined,
         address_1: selectedAddress.address_line1 || "Street Address",
         address_2: selectedAddress.address_line2 || "",
         city: selectedAddress.city || "Vasai West",

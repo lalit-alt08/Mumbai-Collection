@@ -7,6 +7,22 @@ import {
 } from "../middlewares/authMiddleware.js";
 import { parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
+
+const getProfileCookieOptions = (req) => {
+  const isHttps =
+    req.secure ||
+    req.headers["x-forwarded-proto"] === "https" ||
+    process.env.NODE_ENV === "production";
+
+  return {
+    httpOnly: true,
+    secure: isHttps,
+    sameSite: isHttps ? "none" : "lax",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: "/",
+  };
+};
 
 export const getProfile = async (req, res) => {
   try {
@@ -27,7 +43,14 @@ export const getProfile = async (req, res) => {
       res.set("Pragma", "no-cache");
     }
 
-    res.json(response.data);
+    const payload = response.data || {};
+    if (payload.profile && typeof payload.profile === "object") {
+      delete payload.profile.age;
+      delete payload.profile.secondary_phone;
+    }
+    delete payload.secondary_phone;
+
+    res.json(payload);
   } catch (error) {
     logError(req, error, "Get profile error");
 
@@ -42,7 +65,7 @@ export const getProfile = async (req, res) => {
 
 export const saveProfile = async (req, res) => {
   try {
-    const { age, phone, secondary_phone } = req.body;
+    const { phone } = req.body;
     const { firstName, lastName } = parseFirstAndLastName(req.body);
 
     if (!firstName) {
@@ -60,6 +83,7 @@ export const saveProfile = async (req, res) => {
     }
 
     const cleanFullName = `${firstName} ${lastName}`;
+    const { password } = req.body;
 
     const response = await axios.put(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
@@ -67,9 +91,8 @@ export const saveProfile = async (req, res) => {
         first_name: firstName,
         last_name: lastName,
         full_name: cleanFullName,
-        age,
         phone,
-        secondary_phone,
+        ...(password ? { password } : {}),
       },
       {
         headers: {
@@ -80,6 +103,8 @@ export const saveProfile = async (req, res) => {
         timeout: 8000,
       }
     );
+
+    serverCache.invalidatePrefix("admin:customers");
 
     const cookieConfig = COOKIE_NAMES.customer;
     const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
@@ -95,7 +120,33 @@ export const saveProfile = async (req, res) => {
       res.set("Pragma", "no-cache");
     }
 
-    res.json(response.data);
+    const payload = response.data || {};
+    const cookieOptions = getProfileCookieOptions(req);
+
+    // Setting a WordPress password invalidates cookies derived from the old
+    // password hash. WordPress returns a replacement session so profile setup
+    // can continue saving the address and refreshing the signed-in user.
+    if (payload.session && payload.cookie_name && typeof res.cookie === "function") {
+      res.cookie(
+        cookieConfig.auth,
+        `${payload.cookie_name}=${payload.session}`,
+        cookieOptions
+      );
+    }
+    if (payload.rest_nonce && typeof res.cookie === "function") {
+      res.cookie(cookieConfig.nonce, payload.rest_nonce, cookieOptions);
+    }
+
+    if (payload.profile && typeof payload.profile === "object") {
+      delete payload.profile.age;
+      delete payload.profile.secondary_phone;
+    }
+    delete payload.secondary_phone;
+    delete payload.session;
+    delete payload.cookie_name;
+    delete payload.rest_nonce;
+
+    res.json(payload);
   } catch (error) {
     logError(req, error, "Save profile error");
 
@@ -127,7 +178,14 @@ export const checkProfileComplete = async (req, res) => {
       res.set("Pragma", "no-cache");
     }
 
-    res.json(response.data);
+    const payload = response.data || {};
+    if (payload.profile && typeof payload.profile === "object") {
+      delete payload.profile.age;
+      delete payload.profile.secondary_phone;
+    }
+    delete payload.secondary_phone;
+
+    res.json(payload);
   } catch (error) {
     logError(req, error, "Check profile complete error");
 
@@ -193,6 +251,8 @@ export const deleteAccount = async (req, res) => {
         timeout: 10000,
       }
     );
+
+    serverCache.invalidatePrefix("admin:customers");
 
     // 3. Clear customer auth cookies on response
     const isHttps =

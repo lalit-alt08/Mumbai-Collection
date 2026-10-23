@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://progress-fleet-pollution-songs.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://prospective-fwd-mathematics-road.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://progress-fleet-pollution-songs.trycloudflare.com/sitemap.xml"
+      "destination": "https://prospective-fwd-mathematics-road.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://progress-fleet-pollution-songs.trycloudflare.com/api/:path*"
+      "destination": "https://prospective-fwd-mathematics-road.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

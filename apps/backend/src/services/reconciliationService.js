@@ -4,6 +4,7 @@ import {
   refundRazorpayPayment,
   fetchRazorpayPayment,
   fetchRazorpayOrderPayments,
+  isRefundFullySettled,
 } from "./razorpayService.js";
 import paymentIntentService, {
   fetchReconciliationList,
@@ -115,6 +116,8 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
   const _setWatermark = getFn("setReconciliationWatermark", setReconciliationWatermark);
   const _clearCart = getFn("clearCustomerWcCart", clearCustomerWcCart);
   const _findOrderByRzp = getFn("findWcOrderByRazorpayOrderId", findWcOrderByRazorpayOrderId);
+  const _reserveStock = getFn("reserveCheckoutStock", reserveCheckoutStock);
+  const _releaseStock = getFn("releaseCheckoutStock", releaseCheckoutStock);
 
   // 1. Concurrency guard: Acquire DB lock
   const lockAcquired = await _acquireLock(RECONCILIATION_LOCK_ID, "reconciler", 2000);
@@ -167,6 +170,10 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
       // Case A: status = 'paid' (Payment was captured, but WC order not created yet)
       // ─────────────────────────────────────────────────────────────
       if (status === "paid") {
+        const checkoutDetails = extractCheckoutDetails(intentRow);
+        const reservationId = checkoutDetails?.raw?.stock_reservation_id ||
+          checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
+
         if (ageMinutes < MAX_FINALIZATION_RETRY_MINUTES) {
           // Retry WooCommerce order creation
           logger.info(
@@ -175,13 +182,10 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
           );
 
           try {
-            const checkoutDetails = extractCheckoutDetails(intentRow);
             if (!checkoutDetails || !Array.isArray(checkoutDetails.lineItems) || checkoutDetails.lineItems.length === 0) {
               throw new Error("Invalid or empty checkout_payload in intent — line_items required");
             }
-            const reservationId = checkoutDetails.raw.stock_reservation_id ||
-              checkoutDetails.raw.checkout_payload?.stock_reservation_id || rzpOrderId;
-            await reserveCheckoutStock({ reservationId, lineItems: checkoutDetails.lineItems });
+            await _reserveStock({ reservationId, lineItems: checkoutDetails.lineItems });
 
             // Create WooCommerce order
             const orderPayload = {
@@ -217,7 +221,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 wcOrderId: existingOrder.id,
               });
               await _clearCart(checkoutDetails.customerId);
-              await releaseCheckoutStock(reservationId);
+              await _releaseStock(reservationId);
               results.healedOrders++;
               continue;
             }
@@ -236,7 +240,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               });
 
               await _clearCart(checkoutDetails.customerId);
-              await releaseCheckoutStock(reservationId);
+              await _releaseStock(reservationId);
 
               logger.info(
                 { rzpOrderId, wcOrderId, rzpPaymentId },
@@ -289,28 +293,43 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               },
             });
 
-            // Invariant: Transition to 'refunded' ONLY after Razorpay confirmation
+            // Invariant: Transition to 'refunded' ONLY after full refund confirmation
             if (refund.id) {
-              await _updateStatus({
-                rzpOrderId,
-                fromStatus: "refund_pending",
-                toStatus: "refunded",
-                refundId: refund.id,
-              });
-              const reservationId = checkoutDetails?.raw?.stock_reservation_id ||
-                checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
-              await releaseCheckoutStock(reservationId);
+              let refreshedPayment = null;
+              if (refund.status !== "processed" || Number(refund.amount || 0) < capturedPaise) {
+                try {
+                  refreshedPayment = await fetchRazorpayPayment(rzpPaymentId);
+                } catch (_) {}
+              }
+              const isFull = isRefundFullySettled(refund, capturedPaise, refreshedPayment);
 
-              await alertStaffAnomaly({
-                type: "RECONCILER_AUTO_REFUND",
-                severity: "warning",
-                rzpOrderId,
-                rzpPaymentId,
-                message: `Payment of ₹${(capturedPaise / 100).toFixed(2)} refunded after 15m timeout`,
-                details: { refund_id: refund.id },
-              });
+              if (isFull) {
+                await _updateStatus({
+                  rzpOrderId,
+                  fromStatus: "refund_pending",
+                  toStatus: "refunded",
+                  refundId: refund.id,
+                });
+                if (reservationId) {
+                  await _releaseStock(reservationId);
+                }
 
-              results.refundsExecuted++;
+                await alertStaffAnomaly({
+                  type: "RECONCILER_AUTO_REFUND",
+                  severity: "warning",
+                  rzpOrderId,
+                  rzpPaymentId,
+                  message: `Payment of ₹${(capturedPaise / 100).toFixed(2)} refunded after 15m timeout`,
+                  details: { refund_id: refund.id },
+                });
+
+                results.refundsExecuted++;
+              } else {
+                logger.warn(
+                  { rzpOrderId, rzpPaymentId, refundId: refund.id },
+                  "[Reconciler] Timeout refund pending or partial on gateway — keeping in refund_pending for verification"
+                );
+              }
             }
           } catch (refundErr) {
             logger.error(
@@ -320,6 +339,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
             await _updateStatus({
               rzpOrderId,
               toStatus: "refund_failed",
+              incrementAttempts: true,
               errorReason: `Refund API failed: ${refundErr.message}`,
             });
             results.errors.push({ rzpOrderId, error: refundErr.message });
@@ -331,36 +351,101 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
       // Case B: status = 'refund_pending' or 'refund_failed'
       // ─────────────────────────────────────────────────────────────
       if (status === "refund_pending" || status === "refund_failed") {
+        const checkoutDetails = extractCheckoutDetails(intentRow);
+        const reservationId = checkoutDetails?.raw?.stock_reservation_id ||
+          checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
+
         try {
           const paymentData = await fetchRazorpayPayment(rzpPaymentId);
-          if (Number(paymentData.amount_refunded || 0) > 0) {
-            // Confirmed refunded on Razorpay!
+          const amountRefunded = Number(paymentData.amount_refunded || 0);
+          const totalAmount = Number(paymentData.amount || intentRow.amount_paise || 0);
+          const isFullyRefunded = paymentData.refund_status === "full" || (totalAmount > 0 && amountRefunded >= totalAmount);
+
+          if (isFullyRefunded) {
+            // Confirmed fully refunded on Razorpay!
             await _updateStatus({
               rzpOrderId,
               toStatus: "refunded",
-              refundId: paymentData.refund_status === "full" ? "confirmed_full" : "partial_refund",
+              refundId: paymentData.refund_status === "full" ? "confirmed_full" : `rfnd_verified_${amountRefunded}`,
             });
+            if (reservationId) {
+              await _releaseStock(reservationId);
+            }
             results.refundsConfirmed++;
           } else {
-            // Retry refund
-            const capturedPaise = Number(paymentData.amount || intentRow.amount_paise);
+            // Check retry attempts to prevent infinite silent looping
+            const currentAttempts = Number(intentRow.attempts || 0);
+            const MAX_REFUND_ATTEMPTS = 3;
+
+            if (currentAttempts >= MAX_REFUND_ATTEMPTS) {
+              logger.error(
+                { rzpOrderId, rzpPaymentId, attempts: currentAttempts, amountRefunded, totalAmount },
+                "[Reconciler] Refund retry limit reached — escalating to staff anomaly"
+              );
+              await alertStaffAnomaly({
+                type: "RECONCILER_REFUND_ESCALATION",
+                severity: "critical",
+                rzpOrderId,
+                rzpPaymentId,
+                message: `Refund retry limit reached (${currentAttempts} attempts). Manual intervention required for payment ${rzpPaymentId}`,
+                details: {
+                  amount_refunded: amountRefunded,
+                  total_amount: totalAmount,
+                  refund_status: paymentData.refund_status,
+                  attempts: currentAttempts,
+                },
+              });
+              await _updateStatus({
+                rzpOrderId,
+                toStatus: "refund_escalated",
+                errorReason: `Exceeded maximum refund attempts (${MAX_REFUND_ATTEMPTS}). Escalated to staff.`,
+              });
+              results.errors.push({
+                rzpOrderId,
+                error: `Refund retry limit reached (${currentAttempts} attempts). Escalated to staff.`,
+              });
+              continue;
+            }
+
+            // Retry refund for remaining unrefunded amount
+            const remainingPaise = totalAmount > amountRefunded ? (totalAmount - amountRefunded) : totalAmount;
             const refund = await refundRazorpayPayment({
               paymentId: rzpPaymentId,
-              amountInPaise: capturedPaise,
+              amountInPaise: remainingPaise,
               notes: {
-                reason: "Retry refund: previous refund attempt failed",
+                reason: "Retry refund: previous refund attempt pending/failed",
                 rzp_order_id: rzpOrderId,
               },
             });
 
             if (refund.id) {
-              await _updateStatus({
-                rzpOrderId,
-                fromStatus: status,
-                toStatus: "refunded",
-                refundId: refund.id,
-              });
-              results.refundsExecuted++;
+              const updatedPayment = await fetchRazorpayPayment(rzpPaymentId);
+              const updatedRefunded = Number(updatedPayment.amount_refunded || 0);
+              const nowFullyRefunded = updatedPayment.refund_status === "full" || (totalAmount > 0 && updatedRefunded >= totalAmount);
+
+              if (nowFullyRefunded) {
+                await _updateStatus({
+                  rzpOrderId,
+                  fromStatus: status,
+                  toStatus: "refunded",
+                  refundId: refund.id,
+                });
+                if (reservationId) {
+                  await _releaseStock(reservationId);
+                }
+                results.refundsExecuted++;
+              } else {
+                logger.warn(
+                  { rzpOrderId, rzpPaymentId, updatedRefunded, totalAmount },
+                  "[Reconciler] Payment partially refunded on retry; remaining amount pending"
+                );
+                await _updateStatus({
+                  rzpOrderId,
+                  toStatus: "refund_pending",
+                  incrementAttempts: true,
+                  errorReason: `PARTIAL_REFUND: ${updatedRefunded}/${totalAmount} paise refunded`,
+                });
+              }
             }
           }
         } catch (err) {
@@ -368,6 +453,13 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
             { rzpOrderId, err: err.message },
             "[Reconciler] Failed to verify/retry refund_pending payment"
           );
+          await _updateStatus({
+            rzpOrderId,
+            toStatus: "refund_failed",
+            incrementAttempts: true,
+            errorReason: `Refund retry failed: ${err.message}`,
+          });
+          results.errors.push({ rzpOrderId, error: err.message });
         }
       }
 
@@ -410,7 +502,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     capturedAmount,
                     capturedCurrency,
                   },
-                  "[Reconciler] Amount or currency mismatch on captured payment for created intent — quarantining"
+                  "[Reconciler] Amount or currency mismatch on captured payment for created intent — initiating auto-refund recovery"
                 );
 
                 await alertStaffAnomaly({
@@ -426,14 +518,74 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                   },
                 });
 
+                // Release held stock reservations
+                const checkoutDetails = extractCheckoutDetails(intentRow);
+                const reservationId = checkoutDetails?.raw?.stock_reservation_id ||
+                  checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
+                if (reservationId) {
+                  await _releaseStock(reservationId);
+                }
+
+                // Transition to refund_pending so it remains tracked in the reconciliation loop
                 await _updateStatus({
                   rzpOrderId,
                   fromStatus: "created",
-                  toStatus: "failed",
+                  toStatus: "refund_pending",
                   rzpPaymentId,
                   capturedAmountPaise: capturedAmount,
                   errorReason: `AMOUNT_MISMATCH: expected ${expectedAmount} paise INR, got ${capturedAmount} ${capturedCurrency}`,
                 });
+
+                try {
+                  const refund = await refundRazorpayPayment({
+                    paymentId: rzpPaymentId,
+                    amountInPaise: capturedAmount,
+                    notes: {
+                      reason: "Auto-refund: Amount/currency mismatch on captured payment",
+                      rzp_order_id: rzpOrderId,
+                    },
+                  });
+
+                  if (refund.id) {
+                    let refreshedPayment = null;
+                    if (refund.status !== "processed" || Number(refund.amount || 0) < capturedAmount) {
+                      try {
+                        refreshedPayment = await fetchRazorpayPayment(rzpPaymentId);
+                      } catch (_) {}
+                    }
+                    const isFull = isRefundFullySettled(refund, capturedAmount, refreshedPayment);
+
+                    if (isFull) {
+                      await _updateStatus({
+                        rzpOrderId,
+                        fromStatus: "refund_pending",
+                        toStatus: "refunded",
+                        refundId: refund.id,
+                      });
+                      results.refundsExecuted++;
+                      logger.info(
+                        { rzpOrderId, rzpPaymentId, refundId: refund.id },
+                        "[Reconciler] Auto-refunded mismatched captured payment successfully"
+                      );
+                    } else {
+                      logger.warn(
+                        { rzpOrderId, rzpPaymentId, refundId: refund.id },
+                        "[Reconciler] Mismatched payment refund pending/partial — kept in refund_pending for verification"
+                      );
+                    }
+                  }
+                } catch (refundErr) {
+                  logger.error(
+                    { rzpOrderId, rzpPaymentId, err: refundErr.message },
+                    "[Reconciler] Immediate refund failed for mismatched payment — kept in refund_pending for retry"
+                  );
+                  await _updateStatus({
+                    rzpOrderId,
+                    toStatus: "refund_failed",
+                    incrementAttempts: true,
+                    errorReason: `AMOUNT_MISMATCH_REFUND_FAILED: ${refundErr.message}`,
+                  });
+                }
 
                 results.errors.push({
                   rzpOrderId,
@@ -461,7 +613,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               const reservationId = checkoutDetails.raw.stock_reservation_id ||
                 checkoutDetails.raw.checkout_payload?.stock_reservation_id || rzpOrderId;
               try {
-                await reserveCheckoutStock({ reservationId, lineItems: checkoutDetails.lineItems });
+                await _reserveStock({ reservationId, lineItems: checkoutDetails.lineItems });
               } catch (reservationErr) {
                 if (reservationErr.response?.status === 409) {
                   stockValid = false;
@@ -469,31 +621,9 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                   throw reservationErr;
                 }
               }
-              const stockResults = await Promise.allSettled(
-                checkoutDetails.lineItems.map(async (item) => {
-                  try {
-                    const prodRes = await api.get(`products/${item.product_id}`);
-                    const prod = prodRes?.data;
-                    if (prod && prod.manage_stock && typeof prod.stock_quantity === "number") {
-                      if (prod.stock_quantity < item.quantity && !prod.backorders_allowed) {
-                        logger.error(
-                          { product_id: item.product_id, available: prod.stock_quantity, requested: item.quantity },
-                          "[Reconciler] Stock depleted during reconciler discovery"
-                        );
-                        return false;
-                      }
-                    }
-                  } catch (_) {}
-                  return true;
-                })
-              );
-
-              for (const r of stockResults) {
-                if (r.status === "fulfilled" && r.value === false) {
-                  stockValid = false;
-                  break;
-                }
-              }
+              // A successful atomic reservation is authoritative. Do not compare
+              // REST stock_quantity here: the plugin subtracts active holds,
+              // including this intent's own reservation.
 
               if (!stockValid) {
                 logger.warn(
@@ -519,25 +649,40 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 });
 
                 if (refund?.id) {
-                  await _updateStatus({
-                    rzpOrderId,
-                    fromStatus: "refund_pending",
-                    toStatus: "refunded",
-                    refundId: refund.id,
-                  });
+                  let refreshedPayment = null;
+                  if (refund.status !== "processed" || Number(refund.amount || 0) < capturedPaise) {
+                    try {
+                      refreshedPayment = await fetchRazorpayPayment(rzpPaymentId);
+                    } catch (_) {}
+                  }
+                  const isFull = isRefundFullySettled(refund, capturedPaise, refreshedPayment);
 
-                  await releaseCheckoutStock(reservationId);
+                  if (isFull) {
+                    await _updateStatus({
+                      rzpOrderId,
+                      fromStatus: "refund_pending",
+                      toStatus: "refunded",
+                      refundId: refund.id,
+                    });
 
-                  await alertStaffAnomaly({
-                    type: "RECONCILER_OUT_OF_STOCK_REFUND",
-                    severity: "warning",
-                    rzpOrderId,
-                    rzpPaymentId,
-                    message: `Auto-refunded ₹${(capturedPaise / 100).toFixed(2)} due to out-of-stock on reconciler discovery`,
-                    details: { refund_id: refund.id },
-                  });
+                    await _releaseStock(reservationId);
 
-                  results.refundsExecuted++;
+                    await alertStaffAnomaly({
+                      type: "RECONCILER_OUT_OF_STOCK_REFUND",
+                      severity: "warning",
+                      rzpOrderId,
+                      rzpPaymentId,
+                      message: `Auto-refunded ₹${(capturedPaise / 100).toFixed(2)} due to out-of-stock on reconciler discovery`,
+                      details: { refund_id: refund.id },
+                    });
+
+                    results.refundsExecuted++;
+                  } else {
+                    logger.warn(
+                      { rzpOrderId, rzpPaymentId, refundId: refund.id },
+                      "[Reconciler] Out-of-stock refund pending/partial on gateway — keeping in refund_pending for verification"
+                    );
+                  }
                 }
               } else {
                 // Stock available: HPOS-safe check before order creation
@@ -551,7 +696,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     wcOrderId: existingOrder.id,
                   });
                   await _clearCart(checkoutDetails.customerId);
-                  await releaseCheckoutStock(reservationId);
+                  await _releaseStock(reservationId);
                   results.healedOrders++;
                 } else {
                   const orderPayload = {
@@ -587,7 +732,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                     });
 
                     await _clearCart(checkoutDetails.customerId);
-                    await releaseCheckoutStock(reservationId);
+                    await _releaseStock(reservationId);
 
                     logger.info(
                       { rzpOrderId, wcOrderId, rzpPaymentId },
@@ -605,7 +750,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 checkoutDetails?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
 
               if (reservationId) {
-                await releaseCheckoutStock(reservationId);
+                await _releaseStock(reservationId);
               }
 
               await _updateStatus({

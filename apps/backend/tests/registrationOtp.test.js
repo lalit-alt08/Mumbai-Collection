@@ -5,6 +5,7 @@ import wp from "../src/services/wordpress.js";
 import {
   sendOtp,
   verifyOtp,
+  register,
   me,
 } from "../src/controllers/authController.js";
 import {
@@ -330,7 +331,6 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     const res = await simulateHandler(saveProfile, {
       body: {
         full_name: "John Doe",
-        age: 28,
         phone: "9876543210", // New number
       },
       wpUserId: 101,
@@ -683,7 +683,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
           data: {
             success: true,
             message: "Profile saved successfully.",
-            profile: { full_name: "Test User", age: 30, phone: "9820123456" },
+            profile: { full_name: "Test User", phone: "9820123456" },
             is_phone_verified: false,
             verified_phone: "",
             billing_phone: "9820123456",
@@ -694,7 +694,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     const saveRes = await simulateHandler(saveProfile, {
-      body: { full_name: "Test User", age: 30, phone: "9820123456" },
+      body: { full_name: "Test User", phone: "9820123456" },
       wpUserId: 45,
       cookies: { mumbai_customer_auth: "user_45_cookie" },
     });
@@ -800,7 +800,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
         return {
           data: {
             success: true,
-            profile: { full_name: "Lalit", age: 34, phone: "1234567890" },
+            profile: { full_name: "Lalit", phone: "1234567890" },
             billing_phone: "1234567890",
             verified_phone: "",
             is_phone_verified: false,
@@ -866,5 +866,201 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     assert.strictEqual(nextCalled, false);
     assert.strictEqual(res.statusCode, 403);
     assert.strictEqual(res.data.code, "PHONE_NOT_VERIFIED");
+  });
+
+  // 31. Registration OTP: sendOtp allows purpose "register" for new email
+  await suite.test("31. Registration OTP: sendOtp allows purpose register for new email and dispatches email", async () => {
+    let storedPayload = null;
+    wp.post = async (url, payload) => {
+      if (url.includes("/otp/store")) {
+        storedPayload = payload;
+        return {
+          data: {
+            success: true,
+            email: payload.phone,
+            name: "Lalit",
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    const res = await simulateHandler(sendOtp, {
+      body: { email: "newcustomer@example.com", purpose: "register", first_name: "Lalit" },
+      wpUserId: 0,
+      user: null,
+    });
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.data.success, true);
+    assert.strictEqual(storedPayload.purpose, "register");
+    assert.strictEqual(storedPayload.phone, "newcustomer@example.com");
+  });
+
+  // 32. Registration OTP: sendOtp returns 409 if email already exists
+  await suite.test("32. Registration OTP: sendOtp returns 409 if email already exists", async () => {
+    wp.post = async (url) => {
+      if (url.includes("/otp/store")) {
+        const err = new Error("Conflict");
+        err.response = {
+          status: 409,
+          data: {
+            code: "email_exists",
+            message: "An account with this email already exists. Please sign in.",
+          },
+        };
+        throw err;
+      }
+      return { data: {} };
+    };
+
+    const res = await simulateHandler(sendOtp, {
+      body: { email: "existing@example.com", purpose: "register" },
+      wpUserId: 0,
+      user: null,
+    });
+
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual(res.data.code, "email_exists");
+  });
+
+  // 33. Registration: register verifies OTP and auto-generates password if omitted
+  await suite.test("33. Registration: register verifies OTP and auto-generates password if omitted", async () => {
+    let verifiedOtpPayload = null;
+    let registeredPayload = null;
+
+    wp.post = async (url, payload) => {
+      if (url.includes("/otp/verify")) {
+        verifiedOtpPayload = payload;
+        return { data: { success: true, verified: true } };
+      }
+      if (url.includes("/register")) {
+        registeredPayload = payload;
+        return {
+          data: {
+            success: true,
+            user: { id: 88, name: payload.name, email: payload.email },
+            session: "mock_session_val",
+            cookie_name: "wordpress_logged_in_mock",
+            rest_nonce: "mock_nonce",
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    const res = await simulateHandler(register, {
+      body: {
+        first_name: "Aarav",
+        last_name: "Sharma",
+        email: "aarav@example.com",
+        otp: "123456",
+      },
+      wpUserId: 0,
+      user: null,
+    });
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(verifiedOtpPayload.purpose, "register");
+    assert.strictEqual(verifiedOtpPayload.phone, "aarav@example.com");
+    assert.strictEqual(registeredPayload.first_name, "Aarav");
+    assert.strictEqual(registeredPayload.last_name, "Sharma");
+    assert.ok(registeredPayload.password.length >= 20, "Generated secure password");
+    assert.strictEqual(res.data.user.id, 88);
+  });
+
+  await suite.test("33b. Registration: a password cannot bypass the required email OTP", async () => {
+    let wpCalls = 0;
+    wp.post = async () => {
+      wpCalls += 1;
+      return { data: {} };
+    };
+
+    const res = await simulateHandler(register, {
+      body: {
+        first_name: "Aarav",
+        last_name: "Sharma",
+        email: "aarav@example.com",
+        password: "StrongPassword123!",
+      },
+      wpUserId: 0,
+      user: null,
+    });
+
+    assert.strictEqual(res.status, 400);
+    assert.match(res.data.message, /verification code/i);
+    assert.strictEqual(wpCalls, 0, "registration must not call WordPress without verifying an OTP");
+  });
+
+  // 34. Registration: register fails when OTP verification fails
+  await suite.test("34. Registration: register fails when OTP verification fails", async () => {
+    wp.post = async (url) => {
+      if (url.includes("/otp/verify")) {
+        const err = new Error("Bad Request");
+        err.response = {
+          status: 400,
+          data: {
+            message: "Invalid verification code.",
+          },
+        };
+        throw err;
+      }
+      return { data: {} };
+    };
+
+    const res = await simulateHandler(register, {
+      body: {
+        first_name: "Aarav",
+        last_name: "Sharma",
+        email: "aarav@example.com",
+        otp: "999999",
+      },
+      wpUserId: 0,
+      user: null,
+    });
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.data.message, "Invalid verification code.");
+  });
+
+  // 35. Profile: saveProfile forwards optional password to WordPress
+  await suite.test("35. Profile: saveProfile forwards optional password to WordPress", async () => {
+    let sentToWp = null;
+    axios.put = async (url, data) => {
+      if (url.includes("/mumbai-auth/v1/profile")) {
+        sentToWp = data;
+        return {
+          data: {
+            success: true,
+            profile: { first_name: data.first_name, last_name: data.last_name },
+            session: "rotated_logged_in_session",
+            cookie_name: "wordpress_logged_in_mock",
+            rest_nonce: "rotated_nonce",
+          },
+        };
+      }
+      return { data: {} };
+    };
+
+    const res = await simulateHandler(saveProfile, {
+      body: {
+        first_name: "Lalit",
+        last_name: "Kumar",
+        phone: "9820123456",
+        password: "NewPassword!123",
+      },
+      wpUserId: 12,
+    });
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(sentToWp.password, "NewPassword!123");
+    assert.strictEqual(sentToWp.first_name, "Lalit");
+    assert.strictEqual(
+      res.cookies.mumbai_customer_auth.val,
+      "wordpress_logged_in_mock=rotated_logged_in_session"
+    );
+    assert.strictEqual(res.cookies.mumbai_customer_nonce.val, "rotated_nonce");
+    assert.equal(res.data.session, undefined, "rotated session must not be exposed in the JSON response");
+    assert.equal(res.data.rest_nonce, undefined, "WordPress nonce must not be exposed in the JSON response");
   });
 });

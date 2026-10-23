@@ -562,7 +562,7 @@ function Cart() {
       ) / 100;
 
   return (
-    <div className={`mx-auto w-full max-w-[700px] ${isCartEmpty ? "pb-6" : "pb-56"} lg:pb-20 md:pt-4`}>
+    <div className={`mx-auto w-full max-w-[700px] ${isCartEmpty ? "pb-6" : "pb-56"} lg:pb-20 pt-4 sm:pt-5 md:pt-6`}>
       {/* Header */}
       <div className="mb-4 flex items-center justify-between rounded-[22px] bg-[#111F36] border border-[#1E3252]/80 px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.2)] md:mb-6">
         <button

@@ -90,13 +90,16 @@ export const escapeHtml = (str) => {
  * Build a clean, responsive Mumbai Collection branded transactional email HTML template.
  */
 export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
-  const isVerifyPhone = purpose === "verify_phone";
-  const title = isVerifyPhone
-    ? "Verify Your Mobile Number"
-    : "Reset Your Password";
-  const lead = isVerifyPhone
-    ? "Please use the 6-digit verification code below to verify your mobile number on your Mumbai Collection account."
-    : "We received a request to reset your Mumbai Collection account password. Please use the 6-digit verification code below to proceed.";
+  let title = "Reset Your Password";
+  let lead = "We received a request to reset your Mumbai Collection account password. Please use the 6-digit verification code below to proceed.";
+
+  if (purpose === "verify_phone") {
+    title = "Verify Your Mobile Number";
+    lead = "Please use the 6-digit verification code below to verify your mobile number on your Mumbai Collection account.";
+  } else if (purpose === "register") {
+    title = "Verify Your Email Address";
+    lead = "Welcome to Mumbai Collection! Please use the 6-digit verification code below to verify your email and complete your account setup.";
+  }
 
   const safeName = escapeHtml(toName);
 
@@ -191,10 +194,10 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "verify_pho
   const cleanEmail = toEmail.trim().toLowerCase();
   const cleanName = (toName || "").trim();
 
-  const isVerifyPhone = purpose === "verify_phone";
-  const subject = isVerifyPhone
-    ? `Your Mumbai Collection verification code: ${otp}`
-    : `Your Mumbai Collection password reset code: ${otp}`;
+  let subject = `Your Mumbai Collection verification code: ${otp}`;
+  if (purpose === "reset_password") {
+    subject = `Your Mumbai Collection password reset code: ${otp}`;
+  }
 
   const textContent = `Mumbai Collection\n\nYour verification code is: ${otp}\n\nThis code is valid for 5 minutes. Do not share this code with anyone.\nIf you did not request this, please ignore this email.`;
   const htmlContent = buildOtpEmailHtml({ toName: cleanName, otp, purpose });

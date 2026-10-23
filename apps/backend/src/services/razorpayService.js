@@ -256,6 +256,29 @@ export const refundRazorpayPayment = async ({ paymentId, amountInPaise, notes = 
     "[Razorpay] Refund initiated successfully"
   );
 
-  return refund;
+  return {
+    ...refund,
+    amount: refund?.amount !== undefined ? refund.amount : finalRefundPaise,
+  };
+};
+
+/**
+ * Authoritative check whether a refund operation or payment record confirms 100% full settlement.
+ */
+export const isRefundFullySettled = (refund, targetPaise = null, paymentData = null) => {
+  if (!refund?.id) return false;
+  if (refund.already_refunded === true) return true;
+  if (paymentData) {
+    if (paymentData.refund_status === "full") return true;
+    const refunded = Number(paymentData.amount_refunded || 0);
+    const total = Number(targetPaise || paymentData.amount || 0);
+    if (total > 0 && refunded >= total) return true;
+  }
+  const refundAmount = Number(refund.amount || 0);
+  const target = Number(targetPaise || 0);
+  if (refund.status === "processed" && target > 0 && refundAmount >= target) {
+    return true;
+  }
+  return false;
 };
 

@@ -13,6 +13,26 @@ export function resolveTabFromStatusParam(param) {
   return "active";
 }
 
+/** Returns a stable YYYY-MM-DD calendar date in the store timezone. */
+export function getISTDateString(date = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date).map(({ type, value }) => [type, value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/** Shifts a YYYY-MM-DD calendar date without using the device's timezone. */
+export function shiftDateOnly(dateString, days) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
+}
+
 /**
  * Resolves the order creation date as a YYYY-MM-DD string in the Asia/Kolkata timezone.
  * Handles WooCommerce UTC dates (e.g. "2026-09-06T18:48:32" or "2026-09-06T18:48:32Z").
@@ -24,7 +44,7 @@ export function getOrderDateIST(order) {
   const iso = raw.endsWith("Z") || raw.includes("+") ? raw : `${raw}Z`;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(d);
+  return getISTDateString(d);
 }
 
 /**

@@ -14,8 +14,11 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
-  Calendar,
   ShieldCheck,
+  Lock,
+  Eye,
+  EyeOff,
+  Check,
 } from "lucide-react";
 import {
   DELIVERY_REGIONS,
@@ -23,6 +26,7 @@ import {
   isValidIndianPhone,
 } from "../data/indianStates.js";
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
+import { validatePassword, getPasswordRuleChecks } from "../utils/passwordValidator.js";
 import { useAuth } from "../context/AuthContext";
 
 function ProfileSetup() {
@@ -33,21 +37,26 @@ function ProfileSetup() {
 
   const passedFirst = location.state?.first_name || "";
   const passedLast = location.state?.last_name || "";
-  const isFromRegister = Boolean(location.state?.fromRegister || passedFirst);
   const initialName = user?.name || user?.full_name || "";
   const nameTokens = initialName.trim().split(/\s+/);
   const defaultFirst = passedFirst || user?.first_name || nameTokens[0] || "";
   const defaultLast = passedLast || user?.last_name || (nameTokens.length > 1 ? nameTokens.slice(1).join(" ") : "");
   const defaultPhone = user?.phone || user?.billing_phone || "";
 
-  // Personal Information
+  // Personal Information (Name is preserved in state from registration)
   const [form, setForm] = useState({
     first_name: defaultFirst,
     last_name: defaultLast,
-    age: "",
     phone: defaultPhone,
   });
   const [confirmPhone, setConfirmPhone] = useState(defaultPhone);
+
+  // Mandatory Password
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const passwordChecks = getPasswordRuleChecks(password);
 
   // Saved Addresses from server
   const [addresses, setAddresses] = useState([]);
@@ -65,7 +74,7 @@ function ProfileSetup() {
   const [isEditingAddress, setIsEditingAddress] = useState(true);
   const [editingAddressId, setEditingAddressId] = useState(null);
 
-  // If we already have initial user info (from register or AuthContext), render immediately without blocking spinner
+  // Initial loading state
   const [loading, setLoading] = useState(!Boolean(defaultFirst || user?.id));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
@@ -109,7 +118,6 @@ function ProfileSetup() {
             setForm((prev) => ({
               first_name: prev.first_name || initialFirst,
               last_name: prev.last_name || initialLast,
-              age: profileData.age || prev.age || "",
               phone: loadedPhone || prev.phone || "",
             }));
             setConfirmPhone((prev) => prev || loadedPhone || "");
@@ -129,6 +137,7 @@ function ProfileSetup() {
         }
 
         // Only redirect to login if session was explicitly invalidated and user did not just register
+        const isFromRegister = Boolean(location.state?.fromRegister || passedFirst);
         if (
           !isFromRegister &&
           profileResult.status === "rejected" &&
@@ -216,7 +225,7 @@ function ProfileSetup() {
       address_line1: address.address_line1 || "",
       address_line2: address.address_line2 || "",
       city: address.city || "Vasai West",
-      state: address.state || "MH",
+      state: "MH",
     });
     setIsEditingAddress(true);
   };
@@ -272,41 +281,42 @@ function ProfileSetup() {
     if (submittingRef.current || saving) return;
     setMessage({ type: "", text: "" });
 
-    // 1. Validate Personal Details
-    const cleanFirst = normalizePersonName(form.first_name);
-    const cleanLast = normalizePersonName(form.last_name);
+    // Derive names collected during registration / authContext
+    const cleanFirst = normalizePersonName(form.first_name || user?.first_name || (user?.name ? user.name.split(" ")[0] : "") || "Customer");
+    const cleanLast = normalizePersonName(form.last_name || user?.last_name || (user?.name && user.name.split(" ").length > 1 ? user.name.split(" ").slice(1).join(" ") : "") || "User");
     const cleanFullName = `${cleanFirst} ${cleanLast}`;
     const cleanPhone = form.phone.trim();
 
     const newErrors = {};
 
-    if (!cleanFirst) {
-      newErrors.first_name = "Please enter your First Name.";
-    } else if (!isValidPersonName(cleanFirst)) {
-      newErrors.first_name = "First name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+    // 1. Mandatory Password Validation (Entering first as requested)
+    if (!password) {
+      newErrors.password = "Please create a password for your account.";
+    } else {
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.isValid) {
+        newErrors.password = passwordValidation.message;
+      }
     }
 
-    if (!cleanLast) {
-      newErrors.last_name = "Please enter your Last Name.";
-    } else if (!isValidPersonName(cleanLast)) {
-      newErrors.last_name = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+    if (!confirmPassword) {
+      newErrors.confirm_password = "Please confirm your password.";
+    } else if (password && password !== confirmPassword) {
+      newErrors.confirm_password = "Passwords do not match.";
     }
 
-    if (!form.age || Number(form.age) < 13 || Number(form.age) > 120) {
-      newErrors.age = "Please enter a valid age (13 to 120).";
-    }
-
+    // 2. Mobile Number Validation
     if (!cleanPhone || !isValidIndianPhone(cleanPhone)) {
       newErrors.phone = "Please enter a valid 10-digit mobile number.";
     }
 
-    if (isFromRegister && !confirmPhone) {
+    if (!confirmPhone) {
       newErrors.confirm_phone = "Please re-enter your mobile number.";
-    } else if (isFromRegister && cleanPhone !== confirmPhone) {
+    } else if (cleanPhone !== confirmPhone) {
       newErrors.confirm_phone = "Mobile numbers do not match.";
     }
 
-    // 2. Validate Address Details
+    // 3. Validate Address Details
     const mustSaveAddress = addresses.length === 0 || isEditingAddress;
 
     if (mustSaveAddress) {
@@ -323,7 +333,7 @@ function ProfileSetup() {
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       setMessage({ type: "", text: "" });
-      const errorKeys = ["first_name", "last_name", "age", "phone", "confirm_phone", "address_line1", "city"];
+      const errorKeys = ["password", "confirm_password", "phone", "confirm_phone", "address_line1", "city"];
       const firstKey = errorKeys.find((k) => newErrors[k]);
       if (firstKey) {
         const inputElem = document.querySelector(`[name="${firstKey}"]`);
@@ -348,8 +358,8 @@ function ProfileSetup() {
           first_name: cleanFirst,
           last_name: cleanLast,
           full_name: cleanFullName,
-          age: Number(form.age),
           phone: cleanPhone,
+          password,
         },
         {
           withCredentials: true,
@@ -423,12 +433,8 @@ function ProfileSetup() {
         lower.includes("number")
       ) {
         targetField = "phone";
-      } else if (lower.includes("first name")) {
-        targetField = "first_name";
-      } else if (lower.includes("last name")) {
-        targetField = "last_name";
-      } else if (lower.includes("age")) {
-        targetField = "age";
+      } else if (lower.includes("password")) {
+        targetField = "password";
       } else if (
         lower.includes("street") ||
         lower.includes("flat") ||
@@ -476,26 +482,45 @@ function ProfileSetup() {
   const hasOffice = addresses.some((a) => a.type === "office");
 
   return (
-    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-16">
-      <div className="mx-auto max-w-xl space-y-4">
+    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 pt-3 pb-24 sm:px-6 sm:pt-6 md:pb-16 font-sans">
+      <div className="mx-auto max-w-xl space-y-4 sm:space-y-5">
         {/* Top Header */}
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => navigate("/")}
             aria-label="Back to Home"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8]/50 hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#111F36] text-[#F1F5F9] border border-[#1E3252] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer shadow-sm"
           >
             <ArrowLeft size={18} strokeWidth={2.4} />
           </button>
-          <div>
-            <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl truncate">
               Account Setup
             </h1>
-            <p className="text-xs font-medium text-[#8FA4BE]">
-              Complete your details for fast delivery
+            <p className="text-xs font-medium text-[#8FA4BE] truncate">
+              Complete your security & delivery details
             </p>
           </div>
+        </div>
+
+        {/* Step Progress Pill */}
+        <div className="flex items-center justify-between rounded-xl border border-[#1E3252]/70 bg-[#111F36]/60 px-3.5 py-2 text-xs font-semibold">
+          <span className="flex items-center gap-1.5 text-[#42D6E8]">
+            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#42D6E8] text-[10px] font-black text-[#061220]">
+              ✓
+            </span>
+            Email Verified
+          </span>
+          <div className="h-0.5 flex-1 mx-3 bg-[#1E3252] rounded-full overflow-hidden">
+            <div className="h-full w-full bg-[#42D6E8]" />
+          </div>
+          <span className="flex items-center gap-1.5 text-[#F1F5F9]">
+            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#42D6E8] text-[10px] font-black text-[#061220]">
+              2
+            </span>
+            Account & Delivery Setup
+          </span>
         </div>
 
         {/* Status Toast */}
@@ -517,477 +542,521 @@ function ProfileSetup() {
         )}
 
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          {/* Main Card Container */}
-          <div className="rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] p-4.5 sm:p-6 shadow-lg space-y-5">
-            {/* ──────────────────────────────────────────────────────── */}
-            {/* 1. PERSONAL INFORMATION (Name, Age, Phone ONCE)         */}
-            {/* ──────────────────────────────────────────────────────── */}
-            <div className="space-y-3.5">
-              <div className="flex items-center gap-2.5 border-b border-[#1E3252]/60 pb-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
-                  <User size={16} strokeWidth={2.2} />
+          {/* ──────────────────────────────────────────────────────── */}
+          {/* CARD 1: ACCOUNT SECURITY & CONTACT (PASSWORD FIRST)      */}
+          {/* ──────────────────────────────────────────────────────── */}
+          <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4.5 sm:p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-[#1E3252]/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#42D6E8]/10 text-[#42D6E8] border border-[#42D6E8]/20">
+                  <Lock size={16} strokeWidth={2.2} />
                 </div>
                 <div>
                   <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
-                    Personal Information
+                    Account Security & Contact
                   </h2>
                   <p className="text-[11px] font-medium text-[#8FA4BE]">
-                    Your name and contact for orders
+                    Set your account password and mobile number
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {/* First Name & Last Name */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className={`mb-1 block text-xs font-bold ${errors.first_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                      First Name <span className={errors.first_name ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                    </label>
-                    <div className="relative">
-                      <User
-                        size={15}
-                        className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.first_name ? "text-rose-400" : "text-[#6E84A3]"}`}
-                      />
-                      <input
-                        type="text"
-                        name="first_name"
-                        autoComplete="given-name"
-                        value={form.first_name}
-                        onChange={handleChange}
-                        required
-                        className={`h-10 w-full rounded-xl border pl-9 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
-                          errors.first_name
-                            ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                            : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                        }`}
-                      />
-                    </div>
-                    {errors.first_name && (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                        <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                        <span>{errors.first_name}</span>
-                      </p>
-                    )}
-                  </div>
+              <span className="rounded-full bg-[#132B45] text-[#42D6E8] border border-[#1E3E63] px-2.5 py-0.5 text-[10px] font-bold">
+                Step 1 of 2
+              </span>
+            </div>
 
-                  <div>
-                    <label className={`mb-1 block text-xs font-bold ${errors.last_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                      Last Name <span className={errors.last_name ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                    </label>
-                    <div className="relative">
-                      <User
-                        size={15}
-                        className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.last_name ? "text-rose-400" : "text-[#6E84A3]"}`}
-                      />
-                      <input
-                        type="text"
-                        name="last_name"
-                        autoComplete="family-name"
-                        value={form.last_name}
-                        onChange={handleChange}
-                        required
-                        className={`h-10 w-full rounded-xl border pl-9 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
-                          errors.last_name
-                            ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                            : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                        }`}
-                      />
-                    </div>
-                    {errors.last_name && (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                        <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                        <span>{errors.last_name}</span>
-                      </p>
-                    )}
+            {/* A. Password Inputs (Entered first as requested) */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {/* Password Field */}
+                <div>
+                  <label className={`mb-1 block text-xs font-bold ${errors.password ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Password <span className="text-[#42D6E8]">*</span>
+                  </label>
+                  <div className="relative">
+                    <Lock
+                      size={15}
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.password ? "text-rose-400" : "text-[#6E84A3]"}`}
+                    />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      autoComplete="new-password"
+                      placeholder="Create a strong password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (errors.password) {
+                          setErrors((prev) => {
+                            const copy = { ...prev };
+                            delete copy.password;
+                            return copy;
+                          });
+                        }
+                      }}
+                      required
+                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                        errors.password
+                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6E84A3] hover:text-[#42D6E8] cursor-pointer"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                   </div>
+                  {errors.password && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{errors.password}</span>
+                    </p>
+                  )}
                 </div>
 
-                {/* Age & Mobile Number */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className={`mb-1 block text-xs font-bold ${errors.age ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                      Age <span className={errors.age ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                    </label>
-                    <div className="relative">
-                      <Calendar
-                        size={15}
-                        className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.age ? "text-rose-400" : "text-[#6E84A3]"}`}
-                      />
-                      <input
-                        type="number"
-                        name="age"
-                        value={form.age}
-                        onChange={handleChange}
-                        min="13"
-                        max="120"
-                        required
-                        className={`h-10 w-full rounded-xl border pl-9 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
-                          errors.age
-                            ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                            : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                        }`}
-                      />
-                    </div>
-                    {errors.age && (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                        <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                        <span>{errors.age}</span>
-                      </p>
-                    )}
+                {/* Confirm Password Field */}
+                <div>
+                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_password ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Confirm Password <span className="text-[#42D6E8]">*</span>
+                  </label>
+                  <div className="relative">
+                    <Lock
+                      size={15}
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.confirm_password ? "text-rose-400" : "text-[#6E84A3]"}`}
+                    />
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      name="confirm_password"
+                      autoComplete="new-password"
+                      placeholder="Re-enter your password"
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (errors.confirm_password) {
+                          setErrors((prev) => {
+                            const copy = { ...prev };
+                            delete copy.confirm_password;
+                            return copy;
+                          });
+                        }
+                      }}
+                      required
+                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                        errors.confirm_password
+                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6E84A3] hover:text-[#42D6E8] cursor-pointer"
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                   </div>
-
-                  <div>
-                    <label className={`mb-1 block text-xs font-bold ${errors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                      Mobile Number <span className={errors.phone ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                    </label>
-                    <div className="relative flex items-center w-full">
-                      <span
-                        className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                          errors.phone ? "text-rose-400" : "text-[#6E84A3]"
-                        }`}
-                      >
-                        +91
-                      </span>
-                      <input
-                        type="tel"
-                        inputMode="numeric"
-                        maxLength={10}
-                        name="phone"
-                        value={form.phone}
-                        onChange={handleChange}
-                        required
-                        className={`h-10 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
-                          errors.phone
-                            ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                            : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                        }`}
-                      />
-                    </div>
-                    {errors.phone ? (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                        <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                        <span>{errors.phone}</span>
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-[11px] text-[#6E84A3] font-medium">
-                        Used for delivery updates & order contact
-                      </p>
-                    )}
-                  </div>
-
-                  {isFromRegister && (
-                    <div className="sm:col-span-2">
-                      <label className={`mb-1 block text-xs font-bold ${errors.confirm_phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                        Confirm Mobile Number <span className={errors.confirm_phone ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                      </label>
-                      <div className="relative flex items-center w-full">
-                        <span
-                          className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                            errors.confirm_phone ? "text-rose-400" : "text-[#6E84A3]"
-                          }`}
-                        >
-                          +91
-                        </span>
-                        <input
-                          type="tel"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          maxLength={10}
-                          name="confirm_phone"
-                          value={confirmPhone}
-                          onChange={handleChange}
-                          required
-                          aria-invalid={Boolean(errors.confirm_phone)}
-                          className={`h-10 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
-                            errors.confirm_phone
-                              ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                              : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                          }`}
-                        />
-                      </div>
-                      {errors.confirm_phone ? (
-                        <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                          <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                          <span>{errors.confirm_phone}</span>
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-[11px] text-[#6E84A3] font-medium">
-                          Re-enter the same number to make sure it’s correct
-                        </p>
-                      )}
-                    </div>
+                  {errors.confirm_password && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{errors.confirm_password}</span>
+                    </p>
                   )}
+                </div>
+              </div>
+
+              {/* Password Rules Checklist */}
+              <div className="rounded-xl border border-[#1E3252]/60 bg-[#080F1C]/70 p-3 text-[11px] text-[#8FA4BE] space-y-1.5">
+                <span className="block font-bold text-[#6E84A3] text-[10px] uppercase tracking-wider">
+                  Password Requirements
+                </span>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  <span className={`flex items-center gap-1 ${passwordChecks.length ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                    <Check size={12} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
+                  </span>
+                  <span className={`flex items-center gap-1 ${passwordChecks.uppercase ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                    <Check size={12} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
+                  </span>
+                  <span className={`flex items-center gap-1 ${passwordChecks.lowercase ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                    <Check size={12} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
+                  </span>
+                  <span className={`flex items-center gap-1 ${passwordChecks.number ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                    <Check size={12} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
+                  </span>
+                  <span className={`flex items-center gap-1 col-span-2 sm:col-span-2 ${passwordChecks.special ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                    <Check size={12} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special symbol (!@#$%^&*)
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* ──────────────────────────────────────────────────────── */}
-            {/* 2. DELIVERY ADDRESS (Zero duplicate name/phone fields)   */}
-            {/* ──────────────────────────────────────────────────────── */}
-            <div className="space-y-3.5 pt-2">
-              <div className="flex items-center justify-between border-b border-[#1E3252]/60 pb-2.5">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
-                    <MapPin size={16} strokeWidth={2.2} />
-                  </div>
-                  <div>
-                    <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
-                      Delivery Address
-                    </h2>
-                    <p className="text-[11px] font-medium text-[#8FA4BE]">
-                      Where your orders will be delivered
-                    </p>
-                  </div>
-                </div>
+            {/* B. Divider */}
+            <div className="border-t border-[#1E3252]/60 pt-3" />
 
-                <span className="rounded-full bg-[#132B45] text-[#67E8F9] border border-[#1E3252] px-2.5 py-0.5 text-[11px] font-bold">
-                  Required
-                </span>
+            {/* C. Mobile Number & Confirm Mobile Number */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#42D6E8]/10 text-[#42D6E8] border border-[#42D6E8]/20">
+                  <User size={14} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9]">
+                    Delivery Contact Mobile
+                  </h3>
+                  <p className="text-[10px] font-medium text-[#8FA4BE]">
+                    Used for order delivery updates & driver contact
+                  </p>
+                </div>
               </div>
 
-              {/* If existing addresses exist and user is not currently editing */}
-              {addresses.length > 0 && !isEditingAddress ? (
-                <div className="space-y-2.5">
-                  {addresses.map((address) => {
-                    const isHome = address.type === "home";
-                    return (
-                      <div
-                        key={address.id}
-                        className="rounded-xl border border-[#1E3252] bg-[#080F1C] p-3.5 transition hover:border-[#42D6E8]/50"
-                      >
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="flex items-start gap-2.5 min-w-0">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] shadow-xs border border-[#1E3252]">
-                              {isHome ? <Home size={15} /> : <Building2 size={15} />}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <h4 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] capitalize">
-                                  {address.type} Address
-                                </h4>
-                                <span className="rounded bg-[#132B45] border border-[#1E3252] px-1.5 py-0.2 text-[9px] font-bold uppercase text-[#67E8F9]">
-                                  Saved
-                                </span>
-                              </div>
-                              <p className="text-xs font-medium text-[#8FA4BE] line-clamp-2 mt-0.5">
-                                {address.address_line1}
-                                {address.address_line2 ? `, ${address.address_line2}` : ""}
-                                , {address.city}, Maharashtra
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex shrink-0 gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => startEditAddress(address)}
-                              className="flex h-7 px-2.5 items-center gap-1 rounded-lg bg-[#111F36] border border-[#1E3252] text-xs font-bold text-[#8FA4BE] hover:text-[#42D6E8] hover:border-[#42D6E8]/40 transition cursor-pointer"
-                            >
-                              <Pencil size={12} />
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteAddress(address.id)}
-                              className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#111F36] border border-[#1E3252] text-rose-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition cursor-pointer"
-                              title="Delete address"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Add second address toggle if only 1 saved */}
-                  <div className="flex gap-2 pt-1">
-                    {!hasHome && (
-                      <button
-                        type="button"
-                        onClick={() => startNewAddress("home")}
-                        className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
-                      >
-                        <Plus size={13} />
-                        <span>Add Home Address</span>
-                      </button>
-                    )}
-                    {!hasOffice && (
-                      <button
-                        type="button"
-                        onClick={() => startNewAddress("office")}
-                        className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
-                      >
-                        <Plus size={13} />
-                        <span>Add Office Address</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Inline Address Fields */
-                <div className="space-y-3">
-                  {/* Address Type Toggle (Home / Office) */}
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-[#8FA4BE]">
-                      Address Type
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setAddressForm((prev) => ({ ...prev, type: "home" }))}
-                        className={`flex h-9.5 items-center justify-center gap-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                          addressForm.type === "home"
-                            ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] ring-2 ring-[#42D6E8]/20"
-                            : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
-                        }`}
-                      >
-                        <Home size={14} />
-                        <span>Home</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setAddressForm((prev) => ({ ...prev, type: "office" }))}
-                        className={`flex h-9.5 items-center justify-center gap-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                          addressForm.type === "office"
-                            ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] ring-2 ring-[#42D6E8]/20"
-                            : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
-                        }`}
-                      >
-                        <Building2 size={14} />
-                        <span>Office</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Street Address */}
-                  <div>
-                    <label className={`mb-1 block text-xs font-bold ${errors.address_line1 ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                      Flat, Building, Street Address <span className={errors.address_line1 ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                    </label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={`mb-1 block text-xs font-bold ${errors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Mobile Number <span className="text-[#42D6E8]">*</span>
+                  </label>
+                  <div className="relative flex items-center w-full">
+                    <span
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
+                        errors.phone ? "text-rose-400" : "text-[#6E84A3]"
+                      }`}
+                    >
+                      +91
+                    </span>
                     <input
-                      type="text"
-                      name="address_line1"
-                      value={addressForm.address_line1}
-                      onChange={handleAddressChange}
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      name="phone"
+                      value={form.phone}
+                      onChange={handleChange}
                       required
-                      className={`h-10 w-full rounded-xl border px-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
-                        errors.address_line1
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
+                      className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                        errors.phone
+                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
                           : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                       }`}
                     />
-                    {errors.address_line1 && (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                        <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                        <span>{errors.address_line1}</span>
-                      </p>
-                    )}
                   </div>
-
-                  {/* Landmark / Area */}
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-[#8FA4BE]">
-                      Landmark / Area <span className="text-[#6E84A3] font-medium">(Optional)</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="address_line2"
-                      value={addressForm.address_line2}
-                      onChange={handleAddressChange}
-                      className="h-10 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
-                    />
-                  </div>
-
-                  {/* Delivery Region Selection (4 Zones) */}
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <label className={`block text-xs font-bold ${errors.city ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                        Delivery Region <span className={errors.city ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
-                      </label>
-                      <span className="text-[10px] font-semibold text-[#6E84A3]">
-                        Local delivery zones
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {DELIVERY_REGIONS.map((region) => {
-                        const isSelected = addressForm.city?.toLowerCase() === region.toLowerCase();
-
-                        return (
-                          <button
-                            key={region}
-                            type="button"
-                            onClick={() => {
-                              setAddressForm((prev) => ({ ...prev, city: region }));
-                              if (errors.city) {
-                                setErrors((prev) => {
-                                  const updated = { ...prev };
-                                  delete updated.city;
-                                  return updated;
-                                });
-                              }
-                              setMessage({ type: "", text: "" });
-                            }}
-                            className={`flex h-10 items-center justify-center gap-1 rounded-xl border px-2 text-xs font-bold transition-all cursor-pointer active:scale-95 ${
-                              isSelected
-                                ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] shadow-xs ring-2 ring-[#42D6E8]/20"
-                                : errors.city
-                                ? "border-rose-400 bg-rose-950/20 text-[#8FA4BE]"
-                                : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:border-[#42D6E8]/40 hover:bg-[#162744]"
-                            }`}
-                          >
-                            <MapPin size={13} className={isSelected ? "text-[#67E8F9]" : errors.city ? "text-rose-400" : "text-[#6E84A3]"} />
-                            <span className="truncate">{region}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {errors.city && (
-                      <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                        <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                        <span>{errors.city}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  {/* State / Store Zone Badge */}
-                  <div className="flex items-center justify-between rounded-xl border border-[#1E3252] bg-[#080F1C] px-3 py-2 text-xs font-bold text-[#8FA4BE]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[#F1F5F9]">Maharashtra</span>
-                      <span className="text-[11px] font-semibold text-[#6E84A3]">(MH)</span>
-                    </div>
-                    <span className="rounded bg-[#132B45] border border-[#1E3252] px-2 py-0.5 text-[9px] font-extrabold text-[#67E8F9]">
-                      Store Delivery Zone
-                    </span>
-                  </div>
-
-                  {/* Cancel editing button if editing an existing address */}
-                  {addresses.length > 0 && editingAddressId && (
-                    <div className="flex justify-end pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsEditingAddress(false);
-                          setEditingAddressId(null);
-                        }}
-                        className="text-xs font-bold text-[#8FA4BE] hover:text-[#42D6E8] cursor-pointer"
-                      >
-                        Cancel Editing
-                      </button>
-                    </div>
+                  {errors.phone && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{errors.phone}</span>
+                    </p>
                   )}
                 </div>
-              )}
+
+                <div>
+                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Confirm Mobile Number <span className="text-[#42D6E8]">*</span>
+                  </label>
+                  <div className="relative flex items-center w-full">
+                    <span
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
+                        errors.confirm_phone ? "text-rose-400" : "text-[#6E84A3]"
+                      }`}
+                    >
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={10}
+                      name="confirm_phone"
+                      value={confirmPhone}
+                      onChange={handleChange}
+                      required
+                      aria-invalid={Boolean(errors.confirm_phone)}
+                      className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                        errors.confirm_phone
+                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                      }`}
+                    />
+                  </div>
+                  {errors.confirm_phone && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{errors.confirm_phone}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
           {/* ──────────────────────────────────────────────────────── */}
-          {/* SINGLE PRIMARY SAVE BUTTON                               */}
+          {/* CARD 2: DELIVERY ADDRESS                                 */}
           {/* ──────────────────────────────────────────────────────── */}
-          <div className="space-y-2 pt-1">
+          <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4.5 sm:p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-[#1E3252]/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#42D6E8]/10 text-[#42D6E8] border border-[#42D6E8]/20">
+                  <MapPin size={16} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
+                    Delivery Address
+                  </h2>
+                  <p className="text-[11px] font-medium text-[#8FA4BE]">
+                    Where your orders will be delivered
+                  </p>
+                </div>
+              </div>
+
+              <span className="rounded-full bg-[#132B45] text-[#42D6E8] border border-[#1E3E63] px-2.5 py-0.5 text-[10px] font-bold">
+                Step 2 of 2
+              </span>
+            </div>
+
+            {/* If existing addresses exist and user is not currently editing */}
+            {addresses.length > 0 && !isEditingAddress ? (
+              <div className="space-y-2.5">
+                {addresses.map((address) => {
+                  const isHome = address.type === "home";
+                  return (
+                    <div
+                      key={address.id}
+                      className="rounded-xl border border-[#1E3252] bg-[#080F1C] p-3.5 transition hover:border-[#42D6E8]/50"
+                    >
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] shadow-xs border border-[#1E3252]">
+                            {isHome ? <Home size={15} /> : <Building2 size={15} />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] capitalize">
+                                {address.type} Address
+                              </h4>
+                              <span className="rounded bg-[#132B45] border border-[#1E3252] px-1.5 py-0.2 text-[9px] font-bold uppercase text-[#67E8F9]">
+                                Saved
+                              </span>
+                            </div>
+                            <p className="text-xs font-medium text-[#8FA4BE] line-clamp-2 mt-0.5">
+                              {address.address_line1}
+                              {address.address_line2 ? `, ${address.address_line2}` : ""}
+                              , {address.city}, Maharashtra
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => startEditAddress(address)}
+                            className="flex h-7 px-2.5 items-center gap-1 rounded-lg bg-[#111F36] border border-[#1E3252] text-xs font-bold text-[#8FA4BE] hover:text-[#42D6E8] hover:border-[#42D6E8]/40 transition cursor-pointer"
+                          >
+                            <Pencil size={12} />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAddress(address.id)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#111F36] border border-[#1E3252] text-rose-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition cursor-pointer"
+                            title="Delete address"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add second address toggle if only 1 saved */}
+                <div className="flex gap-2 pt-1">
+                  {!hasHome && (
+                    <button
+                      type="button"
+                      onClick={() => startNewAddress("home")}
+                      className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
+                    >
+                      <Plus size={13} />
+                      <span>Add Home Address</span>
+                    </button>
+                  )}
+                  {!hasOffice && (
+                    <button
+                      type="button"
+                      onClick={() => startNewAddress("office")}
+                      className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
+                    >
+                      <Plus size={13} />
+                      <span>Add Office Address</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Inline Address Fields */
+              <div className="space-y-3">
+                {/* Address Type Toggle (Home / Office) */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-[#8FA4BE]">
+                    Address Type
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAddressForm((prev) => ({ ...prev, type: "home" }))}
+                      className={`flex h-10 items-center justify-center gap-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        addressForm.type === "home"
+                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] ring-2 ring-[#42D6E8]/20 font-extrabold"
+                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
+                      }`}
+                    >
+                      <Home size={15} />
+                      <span>Home</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAddressForm((prev) => ({ ...prev, type: "office" }))}
+                      className={`flex h-10 items-center justify-center gap-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        addressForm.type === "office"
+                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] ring-2 ring-[#42D6E8]/20 font-extrabold"
+                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
+                      }`}
+                    >
+                      <Building2 size={15} />
+                      <span>Office</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Street Address */}
+                <div>
+                  <label className={`mb-1 block text-xs font-bold ${errors.address_line1 ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    Flat, Building, Street Address <span className="text-[#42D6E8]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="address_line1"
+                    placeholder="e.g. Flat 302, Building 4, Station Road"
+                    value={addressForm.address_line1}
+                    onChange={handleAddressChange}
+                    required
+                    className={`h-11 w-full rounded-xl border px-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                      errors.address_line1
+                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                        : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                    }`}
+                  />
+                  {errors.address_line1 && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{errors.address_line1}</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Landmark / Area */}
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-[#8FA4BE]">
+                    Landmark / Area <span className="text-[#6E84A3] font-medium">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="address_line2"
+                    placeholder="e.g. Near Ganpati Mandir, Opposite Bank"
+                    value={addressForm.address_line2}
+                    onChange={handleAddressChange}
+                    className="h-11 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                  />
+                </div>
+
+                {/* Delivery Region Selection (4 Zones) */}
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className={`block text-xs font-bold ${errors.city ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                      Delivery Region <span className="text-[#42D6E8]">*</span>
+                    </label>
+                    <span className="text-[10px] font-semibold text-[#6E84A3]">
+                      Local delivery zones
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {DELIVERY_REGIONS.map((region) => {
+                      const isSelected = addressForm.city?.toLowerCase() === region.toLowerCase();
+
+                      return (
+                        <button
+                          key={region}
+                          type="button"
+                          onClick={() => {
+                            setAddressForm((prev) => ({ ...prev, city: region }));
+                            if (errors.city) {
+                              setErrors((prev) => {
+                                const updated = { ...prev };
+                                delete updated.city;
+                                return updated;
+                              });
+                            }
+                            setMessage({ type: "", text: "" });
+                          }}
+                          className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer active:scale-98 ${
+                            isSelected
+                              ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] shadow-xs ring-2 ring-[#42D6E8]/20 font-extrabold"
+                              : errors.city
+                              ? "border-rose-400 bg-rose-950/20 text-[#8FA4BE]"
+                              : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:border-[#42D6E8]/40 hover:bg-[#162744]"
+                          }`}
+                        >
+                          <MapPin size={14} className={isSelected ? "text-[#67E8F9]" : errors.city ? "text-rose-400" : "text-[#6E84A3]"} />
+                          <span className="truncate">{region}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {errors.city && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
+                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                      <span>{errors.city}</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* State / Store Zone Badge */}
+                <div className="flex items-center justify-between rounded-xl border border-[#1E3252] bg-[#080F1C] px-3.5 py-2.5 text-xs font-bold text-[#8FA4BE]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[#F1F5F9]">Maharashtra</span>
+                    <span className="text-[11px] font-semibold text-[#6E84A3]">(MH)</span>
+                  </div>
+                  <span className="rounded bg-[#132B45] border border-[#1E3252] px-2 py-0.5 text-[9px] font-extrabold text-[#67E8F9]">
+                    Store Delivery Zone
+                  </span>
+                </div>
+
+                {/* Cancel editing button if editing an existing address */}
+                {addresses.length > 0 && editingAddressId && (
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingAddress(false);
+                        setEditingAddressId(null);
+                      }}
+                      className="text-xs font-bold text-[#8FA4BE] hover:text-[#42D6E8] cursor-pointer"
+                    >
+                      Cancel Editing
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ──────────────────────────────────────────────────────── */}
+          {/* PRIMARY SUBMIT CTA                                       */}
+          {/* ──────────────────────────────────────────────────────── */}
+          <div className="space-y-2.5 pt-2">
             <button
               type="submit"
               disabled={saving}
@@ -1001,7 +1070,7 @@ function ProfileSetup() {
               ) : (
                 <>
                   <span>Save Information & Continue</span>
-                  <ArrowRight size={16} strokeWidth={2.4} />
+                  <ArrowRight size={17} strokeWidth={2.4} />
                 </>
               )}
             </button>

@@ -34,6 +34,8 @@ import {
 } from "../utils/orderNotification.js";
 import {
   resolveTabFromStatusParam,
+  getISTDateString,
+  shiftDateOnly,
   getOrderDateIST,
   getOrderTimestampDate,
   getCleanCustomerName,
@@ -66,6 +68,7 @@ const DATE_FILTERS = [
   { id: "today", label: "Today" },
   { id: "yesterday", label: "Yesterday" },
   { id: "7days", label: "Last 7 Days" },
+  { id: "all", label: "All Time" },
   { id: "custom", label: "Custom Range..." },
 ];
 
@@ -159,6 +162,7 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
 function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
+  const [ordersQueryKey, setOrdersQueryKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState(() =>
@@ -171,7 +175,8 @@ function Orders() {
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
-  const dateDropdownRef = useRef(null);
+  const mobileDateDropdownRef = useRef(null);
+  const desktopDateDropdownRef = useRef(null);
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const locationDropdownRef = useRef(null);
 
@@ -209,7 +214,10 @@ function Orders() {
       if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target)) {
         setIsStatusDropdownOpen(false);
       }
-      if (dateDropdownRef.current && !dateDropdownRef.current.contains(event.target)) {
+      const clickedInsideDate =
+        (mobileDateDropdownRef.current && mobileDateDropdownRef.current.contains(event.target)) ||
+        (desktopDateDropdownRef.current && desktopDateDropdownRef.current.contains(event.target));
+      if (!clickedInsideDate) {
         setIsDateDropdownOpen(false);
       }
       if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target)) {
@@ -244,6 +252,16 @@ function Orders() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
   const perPage = 20;
+
+  const currentOrdersQueryKey = JSON.stringify({
+    activeTab,
+    debouncedSearch,
+    locationFilter,
+    dateFilter,
+    customDateRange: dateFilter === "custom" ? customDateRange : null,
+    page,
+  });
+  const hasCurrentOrders = ordersQueryKey === currentOrdersQueryKey;
 
   const abortControllerRef = useRef(null);
 
@@ -298,6 +316,7 @@ function Orders() {
         }
         knownOrderIdsRef.current = new Set(incomingOrders.map((o) => o.id));
         setOrders(incomingOrders);
+        setOrdersQueryKey(currentOrdersQueryKey);
         setTotalOrders(res.total || incomingOrders.length || 0);
         setTotalPages(res.totalPages || Math.ceil((res.total || 1) / perPage) || 1);
         if (!isBackground) setError("");
@@ -444,8 +463,8 @@ function Orders() {
     setIsDateDropdownOpen(false);
     if (filterId === "custom") {
       setTempDateRange(customDateRange.start ? customDateRange : {
-        start: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() - 7 * 86400000)),
-        end: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()),
+        start: shiftDateOnly(getISTDateString(), -6),
+        end: getISTDateString(),
       });
       setIsCustomModalOpen(true);
       return;
@@ -467,15 +486,14 @@ function Orders() {
   };
 
   const setPresetRange = (days) => {
-    const end = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-    const start = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() - days * 86400000));
+    const end = getISTDateString();
+    const start = shiftDateOnly(end, -(days - 1));
     setTempDateRange({ start, end });
   };
 
   const setMonthPreset = () => {
-    const now = new Date();
-    const start = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(now.getFullYear(), now.getMonth(), 1));
-    const end = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
+    const end = getISTDateString();
+    const start = `${end.slice(0, 7)}-01`;
     setTempDateRange({ start, end });
   };
 
@@ -708,9 +726,8 @@ function Orders() {
   };
 
   // Date Filtering Engine (Store Timezone Asia/Kolkata)
-  const todayDateString = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-  const yesterdayDateString = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() - 86400000));
-  const sevenDaysAgoDateString = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() - 7 * 86400000));
+  const todayDateString = getISTDateString();
+  const yesterdayDateString = shiftDateOnly(todayDateString, -1);
 
   const filteredOrders = orders.filter((order) => {
     if (activeTab === "active" && (order.status === "completed" || order.status === "cancelled")) {
@@ -738,6 +755,7 @@ function Orders() {
     if (dateFilter === "today") return `Today (${formatDateLabel(todayDateString)})`;
     if (dateFilter === "yesterday") return `Yesterday (${formatDateLabel(yesterdayDateString)})`;
     if (dateFilter === "7days") return "Last 7 Days";
+    if (dateFilter === "all") return "All Time";
     if (dateFilter === "custom" && customDateRange.start && customDateRange.end) {
       return `${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`;
     }
@@ -912,7 +930,7 @@ function Orders() {
         {/* Row 2: Mobile Filter Controls (<640px) */}
         <div className="flex sm:hidden items-center gap-2">
           {/* 1. Date Dropdown Trigger */}
-          <div className="relative flex-1" ref={dateDropdownRef}>
+          <div className="relative flex-1" ref={mobileDateDropdownRef}>
             <button
               type="button"
               onClick={() => setIsDateDropdownOpen((prev) => !prev)}
@@ -973,11 +991,6 @@ function Orders() {
           >
             <SlidersHorizontal size={13} className={hasActiveFilters ? "text-emerald-600" : "text-gray-500"} />
             <span>Filters</span>
-            {hasActiveFilters && (
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-black text-white">
-                {(activeTab !== "all" ? 1 : 0) + (dateFilter !== "today" ? 1 : 0) + (locationFilter !== "all" ? 1 : 0)}
-              </span>
-            )}
           </button>
         </div>
 
@@ -1064,7 +1077,7 @@ function Orders() {
             </div>
 
             {/* Date Selector Dropdown (Desktop) */}
-            <div className="relative" ref={dateDropdownRef}>
+            <div className="relative" ref={desktopDateDropdownRef}>
               <button
                 type="button"
                 onClick={() => {
@@ -1124,7 +1137,17 @@ function Orders() {
 
       {/* ORDERS PRESENTATION (MOBILE STACKED CARDS / DESKTOP CLEAN TABLE) */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-xs overflow-hidden">
-        {loading && orders.length === 0 ? (
+        {!hasCurrentOrders && error ? (
+          <div className="p-8 text-center text-rose-600">
+            <p className="text-sm font-bold">{error}</p>
+            <button
+              onClick={() => fetchOrderList(false)}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-500 transition cursor-pointer"
+            >
+              <RotateCcw size={14} /> Retry
+            </button>
+          </div>
+        ) : !hasCurrentOrders || (loading && orders.length === 0) ? (
           <div className="flex h-64 items-center justify-center">
             <div className="flex flex-col items-center gap-2">
               <Loader2 size={24} className="animate-spin text-emerald-600" />
@@ -1835,22 +1858,6 @@ function Orders() {
                     >
                       <Phone size={12} /> {selectedOrder.phone || selectedOrder.billing?.phone || "No Phone"}
                     </a>
-                    {(() => {
-                      const altPhone =
-                        selectedOrder.secondary_phone ||
-                        selectedOrder.meta_data?.find((m) => m.key === "_secondary_phone" || m.key === "Alternative Contact")?.value;
-                      if (!altPhone) return null;
-                      const cleanAlt = String(altPhone).replace(/\D/g, "");
-                      return (
-                        <a
-                          href={`tel:${cleanAlt}`}
-                          className="inline-flex items-center gap-1 text-purple-600 font-bold hover:underline"
-                          title="Backup Mobile Number"
-                        >
-                          <Phone size={12} /> Alt: {String(altPhone).startsWith("+91") ? altPhone : `+91 ${altPhone}`}
-                        </a>
-                      );
-                    })()}
                     {selectedOrder.billing?.email && (
                       <a
                         href={`mailto:${selectedOrder.billing.email}`}

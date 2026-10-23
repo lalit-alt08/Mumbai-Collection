@@ -66,14 +66,6 @@ export function AuthProvider({ children }) {
             userData.phone = cachedUser.phone;
           }
 
-          if (response.user?.secondary_phone || response.secondary_phone) {
-            userData.secondary_phone = response.user?.secondary_phone || response.secondary_phone;
-          } else if (cachedProfile.secondary_phone) {
-            userData.secondary_phone = cachedProfile.secondary_phone;
-          } else if (cachedUser.secondary_phone) {
-            userData.secondary_phone = cachedUser.secondary_phone;
-          }
-
           if (!userData.email && cachedUser.email) {
             userData.email = cachedUser.email;
           }

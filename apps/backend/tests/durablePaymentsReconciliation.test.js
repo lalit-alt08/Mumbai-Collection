@@ -28,6 +28,7 @@ import { sendDailyHealthAlert } from "../src/services/alertService.js";
 import {
   findOrderByRazorpayOrderId,
   finalizePaymentAndCreateOrder,
+  handleWebhook,
 } from "../src/controllers/paymentController.js";
 
 describe("Durable Payments & Reconciliation Suite", () => {
@@ -215,21 +216,27 @@ describe("Durable Payments & Reconciliation Suite", () => {
     assert.strictEqual(results.filter(Boolean).length, 1);
   });
 
-  test("5. Reconciler polls Razorpay for stuck 'created' intents (> 10m): finalizes order or auto-refunds if stock 0", async () => {
+  test("5. Reconciler finalizes captured payments using atomic stock reservation and refunds true shortages", async () => {
     const originalApiGet = api.get;
     const originalApiPost = api.post;
     const originalAcquireLock = paymentIntentService.acquireLock;
     const originalReleaseLock = paymentIntentService.releaseLock;
     const originalFetchList = paymentIntentService.fetchReconciliationList;
     const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+    const originalReserveStock = paymentIntentService.reserveCheckoutStock;
+    const originalReleaseStock = paymentIntentService.releaseCheckoutStock;
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
+    paymentIntentService.reserveCheckoutStock = async () => ({ success: true });
+    paymentIntentService.releaseCheckoutStock = async () => true;
 
     try {
-      // 5a: Stock > 0 -> Reconciler discovers captured payment, creates WC order
+      // 5a: Reservation succeeds. A REST quantity of zero must not override the
+      // reservation because REST reports stock after held quantities are removed.
       const rzpOrderIdA = `rzp_order_created_heal_${Date.now()}`;
       const rzpPaymentIdA = `pay_created_heal_${Date.now()}`;
       let wcOrderCreatedA = false;
+      let productStockReadsA = 0;
 
       _setRazorpayInstanceForTesting({
         orders: {
@@ -254,7 +261,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
       api.get = async (path) => {
         if (path === "products/232") {
-          return { data: { id: 232, manage_stock: true, stock_quantity: 10, backorders_allowed: false } };
+          productStockReadsA += 1;
+          return { data: { id: 232, manage_stock: true, stock_quantity: 0, backorders_allowed: false } };
         }
         return { data: {} };
       };
@@ -293,8 +301,9 @@ describe("Durable Payments & Reconciliation Suite", () => {
       const resA = await runPaymentReconciliation({ olderThanMinutes: 0 });
       assert.strictEqual(resA.healedOrders, 1, "Reconciler must heal stuck created intent into WooCommerce order");
       assert.strictEqual(wcOrderCreatedA, true, "WooCommerce order must be created");
+      assert.strictEqual(productStockReadsA, 0, "Reconciler must trust the atomic reservation, not re-read held stock");
 
-      // 5b: Stock == 0 -> Reconciler discovers captured payment, sees stock 0, auto-refunds
+      // 5b: A genuine shortage is identified by the atomic reservation returning 409.
       const rzpOrderIdB = `rzp_order_created_refund_${Date.now()}`;
       const rzpPaymentIdB = `pay_created_refund_${Date.now()}`;
       let refundCalledB = false;
@@ -328,9 +337,14 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
       api.get = async (path) => {
         if (path === "products/225") {
-          return { data: { id: 225, manage_stock: true, stock_quantity: 0, backorders_allowed: false } };
+          return { data: { id: 225, manage_stock: true, stock_quantity: 10, backorders_allowed: false } };
         }
         return { data: {} };
+      };
+      paymentIntentService.reserveCheckoutStock = async () => {
+        const error = new Error("Insufficient stock for reservation");
+        error.response = { status: 409 };
+        throw error;
       };
 
       const mockIntentB = {
@@ -374,6 +388,17 @@ describe("Durable Payments & Reconciliation Suite", () => {
             return { count: 0, items: [] };
           },
         },
+        payments: {
+          fetch: async (paymentId) => {
+            if (paymentId === rzpPaymentIdC) {
+              return { id: rzpPaymentIdC, status: "captured", amount: 5000, amount_refunded: 5000, refund_status: "full", currency: "INR" };
+            }
+            return { id: paymentId, status: "captured", amount: 0, currency: "INR" };
+          },
+          refund: async (paymentId, payload) => {
+            return { id: `rfnd_mismatch_${Date.now()}`, amount: payload.amount, status: "processed" };
+          },
+        },
       });
 
       api.post = async (path) => {
@@ -406,7 +431,9 @@ describe("Durable Payments & Reconciliation Suite", () => {
         hasMore: false,
       });
 
+      const statusUpdatesC = [];
       paymentIntentService.updatePaymentIntentStatus = async (params) => {
+        statusUpdatesC.push(params);
         statusUpdatedC = params;
         return true;
       };
@@ -415,8 +442,11 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
       assert.strictEqual(resC.healedOrders, 0, "Mismatched amount must not heal order");
       assert.strictEqual(wcOrderCreatedC, false, "WooCommerce order must never be created on amount mismatch");
-      assert.strictEqual(statusUpdatedC?.toStatus, "failed", "Intent must be quarantined with status failed");
-      assert.match(statusUpdatedC?.errorReason, /AMOUNT_MISMATCH/i);
+      const pendingStep = statusUpdatesC.find(u => u.toStatus === "refund_pending");
+      assert.ok(pendingStep, "Intent must be placed in refund_pending recovery flow");
+      assert.match(pendingStep.errorReason, /AMOUNT_MISMATCH/i);
+      assert.strictEqual(statusUpdatedC?.toStatus, "refunded", "Captured amount must be auto-refunded to customer");
+      assert.strictEqual(resC.refundsExecuted, 1, "Refund execution count must be incremented");
     } finally {
       api.get = originalApiGet;
       api.post = originalApiPost;
@@ -424,6 +454,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
       paymentIntentService.releaseLock = originalReleaseLock;
       paymentIntentService.fetchReconciliationList = originalFetchList;
       paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
+      paymentIntentService.reserveCheckoutStock = originalReserveStock;
+      paymentIntentService.releaseCheckoutStock = originalReleaseStock;
     }
   });
 
@@ -626,8 +658,12 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const originalFetchList = paymentIntentService.fetchReconciliationList;
     const originalAcquireLock = paymentIntentService.acquireLock;
     const originalReleaseLock = paymentIntentService.releaseLock;
+    const originalReserveStock = paymentIntentService.reserveCheckoutStock;
+    const originalReleaseCheckoutStock = paymentIntentService.releaseCheckoutStock;
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
+    paymentIntentService.reserveCheckoutStock = async () => ({ success: true });
+    paymentIntentService.releaseCheckoutStock = async () => true;
 
     try {
       _setRazorpayInstanceForTesting({
@@ -694,6 +730,200 @@ describe("Durable Payments & Reconciliation Suite", () => {
       paymentIntentService.fetchReconciliationList = originalFetchList;
       paymentIntentService.acquireLock = originalAcquireLock;
       paymentIntentService.releaseLock = originalReleaseLock;
+      paymentIntentService.reserveCheckoutStock = originalReserveStock;
+      paymentIntentService.releaseCheckoutStock = originalReleaseCheckoutStock;
+    }
+  });
+
+  test("10. Partial refund webhook keeps intent in refund_pending and does not mark fully refunded", async () => {
+    const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+    const originalStoreWebhook = paymentIntentService.storeWebhookEvent;
+    const originalUpdateWebhook = paymentIntentService.updateWebhookEventStatus;
+
+    let updatedParams = null;
+    paymentIntentService.updatePaymentIntentStatus = async (params) => {
+      updatedParams = params;
+      return true;
+    };
+    paymentIntentService.storeWebhookEvent = async () => ({ id: 999 });
+    paymentIntentService.updateWebhookEventStatus = async () => true;
+
+    try {
+      const crypto = await import("crypto");
+      const secret = process.env.RAZORPAY_WEBHOOK_SECRET || "test_secret";
+      process.env.RAZORPAY_WEBHOOK_SECRET = secret;
+
+      const payload = {
+        event: "refund.processed",
+        payload: {
+          refund: {
+            entity: { id: "rfnd_part_123", payment_id: "pay_part_123", amount: 2000 },
+          },
+          payment: {
+            entity: { id: "pay_part_123", order_id: "order_part_123", amount: 10000, amount_refunded: 2000, refund_status: "partial" },
+          },
+        },
+      };
+
+      const rawBody = JSON.stringify(payload);
+      const signature = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+
+      const req = {
+        rawBody,
+        body: payload,
+        headers: { "x-razorpay-signature": signature },
+      };
+      const res = {
+        status(code) { return this; },
+        json(data) { return this; },
+      };
+
+      await handleWebhook(req, res);
+      const start = Date.now();
+      while (!updatedParams && Date.now() - start < 2000) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+
+      assert.ok(updatedParams !== null, "updatePaymentIntentStatus must be called");
+      assert.strictEqual(updatedParams.toStatus, "refund_pending", "Partial refund must KEEP status in refund_pending");
+      assert.notStrictEqual(updatedParams.toStatus, "refunded", "Partial refund must NEVER mark intent refunded");
+      assert.match(updatedParams.errorReason, /PARTIAL_REFUND_WEBHOOK/i);
+    } finally {
+      paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
+      paymentIntentService.storeWebhookEvent = originalStoreWebhook;
+      paymentIntentService.updateWebhookEventStatus = originalUpdateWebhook;
+    }
+  });
+
+  test("11. Reconciler auto-refund does not mark refunded if gateway returns pending status", async () => {
+    const originalAcquireLock = paymentIntentService.acquireLock;
+    const originalReleaseLock = paymentIntentService.releaseLock;
+    const originalFetchList = paymentIntentService.fetchReconciliationList;
+    const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+    const originalReserveStock = paymentIntentService.reserveCheckoutStock;
+    const originalReleaseStock = paymentIntentService.releaseCheckoutStock;
+
+    paymentIntentService.acquireLock = async () => true;
+    paymentIntentService.releaseLock = async () => true;
+    paymentIntentService.reserveCheckoutStock = async () => {
+      const err = new Error("Out of stock");
+      err.response = { status: 409 };
+      throw err;
+    };
+    paymentIntentService.releaseStock = async () => true;
+
+    const rzpOrderIdPending = `rzp_order_pending_rfnd_${Date.now()}`;
+    const rzpPaymentIdPending = `pay_pending_rfnd_${Date.now()}`;
+    let finalStatusParams = null;
+
+    _setRazorpayInstanceForTesting({
+      orders: {
+        fetchPayments: async (orderId) => {
+          if (orderId === rzpOrderIdPending) {
+            return { count: 1, items: [{ id: rzpPaymentIdPending, status: "captured", amount: 15000, currency: "INR" }] };
+          }
+          return { count: 0, items: [] };
+        },
+      },
+      payments: {
+        fetch: async () => ({ id: rzpPaymentIdPending, status: "captured", amount: 15000, amount_refunded: 0, refund_status: null }),
+        refund: async () => ({ id: "rfnd_pending_gateway", amount: 15000, status: "pending" }),
+      },
+    });
+
+    const mockIntent = {
+      rzp_order_id: rzpOrderIdPending,
+      user_id: 5,
+      amount_paise: 15000,
+      status: "created",
+      cart_fingerprint: "fp_test_pending",
+      checkout_payload: JSON.stringify({
+        user_id: 5,
+        billing: { email: "pending_rfnd@test.com", first_name: "Test", last_name: "User" },
+        shipping: {},
+        line_items: [{ product_id: 111, quantity: 1 }],
+      }),
+      attempts: 0,
+      created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    };
+
+    paymentIntentService.fetchReconciliationList = async () => ({
+      intents: [mockIntent],
+      hasMore: false,
+    });
+
+    paymentIntentService.updatePaymentIntentStatus = async (params) => {
+      finalStatusParams = params;
+      return true;
+    };
+
+    try {
+      const res = await runPaymentReconciliation({ olderThanMinutes: 0 });
+      assert.strictEqual(res.refundsExecuted, 0, "Refund must not be marked executed/completed when gateway status is pending");
+      assert.strictEqual(finalStatusParams.toStatus, "refund_pending", "Intent must remain in refund_pending while gateway refund is pending");
+      assert.notStrictEqual(finalStatusParams.toStatus, "refunded", "Must not mark refunded when gateway status is pending");
+    } finally {
+      paymentIntentService.acquireLock = originalAcquireLock;
+      paymentIntentService.releaseLock = originalReleaseLock;
+      paymentIntentService.fetchReconciliationList = originalFetchList;
+      paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
+      paymentIntentService.reserveCheckoutStock = originalReserveStock;
+      paymentIntentService.releaseCheckoutStock = originalReleaseStock;
+    }
+  });
+
+  test("12. Reconciler escalates after 3 failed refund attempts to refund_escalated and stops repeating alert", async () => {
+    const originalAcquireLock = paymentIntentService.acquireLock;
+    const originalReleaseLock = paymentIntentService.releaseLock;
+    const originalFetchList = paymentIntentService.fetchReconciliationList;
+    const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+
+    paymentIntentService.acquireLock = async () => true;
+    paymentIntentService.releaseLock = async () => true;
+
+    const rzpOrderIdEscalate = `rzp_order_esc_${Date.now()}`;
+    const rzpPaymentIdEscalate = `pay_esc_${Date.now()}`;
+    let escalatedStatus = null;
+
+    _setRazorpayInstanceForTesting({
+      payments: {
+        fetch: async () => ({ id: rzpPaymentIdEscalate, status: "captured", amount: 10000, amount_refunded: 0, refund_status: null }),
+      },
+    });
+
+    const mockIntentEscalate = {
+      rzp_order_id: rzpOrderIdEscalate,
+      rzp_payment_id: rzpPaymentIdEscalate,
+      user_id: 7,
+      amount_paise: 10000,
+      status: "refund_failed",
+      cart_fingerprint: "fp_esc_123",
+      attempts: 3, // Already 3 failed attempts
+      created_at: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    };
+
+    paymentIntentService.fetchReconciliationList = async () => ({
+      intents: [mockIntentEscalate],
+      hasMore: false,
+    });
+
+    paymentIntentService.updatePaymentIntentStatus = async (params) => {
+      escalatedStatus = params;
+      return true;
+    };
+
+    try {
+      const res = await runPaymentReconciliation({ olderThanMinutes: 0 });
+      assert.ok(escalatedStatus !== null, "updatePaymentIntentStatus must be called");
+      assert.strictEqual(escalatedStatus.toStatus, "refund_escalated", "Must transition to refund_escalated to stop repeated alert cycling");
+      assert.match(escalatedStatus.errorReason, /maximum refund attempts/i);
+    } finally {
+      paymentIntentService.acquireLock = originalAcquireLock;
+      paymentIntentService.releaseLock = originalReleaseLock;
+      paymentIntentService.fetchReconciliationList = originalFetchList;
+      paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
     }
   });
 });
