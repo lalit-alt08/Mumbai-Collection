@@ -8,7 +8,7 @@ import {
   fetchProductsByCategory,
   fetchCategories,
 } from "../services/productService.js";
-import { logError } from "../utils/logger.js";
+import { logError, logger } from "../utils/logger.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 
@@ -70,11 +70,13 @@ export const getProductById = async (req, res) => {
   try {
     const productId = req.params.id;
     const cacheKey = `catalog:product:${productId}`;
-    const isFreshRequest = req.query?.refresh === "1";
-    const product = isFreshRequest
-      ? await fetchProductById(productId)
-      : await serverCache.getOrFetch(cacheKey, () => fetchProductById(productId), 300000);
-    if (isFreshRequest) serverCache.set(cacheKey, product, 300000);
+    // Product details stay behind the shared cache. Fresh inventory checks use
+    // the bounded /stock endpoint instead of allowing public cache bypasses.
+    const product = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchProductById(productId),
+      300000
+    );
 
     res.json(transformMediaUrls(product, req));
   } catch (error) {
@@ -103,16 +105,13 @@ export const getProductsByIds = async (req, res) => {
     }
 
     const cacheKey = `catalog:products:ids:${ids.join(",")}`;
-    const freshStock = req.query.fresh === "1";
-    const products = freshStock
-      ? await fetchProductsByIds(ids)
-      : await serverCache.getOrFetch(
-          cacheKey,
-          () => fetchProductsByIds(ids),
-          30000
-        );
+    const products = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchProductsByIds(ids),
+      30000
+    );
     const selectedProducts = (Array.isArray(products) ? products : []);
-    const availableProducts = freshStock ? selectedProducts : selectedProducts.filter((product) => {
+    const availableProducts = selectedProducts.filter((product) => {
       if (product.stock_status === "outofstock") return false;
       if (product.manage_stock === true) {
         const quantity = Number(product.stock_quantity);
@@ -181,14 +180,21 @@ export const getRelatedProducts = async (req, res) => {
 export const searchAllProducts = async (req, res) => {
   try {
     const { q } = req.query;
-    const cacheKey = `catalog:search:${(q || "").trim().toLowerCase()}`;
-    const products = await serverCache.getOrFetch(
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const perPage = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
+    const normalizedQuery = String(q || "").trim().toLowerCase();
+    const cacheKey = `catalog:search:${normalizedQuery}:${page}:${perPage}`;
+    const result = await serverCache.getOrFetch(
       cacheKey,
-      () => searchProducts(q),
+      () => searchProducts(normalizedQuery, { page, per_page: perPage }),
       120000 // 2 minutes TTL
     );
 
-    res.json(transformMediaUrls(products, req));
+    res.json({
+      success: true,
+      ...result,
+      products: transformMediaUrls(result.products, req),
+    });
   } catch (error) {
     logError(req, error, "Search products error");
 
@@ -238,9 +244,10 @@ export const getProductsByCategory = async (req, res) => {
   } catch (error) {
     logError(req, error, "Get category products error");
 
-    res.status(500).json({
+    const statusCode = error.status === 404 ? 404 : 500;
+    res.status(statusCode).json({
       success: false,
-      message: "Failed to fetch category products",
+      message: statusCode === 404 ? "Category not found" : "Failed to fetch category products",
       products: [],
       total: 0,
       totalPages: 0,
@@ -264,6 +271,107 @@ export const getAllCategories = async (req, res) => {
       success: false,
       message: "Failed to fetch categories",
       categories: [],
+    });
+  }
+};
+
+/**
+ * Return a compact, independently paged first shelf for each top-level
+ * department. Each shelf is cached so the home page does not scan the global
+ * catalog or make one WooCommerce request per visitor.
+ */
+export const getHomeShelves = async (req, res) => {
+  try {
+    const result = await serverCache.getOrFetch(
+      "catalog:home_shelves",
+      async () => {
+        const categories = await serverCache.getOrFetch(
+          "catalog:categories:all",
+          () => fetchCategories(),
+          120000
+        );
+        const categoryList = Array.isArray(categories) ? categories : [];
+        const categoryById = new Map(
+          categoryList.filter((category) => category?.id).map((category) => [Number(category.id), category])
+        );
+        const populatedDepartmentIds = new Set();
+        for (const category of categoryList) {
+          if (!category?.id || Number(category.count) <= 0) continue;
+          let current = category;
+          const visited = new Set();
+          while (current?.id && !visited.has(Number(current.id))) {
+            visited.add(Number(current.id));
+            const parentId = Number(current.parent) || 0;
+            if (parentId <= 0) {
+              populatedDepartmentIds.add(Number(current.id));
+              break;
+            }
+            current = categoryById.get(parentId);
+          }
+        }
+        const countsAvailable = categoryList.some((category) => category?.count !== undefined && category?.count !== null);
+        const departments = (Array.isArray(categories) ? categories : [])
+          .filter((category) =>
+            Number(category?.parent) <= 0 &&
+            category.slug?.toLowerCase() !== "uncategorized" &&
+            category.name?.toLowerCase() !== "uncategorized" &&
+            (!countsAvailable || populatedDepartmentIds.has(Number(category.id)))
+          )
+          .sort((a, b) => {
+            const orderA = Number(a.menu_order) > 0 ? Number(a.menu_order) : 9999;
+            const orderB = Number(b.menu_order) > 0 ? Number(b.menu_order) : 9999;
+            return orderA - orderB || Number(a.id) - Number(b.id);
+          });
+
+        const shelves = new Array(departments.length);
+        let nextIndex = 0;
+        const worker = async () => {
+          while (nextIndex < departments.length) {
+            const index = nextIndex++;
+            const department = departments[index];
+            try {
+              const shelf = await serverCache.getOrFetch(
+                `catalog:home_shelf:${department.id}`,
+                () => fetchProductsByCategory(department.id, { page: 1, per_page: 10 }),
+                300000
+              );
+              shelves[index] = {
+                ...department,
+                products: Array.isArray(shelf?.products) ? shelf.products.slice(0, 10) : [],
+              };
+            } catch (error) {
+              logger.warn(
+                { categoryId: department.id, err: error.message },
+                "Failed to load a homepage product shelf"
+              );
+              shelves[index] = { ...department, products: [] };
+            }
+          }
+        };
+
+        await Promise.all(
+          Array.from({ length: Math.min(3, departments.length) }, () => worker())
+        );
+        return {
+          categories: Array.isArray(categories) ? categories : [],
+          shelves: shelves.filter((shelf) => shelf?.products?.length > 0),
+        };
+      },
+      300000
+    );
+
+    return res.json({
+      success: true,
+      categories: transformMediaUrls(result.categories || [], req),
+      shelves: transformMediaUrls(result.shelves || [], req),
+    });
+  } catch (error) {
+    logError(req, error, "Get homepage shelves error");
+    return res.status(502).json({
+      success: false,
+      message: "Failed to load homepage product shelves.",
+      categories: [],
+      shelves: [],
     });
   }
 };

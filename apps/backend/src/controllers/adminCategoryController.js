@@ -4,53 +4,98 @@ import { serverCache } from "../utils/memoryCache.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
+import { fetchAllProductCategories } from "../services/productService.js";
+import { markMediaAttached, deleteMediaIfUnreferenced } from "../services/wordpressMediaService.js";
+
+const isUncategorizedCategory = (category) =>
+  String(category?.slug || "").toLowerCase() === "uncategorized" ||
+  String(category?.name || "").toLowerCase() === "uncategorized";
+
+/**
+ * Check if targetParentId is a descendant of categoryId (circular hierarchy prevention)
+ */
+export const isDescendantCategory = (categoryId, targetParentId, allCategories) => {
+  const catId = Number(categoryId);
+  let currentParentId = Number(targetParentId);
+  const visited = new Set();
+  const parentMap = new Map();
+
+  for (const c of allCategories) {
+    if (c && c.id) {
+      parentMap.set(Number(c.id), Number(c.parent) || 0);
+    }
+  }
+
+  while (currentParentId > 0 && !visited.has(currentParentId)) {
+    if (currentParentId === catId) {
+      return true; // targetParentId is a descendant of categoryId
+    }
+    visited.add(currentParentId);
+    currentParentId = parentMap.get(currentParentId) || 0;
+  }
+
+  return false;
+};
+
+/**
+ * Walk only the proposed parent's ancestors through WooCommerce rather than
+ * loading the entire category tree for a single parent-change validation.
+ */
+const isDescendantCategoryFromWoo = async (categoryId, targetParent, initialParent) => {
+  const targetId = Number(categoryId);
+  let current = initialParent;
+  let currentId = Number(targetParent);
+  const visited = new Set();
+
+  for (let depth = 0; currentId > 0 && depth < 100; depth += 1) {
+    if (currentId === targetId) return true;
+    if (visited.has(currentId)) return true; // Fail closed on an already-corrupt cycle.
+    visited.add(currentId);
+
+    if (!current || Number(current.id) !== currentId) {
+      const response = await api.get(`products/categories/${currentId}`, { _fields: "id,parent" });
+      current = response.data;
+    }
+    if (!current?.id) return true; // Fail closed if an ancestor cannot be verified.
+    currentId = Number(current.parent) || 0;
+  }
+
+  // A chain that exceeds the guard is not safe to accept as a valid hierarchy.
+  return currentId > 0;
+};
 
 /**
  * Get Product Categories from WooCommerce
  */
 export const getAdminCategories = async (req, res) => {
   try {
-    const cached = serverCache.get("admin:categories");
-    if (cached) {
-      return res.json({
-        success: true,
-        categories: transformMediaUrls(cached, req),
-      });
-    }
+    const formattedCategories = await serverCache.getOrFetch(
+      "admin:categories",
+      async () => {
+        const categories = await fetchAllProductCategories({
+          fields: "id,name,slug,parent,count,menu_order,image",
+        });
+        const sorted = [...categories].sort((a, b) => {
+          const orderA = typeof a.menu_order === "number" && a.menu_order > 0 ? a.menu_order : 9999;
+          const orderB = typeof b.menu_order === "number" && b.menu_order > 0 ? b.menu_order : 9999;
+          if (orderA !== orderB) return orderA - orderB;
+          return a.id - b.id;
+        });
 
-    const response = await api.get("products/categories", {
-      per_page: 100,
-      hide_empty: false,
-    });
-
-    const categories = Array.isArray(response.data) ? response.data : [];
-
-    // Sort by menu_order ascending (new categories with menu_order 0 or unassigned appear at the end)
-    const sorted = [...categories].sort((a, b) => {
-      const orderA = typeof a.menu_order === "number" && a.menu_order > 0 ? a.menu_order : 9999;
-      const orderB = typeof b.menu_order === "number" && b.menu_order > 0 ? b.menu_order : 9999;
-      if (orderA !== orderB) return orderA - orderB;
-      return a.id - b.id;
-    });
-
-    const formattedCategories = sorted.map((c) => ({
-      id: c.id,
-      name: c.name,
-      slug: c.slug,
-      parent: c.parent,
-      count: c.count,
-      menu_order: c.menu_order || 0,
-      image: c.image
-        ? {
-            id: c.image.id,
-            src: c.image.src,
-            name: c.image.name,
-            alt: c.image.alt,
-          }
-        : null,
-    }));
-
-    serverCache.set("admin:categories", formattedCategories, 300000);
+        return sorted.map((c) => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          parent: c.parent,
+          count: c.count,
+          menu_order: c.menu_order || 0,
+          image: c.image
+            ? { id: c.image.id, src: c.image.src, name: c.image.name, alt: c.image.alt }
+            : null,
+        }));
+      },
+      120000
+    );
 
     res.json({
       success: true,
@@ -72,12 +117,18 @@ export const getAdminCategories = async (req, res) => {
  */
 export const createCategory = async (req, res) => {
   try {
-    const { name, image_id, image_url, description } = req.body;
+    const { name, image_id, image_url, description, parent } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         success: false,
         message: "Category name is required.",
+      });
+    }
+    if (name.trim().toLowerCase() === "uncategorized") {
+      return res.status(400).json({
+        success: false,
+        message: "The name Uncategorized is reserved for the protected system category.",
       });
     }
 
@@ -97,6 +148,41 @@ export const createCategory = async (req, res) => {
 
     if (description && typeof description === "string" && description.trim()) {
       payload.description = description.trim();
+    }
+
+    if (parent !== undefined && parent !== null) {
+      const numParent = Number(parent);
+      if (!Number.isInteger(numParent) || numParent < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Parent category ID must be a non-negative integer.",
+        });
+      }
+      if (numParent > 0) {
+        const parentResponse = await api.get(`products/categories/${numParent}`, {
+          _fields: "id,name,slug,parent",
+        });
+        const parentCategory = parentResponse.data;
+        if (!parentCategory || Number(parentCategory.id) !== numParent) {
+          return res.status(400).json({
+            success: false,
+            message: "The selected parent category does not exist.",
+          });
+        }
+        if (Number(parentCategory.parent) > 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Subcategories can only be placed under a top-level department.",
+          });
+        }
+        if (isUncategorizedCategory(parentCategory)) {
+          return res.status(400).json({
+            success: false,
+            message: "The protected Uncategorized category cannot be used as a department.",
+          });
+        }
+      }
+      payload.parent = numParent;
     }
 
     if (hasImageId) {
@@ -122,16 +208,26 @@ export const createCategory = async (req, res) => {
     const response = await api.post("products/categories", payload);
     const cat = response.data;
 
+    if (payload.image?.id && cat?.id) {
+      try {
+        await markMediaAttached([payload.image.id], cat.id, "category");
+      } catch (attachErr) {
+        logger.warn({ categoryId: cat.id, err: attachErr.message }, "[adminCategoryController] Failed to mark category image attached");
+      }
+    }
+
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
+    serverCache.invalidatePrefix("category:");
     serverCache.delete("admin:categories");
+    serverCache.delete("seo:sitemap_xml");
 
     logAuditEvent({
       req,
       action: "CATEGORY_CREATE",
       targetType: "category",
       targetId: cat.id,
-      details: { name: cat.name, slug: cat.slug },
+      details: { name: cat.name, slug: cat.slug, parent: payload.parent ?? cat.parent ?? 0 },
     });
 
     res.status(201).json({
@@ -141,6 +237,7 @@ export const createCategory = async (req, res) => {
         id: cat.id,
         name: cat.name,
         slug: cat.slug,
+        parent: typeof cat.parent === "number" ? cat.parent : (payload.parent || 0),
         count: cat.count || 0,
         image: cat.image
           ? {
@@ -178,13 +275,27 @@ export const createCategory = async (req, res) => {
 export const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, image_id, image_url, description } = req.body;
+    const { name, image_id, image_url, description, parent } = req.body;
 
     const numericId = parseInt(id, 10);
     if (!id || isNaN(numericId) || numericId <= 0) {
       return res.status(400).json({
         success: false,
         message: "A valid positive numeric category ID is required.",
+      });
+    }
+
+    const currentResponse = await api.get(`products/categories/${numericId}`, {
+      _fields: "id,name,slug,parent,image",
+    });
+    const currentCategory = currentResponse.data;
+    if (!currentCategory?.id || Number(currentCategory.id) !== numericId) {
+      return res.status(404).json({ success: false, message: "Category not found." });
+    }
+    if (isUncategorizedCategory(currentCategory)) {
+      return res.status(400).json({
+        success: false,
+        message: "The protected Uncategorized category cannot be edited.",
       });
     }
 
@@ -197,11 +308,84 @@ export const updateCategory = async (req, res) => {
           message: "Category name cannot be empty.",
         });
       }
+      if (name.trim().toLowerCase() === "uncategorized") {
+        return res.status(400).json({
+          success: false,
+          message: "The name Uncategorized is reserved for the protected system category.",
+        });
+      }
       payload.name = name.trim();
     }
 
     if (description !== undefined) {
       payload.description = typeof description === "string" ? description.trim() : "";
+    }
+
+    if (parent !== undefined && parent !== null) {
+      const numParent = Number(parent);
+      if (!Number.isInteger(numParent) || numParent < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Parent category ID must be a non-negative integer.",
+        });
+      }
+
+      if (numParent === numericId) {
+        return res.status(400).json({
+          success: false,
+          message: "A category cannot be its own parent.",
+        });
+      }
+
+      if (numParent > 0) {
+        const parentResponse = await api.get(`products/categories/${numParent}`, {
+          _fields: "id,name,slug,parent",
+        });
+        const parentCategory = parentResponse.data;
+        if (!parentCategory || Number(parentCategory.id) !== numParent) {
+          return res.status(400).json({
+            success: false,
+            message: "The selected parent category does not exist.",
+          });
+        }
+        if (Number(parentCategory.parent) > 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Subcategories can only be placed under a top-level department.",
+          });
+        }
+        if (isUncategorizedCategory(parentCategory)) {
+          return res.status(400).json({
+            success: false,
+            message: "The protected Uncategorized category cannot be used as a department.",
+          });
+        }
+        if (await isDescendantCategoryFromWoo(numericId, numParent, parentCategory)) {
+          return res.status(400).json({
+            success: false,
+            message: "Cannot select a descendant category as the parent (circular hierarchy).",
+          });
+        }
+
+        const childrenResponse = await api.get("products/categories", {
+          parent: numericId,
+          per_page: 1,
+          hide_empty: false,
+          _fields: "id",
+        });
+        if (!Array.isArray(childrenResponse.data)) {
+          throw new Error("Invalid WooCommerce category hierarchy response");
+        }
+        const hasChildren = childrenResponse.data.length > 0;
+        if (hasChildren) {
+          return res.status(400).json({
+            success: false,
+            message: "A department with subcategories cannot itself be moved under another department.",
+          });
+        }
+      }
+
+      payload.parent = numParent;
     }
 
     if (image_id !== undefined && image_id !== null && image_id !== "") {
@@ -235,9 +419,30 @@ export const updateCategory = async (req, res) => {
     const response = await api.put(`products/categories/${numericId}`, payload);
     const cat = response.data;
 
+    if (payload.image && cat?.id) {
+      if (payload.image.id) {
+        try {
+          await markMediaAttached([payload.image.id], cat.id, "category");
+        } catch (attachErr) {
+          logger.warn({ categoryId: cat.id, err: attachErr.message }, "[adminCategoryController] Failed to mark updated category image attached");
+        }
+      }
+      const previousImageId = Number(currentCategory.image?.id) || 0;
+      const nextImageId = Number(payload.image.id) || 0;
+      if (previousImageId > 0 && previousImageId !== nextImageId) {
+        try {
+          await deleteMediaIfUnreferenced([previousImageId], { context: "category_image_replaced" });
+        } catch (cleanupErr) {
+          logger.warn({ categoryId: cat.id, mediaId: previousImageId, err: cleanupErr.message }, "[adminCategoryController] Failed to clean up replaced category image");
+        }
+      }
+    }
+
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
+    serverCache.invalidatePrefix("category:");
     serverCache.delete("admin:categories");
+    serverCache.delete("seo:sitemap_xml");
 
     logAuditEvent({
       req,
@@ -254,6 +459,7 @@ export const updateCategory = async (req, res) => {
         id: cat.id,
         name: cat.name,
         slug: cat.slug,
+        parent: typeof cat.parent === "number" ? cat.parent : (payload.parent !== undefined ? payload.parent : (cat.parent || 0)),
         count: cat.count || 0,
         image: cat.image
           ? {
@@ -316,6 +522,42 @@ export const reorderCategories = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Duplicate category IDs are not allowed in reorder list.",
+      });
+    }
+
+    // Reordering is only for top-level storefront departments. Do not trust
+    // the employee UI to keep child terms or the protected fallback category
+    // out of a crafted request.
+    const categoriesById = new Map();
+    for (let offset = 0; offset < parsedIds.length; offset += 100) {
+      const chunk = parsedIds.slice(offset, offset + 100);
+      const response = await api.get("products/categories", {
+        include: chunk.join(","),
+        per_page: chunk.length,
+        hide_empty: false,
+        _fields: "id,name,slug,parent",
+      });
+      for (const category of Array.isArray(response.data) ? response.data : []) {
+        categoriesById.set(Number(category.id), category);
+      }
+    }
+
+    const missingCategoryIds = parsedIds.filter((id) => !categoriesById.has(id));
+    if (missingCategoryIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `One or more categories no longer exist: ${missingCategoryIds.join(", ")}. Refresh and try again.`,
+      });
+    }
+    const invalidOrderCategories = parsedIds.filter((id) => {
+      const category = categoriesById.get(id);
+      return Number(category.parent) > 0 || isUncategorizedCategory(category);
+    });
+    if (invalidOrderCategories.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Only top-level departments can be reordered.",
+        invalid_ids: invalidOrderCategories,
       });
     }
 
@@ -385,6 +627,7 @@ export const reorderCategories = async (req, res) => {
     // Invalidate catalog cache so public categories immediately reflect new merchandising order
     serverCache.invalidatePrefix("catalog:");
     serverCache.delete("admin:categories");
+    serverCache.delete("seo:sitemap_xml");
 
     logAuditEvent({
       req,

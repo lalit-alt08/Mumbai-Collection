@@ -13,6 +13,119 @@ import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 
+const isProtectedUncategorized = (category) =>
+  String(category?.slug || "").toLowerCase() === "uncategorized" ||
+  String(category?.name || "").toLowerCase() === "uncategorized";
+
+const normalizeCategoryIds = (categoryIds, categories) => {
+  const source = Array.isArray(categoryIds) ? categoryIds : Array.isArray(categories) ? categories : [];
+  return [...new Set(source.map((category) => Number(typeof category === "object" ? category?.id : category)))];
+};
+
+/**
+ * Validate the chosen WooCommerce terms at the API boundary. Products may be
+ * assigned directly to a department or to one of its direct subcategories.
+ * WooCommerce remains the source of truth; browser-supplied parent data is not.
+ */
+const validateProductCategories = async ({
+  category_ids,
+  categories,
+  department_id,
+  subcategory_id,
+  required = false,
+}) => {
+  const hasHierarchyFields = department_id !== undefined || subcategory_id !== undefined;
+  let ids = normalizeCategoryIds(category_ids, categories);
+
+  if (hasHierarchyFields) {
+    const departmentId = Number(department_id);
+    const childId = subcategory_id === undefined ? 0 : Number(subcategory_id);
+    if (!Number.isInteger(departmentId) || departmentId <= 0) {
+      return { error: "Choose a valid department for this product." };
+    }
+    if (childId && (!Number.isInteger(childId) || childId <= 0 || childId === departmentId)) {
+      return { error: "Choose a valid subcategory for this product." };
+    }
+    const canonicalId = childId || departmentId;
+    if (ids.length > 0 && (ids.length !== 1 || ids[0] !== canonicalId)) {
+      return { error: "The selected product category does not match its department and subcategory." };
+    }
+    ids = [canonicalId];
+  }
+
+  if (required && ids.length === 0) {
+    return { error: "Choose a department before creating this product." };
+  }
+  if (!ids.length) return { ids };
+  if (ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+    return { error: "Product categories must use valid positive IDs." };
+  }
+
+  const lookupIds = [...new Set([
+    ...ids,
+    ...(hasHierarchyFields && Number(department_id) > 0 ? [Number(department_id)] : []),
+  ])];
+  const response = await api.get("products/categories", {
+    include: lookupIds.join(","),
+    per_page: Math.min(100, lookupIds.length),
+    hide_empty: false,
+    _fields: "id,name,slug,parent",
+  });
+  const found = Array.isArray(response.data) ? response.data : [];
+  const categoryMap = new Map(found.map((category) => [Number(category.id), category]));
+  if (lookupIds.some((id) => !categoryMap.has(id))) {
+    return { error: "One or more selected product categories no longer exist. Refresh the category list and try again." };
+  }
+
+  const missingParentIds = [...new Set(ids
+    .map((id) => Number(categoryMap.get(id)?.parent) || 0)
+    .filter((parentId) => parentId > 0 && !categoryMap.has(parentId)))];
+  if (missingParentIds.length > 0) {
+    const parentResponse = await api.get("products/categories", {
+      include: missingParentIds.join(","),
+      per_page: Math.min(100, missingParentIds.length),
+      hide_empty: false,
+      _fields: "id,name,slug,parent",
+    });
+    for (const parent of Array.isArray(parentResponse.data) ? parentResponse.data : []) {
+      categoryMap.set(Number(parent.id), parent);
+    }
+    if (missingParentIds.some((id) => !categoryMap.has(id))) {
+      return { error: "A selected subcategory's parent department could not be verified." };
+    }
+  }
+
+  for (const id of ids) {
+    const category = categoryMap.get(id);
+    if (!category || isProtectedUncategorized(category)) {
+      return { error: "Products cannot be assigned to the protected Uncategorized category." };
+    }
+    const parentId = Number(category.parent) || 0;
+    if (parentId > 0) {
+      const parent = categoryMap.get(parentId);
+      if (!parent) {
+        return { error: "A subcategory must be assigned with its valid parent department." };
+      }
+      if ((Number(parent.parent) || 0) > 0 || isProtectedUncategorized(parent)) {
+        return { error: "Products can only use a department or one of its direct subcategories." };
+      }
+    }
+  }
+
+  if (hasHierarchyFields) {
+    const department = categoryMap.get(Number(department_id));
+    const child = subcategory_id === undefined ? null : categoryMap.get(Number(subcategory_id));
+    if (!department || (Number(department.parent) || 0) > 0 || isProtectedUncategorized(department)) {
+      return { error: "The selected department is invalid. Refresh the category list and try again." };
+    }
+    if (child && Number(child.parent) !== Number(department.id)) {
+      return { error: "The selected subcategory does not belong to that department." };
+    }
+  }
+
+  return { ids };
+};
+
 /**
  * Fetch Live Product Stock Counts (Cached for 60s)
  */
@@ -239,7 +352,17 @@ export const getAdminProducts = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { regular_price, sale_price, stock_quantity, stock_status, name } = req.body;
+    const {
+      regular_price,
+      sale_price,
+      stock_quantity,
+      stock_status,
+      name,
+      category_ids,
+      categories,
+      department_id,
+      subcategory_id,
+    } = req.body;
 
     const validationError = validateProductInput({
       name,
@@ -270,12 +393,32 @@ export const updateProduct = async (req, res) => {
       updatePayload.stock_status = stock_status;
     }
 
+    const categoryFieldsProvided =
+      category_ids !== undefined ||
+      categories !== undefined ||
+      department_id !== undefined ||
+      subcategory_id !== undefined;
+    if (categoryFieldsProvided) {
+      const assignment = await validateProductCategories({
+        category_ids,
+        categories,
+        department_id,
+        subcategory_id,
+        required: true,
+      });
+      if (assignment.error) {
+        return res.status(400).json({ success: false, message: assignment.error });
+      }
+      updatePayload.categories = assignment.ids.map((categoryId) => ({ id: categoryId }));
+    }
+
     const response = await api.put(`products/${encodeURIComponent(id)}`, updatePayload);
 
     // Invalidate product list, stock counts, and public catalog caches
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("seo:sitemap_xml");
 
     logAuditEvent({
       req,
@@ -335,6 +478,7 @@ export const deleteProduct = async (req, res) => {
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("seo:sitemap_xml");
 
     logAuditEvent({
       req,
@@ -413,6 +557,8 @@ export const createProduct = async (req, res) => {
       stock_quantity,
       category_ids,
       categories,
+      department_id,
+      subcategory_id,
       image_url,
       images,
       description,
@@ -446,11 +592,16 @@ export const createProduct = async (req, res) => {
         ? Number(stock_quantity)
         : 10;
 
-    const catList = Array.isArray(category_ids)
-      ? category_ids
-      : Array.isArray(categories)
-      ? categories
-      : [];
+    const categoryAssignment = await validateProductCategories({
+      category_ids,
+      categories,
+      department_id,
+      subcategory_id,
+      required: true,
+    });
+    if (categoryAssignment.error) {
+      return res.status(400).json({ success: false, message: categoryAssignment.error });
+    }
 
     const imgList = [];
     const rawImages = Array.isArray(images) && images.length > 0
@@ -501,7 +652,7 @@ export const createProduct = async (req, res) => {
       manage_stock: true,
       stock_quantity: finalStock,
       stock_status: finalStock <= 0 ? "outofstock" : "instock",
-      categories: catList.map((id) => (typeof id === "object" ? id : { id: Number(id) })),
+      categories: categoryAssignment.ids.map((id) => ({ id })),
       images: imgList,
     };
 
@@ -515,6 +666,7 @@ export const createProduct = async (req, res) => {
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("seo:sitemap_xml");
 
     const createdProduct = response.data;
     const createdProductId = createdProduct?.id;

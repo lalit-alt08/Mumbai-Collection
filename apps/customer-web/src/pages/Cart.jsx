@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours } from "../services/storeApi";
-import { getProductById, getProductsByIds } from "../services/productService";
+import { getProductById, getLiveProductStockByIds } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
@@ -439,12 +439,7 @@ function Cart() {
     }
 
     const productIds = [...new Set(cart.items.map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
-    const idBatches = [];
-    for (let index = 0; index < productIds.length; index += 12) {
-      idBatches.push(productIds.slice(index, index + 12));
-    }
-
-    Promise.allSettled(idBatches.map((ids) => getProductsByIds(ids, { freshStock: true })))
+    Promise.allSettled([getLiveProductStockByIds(productIds)])
       .then((batches) => {
         if (!isMounted) return;
         const productsById = new Map();

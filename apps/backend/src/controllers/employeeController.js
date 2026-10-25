@@ -523,6 +523,9 @@ export const updateOrderStatus = async (req, res) => {
     serverCache.invalidatePrefix("employee:orders_scan");
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
+    if (currentOrder.customer_id) {
+      serverCache.invalidatePrefix(`customer:orders:${currentOrder.customer_id}:`);
+    }
     await invalidateOrderDetailCache(id);
 
     // Structured operational audit log

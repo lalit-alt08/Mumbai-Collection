@@ -8,6 +8,7 @@ import { checkoutLimiter } from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { logError, logger } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
+import { fetchAllProductCategories } from "../services/productService.js";
 import api from "../config/woocommerce.js";
 
 const router = express.Router();
@@ -462,15 +463,66 @@ const escapeXml = (str) => {
     .replace(/'/g, "&apos;");
 };
 
+const SITEMAP_PAGE_SIZE = 100;
+// A sitemap <urlset> is limited to 50,000 URLs. Keep enough room for the
+// static and category entries when selecting product URLs below.
+const SITEMAP_MAX_PAGES = 500;
+const SITEMAP_MAX_URLS = 50000;
+const SITEMAP_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+const fetchAllPublishedProductsForSitemap = async () => {
+  const products = [];
+  const fetchPage = async (page) => {
+    const response = await api.get("products", {
+      status: "publish",
+      page,
+      per_page: SITEMAP_PAGE_SIZE,
+      _fields: "id,status,catalog_visibility,date_modified_gmt,date_modified,date_created",
+    });
+    if (!Array.isArray(response?.data)) {
+      throw new Error("Invalid WooCommerce product sitemap response");
+    }
+    return response;
+  };
+
+  const firstPage = await fetchPage(1);
+  products.push(...firstPage.data);
+  const reportedPages = Number.parseInt(firstPage.headers?.["x-wp-totalpages"], 10);
+
+  if (Number.isFinite(reportedPages) && reportedPages > 0) {
+    // WooCommerce pages are independent reads; fetch a small bounded group in
+    // parallel to avoid a long serial crawl for catalogs with thousands of items.
+    const concurrency = 4;
+    const pagesToFetch = Math.min(reportedPages, SITEMAP_MAX_PAGES);
+    for (let start = 2; start <= pagesToFetch; start += concurrency) {
+      const pages = Array.from(
+        { length: Math.min(concurrency, pagesToFetch - start + 1) },
+        (_, index) => start + index
+      );
+      const responses = await Promise.all(pages.map(fetchPage));
+      for (const response of responses) products.push(...response.data);
+    }
+    return products;
+  }
+
+  // If the upstream does not provide pagination headers, walk until the first
+  // short page while retaining the same explicit safety ceiling.
+  if (firstPage.data.length < SITEMAP_PAGE_SIZE) return products;
+  for (let page = 2; page <= SITEMAP_MAX_PAGES; page += 1) {
+    const response = await fetchPage(page);
+    products.push(...response.data);
+    if (response.data.length < SITEMAP_PAGE_SIZE) return products;
+  }
+
+  // Respect the single-file URL/page safety ceiling. The sitemap builder caps
+  // emitted URLs separately so this remains a valid document for large stores.
+  return products;
+};
+
 // Dynamic Sitemap Generator (published products + categories + static policy pages)
 export const generateSitemapXml = async (req, res) => {
   try {
-    const cachedXml = serverCache.get("seo:sitemap_xml");
-    if (cachedXml && !sitemapCatalogProviderForTesting) {
-      res.setHeader("Content-Type", "application/xml; charset=utf-8");
-      res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
-      return res.send(cachedXml);
-    }
+    const buildSitemapXml = async () => {
 
     const BASE_SITE_URL = (
       process.env.CUSTOMER_ORIGIN ||
@@ -498,25 +550,10 @@ export const generateSitemapXml = async (req, res) => {
       rawProducts = data.products || [];
       rawCategories = data.categories || [];
     } else {
-      try {
-        const prodRes = await api.get("products", {
-          status: "publish",
-          per_page: 100,
-        });
-        if (Array.isArray(prodRes?.data)) {
-          rawProducts = prodRes.data;
-        }
-      } catch (_) {}
-
-      try {
-        const catRes = await api.get("products/categories", {
-          per_page: 100,
-          hide_empty: true,
-        });
-        if (Array.isArray(catRes?.data)) {
-          rawCategories = catRes.data;
-        }
-      } catch (_) {}
+      rawProducts = await fetchAllPublishedProductsForSitemap();
+      rawCategories = await fetchAllProductCategories({
+        fields: "id,name,slug,parent,count",
+      });
     }
 
     // Exclude drafts, private, pending, and out-of-catalog/hidden visibility products
@@ -528,8 +565,31 @@ export const generateSitemapXml = async (req, res) => {
         prod.catalog_visibility !== "hidden"
     );
 
+    const categoryById = new Map(
+      rawCategories.filter((category) => category?.id).map((category) => [Number(category.id), category])
+    );
+    const populatedCategoryIds = new Set();
+    for (const category of rawCategories) {
+      if (!category?.id || !Number.isFinite(Number(category.count)) || Number(category.count) <= 0) continue;
+      let current = category;
+      const visited = new Set();
+      while (current?.id && !visited.has(Number(current.id))) {
+        const currentId = Number(current.id);
+        visited.add(currentId);
+        populatedCategoryIds.add(currentId);
+        const parentId = Number(current.parent) || 0;
+        if (parentId <= 0) break;
+        current = categoryById.get(parentId);
+      }
+    }
+    const hasCategoryCounts = rawCategories.some((category) => category?.count !== undefined && category?.count !== null);
     const validCategories = rawCategories.filter(
-      (cat) => cat && (cat.slug || cat.id)
+      (category) =>
+        category &&
+        (category.slug || category.id) &&
+        category.slug?.toLowerCase() !== "uncategorized" &&
+        category.name?.toLowerCase() !== "uncategorized" &&
+        (!hasCategoryCounts || populatedCategoryIds.has(Number(category.id)))
     );
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
@@ -543,7 +603,14 @@ export const generateSitemapXml = async (req, res) => {
       xml += `  <url>\n    <loc>${escapeXml(`${BASE_SITE_URL}/category/${catSlug}`)}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
     }
 
-    for (const prod of validProducts) {
+    const maxProductUrls = Math.max(
+      0,
+      SITEMAP_MAX_URLS - staticUrls.length - validCategories.length
+    );
+    // WooCommerce returns products newest-first by default. If the safety cap
+    // is ever reached, keep the sitemap valid and prioritize recently changed
+    // catalog entries rather than emitting an oversized <urlset>.
+    for (const prod of validProducts.slice(0, maxProductUrls)) {
       const lastMod = prod.date_modified_gmt || prod.date_modified || prod.date_created;
       let lastModTag = "";
       if (lastMod) {
@@ -557,12 +624,16 @@ export const generateSitemapXml = async (req, res) => {
 
     xml += `</urlset>`;
 
-    if (!sitemapCatalogProviderForTesting) {
-      serverCache.set("seo:sitemap_xml", xml, 6 * 60 * 60 * 1000); // 6 hours
-    }
+      return xml;
+    };
 
+    // Cache the generated document and coalesce concurrent cold requests so a
+    // sitemap crawl does not launch duplicate full-catalog scans.
+    const xml = sitemapCatalogProviderForTesting
+      ? await buildSitemapXml()
+      : await serverCache.getOrFetch("seo:sitemap_xml", buildSitemapXml, SITEMAP_CACHE_TTL_MS);
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=21600, s-maxage=21600");
+    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
     return res.send(xml);
   } catch (error) {
     logger.warn({ err: error.message }, "[SEO] Failed generating dynamic sitemap, returning static fallback");

@@ -24,6 +24,7 @@ function ProductRedirect() {
 const Cart = lazy(() => import("../pages/Cart"));
 const NotFound = lazy(() => import("../pages/NotFound"));
 const ProductDetails = lazy(() => import("../pages/ProductDetails"));
+const SearchResults = lazy(() => import("../pages/SearchResults"));
 const Category = lazy(() => import("../pages/Category"));
 const OrderSuccess = lazy(() => import("../pages/OrderSuccess"));
 const Login = lazy(() => import("../pages/Login"));
@@ -69,6 +70,7 @@ function AppRouter() {
             <Route path="/favorites" element={<Favorites />} />
             <Route path="/recently-viewed" element={<RecentlyViewed />} />
             <Route path="/categories" element={<Categories />} />
+            <Route path="/search" element={<SearchResults />} />
             <Route path="/category" element={<Navigate to="/categories" replace />} />
 
             {/* Protected Routes */}

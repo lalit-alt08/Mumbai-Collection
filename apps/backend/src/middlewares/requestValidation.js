@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const boundedString = (max = 500) => z.string().trim().max(max);
 const positiveId = z.coerce.number().int().positive();
+const nonNegativeParentId = z.coerce.number().int().nonnegative();
 const numericString = (max = 32) => z.string().trim().regex(/^\d+(\.\d+)?$/).max(max);
 const integerString = (max = 16) => z.string().trim().regex(/^\d+$/).max(max);
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
@@ -109,6 +110,8 @@ export const schemas = {
     short_description: boundedString(5000).optional(),
     category_ids: z.array(positiveId).optional(),
     categories: z.array(z.union([positiveId, z.object({ id: positiveId })])).optional(),
+    department_id: positiveId.optional(),
+    subcategory_id: positiveId.optional(),
     image_id: z.union([z.literal(""), positiveId]).optional(),
     image_url: z.string().trim().max(2000).optional(),
     images: z.array(z.union([positiveId, z.string().trim().max(2000), z.record(z.string(), z.any())])).optional(),
@@ -124,21 +127,25 @@ export const schemas = {
     short_description: boundedString(5000).optional(),
     category_ids: z.array(positiveId).optional(),
     categories: z.array(z.union([positiveId, z.object({ id: positiveId })])).optional(),
+    department_id: positiveId.optional(),
+    subcategory_id: positiveId.optional(),
     image_id: z.union([z.literal(""), positiveId]).optional(),
     image_url: z.string().trim().max(2000).optional(),
     images: z.array(z.union([positiveId, z.string().trim().max(2000), z.record(z.string(), z.any())])).optional(),
   }),
   categoryCreate: z.object({
     name: boundedString(200).min(1),
-    image_id: z.union([z.literal(""), positiveId]).optional(),
+    image_id: z.union([z.literal(""), positiveId]).optional().nullable(),
     image_url: z.string().trim().max(2000).optional(),
     description: boundedString(5000).optional(),
+    parent: nonNegativeParentId.optional(),
   }),
   categoryUpdate: z.object({
     name: boundedString(200).min(1).optional(),
-    image_id: z.union([z.literal(""), positiveId]).optional(),
+    image_id: z.union([z.literal(""), positiveId]).optional().nullable(),
     image_url: z.string().trim().max(2000).optional(),
     description: boundedString(5000).optional(),
+    parent: nonNegativeParentId.optional(),
   }),
   categoryReorder: z.object({
     category_ids: z.array(positiveId).min(1).max(500),
@@ -255,7 +262,10 @@ export const schemas = {
   addressIdParam: z.object({
     id: z.string().trim().regex(/^[a-zA-Z0-9-]+$/).min(1).max(64),
   }),
-  categoryIdParam: z.object({ categoryId: positiveId }),
+  // Category endpoints accept either a WooCommerce numeric term ID or slug.
+  categoryIdParam: z.object({
+    categoryId: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/),
+  }),
   productIdParam: z.object({ productId: positiveId }),
   reviewIdParam: z.object({ reviewId: positiveId }),
   analyticsReport: z.object({
@@ -290,9 +300,21 @@ export const schemas = {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["date_to"], message: "End date must be on or after start date." });
     }
   }),
+  productSearch: z.object({
+    q: boundedString(100).min(2),
+    page: z.coerce.number().int().positive().max(10000).optional(),
+    per_page: z.coerce.number().int().positive().max(100).optional(),
+  }),
+  productDetailQuery: z.object({}).strict(),
+  homeShelvesQuery: z.object({}).strict(),
   productsByIds: z.object({
     ids: z.string().trim().min(1).max(131).regex(/^\d+(,\d+){0,11}$/),
-    fresh: z.enum(["0", "1"]).optional(),
+  }).strict(),
+  relatedProducts: z.object({
+    categoryId: z.union([positiveId, z.string().trim().min(1).max(200)]).optional(),
+    currentProductId: positiveId.optional(),
+    per_page: z.coerce.number().int().positive().max(100).optional(),
+    limit: z.coerce.number().int().positive().max(100).optional(),
   }),
   productStockIds: z.object({
     ids: z.string().trim().min(1).max(1200).regex(/^\d+(,\d+){0,99}$/),

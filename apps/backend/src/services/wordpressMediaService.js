@@ -150,10 +150,11 @@ export const trackPendingMedia = async (mediaId, options = {}) => {
  * Mark uploaded media as attached to a specific WooCommerce product
  *
  * @param {number[]|number} mediaIds
- * @param {number} productId
+ * @param {number} targetId
+ * @param {"product"|"category"} [targetType]
  * @returns {Promise<Object>}
  */
-export const markMediaAttached = async (mediaIds, productId) => {
+export const markMediaAttached = async (mediaIds, targetId, targetType = "product") => {
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
   const endpoint = `${wpBaseUrl}/wp-json/mumbai-auth/v1/media/mark-attached`;
 
@@ -164,11 +165,12 @@ export const markMediaAttached = async (mediaIds, productId) => {
     return { success: true, count: 0, updated_ids: [] };
   }
 
+  const targetField = targetType === "category" ? "category_id" : "product_id";
   const response = await axios.post(
     endpoint,
     {
       media_ids: validIds,
-      product_id: Number(productId) || 0,
+      [targetField]: Number(targetId) || 0,
     },
     {
       headers: {

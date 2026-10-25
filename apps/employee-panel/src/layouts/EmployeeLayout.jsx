@@ -13,6 +13,7 @@ import {
   LogOut,
   UserCheck,
   Sliders,
+  FolderTree,
 } from "lucide-react";
 
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
@@ -29,8 +30,9 @@ function EmployeeLayout() {
     { name: "Orders & Dispatch", href: "/orders", icon: Truck },
     { name: "Products & Stock", href: "/products", exact: true, icon: Boxes },
     { name: "Add Product", href: "/products/add", exact: true, icon: PackagePlus },
-    { name: "Add Category", href: "/categories/add", exact: true, icon: FolderPlus },
+    { name: "Categories", href: "/categories/add", exact: true, icon: FolderPlus },
     { name: "Homepage Banners", href: "/banners", exact: true, icon: Sliders },
+    { name: "Subcategories", href: "/subcategories", exact: true, icon: FolderTree },
   ];
 
   const handleLogout = async () => {
@@ -41,8 +43,9 @@ function EmployeeLayout() {
   const getPageTitle = () => {
     if (location.pathname === "/") return "Operational Dashboard";
     if (location.pathname === "/products/add") return "Add New Product";
-    if (location.pathname === "/categories/add") return "Category Management";
+    if (location.pathname === "/categories/add") return "Categories";
     if (location.pathname === "/banners") return "Banners";
+    if (location.pathname === "/subcategories") return "Subcategories";
     if (location.pathname.startsWith("/products")) return "Product Inventory";
     if (location.pathname.startsWith("/orders")) return "Orders & Dispatch Pipeline";
     return "Employee Panel";

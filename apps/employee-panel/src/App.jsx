@@ -12,6 +12,7 @@ const Products = lazy(() => import("./pages/Products"));
 const AddProduct = lazy(() => import("./pages/AddProduct"));
 const AddCategory = lazy(() => import("./pages/AddCategory"));
 const Banners = lazy(() => import("./pages/Banners"));
+const Subcategories = lazy(() => import("./pages/Subcategories"));
 
 import ProtectedRoute from "./routes/ProtectedRoute";
 
@@ -41,6 +42,7 @@ function App() {
             <Route path="products/add" element={<AddProduct />} />
             <Route path="categories/add" element={<AddCategory />} />
             <Route path="banners" element={<Banners />} />
+            <Route path="subcategories" element={<Subcategories />} />
             <Route path="orders" element={<Orders />} />
           </Route>
         </Route>

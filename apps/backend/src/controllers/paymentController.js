@@ -1093,6 +1093,12 @@ export const finalizePaymentAndCreateOrder = async ({
       };
     }
 
+    // Customer order-list responses are cached briefly; invalidate this
+    // customer's pages as soon as a new WooCommerce order exists.
+    if (intent?.customer_id) {
+      serverCache.invalidatePrefix(`customer:orders:${intent.customer_id}:`);
+    }
+
     // 9c. FINANCIAL INTEGRITY GUARD: Verify created WooCommerce order total matches captured payment
     const wcTotalPaise = Math.round(Number(createdOrder.total || 0) * 100);
     const capturedPaise = Number(rzpPayment.amount);
@@ -1790,6 +1796,9 @@ export const reconcileOrder = async (req, res) => {
         ],
       });
       await invalidateOrderDetailCache(wcOrder.id);
+      if (wcOrder.customer_id) {
+        serverCache.invalidatePrefix(`customer:orders:${wcOrder.customer_id}:`);
+      }
 
       // Publish minimal real-time event for employee dashboard
       publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: wcOrder.id, status: "processing" });

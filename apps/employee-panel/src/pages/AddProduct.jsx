@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Upload,
   Image as ImageIcon,
@@ -31,14 +31,22 @@ import {
 
 function AddProduct() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedCategoryId = searchParams.get("category_id");
+  const initialCategoryId = /^\d+$/.test(requestedCategoryId || "") ? requestedCategoryId : "";
   const galleryInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const isSubmittingRef = useRef(false);
+  const hasLoadedCategoriesRef = useRef(false);
   const generateIdempotencyKey = () =>
     typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
       : `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-  const idempotencyKeyRef = useRef(generateIdempotencyKey());
+  const idempotencyKeyRef = useRef(null);
+  const categoryTriggerRef = useRef(null);
+  const subcategoryTriggerRef = useRef(null);
+  const categoryMenuRef = useRef(null);
+  const subcategoryMenuRef = useRef(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -47,13 +55,17 @@ function AddProduct() {
     regular_price: "",
     sale_price: "",
     stock_quantity: 10,
-    category_id: "",
+    category_id: initialCategoryId,
   });
+  const [subcategoryId, setSubcategoryId] = useState("");
 
   // Categories State
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [categoriesError, setCategoriesError] = useState("");
+  const [categoryRetryCount, setCategoryRetryCount] = useState(0);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
+  const [subcategoryMenuOpen, setSubcategoryMenuOpen] = useState(false);
 
   // Media / Image Upload State
   const [images, setImages] = useState([]); // [{ file, preview, url, uploaded, uploading }]
@@ -74,23 +86,147 @@ function AddProduct() {
     }, 3500);
   };
 
-  // Fetch categories on mount
-  useEffect(() => {
-    const fetchCats = async () => {
-      try {
-        setLoadingCategories(true);
-        const res = await getCategories();
-        if (res.success) {
-          setCategories(res.categories || []);
+  const fetchCategories = useCallback(async (initializeFromUrl = false) => {
+    try {
+      if (!hasLoadedCategoriesRef.current) setLoadingCategories(true);
+      setCategoriesError("");
+      const res = await getCategories();
+      const fetchedCategories = Array.isArray(res?.categories)
+        ? res.categories
+        : Array.isArray(res)
+          ? res
+          : [];
+      const hasSelectableDepartment = fetchedCategories.some((category) =>
+        (!category.parent || Number(category.parent) === 0) &&
+        String(category.slug || "").toLowerCase() !== "uncategorized" &&
+        String(category.name || "").toLowerCase() !== "uncategorized"
+      );
+      if (res?.success === false || !hasSelectableDepartment) {
+        setCategoriesError(res?.message || "Categories could not be loaded. Retry to choose a product category.");
+        if (initializeFromUrl) {
+          setFormData((previous) => ({ ...previous, category_id: "" }));
+          setSubcategoryId("");
         }
-      } catch {
-        // Fall back to empty categories list
-      } finally {
-        setLoadingCategories(false);
+        return;
       }
+
+      setCategories(fetchedCategories);
+      hasLoadedCategoriesRef.current = true;
+      if (initializeFromUrl && requestedCategoryId) {
+        const requestedCategory = fetchedCategories.find(
+          (category) => String(category.id) === requestedCategoryId
+        );
+        if (requestedCategory && Number(requestedCategory.parent) > 0) {
+          setFormData((previous) => ({ ...previous, category_id: String(requestedCategory.parent) }));
+          setSubcategoryId(String(requestedCategory.id));
+        } else if (requestedCategory) {
+          setFormData((previous) => ({ ...previous, category_id: String(requestedCategory.id) }));
+          setSubcategoryId("");
+        } else {
+          setFormData((previous) => ({ ...previous, category_id: "" }));
+          setSubcategoryId("");
+        }
+      }
+    } catch (err) {
+      setCategoriesError(err.response?.data?.message || err.message || "Categories could not be loaded. Retry to continue.");
+      if (initializeFromUrl) {
+        setFormData((previous) => ({ ...previous, category_id: "" }));
+        setSubcategoryId("");
+      }
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, [requestedCategoryId]);
+
+  useEffect(() => {
+    fetchCategories(true);
+  }, [fetchCategories, categoryRetryCount]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") fetchCategories(false);
     };
-    fetchCats();
-  }, []);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => document.removeEventListener("visibilitychange", refreshWhenVisible);
+  }, [fetchCategories]);
+
+  const handleOptionKeyDown = (event, menuType) => {
+    const isCategoryMenu = menuType === "category";
+    const menuRef = isCategoryMenu ? categoryMenuRef : subcategoryMenuRef;
+    const triggerRef = isCategoryMenu ? categoryTriggerRef : subcategoryTriggerRef;
+    const setMenuOpen = isCategoryMenu ? setCategoryMenuOpen : setSubcategoryMenuOpen;
+    const options = Array.from(menuRef.current?.querySelectorAll('[role="option"]') || []);
+    const currentIndex = options.indexOf(event.currentTarget);
+    let nextIndex = currentIndex;
+
+    if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % options.length;
+    else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + options.length) % options.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = options.length - 1;
+    else if (event.key === "Escape") {
+      event.preventDefault();
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+      return;
+    } else return;
+
+    event.preventDefault();
+    options[nextIndex]?.focus();
+  };
+
+  const openMenuFromKeyboard = (event, menuType) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const isCategoryMenu = menuType === "category";
+    (isCategoryMenu ? setCategoryMenuOpen : setSubcategoryMenuOpen)(true);
+    requestAnimationFrame(() => {
+      const menu = (isCategoryMenu ? categoryMenuRef : subcategoryMenuRef).current;
+      const options = menu?.querySelectorAll('[role="option"]');
+      options?.[event.key === "ArrowUp" ? options.length - 1 : 0]?.focus();
+    });
+  };
+
+  const rootCategories = useMemo(
+    () => categories.filter((category) =>
+      (!category.parent || Number(category.parent) === 0) &&
+      String(category.slug || "").toLowerCase() !== "uncategorized" &&
+      String(category.name || "").toLowerCase() !== "uncategorized"
+    ),
+    [categories]
+  );
+
+  const availableSubcategories = useMemo(
+    () =>
+      formData.category_id
+        ? categories.filter((category) =>
+          Number(category.parent) === Number(formData.category_id) &&
+          String(category.slug || "").toLowerCase() !== "uncategorized" &&
+          String(category.name || "").toLowerCase() !== "uncategorized"
+        )
+        : [],
+    [categories, formData.category_id]
+  );
+
+  useEffect(() => {
+    const selectedDepartmentExists = rootCategories.some(
+      (category) => String(category.id) === String(formData.category_id)
+    );
+    if (formData.category_id && !selectedDepartmentExists) {
+      setFormData((previous) => ({ ...previous, category_id: "" }));
+      setSubcategoryId("");
+      return;
+    }
+    if (subcategoryId && !availableSubcategories.some((category) => String(category.id) === String(subcategoryId))) {
+      setSubcategoryId("");
+    }
+  }, [availableSubcategories, formData.category_id, rootCategories, subcategoryId]);
+
+  const selectedCategoryLabel = useMemo(() => {
+    if (!formData.category_id) return categories.length ? "Select a category" : "No categories available";
+    const matched = rootCategories.find((c) => String(c.id) === String(formData.category_id));
+    if (!matched) return "Category #" + formData.category_id;
+    return matched.name;
+  }, [formData.category_id, rootCategories, categories]);
 
   // Handle Form Change
   const handleChange = (e) => {
@@ -296,7 +432,8 @@ function AddProduct() {
       setSubmitting(true);
 
       // 2. Build Category IDs array
-      const categoryIds = formData.category_id ? [Number(formData.category_id)] : [];
+      const productCategoryId = subcategoryId || formData.category_id;
+      const categoryIds = productCategoryId ? [Number(productCategoryId)] : [];
 
       // 3. Build Image list
       const uploadedImgs = images
@@ -316,12 +453,21 @@ function AddProduct() {
         sale_price: formData.sale_price ? String(formData.sale_price) : "",
         stock_quantity: stockQty,
         category_ids: categoryIds,
+        department_id: Number(formData.category_id),
+        subcategory_id: subcategoryId ? Number(subcategoryId) : undefined,
         image_id: uploadedImgs.length > 0 && uploadedImgs[0].id ? uploadedImgs[0].id : undefined,
         images: uploadedImgs,
       };
 
       // 4. Use stable form-level idempotency key (preserved across retry clicks / timeouts)
-      const idempotencyKey = idempotencyKeyRef.current;
+      const fingerprint = JSON.stringify(payload);
+      if (idempotencyKeyRef.current?.fingerprint !== fingerprint) {
+        idempotencyKeyRef.current = {
+          fingerprint,
+          key: generateIdempotencyKey(),
+        };
+      }
+      const idempotencyKey = idempotencyKeyRef.current.key;
 
       // 5. Call createProduct API with idempotency key
       const res = await createProduct(payload, {
@@ -330,7 +476,7 @@ function AddProduct() {
 
       if (res.success && res.product) {
         // Form submitted successfully: rotate idempotency key for next product
-        idempotencyKeyRef.current = generateIdempotencyKey();
+        idempotencyKeyRef.current = null;
         setCreatedProduct(res.product);
         showToast("Product created successfully!");
       } else {
@@ -347,7 +493,7 @@ function AddProduct() {
   };
 
   const handleResetForm = () => {
-    idempotencyKeyRef.current = generateIdempotencyKey();
+    idempotencyKeyRef.current = null;
     setFormData({
       name: "",
       description: "",
@@ -356,6 +502,7 @@ function AddProduct() {
       stock_quantity: 10,
       category_id: "",
     });
+    setSubcategoryId("");
     setImages([]);
     setCreatedProduct(null);
     setError("");
@@ -496,13 +643,15 @@ function AddProduct() {
                 <div className="relative">
                   <button
                     type="button"
+                    ref={categoryTriggerRef}
                     aria-haspopup="listbox"
                     aria-expanded={categoryMenuOpen}
                     aria-required="true"
-                    disabled={loadingCategories || categories.length === 0}
+                    disabled={loadingCategories || rootCategories.length === 0}
                     onClick={() => setCategoryMenuOpen((open) => !open)}
                     onKeyDown={(event) => {
                       if (event.key === "Escape") setCategoryMenuOpen(false);
+                      else openMenuFromKeyboard(event, "category");
                     }}
                     className={`flex w-full items-center gap-3 rounded-xl border bg-white px-3.5 py-3 text-left shadow-xs outline-none transition focus:ring-4 focus:ring-emerald-500/10 disabled:cursor-wait disabled:bg-gray-50 ${
                       categoryMenuOpen
@@ -515,12 +664,10 @@ function AddProduct() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className={`block truncate text-sm font-semibold ${formData.category_id ? "text-gray-900" : "text-gray-500"}`}>
-                        {loadingCategories
-                          ? "Loading categories…"
-                          : categories.find((category) => String(category.id) === String(formData.category_id))?.name || (categories.length ? "Select a category" : "No categories available")}
+                        {loadingCategories ? "Loading categories…" : selectedCategoryLabel}
                       </span>
                       <span className="mt-0.5 block text-[11px] text-gray-400">
-                        {formData.category_id ? "Product category" : "Choose one category for this product"}
+                        {formData.category_id ? "Selected department" : "Choose a department for this product"}
                       </span>
                     </span>
                     <ChevronDown
@@ -531,11 +678,12 @@ function AddProduct() {
 
                   {categoryMenuOpen && (
                     <div
+                      ref={categoryMenuRef}
                       role="listbox"
                       aria-label="Product categories"
-                      className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-56 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl shadow-gray-900/10"
+                      className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl shadow-gray-900/10"
                     >
-                      {categories.map((category) => {
+                      {rootCategories.map((category) => {
                         const selected = String(category.id) === String(formData.category_id);
                         return (
                           <button
@@ -543,27 +691,159 @@ function AddProduct() {
                             type="button"
                             role="option"
                             aria-selected={selected}
+                            tabIndex={selected || (!formData.category_id && category.id === rootCategories[0]?.id) ? 0 : -1}
+                            onKeyDown={(event) => handleOptionKeyDown(event, "category")}
                             onClick={() => {
                               setFormData((previous) => ({ ...previous, category_id: String(category.id) }));
+                              setSubcategoryId("");
+                              setSubcategoryMenuOpen(false);
                               setCategoryMenuOpen(false);
+                              requestAnimationFrame(() => categoryTriggerRef.current?.focus());
                               if (error) setError("");
                             }}
-                            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition ${
+                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${
                               selected ? "bg-emerald-50 text-emerald-800" : "text-gray-700 hover:bg-gray-50"
                             }`}
                           >
-                            <span className={`h-2 w-2 shrink-0 rounded-full ${selected ? "bg-emerald-600" : "bg-gray-200"}`} />
-                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{category.name}</span>
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${selected ? "bg-emerald-600" : "bg-gray-300"}`} />
+                            <span className="min-w-0 flex-1 truncate font-medium">
+                              {category.name}
+                            </span>
                             {category.count !== undefined && (
                               <span className="shrink-0 text-xs text-gray-400">{category.count}</span>
                             )}
-                            {selected && <Check size={15} className="shrink-0 text-emerald-700" />}
+                            {selected && <Check size={15} className="shrink-0 text-emerald-700 ml-1" />}
                           </button>
                         );
                       })}
                     </div>
                   )}
                 </div>
+                {categoriesError && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    <span role="alert">{categoriesError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCategoryRetryCount((count) => count + 1)}
+                      disabled={loadingCategories}
+                      className="shrink-0 font-bold underline disabled:opacity-50"
+                    >
+                      {loadingCategories ? "Retrying…" : "Retry"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-1.5">
+                <label htmlFor="product-subcategory" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Product Subcategory <span className="font-medium normal-case text-gray-400">(Optional)</span>
+                </label>
+                <div className="relative">
+                  {loadingCategories || !formData.category_id || availableSubcategories.length === 0 ? (
+                    <div className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm font-medium text-gray-400">
+                      <span>
+                        {loadingCategories
+                          ? "Loading subcategories…"
+                          : !formData.category_id
+                            ? "Select a category first"
+                            : "No subcategories for this category"}
+                      </span>
+                      <ChevronDown size={16} className="shrink-0 text-gray-300" />
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        id="product-subcategory"
+                        type="button"
+                        ref={subcategoryTriggerRef}
+                        aria-haspopup="listbox"
+                        aria-expanded={subcategoryMenuOpen}
+                        onClick={() => setSubcategoryMenuOpen((open) => !open)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") setSubcategoryMenuOpen(false);
+                          else openMenuFromKeyboard(event, "subcategory");
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl border bg-white px-3.5 py-3 text-left text-sm font-semibold shadow-xs outline-none transition focus:ring-4 focus:ring-emerald-500/10 ${
+                          subcategoryMenuOpen
+                            ? "border-emerald-500"
+                            : "border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <span className={subcategoryId ? "text-gray-900" : "text-gray-600"}>
+                          {subcategoryId
+                            ? availableSubcategories.find((item) => String(item.id) === subcategoryId)?.name || "Select a subcategory"
+                            : `No subcategory — use ${selectedCategoryLabel}`}
+                        </span>
+                        <ChevronDown
+                          size={16}
+                          className={`ml-3 shrink-0 text-gray-400 transition-transform ${subcategoryMenuOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                      {subcategoryMenuOpen && (
+                        <div
+                          ref={subcategoryMenuRef}
+                          role="listbox"
+                          aria-label="Product subcategories"
+                          className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl shadow-gray-900/10"
+                        >
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={!subcategoryId}
+                            tabIndex={!subcategoryId ? 0 : -1}
+                            onKeyDown={(event) => handleOptionKeyDown(event, "subcategory")}
+                            onClick={() => {
+                              setSubcategoryId("");
+                              setSubcategoryMenuOpen(false);
+                              requestAnimationFrame(() => subcategoryTriggerRef.current?.focus());
+                              if (error) setError("");
+                            }}
+                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                              !subcategoryId ? "bg-emerald-50 text-emerald-800" : "text-gray-700 hover:bg-gray-50"
+                            }`}
+                          >
+                            <span className="min-w-0 flex-1">No subcategory — use {selectedCategoryLabel}</span>
+                            {!subcategoryId && <Check size={15} className="shrink-0 text-emerald-700" />}
+                          </button>
+                          {availableSubcategories.map((subcategory) => {
+                            const selected = String(subcategory.id) === subcategoryId;
+                            return (
+                              <button
+                                key={subcategory.id}
+                                type="button"
+                                role="option"
+                                aria-selected={selected}
+                                tabIndex={selected ? 0 : -1}
+                                onKeyDown={(event) => handleOptionKeyDown(event, "subcategory")}
+                                onClick={() => {
+                                  setSubcategoryId(String(subcategory.id));
+                                  setSubcategoryMenuOpen(false);
+                                  requestAnimationFrame(() => subcategoryTriggerRef.current?.focus());
+                                  if (error) setError("");
+                                }}
+                                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+                                  selected ? "bg-emerald-50 text-emerald-800" : "text-gray-700 hover:bg-gray-50"
+                                }`}
+                              >
+                                <span className="min-w-0 flex-1">{subcategory.name}</span>
+                                {selected && <Check size={15} className="shrink-0 text-emerald-700" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  {subcategoryId
+                    ? `This product will be placed in ${availableSubcategories.find((item) => String(item.id) === subcategoryId)?.name || "the selected subcategory"}.`
+                    : !formData.category_id
+                      ? "Choose a category above to see its subcategories."
+                      : availableSubcategories.length === 0
+                        ? "This category has no subcategories, so the product will use the main category."
+                        : "Choose a subcategory to place this product more specifically, or leave it under the main category."}
+                </p>
               </div>
 
               {/* Stock Quantity */}

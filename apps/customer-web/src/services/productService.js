@@ -13,20 +13,19 @@ export const getProducts = async (params = {}, options = {}) => {
   return response.data;
 };
 
-export const getProductById = async (id, { refresh = false, signal } = {}) => {
+export const getProductById = async (id, { signal } = {}) => {
   const response = await catalogClient.get(`/products/${id}`, {
-    params: refresh ? { refresh: "1" } : undefined,
     signal,
   });
   return response.data;
 };
 
-export const getProductsByIds = async (ids = [], { freshStock = false, signal } = {}) => {
+export const getProductsByIds = async (ids = [], { signal } = {}) => {
   const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 12);
   if (productIds.length === 0) return [];
 
   const response = await catalogClient.get("/products/by-ids", {
-    params: { ids: productIds.join(","), ...(freshStock ? { fresh: "1" } : {}) },
+    params: { ids: productIds.join(",") },
     signal,
   });
   return Array.isArray(response.data) ? response.data : [];
@@ -68,6 +67,8 @@ export const searchProducts = async (query, options = {}) => {
   const response = await catalogClient.get("/products/search", {
     params: {
       q: query,
+      page: options.page || 1,
+      per_page: options.perPage || 20,
     },
     signal: options.signal,
   });
@@ -86,6 +87,11 @@ export const getProductsByCategory = async (categoryId, params = {}, options = {
 
 export const getCategories = async (options = {}) => {
   const response = await catalogClient.get("/products/categories", options);
+  return response.data;
+};
+
+export const getHomeShelves = async (options = {}) => {
+  const response = await catalogClient.get("/products/home-shelves", options);
   return response.data;
 };
 

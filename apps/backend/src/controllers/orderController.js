@@ -127,10 +127,57 @@ const formatCustomerOrder = (order) => {
 /**
  * Fetch authenticated customer's orders from WooCommerce
  */
+const CUSTOMER_ORDER_FIELDS = "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax";
+
+const fetchCustomerOrderPage = async ({ userId, page, limit, after, before }) => {
+  let rawOrders = [];
+  let totalOrders = 0;
+  let totalPages = 1;
+  try {
+    const query = {
+      customer: userId,
+      page,
+      per_page: limit,
+      orderby: "date",
+      order: "desc",
+      _fields: CUSTOMER_ORDER_FIELDS,
+    };
+    if (after) {
+      query.after = after;
+      query.dates_are_gmt = true;
+    }
+    if (before) {
+      query.before = before;
+      query.dates_are_gmt = true;
+    }
+    const response = await api.get("orders", query);
+    rawOrders = Array.isArray(response.data) ? response.data : [];
+    totalOrders = Number(response.headers?.["x-wp-total"]) || rawOrders.length;
+    totalPages = Number(response.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
+  } catch (error) {
+    logger.warn({ userId, err: error.message }, "Could not query orders by customer ID");
+  }
+
+  const normalizedUserId = Number(userId);
+  const verifiedOrders = rawOrders.filter(
+    (order) => normalizedUserId > 0 && Number(order.customer_id) === normalizedUserId
+  );
+  const formattedOrders = verifiedOrders.map(formatCustomerOrder);
+  formattedOrders.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
+  return {
+    success: true,
+    page,
+    per_page: limit,
+    total: totalOrders,
+    totalPages,
+    count: formattedOrders.length,
+    orders: formattedOrders,
+  };
+};
+
 export const getCustomerOrders = async (req, res) => {
   try {
     const userId = req.wpUserId;
-
     if (!userId) {
       return sendResult(res, {
         success: false,
@@ -142,103 +189,21 @@ export const getCustomerOrders = async (req, res) => {
 
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.per_page) || 10));
-
-    // 1. Resolve authenticated customer's verified email from WooCommerce customer record (cached 10 min)
-    let customerEmail = "";
-    try {
-      customerEmail = await serverCache.getOrFetch(
-        `customer:email:${userId}`,
-        async () => {
-          const customerRes = await api.get(`customers/${userId}`);
-          return customerRes.data?.email ? customerRes.data.email.trim().toLowerCase() : "";
-        },
-        600000 // 10 minutes TTL
-      );
-    } catch (custErr) {
-      logger.warn({ userId, err: custErr.message }, "Could not fetch customer email for user");
-    }
-
-    // 2. Query WooCommerce using the customer's verified ID
-    let rawOrders = [];
-    let totalOrders = 0;
-    let totalPages = 1;
-
-    try {
-      const orderQueryParams = {
-        customer: userId,
-        page,
-        per_page: limit,
-        orderby: "date",
-        order: "desc",
-        _fields: "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax",
-      };
-      if (req.query.after) {
-        orderQueryParams.after = req.query.after;
-        orderQueryParams.dates_are_gmt = true;
-      }
-      if (req.query.before) {
-        orderQueryParams.before = req.query.before;
-        orderQueryParams.dates_are_gmt = true;
-      }
-      const customerOrderRes = await api.get("orders", orderQueryParams);
-      rawOrders = Array.isArray(customerOrderRes.data) ? customerOrderRes.data : [];
-      totalOrders = Number(customerOrderRes.headers?.["x-wp-total"]) || rawOrders.length;
-      totalPages = Number(customerOrderRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
-    } catch (idErr) {
-      logger.warn({ userId, err: idErr.message }, "Could not query orders by customer ID");
-    }
-
-    // Fallback for legacy accounts whose past orders were placed under email before user account linkage
-    if (rawOrders.length === 0 && customerEmail && page === 1) {
-      try {
-        const searchRes = await api.get("orders", {
-          search: customerEmail,
-          page: 1,
-          per_page: limit,
-          orderby: "date",
-          order: "desc",
-          _fields: "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax",
-        });
-        rawOrders = Array.isArray(searchRes.data) ? searchRes.data : [];
-        totalOrders = Number(searchRes.headers?.["x-wp-total"]) || rawOrders.length;
-        totalPages = Number(searchRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
-      } catch (emailErr) {
-        logger.warn({ userId, err: emailErr.message }, "Could not query orders by email search fallback");
-      }
-    }
-
-    // 3. Strict secondary in-memory authorization guard:
-    // Accept an order ONLY when billing.email matches verified customerEmail,
-    // or customer_id matches authenticated userId.
-    const normalizedUserId = Number(userId);
-    const verifiedOrders = rawOrders.filter((order) => {
-      const orderCustomerId = Number(order.customer_id);
-      const orderBillingEmail = (order.billing?.email || "").trim().toLowerCase();
-
-      const isEmailMatch = Boolean(customerEmail && orderBillingEmail === customerEmail);
-      const isIdMatch = normalizedUserId > 0 && orderCustomerId === normalizedUserId;
-
-      return isEmailMatch || isIdMatch;
-    });
-
-    // 4. Format clean, customer-facing order objects with live delivery metadata sync
-    const formattedOrders = verifiedOrders.map(formatCustomerOrder);
-
-    // Sort formatted orders consistently by date, newest first
-    formattedOrders.sort((a, b) => new Date(b.date_created) - new Date(a.date_created));
+    const after = req.query.after || "";
+    const before = req.query.before || "";
+    const cacheKey = `customer:orders:${userId}:p${page}:l${limit}:a${after}:b${before}`;
+    const result = await serverCache.getOrFetch(
+      cacheKey,
+      () => fetchCustomerOrderPage({ userId, page, limit, after, before }),
+      60000
+    );
 
     if (typeof res.set === "function") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     }
-
     return sendResult(res, {
-      success: true,
-      page,
-      per_page: limit,
-      total: totalOrders,
-      totalPages,
-      count: formattedOrders.length,
-      orders: transformMediaUrls(formattedOrders, req),
+      ...result,
+      orders: transformMediaUrls(result.orders || [], req),
     });
   } catch (error) {
     logError(req, error, "Get customer orders error");
@@ -281,36 +246,10 @@ export const getOrderById = async (req, res) => {
       });
     }
 
-    // Ownership verification matching authenticated user ID or verified email
-    const orderCustomerId = Number(order.customer_id || 0);
-    const orderBillingEmail = (order.billing?.email || "").trim().toLowerCase();
-    
-    let isOwner = orderCustomerId > 0 && orderCustomerId === Number(userId);
-    
-    if (!isOwner && userId) {
-      const tokenEmail = (req.user?.email || req.wpUserEmail || "").trim().toLowerCase();
-      if (tokenEmail && orderBillingEmail === tokenEmail) {
-        isOwner = true;
-      } else {
-        try {
-          const userEmail = await serverCache.getOrFetch(
-            `customer:email:${userId}`,
-            async () => {
-              const customerRes = await api.get(`customers/${userId}`);
-              return customerRes.data?.email ? customerRes.data.email.trim().toLowerCase() : "";
-            },
-            600000 // 10 minutes TTL
-          );
-          if (userEmail && orderBillingEmail === userEmail) {
-            isOwner = true;
-          }
-        } catch (err) {
-          // Ignore lookup error
-        }
-      }
-    }
-
-    if (!isOwner) {
+    // Orders from signed-in checkout are linked to the customer's WooCommerce
+    // ID. Do not authorize access by billing email alone; email addresses can
+    // be reused and must not grant access to another account's order history.
+    if (Number(order.customer_id || 0) !== Number(userId)) {
       return sendResult(res, {
         success: false,
         errorCode: "ORDER_NOT_FOUND",

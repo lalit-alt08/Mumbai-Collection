@@ -21,6 +21,9 @@ export const getFavoriteIds = async (req, res) => {
     }
 
     const productIds = await getFavoriteProductIds(userId);
+    if (typeof res.setHeader === "function") {
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    }
     return res.json({
       success: true,
       count: productIds.length,
@@ -50,6 +53,9 @@ export const getFavorites = async (req, res) => {
     }
 
     const productIds = await getFavoriteProductIds(userId);
+    if (typeof res.setHeader === "function") {
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    }
 
     if (!productIds || productIds.length === 0) {
       return res.json({
@@ -60,15 +66,40 @@ export const getFavorites = async (req, res) => {
       });
     }
 
-    // Fetch compact product details from WooCommerce (fields restricted to UI display requirements)
+    // Fetch compact product details in WooCommerce-sized batches. Two parallel
+    // batches cover up to 200 saved items without one oversized include query.
     try {
-      const response = await api.get("products", {
-        include: productIds,
-        per_page: Math.min(100, productIds.length),
-        _fields: "id,name,slug,price,regular_price,sale_price,images,stock_status",
-      });
+      const batches = [];
+      for (let index = 0; index < productIds.length; index += 100) {
+        batches.push(productIds.slice(index, index + 100));
+      }
 
-      const products = Array.isArray(response.data) ? response.data : [];
+      const products = [];
+      for (let index = 0; index < batches.length; index += 2) {
+        const results = await Promise.allSettled(
+          batches.slice(index, index + 2).map((ids) =>
+            api.get("products", {
+              include: ids.join(","),
+              orderby: "include",
+              per_page: ids.length,
+              _fields: "id,name,slug,price,regular_price,sale_price,images,stock_status",
+            })
+          )
+        );
+        for (const result of results) {
+          if (result.status === "fulfilled" && Array.isArray(result.value.data)) {
+            products.push(...result.value.data);
+          } else if (result.status === "rejected") {
+            logger.warn({ err: result.reason?.message }, "WooCommerce wishlist batch failed");
+          }
+        }
+      }
+
+      const productOrder = new Map(productIds.map((id, index) => [Number(id), index]));
+      products.sort((a, b) =>
+        (productOrder.get(Number(a.id)) ?? Number.MAX_SAFE_INTEGER) -
+        (productOrder.get(Number(b.id)) ?? Number.MAX_SAFE_INTEGER)
+      );
 
       res.json({
         success: true,

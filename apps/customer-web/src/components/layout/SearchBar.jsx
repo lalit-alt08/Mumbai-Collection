@@ -1,6 +1,6 @@
 import { Search, Loader2, ShoppingCart } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { searchProducts } from "../../services/productService";
 import { cleanProductTitle } from "../../utils/productUtils";
 import { useLiveProductStock } from "../../hooks/useLiveProductStock";
@@ -8,9 +8,11 @@ import { useLiveProductStock } from "../../hooks/useLiveProductStock";
 function SearchBar() {
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState([]);
+  const [totalResults, setTotalResults] = useState(0);
   useLiveProductStock(products, setProducts);
   const [isLoading, setIsLoading] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const searchRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -38,6 +40,7 @@ function SearchBar() {
 
     if (normalizedQuery.length < 2) {
       setProducts([]);
+      setTotalResults(0);
       setIsLoading(false);
       return;
     }
@@ -47,12 +50,14 @@ function SearchBar() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
       try {
-        const data = await searchProducts(normalizedQuery, { signal: controller.signal });
+        const data = await searchProducts(normalizedQuery, { page: 1, perPage: 8, signal: controller.signal });
         if (requestId !== requestIdRef.current || controller.signal.aborted) return;
-        setProducts(Array.isArray(data) ? data : []);
+        setProducts(Array.isArray(data?.products) ? data.products : []);
+        setTotalResults(Number(data?.total) || 0);
       } catch (error) {
         if (controller.signal.aborted || requestId !== requestIdRef.current) return;
         setProducts([]);
+        setTotalResults(0);
       } finally {
         if (requestId === requestIdRef.current) {
           setIsLoading(false);
@@ -66,6 +71,14 @@ function SearchBar() {
       abortControllerRef.current?.abort();
     };
   }, [query]);
+
+  const openFullResults = () => {
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) return;
+    setQuery("");
+    setProducts([]);
+    navigate(`/search?q=${encodeURIComponent(normalizedQuery)}`);
+  };
 
   // Clean, razor-sharp, solid midnight surface with crisp high-contrast border
   const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
@@ -85,9 +98,16 @@ function SearchBar() {
           />
 
           <input
+            id="store-search-input"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                openFullResults();
+              }
+            }}
             placeholder="Search for products..."
             className="
               h-full
@@ -95,6 +115,8 @@ function SearchBar() {
               bg-transparent
               border-0
               outline-none
+              focus-visible:outline-none
+              focus-visible:outline-offset-0
               pl-2.5
               pr-7
               text-xs
@@ -124,10 +146,13 @@ function SearchBar() {
           {/* Dropdown Header */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1E3252] bg-[#111F36]/95 px-4 py-2.5 text-xs font-bold text-[#8FA4BE] backdrop-blur-sm">
             <span>Product suggestions</span>
-            <span className="text-[#42D6E8]">{products.length} found</span>
+            <span className="text-[#42D6E8]">{totalResults} found</span>
           </div>
 
-          {products.length > 0 ? (
+          {query.trim().length < 2 ? (
+            <div className="px-4 py-5 text-center text-xs text-[#8FA4BE]">Type at least 2 characters to search.</div>
+          ) : products.length > 0 ? (
+            <>
             <div className="flex flex-col divide-y divide-[#1E3252]">
               {products.map((product) => {
                 const categoryName = product.categories?.[0]?.name;
@@ -180,6 +205,14 @@ function SearchBar() {
                 );
               })}
             </div>
+            <button
+              type="button"
+              onClick={openFullResults}
+              className="w-full border-t border-[#1E3252] px-4 py-3 text-left text-xs font-bold text-[#42D6E8] hover:bg-[#162744]"
+            >
+              View all {totalResults} results for “{query.trim()}”
+            </button>
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center p-6 text-center">
               <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-[#162744] text-gray-400">

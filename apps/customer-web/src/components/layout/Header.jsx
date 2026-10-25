@@ -3,6 +3,7 @@ import { ShoppingCart, User } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
+import { triggerHaptic } from "../../utils/haptics";
 
 function Header() {
   const { cart } = useCart();
@@ -56,6 +57,7 @@ function Header() {
         {!isRecentlyViewedPage && (
           <Link
             to="/cart"
+            onClick={() => triggerHaptic("light")}
             aria-label="Cart"
             className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
           >
@@ -72,6 +74,7 @@ function Header() {
         {/* ================= USER PROFILE BUTTON (Desktop Only) ================= */}
         <Link
           to={user ? "/account" : "/login"}
+          onClick={() => triggerHaptic("light")}
           aria-label={user ? "Account" : "Login"}
           className={`hidden md:flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
         >

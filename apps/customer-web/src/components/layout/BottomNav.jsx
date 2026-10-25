@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Home, LayoutGrid, Package, User } from "lucide-react";
+import { triggerHaptic } from "../../utils/haptics";
 
 function BottomNav() {
   const location = useLocation();
@@ -132,6 +133,11 @@ function BottomNav() {
             <Link
               key={item.id}
               to={item.to}
+              onClick={() => {
+                if (!active) {
+                  triggerHaptic("selection");
+                }
+              }}
               style={{ touchAction: "manipulation" }}
               className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 select-none ${
                 active ? "text-[#42D6E8]" : "text-[#6E84A3] hover:text-[#42D6E8]"

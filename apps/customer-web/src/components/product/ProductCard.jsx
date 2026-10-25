@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getProductById } from "../../services/productService";
+import { getLiveProductStockByIds } from "../../services/productService";
 import { Heart } from "lucide-react";
 import {
   addToCart as addToWooCart,
@@ -8,6 +8,7 @@ import {
   removeCartItem,
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
+import { triggerHaptic } from "../../utils/haptics";
 import { useFavorites } from "../../context/FavoritesContext";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import {
@@ -51,7 +52,7 @@ function ProductCard({ product }) {
 
   const refreshStock = async () => {
     try {
-      const latestProduct = await getProductById(product.id, { refresh: true });
+      const [latestProduct] = await getLiveProductStockByIds([product.id]);
       if (latestProduct) {
         setStockOverride(latestProduct);
       }
@@ -187,6 +188,7 @@ function ProductCard({ product }) {
                       setUpdatingCart(true);
                       const updatedCart = await removeCartItem(cartItem.key);
                       if (updatedCart) {
+                        triggerHaptic("light");
                         updateCart(updatedCart);
                       }
                     } catch (error) {
@@ -221,6 +223,7 @@ function ProductCard({ product }) {
                     setUpdatingCart(true);
                     const updatedCart = await addToWooCart(product.id);
                     if (updatedCart) {
+                      triggerHaptic("medium");
                       updateCart(updatedCart);
                     }
                   } catch (error) {
@@ -269,6 +272,7 @@ function ProductCard({ product }) {
                         updatedCart = await updateCartItem(cartItem.key, cartItem.quantity - 1);
                       }
                       if (updatedCart) {
+                        triggerHaptic("light");
                         updateCart(updatedCart);
                       }
                     } catch (error) {
@@ -296,6 +300,7 @@ function ProductCard({ product }) {
                       setUpdatingCart(true);
                       const updatedCart = await updateCartItem(cartItem.key, cartItem.quantity + 1);
                       if (updatedCart) {
+                        triggerHaptic("light");
                         updateCart(updatedCart);
                       }
                     } catch (error) {

@@ -51,6 +51,7 @@ function MainLayout() {
     "/product",
     "/categories",
     "/category",
+    "/search",
     "/profile-setup",
     "/favorites",
     "/recently-viewed",

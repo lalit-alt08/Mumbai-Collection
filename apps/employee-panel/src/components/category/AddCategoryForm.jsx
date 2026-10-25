@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Upload,
@@ -11,7 +12,11 @@ import {
   PackagePlus,
   RefreshCw,
   ChevronUp,
+  Folder,
+  ChevronDown,
+  Search,
 } from "lucide-react";
+import { getCategoryImageUrl } from "../../utils/categoryImage.js";
 import { compressImage, CATEGORY_MAX_DIMENSION } from "../../utils/imageCompressor.js";
 
 function AddCategoryForm({
@@ -21,6 +26,9 @@ function AddCategoryForm({
   setName,
   description,
   setDescription,
+  parentId = 0,
+  setParentId,
+  categories = [],
   image,
   onImageSelect,
   onRemoveImage,
@@ -32,6 +40,64 @@ function AddCategoryForm({
   onSubmit,
   onReset,
 }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const dropdownRef = useRef(null);
+
+  // Close dropdown on outside click or Escape
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [dropdownOpen]);
+
+  const eligibleParentCategories = useMemo(() => {
+    return (categories || []).filter(
+      (c) =>
+        c &&
+        (!c.parent || Number(c.parent) === 0) &&
+        c.slug?.toLowerCase() !== "uncategorized" &&
+        c.name?.toLowerCase() !== "uncategorized"
+    );
+  }, [categories]);
+
+  const filteredParentCategories = useMemo(() => {
+    if (!searchQuery.trim()) return eligibleParentCategories;
+    const q = searchQuery.toLowerCase().trim();
+    return eligibleParentCategories.filter((c) =>
+      (c.name || "").toLowerCase().includes(q) || String(c.id).includes(q)
+    );
+  }, [eligibleParentCategories, searchQuery]);
+
+  const selectedParentCategory = useMemo(() => {
+    if (!parentId || Number(parentId) === 0) return null;
+    return eligibleParentCategories.find((c) => Number(c.id) === Number(parentId)) || null;
+  }, [eligibleParentCategories, parentId]);
+
+  useEffect(() => {
+    if (!show) {
+      setDropdownOpen(false);
+      setSearchQuery("");
+    }
+  }, [show]);
+
   if (!show) return null;
 
   return (
@@ -88,7 +154,7 @@ function AddCategoryForm({
               <Plus size={15} /> Add Another Category
             </button>
             <Link
-              to="/products/add"
+              to={`/products/add?category_id=${createdCategory.id}`}
               className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 transition shadow-xs"
             >
               <PackagePlus size={15} /> Add Product to this Category
@@ -106,6 +172,168 @@ function AddCategoryForm({
 
           <div className="grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
             <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+              {/* Parent selector appears only when the top toolbar chose Subcategory. */}
+              {parentId && Number(parentId) > 0 ? (
+                  <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-3.5 sm:p-4 space-y-2.5 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-black text-purple-950 uppercase tracking-wider">
+                        Parent Department <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] font-bold text-purple-800 bg-purple-100/90 px-2 py-0.5 rounded-full border border-purple-200">
+                        Choose Department
+                      </span>
+                    </div>
+
+                    {eligibleParentCategories.length === 0 ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                        No main departments available yet. Please create a main department first.
+                      </div>
+                    ) : (
+                      <div className="relative" ref={dropdownRef}>
+                        <button
+                          type="button"
+                          onClick={() => setDropdownOpen((prev) => !prev)}
+                          aria-haspopup="listbox"
+                          aria-expanded={dropdownOpen}
+                          className="w-full flex items-center justify-between gap-3 rounded-2xl border-2 border-purple-300 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-purple-400 hover:shadow-sm focus:ring-2 focus:ring-purple-500/20 active:scale-[0.99] cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-purple-100 bg-purple-50 flex items-center justify-center p-0.5">
+                              {selectedParentCategory && getCategoryImageUrl(selectedParentCategory) ? (
+                                <img
+                                  src={getCategoryImageUrl(selectedParentCategory)}
+                                  alt={selectedParentCategory.name}
+                                  className="h-full w-full object-contain rounded-lg"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center rounded-lg bg-purple-100 text-purple-700 font-black text-sm uppercase">
+                                  {selectedParentCategory?.name?.charAt(0) || "D"}
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs sm:text-sm font-black text-gray-900 truncate">
+                                {selectedParentCategory?.name || "Choose a Department"}
+                              </p>
+                              <p className="text-[11px] text-purple-700 font-semibold truncate">
+                                {selectedParentCategory
+                                  ? `Department #${selectedParentCategory.id} • ${selectedParentCategory.count ?? 0} products`
+                                  : "Tap to select parent department"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 pl-1">
+                            <span className="text-[11px] font-bold text-purple-700 hidden sm:inline">
+                              {dropdownOpen ? "Close" : "Change"}
+                            </span>
+                            <div
+                              className={`p-1.5 rounded-xl transition-all duration-200 ${
+                                dropdownOpen ? "rotate-180 bg-purple-100 text-purple-800" : "bg-purple-50 text-purple-600"
+                              }`}
+                            >
+                              <ChevronDown size={15} />
+                            </div>
+                          </div>
+                        </button>
+
+                        {/* Floating Polished Dropdown Menu */}
+                        {dropdownOpen && (
+                          <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150">
+                            {eligibleParentCategories.length > 4 && (
+                              <div className="p-2.5 border-b border-gray-100 bg-gray-50/80">
+                                <div className="relative">
+                                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                  <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search departments..."
+                                    className="w-full pl-8.5 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition"
+                                    autoFocus
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 overscroll-contain">
+                              {filteredParentCategories.length === 0 ? (
+                                <div className="p-5 text-center text-xs text-gray-500">
+                                  No matching departments found.
+                                </div>
+                              ) : (
+                                filteredParentCategories.map((c) => {
+                                  const isSelected = Number(c.id) === Number(parentId);
+                                  const imgUrl = getCategoryImageUrl(c);
+                                  return (
+                                    <button
+                                      key={c.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setParentId && setParentId(Number(c.id));
+                                        setDropdownOpen(false);
+                                        setSearchQuery("");
+                                      }}
+                                      className={`w-full flex items-center justify-between gap-3 p-3 text-left transition cursor-pointer active:scale-[0.99] ${
+                                        isSelected
+                                          ? "bg-purple-50/90 hover:bg-purple-50"
+                                          : "hover:bg-gray-50"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-white flex items-center justify-center p-0.5 shadow-2xs">
+                                          {imgUrl ? (
+                                            <img
+                                              src={imgUrl}
+                                              alt={c.name}
+                                              className="h-full w-full object-contain rounded-lg"
+                                            />
+                                          ) : (
+                                            <div className="flex h-full w-full items-center justify-center rounded-lg bg-purple-50 text-purple-700 font-bold text-xs uppercase">
+                                              {c.name?.charAt(0) || "D"}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <p className={`text-xs sm:text-sm font-bold truncate ${isSelected ? "text-purple-950 font-black" : "text-gray-900"}`}>
+                                            {c.name}
+                                          </p>
+                                          <p className="text-[11px] text-gray-500 truncate">
+                                            Department #{c.id} • {c.count ?? 0} products
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      {isSelected ? (
+                                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white shadow-xs">
+                                          <Check size={12} strokeWidth={3} />
+                                        </div>
+                                      ) : (
+                                        <span className="text-[11px] text-gray-400 font-medium">
+                                          Select
+                                        </span>
+                                      )}
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-purple-800">
+                      This subcategory will appear inside the selected department on your storefront navigation.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-2.5 text-[11px] text-emerald-800 flex items-center gap-2">
+                    <Folder size={14} className="shrink-0 text-emerald-600" />
+                    <span>Creates a primary top-level department visible directly on your home page & categories grid.</span>
+                  </div>
+                )}
+
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
                   Category Name <span className="text-rose-500">*</span>
@@ -124,19 +352,6 @@ function AddCategoryForm({
                 <p className="text-[11px] text-gray-400">
                   Canonical department name displayed across storefront and employee forms.
                 </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Description (Optional)
-                </label>
-                <textarea
-                  rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Brief description of items included in this category..."
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 p-3 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition leading-relaxed"
-                />
               </div>
             </div>
 

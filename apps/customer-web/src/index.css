@@ -14,6 +14,7 @@
   -moz-osx-font-smoothing: grayscale;
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @media all and (display-mode: standalone) {
@@ -53,6 +54,35 @@ body {
 ::selection {
   background-color: #42D6E8;
   color: #061220;
+}
+
+/* Tactile tap highlight for touchscreens so users see what was selected */
+* {
+  -webkit-tap-highlight-color: rgba(66, 214, 232, 0.15);
+}
+
+/* Accessible focus ring for interactive controls */
+:focus-visible {
+  outline: 2px solid #42D6E8;
+  outline-offset: 2px;
+}
+
+/* The search capsule already provides its own rounded focus indicator. */
+#store-search-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Respect user's device motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Prevent accidental double-tap to zoom across all elements and tabs */

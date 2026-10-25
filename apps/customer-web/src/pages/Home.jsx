@@ -3,15 +3,16 @@ import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
-import { getProducts, getCategories } from "../services/productService";
+import { getHomeShelves } from "../services/productService";
 import { CheckCircle2, X, ChevronRight } from "lucide-react";
-import { reshuffleCategoryProducts } from "../utils/productUtils";
+import { getSessionProductOrderSeed, orderProductsForSession } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
 // In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
 let cachedHomeData = {
   products: null,
   categories: null,
+  shelves: null,
   timestamp: 0,
 };
 let homeDataRequest = null;
@@ -19,7 +20,7 @@ const HOME_RESUME_REFRESH_COOLDOWN_MS = 15_000;
 
 function fetchHomeSnapshot() {
   if (!homeDataRequest) {
-    homeDataRequest = Promise.allSettled([getProducts(), getCategories()]).finally(() => {
+    homeDataRequest = Promise.allSettled([getHomeShelves()]).finally(() => {
       homeDataRequest = null;
     });
   }
@@ -30,13 +31,13 @@ function Home() {
   const location = useLocation();
   const [products, setProducts] = useState(() => cachedHomeData.products || []);
   const [categories, setCategories] = useState(() => cachedHomeData.categories || []);
+  const [homeShelves, setHomeShelves] = useState(() => cachedHomeData.shelves || []);
   // Instant hydration: If cached data exists in memory, skip initial loading skeleton
-  const [loading, setLoading] = useState(() => !cachedHomeData.products);
+  const [loading, setLoading] = useState(() => !cachedHomeData.shelves);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
   const lastHomeFetchAt = useRef(0);
-  // Unique shuffle seed per visit/mount: stable during user interaction, fresh on every refresh
-  const [shuffleSeed] = useState(() => Math.random());
-  useLiveProductStock(products, setProducts);
+  // One randomized catalog order per browser/app session; stock refreshes reuse it.
+  const [shuffleSeed] = useState(() => getSessionProductOrderSeed());
 
   useEffect(() => {
     const prevBg = document.body.style.backgroundColor;
@@ -62,29 +63,31 @@ function Home() {
       lastHomeFetchAt.current = Date.now();
       try {
         // Only trigger skeleton if we have no prior cache
-        if (!cachedHomeData.products) {
+        if (!cachedHomeData.shelves) {
           setLoading(true);
         }
 
-        const [productsData, categoriesData] = await fetchHomeSnapshot();
+        const [homeDataResult] = await fetchHomeSnapshot();
 
         if (isMounted) {
-          if (productsData.status === "fulfilled") {
-            const list = Array.isArray(productsData.value)
-              ? productsData.value
-              : Array.isArray(productsData.value?.products)
-              ? productsData.value.products
-              : [];
-            setProducts(list);
-            cachedHomeData.products = list;
-          }
-          if (categoriesData.status === "fulfilled") {
-            const catList = Array.isArray(categoriesData.value)
-              ? categoriesData.value
-              : Array.isArray(categoriesData.value?.categories)
-              ? categoriesData.value.categories
-              : [];
+          if (homeDataResult.status === "fulfilled") {
+            const data = homeDataResult.value || {};
+            const shelfList = Array.isArray(data.shelves) ? data.shelves : [];
+            const catList = Array.isArray(data.categories) ? data.categories : [];
+            const productMap = new Map();
+            shelfList.forEach((shelf) => {
+              (Array.isArray(shelf.products) ? shelf.products : []).forEach((product) => {
+                if (product?.id && !productMap.has(Number(product.id))) {
+                  productMap.set(Number(product.id), product);
+                }
+              });
+            });
+            const productList = [...productMap.values()];
+            setHomeShelves(shelfList);
+            setProducts(productList);
             setCategories(catList);
+            cachedHomeData.shelves = shelfList;
+            cachedHomeData.products = productList;
             cachedHomeData.categories = catList;
           }
 
@@ -112,51 +115,30 @@ function Home() {
     };
   }, []);
 
-  // Dynamically group products by WooCommerce categories (Preserves persistent merchandising order)
+  // The backend returns a bounded first page for each department, so a shelf
+  // is not omitted just because its products fall after the global catalog page.
   const categorySections = useMemo(() => {
-    if (!Array.isArray(products) || products.length === 0) return [];
-
-    const map = new Map();
-
-    products.forEach((product) => {
-      if (!Array.isArray(product.categories) || product.categories.length === 0) {
-        return;
-      }
-
-      product.categories.forEach((cat) => {
-        if (!cat || !cat.id) return;
-        const catKey = String(cat.id);
-
-        if (!map.has(catKey)) {
-          map.set(catKey, {
-            id: cat.id,
-            name: cat.name || "Category",
-            slug: cat.slug || String(cat.id),
-            products: [],
-          });
-        }
-        map.get(catKey).products.push(product);
-      });
-    });
-
-    const activeSections = Array.from(map.values()).filter((section) => section.products.length > 0);
-
-    // Sort sections by persistent WooCommerce merchandising order
-    if (categories.length > 0) {
-      const orderMap = new Map(categories.map((c, idx) => [String(c.id), idx]));
-      activeSections.sort((a, b) => {
-        const orderA = orderMap.has(String(a.id)) ? orderMap.get(String(a.id)) : 9999;
-        const orderB = orderMap.has(String(b.id)) ? orderMap.get(String(b.id)) : 9999;
-        return orderA - orderB;
-      });
-    }
-
-    // Dynamically reshuffle products in each category on refresh so every product gets exposure
-    return activeSections.map((section) => ({
+    if (!Array.isArray(homeShelves) || homeShelves.length === 0) return [];
+    const productsById = new Map(products.map((product) => [Number(product.id), product]));
+    return homeShelves.map((section) => ({
       ...section,
-      products: reshuffleCategoryProducts(section.products),
+      products: orderProductsForSession(
+        (Array.isArray(section.products) ? section.products : [])
+          .map((product) => productsById.get(Number(product.id)) || product)
+          .slice(0, 10),
+        shuffleSeed,
+        `home-category-${section.id}`
+      ),
     }));
-  }, [products, categories, shuffleSeed]);
+  }, [homeShelves, products, shuffleSeed]);
+
+  // Only poll stock for cards currently displayed on the home shelves. The
+  // full category pages still fetch their own live stock as customers browse.
+  const visibleHomeProducts = useMemo(
+    () => categorySections.flatMap((section) => section.products.slice(0, 10)),
+    [categorySections]
+  );
+  useLiveProductStock(visibleHomeProducts, setProducts);
 
   return (
     <div className="space-y-5 sm:space-y-6 md:space-y-8">
@@ -224,9 +206,7 @@ function Home() {
                   to={`/category/${section.id || section.slug}`}
                   className="flex items-center gap-0.5 md:gap-1 text-xs md:text-sm font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] active:scale-95 group"
                 >
-                  <span>
-                    View All<span className="hidden md:inline"> ({section.products.length})</span>
-                  </span>
+                  <span>View All</span>
                   <ChevronRight
                     size={14}
                     strokeWidth={2.5}
@@ -237,7 +217,7 @@ function Home() {
 
               {/* Single Unified Product Display: Horizontal Carousel on Mobile (< md), Grid on Desktop (>= md) */}
               <div className="flex overflow-x-auto pb-2 pt-1 -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 scroll-px-3.5 sm:scroll-px-5 scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x snap-mandatory gap-3.5 sm:gap-4 md:grid md:grid-cols-3 lg:grid-cols-4 md:gap-4 md:gap-4.5 md:overflow-visible md:pb-0 md:pt-0 md:mx-0 md:px-0">
-                {section.products.map((product) => (
+                {section.products.slice(0, 10).map((product) => (
                   <div
                     key={product.id}
                     className="w-[160px] sm:w-[175px] shrink-0 snap-start flex flex-col md:w-full md:shrink md:snap-align-none"

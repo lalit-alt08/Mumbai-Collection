@@ -172,6 +172,75 @@ export function shuffleProducts(items) {
   return shuffled;
 }
 
+const PRODUCT_ORDER_SESSION_KEY = "mumbai_collection_product_order_seed_v1";
+let fallbackProductOrderSeed = null;
+const fallbackProductOrders = new Map();
+
+/** Reuse one random ordering seed for the lifetime of this browser tab/app session. */
+export function getSessionProductOrderSeed() {
+  try {
+    const savedSeed = window.sessionStorage.getItem(PRODUCT_ORDER_SESSION_KEY);
+    if (savedSeed) return savedSeed;
+
+    const seed = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(PRODUCT_ORDER_SESSION_KEY, seed);
+    return seed;
+  } catch {
+    // Keep a stable in-memory seed when storage is disabled or unavailable.
+    if (!fallbackProductOrderSeed) {
+      fallbackProductOrderSeed = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return fallbackProductOrderSeed;
+  }
+}
+
+function hashProductOrderKey(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Preserve the order of products already seen in this session. New products are
+ * appended in a session-random order, so catalog refreshes cannot move existing cards.
+ */
+export function orderProductsForSession(items, seed = getSessionProductOrderSeed(), scope = "catalog", { retainUnseen = false } = {}) {
+  if (!Array.isArray(items) || items.length === 0) return items ? [...items] : [];
+
+  const scopeKey = `${PRODUCT_ORDER_SESSION_KEY}:${scope}`;
+  let savedIds = [];
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(scopeKey) || "[]");
+    if (Array.isArray(parsed)) savedIds = parsed.map(String);
+    if (savedIds.length === 0) savedIds = fallbackProductOrders.get(scope) || [];
+  } catch {
+    savedIds = fallbackProductOrders.get(scope) || [];
+  }
+
+  const productById = new Map();
+  items.forEach((product, index) => {
+    const id = product?.id == null ? `index-${index}` : String(product.id);
+    if (!productById.has(id)) productById.set(id, product);
+  });
+
+  const nextIds = retainUnseen ? [...savedIds] : savedIds.filter((id) => productById.has(id));
+  const knownIds = new Set(nextIds);
+  const newIds = [...productById.keys()]
+    .filter((id) => !knownIds.has(id))
+    .sort((a, b) => hashProductOrderKey(`${seed}:${a}`) - hashProductOrderKey(`${seed}:${b}`) || a.localeCompare(b));
+  nextIds.push(...newIds);
+
+  try {
+    window.sessionStorage.setItem(scopeKey, JSON.stringify(nextIds));
+  } catch {}
+  fallbackProductOrders.set(scope, nextIds);
+
+  return nextIds.map((id) => productById.get(id)).filter(Boolean);
+}
+
 /**
  * Reshuffles category products dynamically on each page visit/refresh.
  * Prioritizes available in-stock items first (in randomized order) so every product

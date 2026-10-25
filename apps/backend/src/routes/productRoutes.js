@@ -9,6 +9,7 @@ import {
   searchAllProducts,
   getProductsByCategory,
   getAllCategories,
+  getHomeShelves,
   getProductSocialPreview,
 } from "../controllers/productController.js";
 
@@ -25,13 +26,14 @@ const router = express.Router();
 
 router.get("/:id/social-preview", catalogLimiter, validateRequest({ params: schemas.idParam }), getProductSocialPreview);
 router.get("/", validateRequest({ query: schemas.pagination }), getAllProducts);
+router.get("/home-shelves", validateRequest({ query: schemas.homeShelvesQuery }), getHomeShelves);
 router.get("/by-ids", validateRequest({ query: schemas.productsByIds }), getProductsByIds);
 router.get("/stock", validateRequest({ query: schemas.productStockIds }), getLiveProductStock);
 router.get("/categories", validateRequest({ query: schemas.pagination }), getAllCategories);
-router.get("/search", validateRequest({ query: schemas.pagination }), searchAllProducts);
-router.get("/related", validateRequest({ query: schemas.pagination }), getRelatedProducts);
+router.get("/search", validateRequest({ query: schemas.productSearch }), searchAllProducts);
+router.get("/related", validateRequest({ query: schemas.relatedProducts }), getRelatedProducts);
 router.get("/category/:categoryId", validateRequest({ params: schemas.categoryIdParam, query: schemas.pagination }), getProductsByCategory);
-router.get("/:id", validateRequest({ params: schemas.idParam }), getProductById);
+router.get("/:id", validateRequest({ params: schemas.idParam, query: schemas.productDetailQuery }), getProductById);
 
 // Product Reviews
 router.get("/:productId/reviews", validateRequest({ params: schemas.productIdParam }), optionalAuth, getProductReviews);

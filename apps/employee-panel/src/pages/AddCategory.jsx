@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
 import {
   FolderPlus,
-  ArrowLeft,
+  FolderTree,
   AlertCircle,
   CheckCircle2,
   Loader2,
@@ -33,6 +32,7 @@ import AddCategoryForm from "../components/category/AddCategoryForm.jsx";
 import CategoryOrderItem from "../components/category/CategoryOrderItem.jsx";
 import UpdateCategoryModal from "../components/category/UpdateCategoryModal.jsx";
 import SystemCategoryCard from "../components/category/SystemCategoryCard.jsx";
+import { getCategoryImageUrl } from "../utils/categoryImage.js";
 
 function AddCategory() {
   const fileInputRef = useRef(null);
@@ -55,6 +55,7 @@ function AddCategory() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [parentId, setParentId] = useState(0);
   const [image, setImage] = useState(null); // { file, preview, url, mediaId, uploaded, uploading, error }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -63,6 +64,7 @@ function AddCategory() {
   // Update Category Modal State
   const [editingCategory, setEditingCategory] = useState(null); // null or category object
   const [updateName, setUpdateName] = useState("");
+  const [updateParentId, setUpdateParentId] = useState(0);
   const [updateImageFile, setUpdateImageFile] = useState(null);
   const [updateImagePreview, setUpdateImagePreview] = useState("");
   const [updating, setUpdating] = useState(false);
@@ -86,10 +88,19 @@ function AddCategory() {
     );
   };
 
-  // Separate Storefront categories (merchandising orderable) and System categories
-  const storefrontCategories = useMemo(() => {
-    return categoriesList.filter((c) => !isUncategorized(c));
-  }, [categoriesList]);
+  // Only top-level departments belong in the storefront category navigation
+  // and merchandising order. Child categories remain separately manageable.
+  const storefrontCategories = useMemo(
+    () => categoriesList.filter((category) => !isUncategorized(category) && (!category.parent || Number(category.parent) === 0)),
+    [categoriesList]
+  );
+
+  const subcategoryCategories = useMemo(
+    () => categoriesList.filter((category) => !isUncategorized(category) && Number(category.parent) > 0),
+    [categoriesList]
+  );
+
+  const topLevelCategories = storefrontCategories;
 
   const systemCategories = useMemo(() => {
     return categoriesList.filter((c) => isUncategorized(c));
@@ -154,7 +165,7 @@ function AddCategory() {
     updatedStorefront.splice(targetStorefrontIndex, 0, movedItem);
 
     // Recombine with system categories
-    const fullUpdatedList = [...updatedStorefront, ...systemCategories];
+    const fullUpdatedList = [...updatedStorefront, ...subcategoryCategories, ...systemCategories];
     setCategoriesList(fullUpdatedList);
     await persistCategoryOrder(fullUpdatedList);
   };
@@ -173,7 +184,7 @@ function AddCategory() {
     const [movedItem] = updatedStorefront.splice(storefrontIndex, 1);
     updatedStorefront.splice(newIndex, 0, movedItem);
 
-    const fullUpdatedList = [...updatedStorefront, ...systemCategories];
+    const fullUpdatedList = [...updatedStorefront, ...subcategoryCategories, ...systemCategories];
     setCategoriesList(fullUpdatedList);
     await persistCategoryOrder(fullUpdatedList);
   };
@@ -187,7 +198,7 @@ function AddCategory() {
       setIsSavingOrder(true);
 
       const validIds = orderedList
-        .filter((c) => !isUncategorized(c))
+        .filter((category) => !isUncategorized(category) && (!category.parent || Number(category.parent) === 0))
         .map((c) => c.id);
 
       const idempotencyKey =
@@ -361,7 +372,9 @@ function AddCategory() {
       return;
     }
 
-    if (!image.uploaded || !image.mediaId) {
+    const mediaId = Number(image.mediaId);
+    const hasMediaId = Number.isInteger(mediaId) && mediaId > 0;
+    if (!image.uploaded || (!hasMediaId && !image.url)) {
       setError("Category image upload failed. Please choose another image or retry.");
       return;
     }
@@ -373,9 +386,10 @@ function AddCategory() {
       const payload = {
         name: name.trim(),
         description: description.trim(),
-        image_id: Number(image.mediaId),
-        image_url: image.url,
+        parent: Number(parentId) || 0,
       };
+      if (hasMediaId) payload.image_id = mediaId;
+      if (image.url) payload.image_url = image.url;
 
       const idempotencyKey =
         typeof crypto !== "undefined" && crypto.randomUUID
@@ -406,6 +420,7 @@ function AddCategory() {
   const handleResetCreateForm = () => {
     setName("");
     setDescription("");
+    setParentId(0);
     setImage(null);
     setCreatedCategory(null);
     setError("");
@@ -417,6 +432,7 @@ function AddCategory() {
   const handleOpenUpdateModal = (cat) => {
     setEditingCategory(cat);
     setUpdateName(cat.name || "");
+    setUpdateParentId(typeof cat.parent === "number" ? cat.parent : 0);
     setUpdateImageFile(null);
     setUpdateImagePreview("");
     setUpdateError("");
@@ -430,6 +446,7 @@ function AddCategory() {
     }
     setEditingCategory(null);
     setUpdateName("");
+    setUpdateParentId(0);
     setUpdateImageFile(null);
     setUpdateImagePreview("");
     setUpdateError("");
@@ -529,9 +546,10 @@ function AddCategory() {
 
     const nameChanged = trimmedName !== editingCategory.name;
     const imageChanged = !!updateImageFile;
+    const parentChanged = (Number(updateParentId) || 0) !== (Number(editingCategory.parent) || 0);
 
     // If no changes were made, close modal cleanly
-    if (!nameChanged && !imageChanged) {
+    if (!nameChanged && !imageChanged && !parentChanged) {
       handleCloseUpdateModal();
       return;
     }
@@ -546,14 +564,19 @@ function AddCategory() {
         payload.name = trimmedName;
       }
 
+      if (parentChanged) {
+        payload.parent = Number(updateParentId) || 0;
+      }
+
       if (imageChanged) {
         setUpdateStatusText("Uploading new image to WordPress...");
         const uploadRes = await uploadProductImage(updateImageFile);
-        if (!uploadRes.success || !uploadRes.id) {
+        if (!uploadRes.success || (!uploadRes.id && !uploadRes.url)) {
           throw new Error(uploadRes.message || "Failed to upload new category image.");
         }
-        payload.image_id = Number(uploadRes.id);
-        payload.image_url = uploadRes.url;
+        const mediaId = Number(uploadRes.id);
+        if (Number.isInteger(mediaId) && mediaId > 0) payload.image_id = mediaId;
+        if (uploadRes.url) payload.image_url = uploadRes.url;
       }
 
       setUpdateStatusText("Updating WooCommerce category...");
@@ -600,45 +623,32 @@ function AddCategory() {
         </div>
       )}
 
-      {/* TOP HEADER: Category Management */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-4 sm:pb-5">
-        <div>
-          <div className="hidden sm:flex items-center gap-2">
-            <Link
-              to="/products"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
-            >
-              <ArrowLeft size={14} /> Back to Products
-            </Link>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 sm:mt-2 flex items-center gap-2">
-            <FolderPlus size={24} className="text-emerald-600" />
-            Category Management
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Organize merchandising order, add departments, or update category details.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => setShowAddForm((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-emerald-500 transition active:scale-95 cursor-pointer"
-          >
-            {showAddForm ? (
-              <>
-                <ChevronUp size={15} />
-                <span>Hide Add Form</span>
-              </>
-            ) : (
-              <>
-                <Plus size={15} />
-                <span>Add Category</span>
-              </>
-            )}
-          </button>
-        </div>
+      {/* Top Action Toolbar */}
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            setParentId(0);
+            setShowAddForm((prev) => !prev);
+          }}
+          className={`inline-flex items-center gap-2 rounded-2xl py-2.5 px-5 text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer ${
+            showAddForm
+              ? "bg-gray-100 text-gray-700 border-2 border-gray-300 hover:bg-gray-200"
+              : "bg-emerald-600 text-white border-2 border-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20"
+          }`}
+        >
+          {showAddForm ? (
+            <>
+              <ChevronUp size={16} />
+              <span>Hide Form</span>
+            </>
+          ) : (
+            <>
+              <Plus size={16} strokeWidth={2.5} />
+              <span>Add Category</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* ───────────────────────────────────────────────────────────── */}
@@ -651,6 +661,9 @@ function AddCategory() {
         setName={setName}
         description={description}
         setDescription={setDescription}
+        parentId={parentId}
+        setParentId={setParentId}
+        categories={categoriesList}
         image={image}
         onImageSelect={handleImageSelect}
         onRemoveImage={handleRemoveImage}
@@ -742,6 +755,7 @@ function AddCategory() {
                 category={category}
                 index={index}
                 totalCount={storefrontCategories.length}
+                allCategories={categoriesList}
                 isOver={dragOverIndex === index}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
@@ -757,7 +771,7 @@ function AddCategory() {
       </div>
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* SECTION 3: SYSTEM PROTECTED CATEGORIES (UNCATEGORIZED)        */}
+      {/* SECTION 4: SYSTEM PROTECTED CATEGORIES (UNCATEGORIZED)        */}
       {/* ───────────────────────────────────────────────────────────── */}
       {systemCategories.length > 0 && (
         <div className="space-y-3 pt-4 border-t border-gray-200">
@@ -783,6 +797,9 @@ function AddCategory() {
         editingCategory={editingCategory}
         updateName={updateName}
         setUpdateName={setUpdateName}
+        updateParentId={updateParentId}
+        setUpdateParentId={setUpdateParentId}
+        categories={categoriesList}
         updateImageFile={updateImageFile}
         updateImagePreview={updateImagePreview}
         updateFileInputRef={updateFileInputRef}

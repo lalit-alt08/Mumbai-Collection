@@ -1,18 +1,23 @@
 /**
- * In-Memory Idempotency Middleware for Mutation Endpoints (e.g. POST /products)
+ * Idempotency Middleware for Mutation Endpoints (e.g. employee catalog changes)
  *
  * Prevents accidental duplicate creations caused by network retries, connection resets,
- * or concurrent client requests by tracking a unique X-Idempotency-Key.
+ * or concurrent client requests by tracking a unique X-Idempotency-Key. Employee
+ * catalog writes use Redis when available and retain the local bounded fallback.
  */
 
-const idempotencyStore = new Map();
+import { createHash, randomUUID } from "node:crypto";
 import { logger } from "../utils/logger.js";
 import paymentIntentService from "../services/paymentIntentService.js";
+import { getRedisClient } from "../config/redis.js";
 
+const idempotencyStore = new Map();
 const IDEMPOTENCY_TTL_MS = 15 * 60 * 1000; // 15 minutes TTL
 const MAX_IDEMPOTENCY_STORE_SIZE = 2000;
 const MAX_KEY_LENGTH = 128;
 const MAX_PROCESSING_TIMEOUT_MS = 30 * 1000; // 30s max processing wait
+const CATALOG_IDEMPOTENCY_TTL_MS = 15 * 60 * 1000;
+const CATALOG_PROCESSING_TTL_MS = 2 * 60 * 1000;
 
 // Periodic cleanup of expired and abandoned keys
 setInterval(() => {
@@ -52,6 +57,53 @@ export const requireIdempotency = async (req, res, next) => {
   const userScope = verifiedUserId ? `user:${verifiedUserId}` : (cookieScope || `ip:${req.ip || "anon"}`);
   const routePath = `${req.baseUrl || ""}${req.path || ""}`;
   const key = `${userScope}:${req.method}:${routePath}:${rawKey}`;
+  const isEmployeeCatalogMutation =
+    /(?:^|\/)employee\/(?:categories|products)(?:\/|$)/i.test(routePath);
+  const redis = isEmployeeCatalogMutation && !idempotencyStore.has(key) ? getRedisClient() : null;
+  const redisKey = redis
+    ? `idempotency:employee-catalog:${createHash("sha256").update(key).digest("hex")}`
+    : null;
+  const redisOwner = redis ? randomUUID() : null;
+
+  if (redis) {
+    try {
+      const sharedRaw = await redis.get(redisKey);
+      if (sharedRaw) {
+        let shared;
+        try {
+          shared = JSON.parse(sharedRaw);
+        } catch {
+          shared = null;
+        }
+        if (shared?.status === "completed") {
+          return res.status(shared.statusCode || 200).json({
+            ...(shared.body || {}),
+            _idempotent: true,
+          });
+        }
+        return res.status(409).json({
+          success: false,
+          message: "This catalog change is already being processed. Please wait and retry.",
+        });
+      }
+
+      const acquired = await redis.set(
+        redisKey,
+        JSON.stringify({ status: "processing", owner: redisOwner }),
+        "PX",
+        CATALOG_PROCESSING_TTL_MS,
+        "NX"
+      );
+      if (acquired !== "OK") {
+        return res.status(409).json({
+          success: false,
+          message: "This catalog change is already being processed. Please wait and retry.",
+        });
+      }
+    } catch (redisError) {
+      logger.warn({ err: redisError?.message }, "[Idempotency] Shared catalog idempotency unavailable; using process-local protection");
+    }
+  }
 
   // Enforce bounded store size before adding
   if (idempotencyStore.size >= MAX_IDEMPOTENCY_STORE_SIZE && !idempotencyStore.has(key)) {
@@ -160,6 +212,41 @@ export const requireIdempotency = async (req, res, next) => {
     } else {
       // Upon legitimate error, release key so user can retry
       idempotencyStore.delete(key);
+    }
+
+    if (redis && redisOwner) {
+      const script = capturedStatusCode >= 200 && capturedStatusCode < 300
+        ? `local current = redis.call('GET', KEYS[1])
+           if not current then return 0 end
+           local parsed = cjson.decode(current)
+           if parsed.owner ~= ARGV[1] then return 0 end
+           redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+           return 1`
+        : `local current = redis.call('GET', KEYS[1])
+           if not current then return 0 end
+           local parsed = cjson.decode(current)
+           if parsed.owner == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+           return 0`;
+      const args = capturedStatusCode >= 200 && capturedStatusCode < 300
+        ? [
+            redisKey,
+            redisOwner,
+            JSON.stringify({
+              status: "completed",
+              statusCode: capturedStatusCode,
+              body,
+            }),
+            String(CATALOG_IDEMPOTENCY_TTL_MS),
+          ]
+        : [redisKey, redisOwner];
+
+      Promise.resolve()
+        .then(() => redis.eval(script, 1, ...args.slice(0, 1), ...args.slice(1)))
+        .catch((err) => {
+          logger.warn({ err: err?.message, routePath }, "[Idempotency] Failed to persist shared catalog idempotency result");
+        })
+        .finally(() => originalJson(body));
+      return res;
     }
     return originalJson(body);
   };

@@ -8,6 +8,7 @@ import { useCart } from "../../context/CartContext";
 import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
+import { triggerHaptic } from "../../utils/haptics";
 import {
   cleanProductTitle,
   getCartFailureMessage,
@@ -15,7 +16,7 @@ import {
   getProductStock,
   getRemainingStock,
 } from "../../utils/productUtils";
-import { getProductById } from "../../services/productService";
+import { getLiveProductStockByIds } from "../../services/productService";
 
 function ProductInfo({ product }) {
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ function ProductInfo({ product }) {
 
   const refreshStock = async () => {
     try {
-      const latestProduct = await getProductById(product.id, { refresh: true });
+      const [latestProduct] = await getLiveProductStockByIds([product.id]);
       if (latestProduct) {
         setStockOverride(latestProduct);
       }
@@ -58,6 +59,7 @@ function ProductInfo({ product }) {
       setLoading(true);
       const updated = await addToWooCart(product.id);
       if (updated) {
+        triggerHaptic("medium");
         updateCart(updated);
       }
     } catch (error) {
@@ -107,6 +109,7 @@ function ProductInfo({ product }) {
         updated = await updateCartItem(cartItem.key, newQuantity);
       }
       if (updated) {
+        triggerHaptic("light");
         updateCart(updated);
       }
     } catch (error) {
@@ -252,7 +255,7 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading}
-                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#42D6E8] text-[14px] font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#42D6E8] text-[14px] font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
               >
                 ADD
               </button>
@@ -261,7 +264,7 @@ function ProductInfo({ product }) {
                 <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#42D6E8] px-1.5 text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)]">
                   <button
                     disabled={loading}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition hover:bg-black/25 disabled:opacity-50"
+                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-50 cursor-pointer"
                     onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
                   >
                     <Minus size={16} />
@@ -270,7 +273,7 @@ function ProductInfo({ product }) {
                   <button
                     disabled={loading || isMaxReached}
                     title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition hover:bg-black/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
                   >
                     <Plus size={16} />
@@ -354,7 +357,7 @@ function ProductInfo({ product }) {
               <button
                 onClick={handleAddToCart}
                 disabled={loading}
-                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#42D6E8] text-[15px] font-black text-[#061220] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)]"
+                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#42D6E8] text-[15px] font-black text-[#061220] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
               >
                 Add to Cart
               </button>
@@ -362,7 +365,7 @@ function ProductInfo({ product }) {
               <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#42D6E8] px-1.5 text-[#061220] shadow-sm">
                 <button
                   disabled={loading}
-                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition hover:bg-black/25"
+                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] cursor-pointer"
                   onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
                 >
                   <Minus size={18} />
@@ -371,7 +374,7 @@ function ProductInfo({ product }) {
                 <button
                   disabled={loading || isMaxReached}
                   title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition hover:bg-black/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                   onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
                 >
                   <Plus size={18} />

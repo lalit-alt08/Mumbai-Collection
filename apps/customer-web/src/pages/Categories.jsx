@@ -13,17 +13,14 @@ function Categories() {
   const categoryMeta = {
     17: {
       subtitle: "Learning & fun toys",
-      badge: "Popular",
       accent: "from-[#0A1D15] to-[#0E261D]",
     },
     18: {
       subtitle: "Pens, art & office supplies",
-      badge: "Essential",
       accent: "from-[#0C241B] to-[#102E23]",
     },
     19: {
       subtitle: "Audio, cables & accessories",
-      badge: "Trending",
       accent: "from-[#0E281F] to-[#143B2E]",
     },
   };
@@ -46,14 +43,37 @@ function Categories() {
     };
   }, []);
 
-  // Filter out system "Uncategorized" and empty categories (count === 0) from customer browsing
+  // Filter out system "Uncategorized", subcategories, and empty categories (count === 0) from top-level customer browsing
   const displayCategories = useMemo(() => {
+    const hasCountData = categories.some((category) => category?.count !== undefined && category?.count !== null);
+    const populatedRootIds = new Set();
+
+    if (hasCountData) {
+      const categoryById = new Map(categories.filter((category) => category?.id).map((category) => [Number(category.id), category]));
+      for (const category of categories) {
+        if (!category?.id || !Number.isFinite(Number(category.count)) || Number(category.count) <= 0) continue;
+        let current = category;
+        const visited = new Set();
+        while (current?.id && !visited.has(Number(current.id))) {
+          const currentId = Number(current.id);
+          visited.add(currentId);
+          const parentId = Number(current.parent) || 0;
+          if (parentId <= 0) {
+            populatedRootIds.add(currentId);
+            break;
+          }
+          current = categoryById.get(parentId);
+        }
+      }
+    }
+
     return categories.filter(
       (c) =>
         c &&
+        (!c.parent || Number(c.parent) === 0) &&
         c.slug?.toLowerCase() !== "uncategorized" &&
         c.name?.toLowerCase() !== "uncategorized" &&
-        Number(c.count) > 0
+        (!hasCountData || populatedRootIds.has(Number(c.id)))
     );
   }, [categories]);
 
@@ -99,7 +119,6 @@ function Categories() {
           {displayCategories.map((category) => {
             const meta = categoryMeta[category.id] || {
               subtitle: "Explore collection",
-              badge: "Explore",
               accent: "from-[#0A1D15] to-[#0E261D]",
             };
 
@@ -110,42 +129,39 @@ function Categories() {
               <Link
                 key={category.id}
                 to={linkUrl}
-                className="group relative flex flex-col justify-between overflow-hidden rounded-[22px] bg-[#111F36] p-3.5 sm:p-4.5 border border-[#1E3252]/80 shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all duration-300 hover:-translate-y-1 hover:border-[#42D6E8]/60 hover:shadow-[0_12px_32px_rgba(66,214,232,0.15)] active:scale-[0.98]"
+                className="group relative flex flex-col overflow-hidden rounded-[22px] bg-[#111F36] p-3 sm:p-4 border border-[#1E3252]/80 shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all duration-300 hover:-translate-y-1 hover:border-[#42D6E8]/60 hover:shadow-[0_12px_32px_rgba(66,214,232,0.15)] active:scale-[0.98]"
               >
                 {/* Category Image Viewport */}
-                <div
-                  className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[18px] bg-[#080F1C] p-3 transition-transform duration-300 group-hover:scale-[1.02] border border-[#1E3252]"
-                >
+                <div className="relative aspect-square w-full overflow-hidden rounded-[18px] bg-[#080F1C] border border-[#1E3252]">
                   <img
                     src={imageUrl}
                     alt={category.name}
-                    className="h-full w-full object-contain drop-shadow-xs transition-transform duration-300 group-hover:scale-105"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
                   />
 
-                  {/* Badge */}
-                  <span className="absolute top-2 right-2 rounded-full bg-[#132B45] px-2.5 py-0.5 text-[10px] sm:text-xs font-extrabold text-[#42D6E8] shadow-xs backdrop-blur-xs border border-[#1E3E63]">
-                    {meta.badge}
-                  </span>
                 </div>
 
                 {/* Content */}
-                <div className="mt-3 flex flex-col">
-                  <div className="flex items-center justify-between gap-1">
-                    <h3 className="text-base font-extrabold text-white group-hover:text-[#42D6E8] transition-colors truncate">
-                      {category.name}
-                    </h3>
-                    <ChevronRight
-                      size={16}
-                      className="text-[#6E84A3] group-hover:text-[#42D6E8] group-hover:translate-x-0.5 transition-all shrink-0"
-                    />
+                <div className="mt-3 flex-1 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-1">
+                      <h3 className="text-sm sm:text-base font-extrabold text-white group-hover:text-[#42D6E8] transition-colors truncate">
+                        {category.name}
+                      </h3>
+                      <ChevronRight
+                        size={15}
+                        className="text-[#6E84A3] group-hover:text-[#42D6E8] group-hover:translate-x-0.5 transition-all shrink-0"
+                      />
+                    </div>
+
+                    <p className="text-xs font-semibold text-[#8FA4BE] mt-0.5 line-clamp-1">
+                      {meta.subtitle}
+                    </p>
+
                   </div>
 
-                  <p className="text-xs font-semibold text-[#8FA4BE] mt-0.5 line-clamp-1">
-                    {meta.subtitle}
-                  </p>
-
-                  <div className="mt-2.5 flex items-center justify-between rounded-xl bg-[#132B45] px-3 py-1.5 text-xs font-extrabold text-[#42D6E8] group-hover:bg-[#42D6E8] group-hover:text-[#061220] transition-colors">
+                  <div className="mt-3 flex items-center justify-between rounded-xl bg-[#132B45] px-3 py-1.5 text-xs font-extrabold text-[#42D6E8] group-hover:bg-[#42D6E8] group-hover:text-[#061220] transition-colors">
                     <span>View items</span>
                     <ArrowRight size={13} />
                   </div>

@@ -109,6 +109,7 @@ function Customers() {
   const [customerOrdersTotal, setCustomerOrdersTotal] = useState(0);
   const [customerOrdersLoading, setCustomerOrdersLoading] = useState(false);
   const [customerOrdersError, setCustomerOrdersError] = useState("");
+  const [customerOrdersRetryKey, setCustomerOrdersRetryKey] = useState(0);
 
   // Close dropdowns on outside click or Escape
   useEffect(() => {
@@ -218,12 +219,17 @@ function Customers() {
           { signal: controller.signal }
         );
         if (!active || controller.signal.aborted) return;
-        setCustomerOrders(result.orders || []);
+        const fetchedOrders = Array.isArray(result.orders) ? result.orders : [];
+        setCustomerOrders((current) => {
+          if (customerOrdersPage === 1) return fetchedOrders;
+          const existingIds = new Set(current.map((order) => String(order.id)));
+          return [...current, ...fetchedOrders.filter((order) => !existingIds.has(String(order.id)))];
+        });
         setCustomerOrdersTotal(result.total || 0);
         setCustomerOrdersTotalPages(result.totalPages || 1);
       } catch (requestError) {
         if (!active || controller.signal.aborted || requestError.name === "CanceledError" || requestError.code === "ERR_CANCELED") return;
-        setCustomerOrders([]);
+        if (customerOrdersPage === 1) setCustomerOrders([]);
         setCustomerOrdersError(requestError.response?.data?.message || "Unable to load this customer’s order history.");
       } finally {
         if (active && !controller.signal.aborted) setCustomerOrdersLoading(false);
@@ -234,11 +240,14 @@ function Customers() {
       active = false;
       controller.abort();
     };
-  }, [selectedCustomer?.id, customerOrdersPage]);
+  }, [selectedCustomer?.id, customerOrdersPage, customerOrdersRetryKey]);
 
   const openCustomerProfile = (customer) => {
     setCustomerOrders([]);
     setCustomerOrdersPage(1);
+    setCustomerOrdersTotal(0);
+    setCustomerOrdersTotalPages(1);
+    setCustomerOrdersError("");
     setSelectedCustomer(customer);
   };
 
@@ -779,14 +788,16 @@ function Customers() {
                 </div>
 
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {customerOrdersLoading ? (
+                  {customerOrdersLoading && customerOrdersPage === 1 ? (
                     <div className="p-4 text-center text-xs font-semibold text-gray-400">Loading order history…</div>
-                  ) : customerOrdersError ? (
-                    <div className="p-4 text-center text-xs font-semibold text-rose-500">{customerOrdersError}</div>
                   ) : customerOrders.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-gray-400 bg-gray-50 rounded-xl">
-                      No past orders recorded for this profile.
-                    </div>
+                    customerOrdersError ? (
+                      <div className="p-4 text-center text-xs font-semibold text-rose-500">{customerOrdersError}</div>
+                    ) : (
+                      <div className="p-4 text-center text-xs text-gray-400 bg-gray-50 rounded-xl">
+                        No past orders recorded for this profile.
+                      </div>
+                    )
                   ) : (
                     customerOrders.map((o) => (
                       <div
@@ -821,20 +832,40 @@ function Customers() {
                     ))
                   )}
                 </div>
-                {customerOrdersTotalPages > 1 && (
-                  <div className="flex items-center justify-between pt-1">
-                    <button
-                      disabled={customerOrdersPage <= 1 || customerOrdersLoading}
-                      onClick={() => setCustomerOrdersPage((current) => Math.max(1, current - 1))}
-                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
-                    >Previous</button>
-                    <span className="text-[10px] text-gray-400">{customerOrdersTotal} orders total</span>
-                    <button
-                      disabled={customerOrdersPage >= customerOrdersTotalPages || customerOrdersLoading}
-                      onClick={() => setCustomerOrdersPage((current) => Math.min(customerOrdersTotalPages, current + 1))}
-                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
-                    >Next</button>
+                {customerOrders.length > 0 && (
+                  <div className="flex flex-col items-center gap-2 pt-1">
+                    <span className="text-[10px] text-gray-400">
+                      Showing {customerOrders.length} of {customerOrdersTotal} orders
+                    </span>
+                    {customerOrdersError && (
+                      <div className="text-center text-[11px] font-semibold text-rose-500" role="alert">
+                        {customerOrdersError}
+                        <button
+                          onClick={() => setCustomerOrdersRetryKey((current) => current + 1)}
+                          className="ml-2 underline underline-offset-2"
+                        >Retry</button>
+                      </div>
+                    )}
+                    {customerOrders.length < customerOrdersTotal && (
+                      <button
+                        disabled={customerOrdersLoading}
+                        onClick={() => {
+                          setCustomerOrdersError("");
+                          setCustomerOrdersPage((current) => Math.min(customerOrdersTotalPages, current + 1));
+                        }}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {customerOrdersLoading ? "Loading orders…" : "Load 10 more"}
+                        {!customerOrdersLoading && <ChevronDown size={14} />}
+                      </button>
+                    )}
                   </div>
+                )}
+                {customerOrders.length === 0 && customerOrdersError && (
+                  <button
+                    onClick={() => setCustomerOrdersRetryKey((current) => current + 1)}
+                    className="mx-auto block rounded-lg border border-gray-200 px-4 py-2 text-[10px] font-bold text-gray-600"
+                  >Retry loading history</button>
                 )}
               </div>
             </div>

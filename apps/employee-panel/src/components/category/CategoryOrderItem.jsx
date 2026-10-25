@@ -10,6 +10,7 @@ function CategoryOrderItem({
   category,
   index,
   totalCount,
+  allCategories = [],
   isOver,
   onDragStart,
   onDragOver,
@@ -20,6 +21,9 @@ function CategoryOrderItem({
   onOpenUpdateModal,
 }) {
   const categoryImgSrc = getCategoryImageUrl(category);
+  const parentName = category?.parent
+    ? allCategories.find((c) => Number(c.id) === Number(category.parent))?.name
+    : null;
 
   return (
     <div
@@ -72,8 +76,13 @@ function CategoryOrderItem({
 
           {/* Category Name & Product Count */}
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-black text-gray-900 truncate">
-              {category.name}
+            <h3 className="text-sm font-black text-gray-900 truncate flex items-center gap-2">
+              <span>{category.name}</span>
+              {category?.parent && category.parent > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                  ↳ Subcategory {parentName ? `of ${parentName}` : `(#${category.parent})`}
+                </span>
+              )}
             </h3>
 
             <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
@@ -160,6 +169,14 @@ function CategoryOrderItem({
             <h3 className="text-sm font-black text-gray-900 break-words leading-snug">
               {category.name}
             </h3>
+
+            {category?.parent && category.parent > 0 && (
+              <div className="mt-1">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  ↳ Subcategory {parentName ? `of ${parentName}` : `(#${category.parent})`}
+                </span>
+              </div>
+            )}
 
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">

@@ -3341,14 +3341,24 @@ function mumbai_track_pending_media(WP_REST_Request $request) {
 }
 
 /**
- * Mark uploaded media as attached to a product.
+ * Mark uploaded media as attached to a product or product category.
  */
 function mumbai_mark_media_attached(WP_REST_Request $request) {
     $media_ids = $request->get_param('media_ids');
     $product_id = absint($request->get_param('product_id'));
+    $category_id = absint($request->get_param('category_id'));
 
     if (!is_array($media_ids) || empty($media_ids)) {
         return new WP_Error('invalid_media_ids', 'media_ids array required.', ['status' => 400]);
+    }
+    if (($product_id > 0) === ($category_id > 0)) {
+        return new WP_Error('invalid_media_target', 'Specify exactly one valid product_id or category_id.', ['status' => 400]);
+    }
+    if ($product_id > 0 && get_post_type($product_id) !== 'product') {
+        return new WP_Error('invalid_media_product', 'The product does not exist.', ['status' => 404]);
+    }
+    if ($category_id > 0 && !term_exists($category_id, 'product_cat')) {
+        return new WP_Error('invalid_media_category', 'The product category does not exist.', ['status' => 404]);
     }
 
     $updated = [];
@@ -3368,6 +3378,8 @@ function mumbai_mark_media_attached(WP_REST_Request $request) {
                     'post_parent' => $product_id,
                 ]);
             }
+        } elseif ($category_id > 0) {
+            update_post_meta($m_id, '_mumbai_attached_category_id', $category_id);
         }
         $updated[] = $m_id;
     }

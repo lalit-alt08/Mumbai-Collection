@@ -63,6 +63,9 @@ function Products() {
 
   // Category filter state
   const [categories, setCategories] = useState([]);
+  const [categoriesError, setCategoriesError] = useState("");
+  const [categoriesRetryCount, setCategoriesRetryCount] = useState(0);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState(urlCategoryParam || "all");
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [categorySearchQuery, setCategorySearchQuery] = useState("");
@@ -98,6 +101,8 @@ function Products() {
     description: "",
     image_url: "",
     media_id: null,
+    department_id: "",
+    subcategory_id: "",
   });
   const [creating, setCreating] = useState(false);
   const [imagePreview, setImagePreview] = useState("");
@@ -108,6 +113,7 @@ function Products() {
   const imagePreviewRef = useRef("");
   const pendingMediaIdRef = useRef(null);
   const uploadAbortControllerRef = useRef(null);
+  const productCreateIdempotencyRef = useRef(null);
 
   useEffect(() => {
     imagePreviewRef.current = imagePreview;
@@ -257,20 +263,35 @@ function Products() {
     return () => clearTimeout(timer);
   }, [searchQuery, setSearchParams]);
 
-  // Fetch categories on mount for category filtering
+  // Fetch categories for filtering and the quick-create product category fields.
   useEffect(() => {
     let isMounted = true;
+    setCategoriesLoading(true);
+    setCategoriesError("");
     getCategories()
       .then((res) => {
         if (isMounted && res?.success && Array.isArray(res.categories)) {
           setCategories(res.categories);
+          const hasDepartment = res.categories.some((category) =>
+            (!category.parent || Number(category.parent) === 0) &&
+            String(category.slug || "").toLowerCase() !== "uncategorized" &&
+            String(category.name || "").toLowerCase() !== "uncategorized"
+          );
+          if (!hasDepartment) setCategoriesError("No product departments are available yet.");
+        } else if (isMounted) {
+          setCategoriesError(res?.message || "Categories could not be loaded.");
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (isMounted) setCategoriesError(err.response?.data?.message || err.message || "Categories could not be loaded.");
+      })
+      .finally(() => {
+        if (isMounted) setCategoriesLoading(false);
+      });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [categoriesRetryCount]);
 
   // Close category dropdown on outside click or Escape
   useEffect(() => {
@@ -570,18 +591,45 @@ function Products() {
       showToast("Please enter a valid regular price.", "error");
       return;
     }
+    const departmentId = Number(newProduct.department_id);
+    const subcategoryId = newProduct.subcategory_id ? Number(newProduct.subcategory_id) : 0;
+    const validDepartment = categories.some(
+      (category) =>
+        Number(category.id) === departmentId &&
+        (!category.parent || Number(category.parent) === 0) &&
+        String(category.slug || "").toLowerCase() !== "uncategorized" &&
+        String(category.name || "").toLowerCase() !== "uncategorized"
+    );
+    const validSubcategory = !subcategoryId || categories.some(
+      (category) => Number(category.id) === subcategoryId && Number(category.parent) === departmentId
+    );
+    if (!validDepartment || !validSubcategory) {
+      showToast("Choose a valid department and optional subcategory before creating the product.", "error");
+      return;
+    }
 
     try {
       setCreating(true);
       const payload = {
         ...newProduct,
+        department_id: departmentId,
+        subcategory_id: subcategoryId || undefined,
+        category_ids: [subcategoryId || departmentId],
         images: newProduct.media_id
           ? [{ id: Number(newProduct.media_id), src: newProduct.image_url }]
           : newProduct.image_url
           ? [{ src: newProduct.image_url }]
           : [],
       };
-      const res = await createProduct(payload);
+      const fingerprint = JSON.stringify(payload);
+      if (productCreateIdempotencyRef.current?.fingerprint !== fingerprint) {
+        const key = typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idemp_product_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        productCreateIdempotencyRef.current = { fingerprint, key };
+      }
+      const idempotencyKey = productCreateIdempotencyRef.current.key;
+      const res = await createProduct(payload, { "X-Idempotency-Key": idempotencyKey });
       if (res.success) {
         showToast("New product created successfully!");
         setShowAddModal(false);
@@ -595,7 +643,10 @@ function Products() {
           description: "",
           image_url: "",
           media_id: null,
+          department_id: "",
+          subcategory_id: "",
         });
+        productCreateIdempotencyRef.current = null;
         clearImagePreview(false);
         fetchProductList();
       }
@@ -611,6 +662,18 @@ function Products() {
 
   // Selected category label and list helpers
   const selectedCategoryObj = categories.find((c) => String(c.id) === String(categoryFilter));
+  const productDepartments = categories.filter((category) =>
+    (!category.parent || Number(category.parent) === 0) &&
+    String(category.slug || "").toLowerCase() !== "uncategorized" &&
+    String(category.name || "").toLowerCase() !== "uncategorized"
+  );
+  const productSubcategories = newProduct.department_id
+    ? categories.filter((category) =>
+      Number(category.parent) === Number(newProduct.department_id) &&
+      String(category.slug || "").toLowerCase() !== "uncategorized" &&
+      String(category.name || "").toLowerCase() !== "uncategorized"
+    )
+    : [];
   const totalCategoryProductsCount = categories.reduce((sum, c) => sum + (Number(c.count) || 0), 0);
   const filteredCategories = categories.filter((c) =>
     c.name.toLowerCase().includes(categorySearchQuery.trim().toLowerCase())
@@ -878,7 +941,10 @@ function Products() {
           Total Products: <span className="font-bold text-gray-900">{totalProducts}</span>
         </p>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={() => {
+            setCategoriesRetryCount((count) => count + 1);
+            setShowAddModal(true);
+          }}
           className="flex items-center justify-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer shrink-0 active:scale-95"
           title="Add New Product"
         >
@@ -1561,6 +1627,67 @@ function Products() {
                   }
                   className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
                 />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                <div>
+                  <label htmlFor="quick-product-department" className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Product Department *
+                  </label>
+                  <select
+                    id="quick-product-department"
+                    required
+                    value={newProduct.department_id}
+                    disabled={categoriesLoading || productDepartments.length === 0}
+                    onChange={(event) => setNewProduct({
+                      ...newProduct,
+                      department_id: event.target.value,
+                      subcategory_id: "",
+                    })}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-gray-100"
+                  >
+                    <option value="">{categoriesLoading ? "Loading departments…" : "Choose a department"}</option>
+                    {productDepartments.map((category) => (
+                      <option key={category.id} value={category.id}>{category.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="quick-product-subcategory" className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Product Subcategory <span className="font-medium normal-case text-gray-400">(Optional)</span>
+                  </label>
+                  <select
+                    id="quick-product-subcategory"
+                    value={newProduct.subcategory_id}
+                    disabled={!newProduct.department_id || productSubcategories.length === 0}
+                    onChange={(event) => setNewProduct({ ...newProduct, subcategory_id: event.target.value })}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-gray-100"
+                  >
+                    <option value="">
+                      {!newProduct.department_id
+                        ? "Choose a department first"
+                        : productSubcategories.length
+                          ? "No subcategory — use department"
+                          : "No subcategories for this department"}
+                    </option>
+                    {productSubcategories.map((category) => (
+                      <option key={category.id} value={category.id}>{category.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {categoriesError && (
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-rose-700">
+                    <span role="alert">{categoriesError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCategoriesRetryCount((count) => count + 1)}
+                      disabled={categoriesLoading}
+                      className="shrink-0 font-bold underline disabled:opacity-50"
+                    >
+                      {categoriesLoading ? "Retrying…" : "Retry"}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Photo Upload */}

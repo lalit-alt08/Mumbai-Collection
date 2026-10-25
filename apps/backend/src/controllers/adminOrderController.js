@@ -154,6 +154,9 @@ export const updateAdminOrderStatus = async (req, res) => {
     serverCache.invalidatePrefix("admin:analytics");
     serverCache.invalidatePrefix("admin:customers");
     serverCache.invalidatePrefix("employee:overview");
+    if (currentOrder.customer_id) {
+      serverCache.invalidatePrefix(`customer:orders:${currentOrder.customer_id}:`);
+    }
     await invalidateOrderDetailCache(id);
 
     logAuditEvent({
