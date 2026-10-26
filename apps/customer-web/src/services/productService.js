@@ -8,6 +8,11 @@ const catalogClient = axios.create({
 });
 attachStaleConnectionRetry(catalogClient);
 
+let cachedCategories = null;
+let categoriesRequest = null;
+
+export const getCachedCategories = () => cachedCategories;
+
 export const getProducts = async (params = {}, options = {}) => {
   const response = await catalogClient.get("/products", { ...options, params });
   return response.data;
@@ -86,8 +91,21 @@ export const getProductsByCategory = async (categoryId, params = {}, options = {
 };
 
 export const getCategories = async (options = {}) => {
-  const response = await catalogClient.get("/products/categories", options);
-  return response.data;
+  if (!options.signal && categoriesRequest) return categoriesRequest;
+
+  const request = catalogClient.get("/products/categories", options)
+    .then((response) => {
+      if (Array.isArray(response.data)) cachedCategories = response.data;
+      return response.data;
+    });
+
+  if (options.signal) return request;
+
+  const trackedRequest = request.finally(() => {
+    if (categoriesRequest === trackedRequest) categoriesRequest = null;
+  });
+  categoriesRequest = trackedRequest;
+  return trackedRequest;
 };
 
 export const getHomeShelves = async (options = {}) => {
@@ -96,6 +114,7 @@ export const getHomeShelves = async (options = {}) => {
     skipTimeoutRetry: true,
     ...options,
   });
+  if (Array.isArray(response.data?.categories)) cachedCategories = response.data.categories;
   return response.data;
 };
 

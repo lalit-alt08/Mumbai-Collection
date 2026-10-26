@@ -195,22 +195,25 @@ function Home() {
           </div>
         ) : categorySections.length > 0 ? (
           categorySections.map((section) => (
-            <section key={section.id} className="space-y-2.5 md:space-y-3.5">
+            <section key={section.id} className="space-y-3 sm:space-y-4">
               {/* Category Header with Responsive View All Link */}
               <div className="flex items-center justify-between">
-                <h2 className="text-base sm:text-lg md:text-xl font-extrabold text-white tracking-tight">
-                  {section.name}
-                </h2>
+                <div className="flex items-center gap-2 sm:gap-2.5">
+                  <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
+                  <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
+                    {section.name}
+                  </h2>
+                </div>
 
                 <Link
                   to={`/category/${section.id || section.slug}`}
-                  className="flex items-center gap-0.5 md:gap-1 text-xs md:text-sm font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] active:scale-95 group"
+                  className="flex items-center gap-1 text-xs sm:text-sm font-bold text-[#42D6E8] transition-all hover:text-[#67E8F9] hover:underline active:scale-95 group"
                 >
                   <span>View All</span>
                   <ChevronRight
-                    size={14}
+                    size={15}
                     strokeWidth={2.5}
-                    className="md:w-4 md:h-4 transition-transform group-hover:translate-x-0.5"
+                    className="transition-transform group-hover:translate-x-0.5"
                   />
                 </Link>
               </div>

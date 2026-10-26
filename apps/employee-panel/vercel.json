@@ -17,7 +17,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://oaks-ride-interviews-sanyo.trycloudflare.com/api/:path*"
+      "destination": "https://styles-cult-contractor-pentium.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

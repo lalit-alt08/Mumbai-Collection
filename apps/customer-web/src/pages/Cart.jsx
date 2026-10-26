@@ -14,6 +14,7 @@ import { checkPaymentStatus } from "../services/paymentService";
 import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey } from "../utils/checkoutIdempotency";
 import { buildCartShareUrl, parseSharedCartItems } from "../utils/cartShareUtils";
 import { useNoIndex } from "../hooks/useNoIndex";
+import { triggerHaptic } from "../utils/haptics";
 
 function Cart() {
   useNoIndex();
@@ -403,6 +404,7 @@ function Cart() {
         updated = await updateCartItem(item.key, item.quantity - 1);
       }
       if (updated) {
+        triggerHaptic("light");
         updateCart(updated);
       }
     } catch {
@@ -418,6 +420,7 @@ function Cart() {
       setUpdatingKey(item.key);
       const updated = await updateCartItem(item.key, item.quantity + 1);
       if (updated) {
+        triggerHaptic("light");
         updateCart(updated);
       }
     } catch {

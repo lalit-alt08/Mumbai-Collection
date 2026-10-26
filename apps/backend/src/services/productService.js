@@ -16,39 +16,108 @@ const normalizeSearchText = (value = "") => String(value)
   .trim()
   .replace(/\s+/g, " ");
 
-const getSearchTerms = (query) => [...new Set(normalizeSearchText(query)
+// Treat the common connector spellings as one concept without requiring
+// merchants to add search keywords to individual products.
+const normalizeSearchField = (value = "") => normalizeSearchText(value)
+  .replace(/\b(?:usb )?type c\b/g, "typec")
+  .replace(/\busb c\b/g, "typec");
+
+const getSearchTerms = (query) => [...new Set(normalizeSearchField(query)
   .split(" ")
   .filter((term) => term.length > 1 && !SEARCH_STOP_WORDS.has(term)))].slice(0, 4);
 
+// WooCommerce candidate retrieval still uses its own text search. Keep a
+// separate, non-canonical token list for that query so "type-c" can expand to
+// the useful candidate terms "type" and "cable" while ranking uses "typec".
+const getCandidateSearchTerms = (query) => [...new Set(normalizeSearchText(query)
+  .split(" ")
+  .filter((term) => term.length > 1 && !SEARCH_STOP_WORDS.has(term)))].slice(0, 4);
+
+const getProductAttributeText = (attributes = []) => (Array.isArray(attributes) ? attributes : [])
+  .map((attribute) => [attribute?.name, ...(Array.isArray(attribute?.options) ? attribute.options : [])]
+    .filter(Boolean)
+    .join(" "))
+  .join(" ");
+
+const matchesSearchTerm = (term, words, allowPrefix) => words.some((word) =>
+  word === term ||
+  (term.length > 3 && word === `${term}s`) ||
+  (term.length > 3 && word.endsWith("ies") && `${word.slice(0, -3)}y` === term) ||
+  (allowPrefix && term.length >= 3 && word.startsWith(term))
+);
+
 const scoreSearchProduct = (product, query, terms) => {
-  const name = normalizeSearchText(product?.name);
-  const sku = normalizeSearchText(product?.sku);
-  const categories = normalizeSearchText((product?.categories || []).map((category) => category?.name).join(" "));
-  const nameWords = new Set(name.split(" "));
-  const skuWords = new Set(sku.split(" "));
-  const categoryWords = new Set(categories.split(" "));
-  const nameMatches = terms.filter((term) => nameWords.has(term)).length;
-  const skuMatches = terms.filter((term) => skuWords.has(term)).length;
-  const categoryMatches = terms.filter((term) => categoryWords.has(term)).length;
-  const normalizedQuery = normalizeSearchText(query);
+  const name = normalizeSearchField(product?.name);
+  const sku = normalizeSearchField(product?.sku);
+  const categories = normalizeSearchField((product?.categories || [])
+    .map((category) => category?.name)
+    .join(" "));
+  const attributes = normalizeSearchField(getProductAttributeText(product?.attributes));
+  const shortDescription = normalizeSearchField(product?.short_description);
+  const nameWords = name.split(" ").filter(Boolean);
+  const skuWords = sku.split(" ").filter(Boolean);
+  const categoryWords = categories.split(" ").filter(Boolean);
+  const attributeWords = attributes.split(" ").filter(Boolean);
+  const descriptionWords = shortDescription.split(" ").filter(Boolean);
+  const lastTermIndex = terms.length - 1;
+  const matchingTerms = (words) => terms.filter((term, index) =>
+    matchesSearchTerm(term, words, index === lastTermIndex)
+  );
+  const nameMatches = matchingTerms(nameWords);
+  const skuMatches = matchingTerms(skuWords);
+  const categoryMatches = matchingTerms(categoryWords);
+  const attributeMatches = matchingTerms(attributeWords);
+  const descriptionMatches = matchingTerms(descriptionWords);
+  const primaryMatches = new Set([...nameMatches, ...skuMatches, ...attributeMatches]);
+  const allMatchedTerms = new Set([
+    ...primaryMatches,
+    ...categoryMatches,
+    ...descriptionMatches,
+  ]);
+  const normalizedQuery = normalizeSearchField(query);
   const exactPhrase = normalizedQuery.length > 0 && name.includes(normalizedQuery);
-  const primaryMatches = terms.filter((term) => nameWords.has(term) || skuWords.has(term)).length;
+  const startsWithQuery = exactPhrase && name.startsWith(normalizedQuery);
 
-  if (terms.length === 0 || primaryMatches === 0) return { score: 0, strong: false };
+  if (terms.length === 0) return { score: 0, strong: false };
 
+  // Avoid returning a product because it happens to contain one generic word
+  // from a multi-word query. A category can be a valid match for a single-word
+  // search (for example, "cables"), and can complete a multi-word title match.
+  const minimumCoverage = terms.length === 1 ? 1 : Math.ceil(terms.length * 0.6);
+  const hasPrimaryMatch = primaryMatches.size > 0;
+  const hasSingleTermCategoryMatch = terms.length === 1 && categoryMatches.length > 0;
+  if (
+    allMatchedTerms.size < minimumCoverage ||
+    (!hasPrimaryMatch && !hasSingleTermCategoryMatch)
+  ) {
+    return { score: 0, strong: false };
+  }
+
+  const titleCoverage = nameMatches.length / terms.length;
+  const skuCoverage = skuMatches.length / terms.length;
+  const attributeCoverage = attributeMatches.length / terms.length;
+  const categoryCoverage = categoryMatches.length / terms.length;
+  const descriptionCoverage = descriptionMatches.length / terms.length;
+  const allPrimaryTermsMatch = terms.every((term) => primaryMatches.has(term));
+
+  // Product title is the main relevance signal. SKU and attributes help when
+  // they describe the requested item; category is a smaller tie-breaker.
   const score = (exactPhrase ? 1000 : 0) +
-    (nameMatches / terms.length) * 100 +
-    (skuMatches / terms.length) * 70 +
-    (categoryMatches / terms.length) * 15;
+    (startsWithQuery ? 120 : 0) +
+    titleCoverage * 240 +
+    skuCoverage * 170 +
+    attributeCoverage * 100 +
+    categoryCoverage * 35 +
+    descriptionCoverage * 20;
 
   return {
     score,
-    strong: exactPhrase || primaryMatches === terms.length,
+    strong: exactPhrase || allPrimaryTermsMatch,
   };
 };
 
 const withoutSearchOnlyFields = (product) => {
-  const { sku, ...publicProduct } = product;
+  const { sku, attributes, short_description, ...publicProduct } = product;
   return publicProduct;
 };
 
@@ -192,12 +261,16 @@ export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) =
   const pageNum = Math.max(1, Number(page) || 1);
   const perPageNum = Math.min(100, Math.max(1, Number(per_page) || 20));
   const terms = getSearchTerms(search);
+  const candidateTerms = getCandidateSearchTerms(search);
   const response = await api.get("products", {
     status: "publish",
     search,
     page: pageNum,
     per_page: perPageNum,
-    _fields: `${CATALOG_PRODUCT_FIELDS},sku`,
+    // Search a compact, useful set of product data. Short descriptions help
+    // customers find products by their existing copy, without sending the
+    // potentially large full description through every autocomplete request.
+    _fields: `${CATALOG_PRODUCT_FIELDS},sku,attributes,short_description`,
   });
 
   if (!Array.isArray(response.data)) {
@@ -212,17 +285,17 @@ export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) =
   // storefront relevance order. If it found no strong name/SKU match, expand
   // only over the query's meaningful words and discard unrelated matches.
   let relevant = ranked;
-  if (terms.length > 1 && !ranked.some((item) => item.strong)) {
-    const normalizedQuery = normalizeSearchText(search);
+  if (terms.length > 1 && candidateTerms.length > 1 && !ranked.some((item) => item.strong)) {
+    const normalizedQuery = normalizeSearchField(search);
     const fallbackCandidates = await serverCache.getOrFetch(
       `catalog:search:fallback:${normalizedQuery}`,
       async () => {
-        const tokenResponses = await Promise.allSettled(terms.map((term) => api.get("products", {
+        const tokenResponses = await Promise.allSettled(candidateTerms.map((term) => api.get("products", {
           status: "publish",
           search: term,
           page: 1,
           per_page: 100,
-          _fields: `${CATALOG_PRODUCT_FIELDS},sku`,
+          _fields: `${CATALOG_PRODUCT_FIELDS},sku,attributes`,
         })));
         const candidates = new Map(ranked.map((item) => [Number(item.product.id), item.product]));
         for (const tokenResponse of tokenResponses) {

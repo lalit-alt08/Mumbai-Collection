@@ -1,13 +1,18 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import staticCategories from "../data/category.js";
-import { getCategories } from "../services/productService.js";
+import { getCachedCategories, getCategories } from "../services/productService.js";
 import { getCategoryImageUrl } from "../utils/categoryImage.js";
 import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
 
 function Categories() {
   const navigate = useNavigate();
-  const [categories, setCategories] = useState(staticCategories);
+  const [categories, setCategories] = useState(() => {
+    const cachedCategories = getCachedCategories();
+    return Array.isArray(cachedCategories) && cachedCategories.length > 0
+      ? cachedCategories
+      : staticCategories;
+  });
 
   // Category subtitles / highlights for rich cards
   const categoryMeta = {
@@ -97,17 +102,17 @@ function Categories() {
         </div>
 
         {/* ────────────────────────────────────────────────────────── */}
-        {/* MIDNIGHT NAVY HERO BANNER                                   */}
+        {/* COMPACT CATEGORY BANNER STRIP                               */}
         {/* ────────────────────────────────────────────────────────── */}
-        <div className="relative overflow-hidden rounded-[22px] border border-[#1E3252]/70 bg-gradient-to-r from-[#0E1B30] via-[#111F36] to-[#162A48] p-4 sm:p-5 shadow-[0_6px_25px_rgba(66,214,232,0.06)]">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[#42D6E8]/15 blur-xl" />
+        <div className="relative overflow-hidden rounded-xl sm:rounded-2xl border border-[#22446B] bg-gradient-to-r from-[#0D1C34] via-[#102444] to-[#162D52] px-4 py-3.5 sm:px-5 sm:py-4 shadow-sm">
+          <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-[#42D6E8]/15 blur-xl" />
 
-          <div className="relative z-10">
-            <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
-              Shop by Department
+          <div className="relative z-10 space-y-0.5">
+            <h2 className="text-base sm:text-lg md:text-xl font-bold tracking-normal text-white">
+              Explore Collections
             </h2>
-            <p className="text-xs sm:text-sm font-semibold text-[#8FA4BE] mt-1">
-              Explore toys, stationery, art, gadgets & everyday essentials.
+            <p className="text-xs sm:text-sm font-medium text-[#C8D9ED]">
+              Find toys, stationery & everyday essentials.
             </p>
           </div>
         </div>
@@ -146,7 +151,7 @@ function Categories() {
                 <div className="mt-3 flex-1 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between gap-1">
-                      <h3 className="text-sm sm:text-base font-extrabold text-white group-hover:text-[#42D6E8] transition-colors truncate">
+                      <h3 className="text-sm sm:text-base font-bold tracking-normal text-white group-hover:text-[#42D6E8] transition-colors truncate">
                         {category.name}
                       </h3>
                       <ChevronRight

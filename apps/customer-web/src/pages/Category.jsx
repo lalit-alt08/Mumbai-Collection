@@ -297,8 +297,6 @@ function Category() {
     }
   };
 
-  const displayCount = loading ? "Loading..." : `${totalCount} ${totalCount === 1 ? "item" : "items"}`;
-
   const productContent = loading ? (
     <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
       {[1, 2, 3, 4, 5, 6].map((n) => (
@@ -379,25 +377,19 @@ function Category() {
         {/* ────────────────────────────────────────────────────────── */}
         {/* TOP BAR / NAVIGATION                                       */}
         {/* ────────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleBack}
-              aria-label="Back"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-white shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8] hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
-            >
-              <ArrowLeft size={17} strokeWidth={2.2} />
-            </button>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-white sm:text-xl">
-                {categoryName}
-              </h1>
-            </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleBack}
+            aria-label="Back"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-white shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8] hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
+          >
+            <ArrowLeft size={17} strokeWidth={2.2} />
+          </button>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-normal text-white">
+              {categoryName}
+            </h1>
           </div>
-
-          <span className="text-xs font-bold text-[#42D6E8] bg-[#132B45] px-3 py-1 rounded-full border border-[#1E3E63]">
-            {displayCount}
-          </span>
         </div>
 
         {categoryTreeError && (

@@ -44,9 +44,12 @@ function CategoryGrid({ categories: propCategories = [] }) {
 
   return (
     <section className="hidden md:block">
-      <h2 className="mb-3 sm:mb-4 text-base sm:text-lg md:text-xl font-extrabold text-white tracking-tight">
-        Shop by Category
-      </h2>
+      <div className="mb-3 sm:mb-4 flex items-center gap-2 sm:gap-2.5">
+        <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
+        <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
+          Shop by Category
+        </h2>
+      </div>
 
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3.5 md:gap-4">
         {displayCategories.map((category) => (

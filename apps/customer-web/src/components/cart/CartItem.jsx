@@ -1,6 +1,7 @@
 import { Minus, Plus } from "lucide-react";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import { cleanProductTitle } from "../../utils/productUtils";
+import HapticTapTarget from "../common/HapticTapTarget";
 
 function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
   const price = Number(item.prices?.price) / 100;
@@ -91,45 +92,49 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
                 : "bg-[#42D6E8] text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)]"
             }`}
           >
-            <button
-              type="button"
-              disabled={isUpdating}
-              onClick={() => onDecrease(item)}
-              aria-label="Decrease quantity"
-              title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
-              className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
-                isOutOfStock
-                  ? "text-white/90 hover:text-white hover:bg-white/15"
-                  : "text-[#061220] hover:bg-black/15"
-              }`}
-            >
-              <Minus size={15} strokeWidth={2.5} />
-            </button>
+            <HapticTapTarget radius="9999px">
+              <button
+                type="button"
+                disabled={isUpdating}
+                onClick={() => onDecrease(item)}
+                aria-label="Decrease quantity"
+                title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
+                className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                  isOutOfStock
+                    ? "text-white/90 hover:text-white hover:bg-white/15"
+                    : "text-[#061220] hover:bg-black/15"
+                }`}
+              >
+                <Minus size={15} strokeWidth={2.5} />
+              </button>
+            </HapticTapTarget>
 
             <span className="flex-1 text-center text-[13px] font-black leading-none tabular-nums">
               {item.quantity}
             </span>
 
-            <button
-              type="button"
-              disabled={isUpdating || isMaxReached || isOutOfStock}
-              onClick={() => onIncrease(item)}
-              aria-label="Increase quantity"
-              title={
-                isFullyOutOfStock
-                  ? "Item is out of stock"
-                  : isQuantityShort || isMaxReached
-                  ? `Only ${maxLimit} available in stock`
-                  : "Increase quantity"
-              }
-              className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
-                isOutOfStock
-                  ? "text-white/90 hover:text-white hover:bg-white/15"
-                  : "text-[#061220] hover:bg-black/15"
-              }`}
-            >
-              <Plus size={15} strokeWidth={2.5} />
-            </button>
+            <HapticTapTarget radius="9999px">
+              <button
+                type="button"
+                disabled={isUpdating || isMaxReached || isOutOfStock}
+                onClick={() => onIncrease(item)}
+                aria-label="Increase quantity"
+                title={
+                  isFullyOutOfStock
+                    ? "Item is out of stock"
+                    : isQuantityShort || isMaxReached
+                    ? `Only ${maxLimit} available in stock`
+                    : "Increase quantity"
+                }
+                className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                  isOutOfStock
+                    ? "text-white/90 hover:text-white hover:bg-white/15"
+                    : "text-[#061220] hover:bg-black/15"
+                }`}
+              >
+                <Plus size={15} strokeWidth={2.5} />
+              </button>
+            </HapticTapTarget>
           </div>
         </div>
       </div>
