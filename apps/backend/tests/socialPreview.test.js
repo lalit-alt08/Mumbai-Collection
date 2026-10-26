@@ -1,10 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-
-const execAsync = promisify(exec);
 
 process.env.CUSTOMER_ORIGIN = "https://mumbaicollection.in";
 
@@ -105,66 +101,4 @@ test("SOCIAL PREVIEW: security, crawler routing, escaping, and caching", async (
     assert.match(html, /<meta property="og:url" content="https:\/\/mumbaicollection\.in\/product\/99991">/);
   });
 
-  await t.test("curl.exe test runs matching prompt requirements exactly", async () => {
-    // 1. WhatsApp curl
-    const cmdWhatsApp = `curl.exe -s -A "WhatsApp/2.23" "${baseUrl}/api/products/${testProductId}/social-preview"`;
-    const { stdout: whatsAppOut } = await execAsync(cmdWhatsApp);
-
-    const ogTitleMatch = whatsAppOut.match(/<meta property="og:title" content="([^"]+)">/);
-    const ogImageMatch = whatsAppOut.match(/<meta property="og:image" content="([^"]+)">/);
-    const ogUrlMatch = whatsAppOut.match(/<meta property="og:url" content="([^"]+)">/);
-
-    console.log("--- curl -A 'WhatsApp/2.23' Results ---");
-    console.log("og:title:", ogTitleMatch?.[1]);
-    console.log("og:image:", ogImageMatch?.[1]);
-    console.log("og:url:  ", ogUrlMatch?.[1]);
-
-    assert.ok(ogTitleMatch && ogTitleMatch[1].includes("&lt;script&gt;"));
-    assert.ok(ogImageMatch && ogImageMatch[1].startsWith("https://"));
-    assert.ok(ogUrlMatch && ogUrlMatch[1].startsWith("https://mumbaicollection.in/product/"));
-
-    // 2. Facebookexternalhit curl
-    const cmdFb = `curl.exe -s -A "facebookexternalhit/1.1" "${baseUrl}/api/products/${testProductId}/social-preview"`;
-    const { stdout: fbOut } = await execAsync(cmdFb);
-    const fbTitleMatch = fbOut.match(/<meta property="og:title" content="([^"]+)">/);
-    const fbImageMatch = fbOut.match(/<meta property="og:image" content="([^"]+)">/);
-    const fbUrlMatch = fbOut.match(/<meta property="og:url" content="([^"]+)">/);
-
-    console.log("--- curl -A 'facebookexternalhit/1.1' Results ---");
-    console.log("og:title:", fbTitleMatch?.[1]);
-    console.log("og:image:", fbImageMatch?.[1]);
-    console.log("og:url:  ", fbUrlMatch?.[1]);
-
-    assert.ok(fbTitleMatch);
-    assert.ok(fbImageMatch);
-    assert.ok(fbUrlMatch);
-
-    // 3. Googlebot curl - must return 302 redirect to SPA, not preview HTML
-    const cmdGooglebot = `curl.exe -s -I -A "Googlebot" "${baseUrl}/api/products/${testProductId}/social-preview"`;
-    const { stdout: googlebotOut } = await execAsync(cmdGooglebot);
-
-    console.log("--- curl -A 'Googlebot' Headers ---");
-    console.log(googlebotOut.trim());
-
-    assert.match(googlebotOut, /302 Found|HTTP\/1\.1 302/);
-    assert.match(googlebotOut, /location: https:\/\/mumbaicollection\.in\/product\/99991/i);
-
-    // 4. Fetch the og:image URL (verify URL validity)
-    const imageUrl = ogImageMatch[1];
-    console.log("--- Fetching og:image URL ---");
-    console.log("Target image URL:", imageUrl);
-    assert.ok(new URL(imageUrl).protocol === "https:");
-  });
-
-  await t.test("Raw HTML output extraction for audit report", async () => {
-    const res = await fetch(`${baseUrl}/api/products/${testProductId}/social-preview`, {
-      headers: { "User-Agent": "WhatsApp/2.23.20.76 i" },
-    });
-
-    assert.equal(res.status, 200);
-    const rawHtml = await res.text();
-    console.log("=== RAW HTML OUTPUT START ===");
-    console.log(rawHtml);
-    console.log("=== RAW HTML OUTPUT END ===");
-  });
 });

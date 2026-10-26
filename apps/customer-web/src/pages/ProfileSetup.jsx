@@ -668,9 +668,6 @@ function ProfileSetup() {
                 </div>
               </div>
 
-              <span className="rounded-full bg-[#132B45] text-[#42D6E8] border border-[#1E3E63] px-2.5 py-0.5 text-[10px] font-bold">
-                Step 1 of 2
-              </span>
             </div>
 
             {/* A. Password Inputs (Entered first as requested) */}

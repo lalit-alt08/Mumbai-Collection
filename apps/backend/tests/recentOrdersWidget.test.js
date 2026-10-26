@@ -1,8 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { serverCache } from "../src/utils/memoryCache.js";
 
 import { formatOrderDateTimeIST, getStatusBadgeClass } from "../../admin-dashboard/src/utils/recentOrdersFormatter.js";
+
+const readProjectSource = (relativePath) =>
+  fs.readFileSync(fileURLToPath(new URL(`../../../${relativePath}`, import.meta.url)), "utf8");
 
 test("Recent Orders Widget — Date/Time Formatting (Asia/Kolkata)", async (t) => {
   await t.test("formats date and time in Asia/Kolkata with month and 12-hour am/pm", () => {
@@ -159,24 +164,21 @@ test("Recent Orders Widget — Cap at 10 and Sorting Preservation", async (t) =>
 
 test("Recent Orders Widget — Clean Architecture & Route Separation Verification", async (t) => {
   await t.test("App.jsx does NOT expose /orders UI route", async () => {
-    const fs = await import("fs");
-    const appSource = fs.readFileSync("c:/Users/asus/Desktop/Mumbai Collection/apps/admin-dashboard/src/App.jsx", "utf8");
+    const appSource = readProjectSource("apps/admin-dashboard/src/App.jsx");
 
     assert.ok(!appSource.includes('import Orders from "./pages/Orders"'), "Orders component must NOT be imported in App.jsx");
     assert.ok(!appSource.includes('<Route path="orders"'), "/orders route must NOT be mounted in App.jsx");
   });
 
   await t.test("AdminLayout.jsx does NOT include Orders & Dispatch in navigation", async () => {
-    const fs = await import("fs");
-    const layoutSource = fs.readFileSync("c:/Users/asus/Desktop/Mumbai Collection/apps/admin-dashboard/src/layouts/AdminLayout.jsx", "utf8");
+    const layoutSource = readProjectSource("apps/admin-dashboard/src/layouts/AdminLayout.jsx");
 
     assert.ok(!layoutSource.includes('href: "/orders"'), "AdminLayout must NOT link to /orders");
     assert.ok(!layoutSource.includes('Orders & Dispatch'), "Admin navigation must NOT display Orders & Dispatch");
   });
 
   await t.test("Overview.jsx does NOT link View All Orders, keeping clean 10-order snapshot", async () => {
-    const fs = await import("fs");
-    const overviewSource = fs.readFileSync("c:/Users/asus/Desktop/Mumbai Collection/apps/admin-dashboard/src/pages/Overview.jsx", "utf8");
+    const overviewSource = readProjectSource("apps/admin-dashboard/src/pages/Overview.jsx");
 
     assert.ok(!overviewSource.includes('View All Orders'), "View All Orders link must be removed from Overview.jsx");
     assert.ok(!overviewSource.includes('to="/orders"'), "Overview.jsx must not link to /orders");
@@ -184,16 +186,14 @@ test("Recent Orders Widget — Clean Architecture & Route Separation Verificatio
   });
 
   await t.test("Admin backend order APIs remain mounted and preserved", async () => {
-    const fs = await import("fs");
-    const routesSource = fs.readFileSync("c:/Users/asus/Desktop/Mumbai Collection/apps/backend/src/routes/adminRoutes.js", "utf8");
+    const routesSource = readProjectSource("apps/backend/src/routes/adminRoutes.js");
 
     assert.ok(routesSource.includes('getAdminOrders'), "getAdminOrders must remain mounted in adminRoutes.js");
     assert.ok(routesSource.includes('updateAdminOrderStatus'), "updateAdminOrderStatus must remain mounted in adminRoutes.js");
   });
 
   await t.test("Employee Panel order fulfillment routes remain preserved and authoritative", async () => {
-    const fs = await import("fs");
-    const empRoutesSource = fs.readFileSync("c:/Users/asus/Desktop/Mumbai Collection/apps/backend/src/routes/employeeRoutes.js", "utf8");
+    const empRoutesSource = readProjectSource("apps/backend/src/routes/employeeRoutes.js");
 
     assert.ok(empRoutesSource.includes('getEmployeeOrders'), "getEmployeeOrders must remain mounted in employeeRoutes.js");
     assert.ok(empRoutesSource.includes('updateOrderStatus'), "updateOrderStatus must remain mounted in employeeRoutes.js");

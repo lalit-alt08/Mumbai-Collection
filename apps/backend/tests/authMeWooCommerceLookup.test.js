@@ -34,9 +34,11 @@ test("/auth/me avoids WooCommerce customer lookup for staff and keeps it for cus
   let wcCalls = 0;
   let profile;
 
-  t.after(() => {
+  t.after(async () => {
     axios.get = originalAxiosGet;
     wcApi.get = originalWcGet;
+    const { closeRedis } = await import("../src/config/redis.js");
+    await closeRedis();
   });
 
   axios.get = async () => ({ data: profile });

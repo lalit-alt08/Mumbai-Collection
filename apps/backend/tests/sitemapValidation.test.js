@@ -94,21 +94,4 @@ test("SITEMAP: exclusion of drafts/private/hidden items, XML escaping, and robot
     console.log(`Total URLs in sitemap: ${urlMatches.length}`);
   });
 
-  await t.test("Verify 5 sampled URLs from sitemap return HTTP 200 or valid status", async () => {
-    // 5 sampled URLs: Home (/), Categories (/categories), Contact (/contact), Terms (/terms), Product (/product/101)
-    const sampledUrls = [
-      "/",
-      "/categories",
-      "/contact",
-      "/terms",
-      "/privacy-policy",
-    ];
-
-    console.log("--- Sampling 5 URLs ---");
-    for (const urlPath of sampledUrls) {
-      const fullUrl = `https://mumbaicollection.in${urlPath}`;
-      console.log(`Sampling URL: ${fullUrl} (Route: ${urlPath})`);
-      assert.ok(urlPath.startsWith("/"));
-    }
-  });
 });

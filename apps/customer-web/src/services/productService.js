@@ -91,7 +91,11 @@ export const getCategories = async (options = {}) => {
 };
 
 export const getHomeShelves = async (options = {}) => {
-  const response = await catalogClient.get("/products/home-shelves", options);
+  const response = await catalogClient.get("/products/home-shelves", {
+    timeout: 25000,
+    skipTimeoutRetry: true,
+    ...options,
+  });
   return response.data;
 };
 

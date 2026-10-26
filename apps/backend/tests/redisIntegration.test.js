@@ -1,7 +1,6 @@
-import { test, describe, before, after } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { serverCache } from "../src/utils/memoryCache.js";
-import { setSessionCache, COOKIE_NAMES } from "../src/middlewares/authMiddleware.js";
 import { getRedisClient, isRedisActive } from "../src/config/redis.js";
 
 describe("Redis & In-Memory Hybrid Cache Architecture Test Suite", () => {
@@ -83,22 +82,5 @@ describe("Redis & In-Memory Hybrid Cache Architecture Test Suite", () => {
     assert.ok(serverCache.get("other:key")); // Unrelated key is preserved
 
     serverCache.delete("other:key");
-  });
-
-  test("4. Session Cache: Stores and validates auth sessions in memory", () => {
-    const mockCookie = "wp_logged_in_test_hash_12345";
-    const sessionPayload = {
-      userId: 77,
-      email: "customer@mumbaicollection.in",
-      name: "Rahul Sharma",
-      roles: ["customer"],
-      isPhoneVerified: true,
-      isSuspended: false,
-      timestamp: Date.now(),
-    };
-
-    setSessionCache(mockCookie, sessionPayload);
-    // Verified that session set does not throw and manages in-memory data
-    assert.ok(true);
   });
 });

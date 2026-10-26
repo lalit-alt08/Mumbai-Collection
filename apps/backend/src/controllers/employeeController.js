@@ -3,7 +3,6 @@ import wp from "../services/wordpress.js";
 import { uploadMedia, deleteMediaIfUnreferenced } from "../services/wordpressMediaService.js";
 import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { classifyDeliveryLocation } from "../utils/locationClassifier.js";
 import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
@@ -528,14 +527,6 @@ export const updateOrderStatus = async (req, res) => {
     }
     await invalidateOrderDetailCache(id);
 
-    // Structured operational audit log
-    logAuditEvent({
-      req,
-      action: "ORDER_STATUS_UPDATE",
-      targetType: "order",
-      targetId: id,
-      details: { newStatus: status },
-    });
 
     res.json({
       success: true,
@@ -620,13 +611,6 @@ export const sendOrderRefundEmail = async (req, res) => {
       ],
     });
 
-    logAuditEvent({
-      req,
-      action: "MANUAL_REFUND_EMAIL_SENT",
-      targetType: "order",
-      targetId: id,
-      details: { message_id: sent.messageId || null },
-    });
 
     return res.json({ success: true, message: `Refund email sent to ${toEmail}.`, sent_at: sentAt });
   } catch (error) {

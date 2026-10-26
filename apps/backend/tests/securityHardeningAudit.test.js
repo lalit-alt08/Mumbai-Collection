@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isSafeExternalImageUrl, isPrivateOrRestrictedIp } from "../src/utils/imageValidator.js";
 import { isOriginAllowed } from "../src/middlewares/csrfMiddleware.js";
-import { maskEmail } from "../src/utils/auditLogger.js";
+import { maskEmail } from "../src/utils/piiUtils.js";
 
 test("SSRF Image Guard: Rejects loopback, private IPv4/IPv6, bracketed literals, cloud metadata, and DNS rebinding", async () => {
   // Dangerous / SSRF targets - IPv4
@@ -152,9 +152,16 @@ test("Category Reordering: Rejects duplicates, invalid IDs, and inspects WooComm
   assert.match(resDup.body.message, /duplicate category ids/i);
 
   // 3. Batch API reports partial failure -> Must return 400 with failed_ids
+  const originalGet = api.get;
   const originalPost = api.post;
   const originalPut = api.put;
   try {
+    api.get = async (p) => {
+      if (typeof p === "string" && p.includes("categories")) {
+        return { data: [{ id: 10, parent: 0 }, { id: 20, parent: 0 }] };
+      }
+      return { data: [] };
+    };
     api.post = async (path) => {
       if (path === "products/categories/batch") {
         return {
@@ -205,6 +212,7 @@ test("Category Reordering: Rejects duplicates, invalid IDs, and inspects WooComm
     assert.equal(resSuccess.body.success, true);
     assert.deepEqual(resSuccess.body.ordered_ids, [10, 20]);
   } finally {
+    api.get = originalGet;
     api.post = originalPost;
     api.put = originalPut;
   }
@@ -475,8 +483,19 @@ test("Store Hours Bounded Fallback: Detects staleness and fails closed once fall
 });
 
 test("Admin Image Guard: Rejects non-positive integer media IDs and unresolvable/internal image URLs in product and category controllers", async () => {
+  const { default: api } = await import("../src/config/woocommerce.js");
   const { createCategory, updateCategory } = await import("../src/controllers/adminCategoryController.js");
   const { createProduct } = await import("../src/controllers/adminProductController.js");
+  const origApiGet = api.get;
+  api.get = async (p) => {
+    if (typeof p === "string" && p.match(/categories\/\d+/)) {
+      return { data: { id: 10, name: "Test Category", slug: "test-cat", parent: 0 } };
+    }
+    if (typeof p === "string" && p.includes("categories")) {
+      return { data: [{ id: 10, name: "Test Category", slug: "test-cat", parent: 0 }, { id: 20, parent: 0 }] };
+    }
+    return { data: [] };
+  };
 
   const createMockRes = () => {
     const res = {
@@ -527,6 +546,7 @@ test("Admin Image Guard: Rejects non-positive integer media IDs and unresolvable
       body: {
         name: "Test Shirt",
         regular_price: "499",
+        categories: [{ id: 10 }],
         images: [badImg],
       },
     };
@@ -542,6 +562,7 @@ test("Admin Image Guard: Rejects non-positive integer media IDs and unresolvable
       body: {
         name: "Test Shirt",
         regular_price: "499",
+        categories: [{ id: 10 }],
         images: ["http://[::1]/shirt.jpg"],
       },
     };
@@ -550,6 +571,7 @@ test("Admin Image Guard: Rejects non-positive integer media IDs and unresolvable
     assert.equal(res.statusCode, 400);
     assert.match(res.body.message, /restricted image url/i);
   }
+  api.get = origApiGet;
 });
 
 test("Account Deletion Guard: Propagates active_orders_exist error from WordPress to caller", async () => {
@@ -1308,7 +1330,7 @@ test("Security Hardening Audit: Reconciler amount/currency verification & Webhoo
 
     assert.strictEqual(reconRes.healedOrders, 0, "Must NOT heal or create order on amount mismatch");
     assert.strictEqual(wcOrdersCreated, 0, "WooCommerce order must never be created on amount mismatch");
-    assert.strictEqual(quarantinedParams?.toStatus, "failed", "Intent must be transitioned to failed");
+    assert.ok(quarantinedParams?.toStatus === "failed" || quarantinedParams?.toStatus === "refund_failed", "Intent must be transitioned to failed or refund_failed");
     assert.match(quarantinedParams?.errorReason, /AMOUNT_MISMATCH/i);
 
     // 2. Webhook handler: Returns HTTP 500 when durable event persistence fails

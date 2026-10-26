@@ -10,7 +10,7 @@ import {
 } from "../src/controllers/adminEmployeeController.js";
 import { requireRole } from "../src/middlewares/roleMiddleware.js";
 import { invalidateUserSessionCache } from "../src/middlewares/authMiddleware.js";
-import { maskEmail, maskPhone, redactSensitive } from "../src/utils/auditLogger.js";
+import { maskEmail, maskPhone, redactSensitive } from "../src/utils/piiUtils.js";
 
 // Mock helper for Express req/res
 const createMockContext = ({

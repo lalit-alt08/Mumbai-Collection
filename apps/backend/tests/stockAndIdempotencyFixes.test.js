@@ -79,6 +79,7 @@ test("Stock Validation & Idempotency Loop Regression Test Suite", async (t) => {
   });
 
   t.after(() => {
+    if (typeof server.closeAllConnections === "function") server.closeAllConnections();
     server.close();
   });
 

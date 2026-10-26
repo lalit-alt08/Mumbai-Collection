@@ -17,7 +17,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://indexed-accommodate-accompanied-webster.trycloudflare.com/api/:path*"
+      "destination": "https://oaks-ride-interviews-sanyo.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

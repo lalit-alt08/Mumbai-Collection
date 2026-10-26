@@ -350,7 +350,7 @@ export const getHomeShelves = async (req, res) => {
         };
 
         await Promise.all(
-          Array.from({ length: Math.min(3, departments.length) }, () => worker())
+          Array.from({ length: Math.min(4, departments.length) }, () => worker())
         );
         return {
           categories: Array.isArray(categories) ? categories : [],

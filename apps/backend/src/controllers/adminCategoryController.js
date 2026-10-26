@@ -1,7 +1,6 @@
 import api from "../config/woocommerce.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 import { fetchAllProductCategories } from "../services/productService.js";
@@ -222,13 +221,6 @@ export const createCategory = async (req, res) => {
     serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
-    logAuditEvent({
-      req,
-      action: "CATEGORY_CREATE",
-      targetType: "category",
-      targetId: cat.id,
-      details: { name: cat.name, slug: cat.slug, parent: payload.parent ?? cat.parent ?? 0 },
-    });
 
     res.status(201).json({
       success: true,
@@ -444,13 +436,6 @@ export const updateCategory = async (req, res) => {
     serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
-    logAuditEvent({
-      req,
-      action: "CATEGORY_UPDATE",
-      targetType: "category",
-      targetId: numericId,
-      details: { name: cat.name, updatedFields: Object.keys(payload) },
-    });
 
     res.json({
       success: true,
@@ -629,13 +614,6 @@ export const reorderCategories = async (req, res) => {
     serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
-    logAuditEvent({
-      req,
-      action: "CATEGORY_REORDER",
-      targetType: "category",
-      targetId: "batch",
-      details: { count: parsedIds.length, ordered_ids: parsedIds },
-    });
 
     res.json({
       success: true,

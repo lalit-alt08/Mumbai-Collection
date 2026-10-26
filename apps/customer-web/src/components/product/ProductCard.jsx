@@ -9,6 +9,7 @@ import {
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
 import { triggerHaptic } from "../../utils/haptics";
+import HapticTapTarget from "../common/HapticTapTarget";
 import { useFavorites } from "../../context/FavoritesContext";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import {
@@ -178,32 +179,34 @@ function ProductCard({ product }) {
           <div className="flex items-center justify-end flex-shrink-0">
             {isOutOfStock ? (
               cartItem ? (
-                <button
-                  type="button"
-                  disabled={updatingCart}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (updatingCart) return;
-                    try {
-                      setUpdatingCart(true);
-                      const updatedCart = await removeCartItem(cartItem.key);
-                      if (updatedCart) {
-                        triggerHaptic("light");
-                        updateCart(updatedCart);
+                <HapticTapTarget radius="9999px">
+                  <button
+                    type="button"
+                    disabled={updatingCart}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (updatingCart) return;
+                      try {
+                        setUpdatingCart(true);
+                        const updatedCart = await removeCartItem(cartItem.key);
+                        if (updatedCart) {
+                          triggerHaptic("light");
+                          updateCart(updatedCart);
+                        }
+                      } catch (error) {
+                        setCartError(getCartFailureMessage(error));
+                        await refreshStock();
+                        await refreshCart().catch(() => {});
+                      } finally {
+                        setUpdatingCart(false);
                       }
-                    } catch (error) {
-                      setCartError(getCartFailureMessage(error));
-                      await refreshStock();
-                      await refreshCart().catch(() => {});
-                    } finally {
-                      setUpdatingCart(false);
-                    }
-                  }}
-                  title="Item is sold out. Tap to remove from cart."
-                  className="h-[30px] sm:h-[32px] rounded-full border border-rose-400/40 bg-rose-950/40 px-2 sm:px-2.5 text-[11px] font-bold text-rose-400 transition-all hover:bg-rose-900/60 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
-                >
-                  Sold Out <span className="text-[11px] font-black leading-none">✕</span>
-                </button>
+                    }}
+                    title="Item is sold out. Tap to remove from cart."
+                    className="h-[30px] sm:h-[32px] rounded-full border border-rose-400/40 bg-rose-950/40 px-2 sm:px-2.5 text-[11px] font-bold text-rose-400 transition-all hover:bg-rose-900/60 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
+                  >
+                    Sold Out <span className="text-[11px] font-black leading-none">✕</span>
+                  </button>
+                </HapticTapTarget>
               ) : (
                 <button
                   type="button"
@@ -214,93 +217,17 @@ function ProductCard({ product }) {
                 </button>
               )
             ) : !cartItem ? (
-              <button
-                disabled={updatingCart}
-                onClick={async () => {
-                  if (updatingCart) return;
-                  setCartError("");
-                  try {
-                    setUpdatingCart(true);
-                    const updatedCart = await addToWooCart(product.id);
-                    if (updatedCart) {
-                      triggerHaptic("medium");
-                      updateCart(updatedCart);
-                    }
-                  } catch (error) {
-                    const stockInfo = parseCartStockError(error);
-                    if (stockInfo.isStockError) {
-                      const remaining = stockInfo.remaining ?? 0;
-                      setStockOverride({
-                        id: product.id,
-                        manage_stock: true,
-                        stock_quantity: remaining,
-                        stock_status: remaining > 0 ? "instock" : "outofstock",
-                        isAuthoritativeZero: remaining <= 0,
-                      });
-                      setCartError(getCartFailureMessage(error));
-                    } else {
-                      await refreshStock();
-                      const freshCart = await refreshCart().catch(() => null);
-                      const isInCart = freshCart?.items?.some(
-                        (item) => Number(item.id) === Number(product.id)
-                      );
-                      if (!isInCart) {
-                        setCartError(getCartFailureMessage(error));
-                      } else {
-                        setCartError("");
-                      }
-                    }
-                  } finally {
-                    setUpdatingCart(false);
-                  }
-                }}
-                className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#42D6E8] bg-[#111F36] px-2.5 sm:px-3 text-xs font-bold text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.3)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                ADD
-              </button>
-            ) : (
-              <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#42D6E8] text-[#061220] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
+              <HapticTapTarget radius="9999px">
                 <button
+                  disabled={updatingCart}
                   onClick={async () => {
                     if (updatingCart) return;
+                    setCartError("");
                     try {
                       setUpdatingCart(true);
-                      let updatedCart;
-                      if (cartItem.quantity <= 1) {
-                        updatedCart = await removeCartItem(cartItem.key);
-                      } else {
-                        updatedCart = await updateCartItem(cartItem.key, cartItem.quantity - 1);
-                      }
+                      const updatedCart = await addToWooCart(product.id);
                       if (updatedCart) {
-                        triggerHaptic("light");
-                        updateCart(updatedCart);
-                      }
-                    } catch (error) {
-                      setCartError(getCartFailureMessage(error));
-                      await refreshStock();
-                      await refreshCart().catch(() => {});
-                    } finally {
-                      setUpdatingCart(false);
-                    }
-                  }}
-                  disabled={updatingCart}
-                  className="flex h-full w-6 sm:w-7 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-xs font-bold text-[#061220]"
-                >
-                  −
-                </button>
-
-                <span className="flex w-4 sm:w-5 items-center justify-center text-xs font-extrabold text-[#061220]">
-                  {cartItem.quantity}
-                </span>
-
-                <button
-                  onClick={async () => {
-                    if (updatingCart || isMaxReached) return;
-                    try {
-                      setUpdatingCart(true);
-                      const updatedCart = await updateCartItem(cartItem.key, cartItem.quantity + 1);
-                      if (updatedCart) {
-                        triggerHaptic("light");
+                        triggerHaptic("medium");
                         updateCart(updatedCart);
                       }
                     } catch (error) {
@@ -314,19 +241,101 @@ function ProductCard({ product }) {
                           stock_status: remaining > 0 ? "instock" : "outofstock",
                           isAuthoritativeZero: remaining <= 0,
                         });
+                        setCartError(getCartFailureMessage(error));
+                      } else {
+                        await refreshStock();
+                        const freshCart = await refreshCart().catch(() => null);
+                        const isInCart = freshCart?.items?.some(
+                          (item) => Number(item.id) === Number(product.id)
+                        );
+                        if (!isInCart) {
+                          setCartError(getCartFailureMessage(error));
+                        } else {
+                          setCartError("");
+                        }
                       }
-                      setCartError(getCartFailureMessage(error));
-                      await refreshCart().catch(() => {});
                     } finally {
                       setUpdatingCart(false);
                     }
                   }}
-                  disabled={updatingCart || isMaxReached || isOutOfStock}
-                  title={isOutOfStock || isMaxReached ? "Out of stock" : `Only ${remainingStock} more available`}
-                  className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs font-bold text-[#061220]"
+                  className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#42D6E8] bg-[#111F36] px-2.5 sm:px-3 text-xs font-bold text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.3)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  +
+                  ADD
                 </button>
+              </HapticTapTarget>
+            ) : (
+              <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#42D6E8] text-[#061220] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
+                <HapticTapTarget className="h-full" radius="9999px">
+                  <button
+                    onClick={async () => {
+                      if (updatingCart) return;
+                      try {
+                        setUpdatingCart(true);
+                        let updatedCart;
+                        if (cartItem.quantity <= 1) {
+                          updatedCart = await removeCartItem(cartItem.key);
+                        } else {
+                          updatedCart = await updateCartItem(cartItem.key, cartItem.quantity - 1);
+                        }
+                        if (updatedCart) {
+                          triggerHaptic("light");
+                          updateCart(updatedCart);
+                        }
+                      } catch (error) {
+                        setCartError(getCartFailureMessage(error));
+                        await refreshStock();
+                        await refreshCart().catch(() => {});
+                      } finally {
+                        setUpdatingCart(false);
+                      }
+                    }}
+                    disabled={updatingCart}
+                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-xs font-bold text-[#061220]"
+                  >
+                    −
+                  </button>
+                </HapticTapTarget>
+
+                <span className="flex w-4 sm:w-5 items-center justify-center text-xs font-extrabold text-[#061220]">
+                  {cartItem.quantity}
+                </span>
+
+                <HapticTapTarget className="h-full" radius="9999px">
+                  <button
+                    onClick={async () => {
+                      if (updatingCart || isMaxReached) return;
+                      try {
+                        setUpdatingCart(true);
+                        const updatedCart = await updateCartItem(cartItem.key, cartItem.quantity + 1);
+                        if (updatedCart) {
+                          triggerHaptic("light");
+                          updateCart(updatedCart);
+                        }
+                      } catch (error) {
+                        const stockInfo = parseCartStockError(error);
+                        if (stockInfo.isStockError) {
+                          const remaining = stockInfo.remaining ?? 0;
+                          setStockOverride({
+                            id: product.id,
+                            manage_stock: true,
+                            stock_quantity: remaining,
+                            stock_status: remaining > 0 ? "instock" : "outofstock",
+                            isAuthoritativeZero: remaining <= 0,
+                          });
+                        }
+                        setCartError(getCartFailureMessage(error));
+                        await refreshCart().catch(() => {});
+                      } finally {
+                        setUpdatingCart(false);
+                      }
+                    }}
+                    disabled={updatingCart || isMaxReached || isOutOfStock}
+                    title={isOutOfStock || isMaxReached ? "Out of stock" : `Only ${remainingStock} more available`}
+                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs font-bold text-[#061220]"
+                  >
+                    +
+                  </button>
+                </HapticTapTarget>
               </div>
             )}
           </div>

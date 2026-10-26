@@ -59,7 +59,6 @@ import {
 } from "../services/razorpayService.js";
 import { getRedisClient, isRedisActive } from "../config/redis.js";
 import { alertStaffAnomaly } from "../services/alertService.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { publishOrderEvent } from "../services/orderNotificationService.js";
 import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
 
@@ -1814,18 +1813,6 @@ export const reconcileOrder = async (req, res) => {
         "[Payment Reconcile] Order reconciled and updated to processing"
       );
 
-      logAuditEvent({
-        req,
-        action: "PAYMENT_RECONCILED",
-        targetType: "order",
-        targetId: wcOrder.id,
-        details: {
-          previousStatus: wcOrder.status,
-          newStatus: "processing",
-          razorpay_payment_id: capturedPayment.id,
-          amount_paise: capturedPayment.amount,
-        },
-      });
 
       return res.json({
         reconciled: true,

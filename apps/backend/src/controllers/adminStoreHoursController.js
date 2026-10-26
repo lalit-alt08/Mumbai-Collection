@@ -1,5 +1,4 @@
 import storeHoursService from "../services/storeHoursService.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError } from "../utils/logger.js";
 
 /**
@@ -49,16 +48,6 @@ export const updateAdminStoreHours = async (req, res) => {
     const savedConfig = await storeHoursService.saveStoreHoursConfig(payload);
     const currentStatus = storeHoursService.evaluateStoreStatus(savedConfig);
 
-    logAuditEvent({
-      req,
-      action: "STORE_HOURS_UPDATE",
-      targetType: "store_hours",
-      targetId: "schedule",
-      details: {
-        manual_override: savedConfig.manual_override,
-        is_peak_hours: savedConfig.is_peak_hours,
-      },
-    });
 
     return res.json({
       success: true,
@@ -100,16 +89,6 @@ export const toggleAdminPeakHours = async (req, res) => {
     });
     const currentStatus = storeHoursService.evaluateStoreStatus(savedConfig);
 
-    logAuditEvent({
-      req,
-      action: isPeak ? "PEAK_HOURS_ACTIVATED" : "PEAK_HOURS_DEACTIVATED",
-      targetType: "store_hours",
-      targetId: "peak_mode",
-      details: {
-        is_peak_hours: isPeak,
-        delivery_eta_text: currentStatus.delivery_eta_text,
-      },
-    });
 
     return res.json({
       success: true,

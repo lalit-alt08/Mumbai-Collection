@@ -1,19 +1,13 @@
-import test from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { schemas } from "../src/middlewares/requestValidation.js";
 import { isDescendantCategory } from "../src/controllers/adminCategoryController.js";
-import { getRedisClient } from "../src/config/redis.js";
 
-test.after(async () => {
-  const redis = getRedisClient();
-  if (redis) {
-    try {
-      await redis.quit();
-    } catch (_) {
-      try { redis.disconnect(); } catch (_) {}
-    }
+after(async () => {
+  const { default: redisClient } = await import("../src/config/redis.js");
+  if (redisClient) {
+    try { redisClient.disconnect(); } catch (_) {}
   }
-  setTimeout(() => process.exit(0), 100).unref();
 });
 
 test("category validation: categoryCreate and categoryUpdate support optional non-negative parent", () => {

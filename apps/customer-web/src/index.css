@@ -144,3 +144,30 @@ img {
     opacity: 1;
   }
 }
+
+@layer components {
+  /*
+   * iOS Safari's native checkbox-switch can emit one system haptic on direct
+   * touch. Keep its native appearance intact and make it an invisible overlay;
+   * the wrapped control still handles the actual navigation/action.
+   */
+  .haptic-tap-target {
+    position: relative;
+    display: inline-flex;
+    min-width: 0;
+  }
+
+  .haptic-tap-target__switch {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    border-radius: var(--haptic-target-radius, 0px);
+    clip-path: inset(0 round var(--haptic-target-radius, 0px));
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+}

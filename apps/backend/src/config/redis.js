@@ -6,6 +6,16 @@ let isReady = false;
 
 const REDIS_URL = process.env.REDIS_URL || process.env.REDIS_HOST;
 
+const isTestEnv = process.env.NODE_ENV === "test" || process.execArgv.includes("--test");
+
+const unrefClientStream = (client) => {
+  if (isTestEnv && client?.stream && typeof client.stream.unref === "function") {
+    try {
+      client.stream.unref();
+    } catch (_) {}
+  }
+};
+
 if (REDIS_URL) {
   try {
     const options = {
@@ -32,11 +42,13 @@ if (REDIS_URL) {
 
     redisClient.on("connect", () => {
       logger.info("[Redis] Connected successfully to Redis server");
+      unrefClientStream(redisClient);
     });
 
     redisClient.on("ready", () => {
       isReady = true;
       logger.info("[Redis] Redis client is ready for operations");
+      unrefClientStream(redisClient);
     });
 
     redisClient.on("error", (err) => {
@@ -79,6 +91,7 @@ export const getRedisSubscriber = () => {
       subscriberClient.on("ready", () => {
         isSubscriberReady = true;
         logger.info("[Redis Sub] Dedicated subscriber client is ready");
+        unrefClientStream(subscriberClient);
       });
       subscriberClient.on("error", (err) => {
         isSubscriberReady = false;
@@ -112,10 +125,12 @@ export const _setRedisSubscriberForTesting = (mock) => {
 export const closeRedis = async () => {
   if (subscriberClient) {
     try {
-      if (typeof subscriberClient.quit === "function") {
+      subscriberClient.removeAllListeners("error");
+      subscriberClient.on("error", () => {});
+      if (typeof subscriberClient.disconnect === "function") {
+        subscriberClient.disconnect(false);
+      } else if (typeof subscriberClient.quit === "function") {
         await subscriberClient.quit();
-      } else if (typeof subscriberClient.disconnect === "function") {
-        subscriberClient.disconnect();
       }
     } catch (_) {}
     subscriberClient = null;
@@ -123,14 +138,30 @@ export const closeRedis = async () => {
   }
   if (redisClient) {
     try {
-      if (typeof redisClient.quit === "function") {
+      redisClient.removeAllListeners("error");
+      redisClient.on("error", () => {});
+      if (typeof redisClient.disconnect === "function") {
+        redisClient.disconnect(false);
+      } else if (typeof redisClient.quit === "function") {
         await redisClient.quit();
-      } else if (typeof redisClient.disconnect === "function") {
-        redisClient.disconnect();
       }
     } catch (_) {}
     isReady = false;
   }
 };
 
+export { redisClient };
 export default redisClient;
+
+// Auto-teardown for Node test runner to prevent hanging background sockets
+if (process.env.NODE_ENV === "test" || process.argv.some((a) => typeof a === "string" && a.includes(".test."))) {
+  import("node:test")
+    .then(({ after }) => {
+      if (typeof after === "function") {
+        after(async () => {
+          await closeRedis();
+        });
+      }
+    })
+    .catch(() => {});
+}

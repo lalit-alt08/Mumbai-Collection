@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import axios from "axios";
+import wp from "../src/services/wordpress.js";
 import {
   getAdminProducts,
   updateProduct,

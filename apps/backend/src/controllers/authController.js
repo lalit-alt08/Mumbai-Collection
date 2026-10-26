@@ -6,7 +6,7 @@ import { httpsAgent } from "../config/httpAgent.js";
 import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache, setSessionCache } from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
-import { maskEmail } from "../utils/auditLogger.js";
+import { maskEmail } from "../utils/piiUtils.js";
 import { formatCustomerDisplayName, parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";

@@ -106,26 +106,4 @@ test("Delivery Location Classifier Test Suite", async (t) => {
     assert.deepEqual(classifyDeliveryLocation({}), DELIVERY_LOCATIONS.UNASSIGNED);
     assert.deepEqual(classifyDeliveryLocation(null), DELIVERY_LOCATIONS.UNASSIGNED);
   });
-
-  await t.test("5. In-Memory Orders Filtering Simulation", () => {
-    const orders = [
-      { id: 1, shipping: { city: "Vasai East" } },
-      { id: 2, shipping: { city: "Vasai West" } },
-      { id: 3, shipping: { city: "Nallasopara East" } },
-      { id: 4, shipping: { city: "Nallasopara West" } },
-      { id: 5, shipping: { city: "mahavir nagar", postcode: "402345" } },
-    ];
-
-    const filterByLoc = (locKey) =>
-      orders.filter((o) => {
-        const loc = classifyDeliveryLocation(o);
-        return loc.location_key === locKey;
-      });
-
-    assert.deepEqual(filterByLoc("vasai-east").map((o) => o.id), [1]);
-    assert.deepEqual(filterByLoc("vasai-west").map((o) => o.id), [2]);
-    assert.deepEqual(filterByLoc("nalasopara-east").map((o) => o.id), [3]);
-    assert.deepEqual(filterByLoc("nalasopara-west").map((o) => o.id), [4]);
-    assert.deepEqual(filterByLoc("unassigned").map((o) => o.id), [5]);
-  });
 });

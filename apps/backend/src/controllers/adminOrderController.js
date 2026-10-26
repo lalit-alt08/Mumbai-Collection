@@ -1,7 +1,6 @@
 import api from "../config/woocommerce.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { serverCache } from "../utils/memoryCache.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError } from "../utils/logger.js";
 import {
   isOrderStatusLocked,
@@ -159,13 +158,6 @@ export const updateAdminOrderStatus = async (req, res) => {
     }
     await invalidateOrderDetailCache(id);
 
-    logAuditEvent({
-      req,
-      action: "ADMIN_ORDER_STATUS_UPDATE",
-      targetType: "order",
-      targetId: id,
-      details: { newStatus: status },
-    });
 
     res.json({
       success: true,

@@ -9,6 +9,7 @@ import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, Shield
 import { useEffect, useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 import { triggerHaptic } from "../../utils/haptics";
+import HapticTapTarget from "../common/HapticTapTarget";
 import {
   cleanProductTitle,
   getCartFailureMessage,
@@ -234,14 +235,16 @@ function ProductInfo({ product }) {
           <div className="hidden lg:flex flex-col items-end">
             {isOutOfStock ? (
               cartItem ? (
-                <button
-                  type="button"
-                  onClick={() => handleUpdateQuantity(0)}
-                  disabled={loading}
-                  className="flex h-[40px] px-5 items-center justify-center rounded-xl border border-rose-800/50 bg-rose-950/40 text-[13px] font-bold text-rose-300 shadow-xs transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
-                >
-                  Sold Out — Remove
-                </button>
+                <HapticTapTarget radius="12px">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateQuantity(0)}
+                    disabled={loading}
+                    className="flex h-[40px] px-5 items-center justify-center rounded-xl border border-rose-800/50 bg-rose-950/40 text-[13px] font-bold text-rose-300 shadow-xs transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                  >
+                    Sold Out — Remove
+                  </button>
+                </HapticTapTarget>
               ) : (
                 <button
                   type="button"
@@ -252,32 +255,38 @@ function ProductInfo({ product }) {
                 </button>
               )
             ) : !cartItem ? (
-              <button
-                onClick={handleAddToCart}
-                disabled={loading}
-                className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#42D6E8] text-[14px] font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
-              >
-                ADD
-              </button>
+              <HapticTapTarget radius="12px">
+                <button
+                  onClick={handleAddToCart}
+                  disabled={loading}
+                  className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#42D6E8] text-[14px] font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
+                >
+                  ADD
+                </button>
+              </HapticTapTarget>
             ) : (
               <div className="flex flex-col items-end gap-1">
                 <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#42D6E8] px-1.5 text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)]">
-                  <button
-                    disabled={loading}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-50 cursor-pointer"
-                    onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
-                  >
-                    <Minus size={16} />
-                  </button>
+                  <HapticTapTarget radius="8px">
+                    <button
+                      disabled={loading}
+                      className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-50 cursor-pointer"
+                      onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
+                    >
+                      <Minus size={16} />
+                    </button>
+                  </HapticTapTarget>
                   <span className="text-[15px] font-black">{cartItem.quantity}</span>
-                  <button
-                    disabled={loading || isMaxReached}
-                    title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                    onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
-                  >
-                    <Plus size={16} />
-                  </button>
+                  <HapticTapTarget radius="8px">
+                    <button
+                      disabled={loading || isMaxReached}
+                      title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
+                      className="flex h-[32px] w-[32px] items-center justify-center rounded-lg bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </HapticTapTarget>
                 </div>
                 {isMaxReached && (
                   <span className="text-[10px] font-bold text-amber-400">
@@ -336,14 +345,16 @@ function ProductInfo({ product }) {
           <div className="flex w-[65%] gap-3 md:w-[45%] lg:w-[35%]">
             {isOutOfStock ? (
               cartItem ? (
-                <button
-                  type="button"
-                  onClick={() => handleUpdateQuantity(0)}
-                  disabled={loading}
-                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full border border-rose-800/50 bg-rose-950/40 text-[14px] font-bold text-rose-300 transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
-                >
-                  Sold Out — Remove
-                </button>
+                <HapticTapTarget className="flex w-full" radius="9999px">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateQuantity(0)}
+                    disabled={loading}
+                    className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full border border-rose-800/50 bg-rose-950/40 text-[14px] font-bold text-rose-300 transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
+                  >
+                    Sold Out — Remove
+                  </button>
+                </HapticTapTarget>
               ) : (
                 <button
                   type="button"
@@ -354,31 +365,37 @@ function ProductInfo({ product }) {
                 </button>
               )
             ) : !cartItem ? (
-              <button
-                onClick={handleAddToCart}
-                disabled={loading}
-                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#42D6E8] text-[15px] font-black text-[#061220] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
-              >
-                Add to Cart
-              </button>
+              <HapticTapTarget className="flex w-full" radius="9999px">
+                <button
+                  onClick={handleAddToCart}
+                  disabled={loading}
+                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#42D6E8] text-[15px] font-black text-[#061220] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
+                >
+                  Add to Cart
+                </button>
+              </HapticTapTarget>
             ) : (
               <div className="flex h-[46px] w-full items-center justify-between rounded-full bg-[#42D6E8] px-1.5 text-[#061220] shadow-sm">
-                <button
-                  disabled={loading}
-                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] cursor-pointer"
-                  onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
-                >
-                  <Minus size={18} />
-                </button>
+                <HapticTapTarget radius="9999px">
+                  <button
+                    disabled={loading}
+                    className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] cursor-pointer"
+                    onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
+                  >
+                    <Minus size={18} />
+                  </button>
+                </HapticTapTarget>
                 <span className="text-[16px] font-black">{cartItem.quantity}</span>
-                <button
-                  disabled={loading || isMaxReached}
-                  title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                  className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
-                >
-                  <Plus size={18} />
-                </button>
+                <HapticTapTarget radius="9999px">
+                  <button
+                    disabled={loading || isMaxReached}
+                    title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
+                    className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
+                  >
+                    <Plus size={18} />
+                  </button>
+                </HapticTapTarget>
               </div>
             )}
           </div>

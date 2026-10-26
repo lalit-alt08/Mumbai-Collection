@@ -292,6 +292,7 @@ test("Phase 5: Orphan & Abandoned Product-Image Cleanup Test Suite", async (t) =
     let attachedIds = null;
     let attachedProductId = null;
 
+    api.get = async () => ({ data: [{ id: 10, parent: 0, name: "Clothing" }] });
     api.post = async (endpoint, payload) => {
       return {
         data: {
@@ -315,6 +316,7 @@ test("Phase 5: Orphan & Abandoned Product-Image Cleanup Test Suite", async (t) =
       body: {
         name: "Test Silk Kurti",
         regular_price: "1299",
+        categories: [{ id: 10 }],
         images: [{ id: 601 }, { id: 602 }],
       },
     };

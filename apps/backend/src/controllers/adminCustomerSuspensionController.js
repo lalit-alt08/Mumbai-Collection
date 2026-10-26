@@ -1,6 +1,5 @@
 ﻿import wp from "../services/wordpress.js";
 import { invalidateUserSessionCache } from "../middlewares/authMiddleware.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError } from "../utils/logger.js";
 
 /**
@@ -84,19 +83,6 @@ export const suspendCustomer = async (req, res) => {
       invalidateUserSessionCache(customerId);
     }
 
-    logAuditEvent({
-      req,
-      action: "customer.suspended",
-      targetType: "customer",
-      targetId: customerId || cleanEmail,
-      details: {
-        email: cleanEmail,
-        duration: response.data?.customer?.duration || duration,
-        expires_at: response.data?.customer?.expires_at,
-        is_permanent: response.data?.customer?.is_permanent,
-        reason: reason ? String(reason).trim() : undefined,
-      },
-    });
 
     return res.json(response.data);
   } catch (error) {
@@ -145,15 +131,6 @@ export const unsuspendCustomer = async (req, res) => {
       invalidateUserSessionCache(customerId);
     }
 
-    logAuditEvent({
-      req,
-      action: "customer.unsuspended",
-      targetType: "customer",
-      targetId: customerId || cleanEmail,
-      details: {
-        email: cleanEmail,
-      },
-    });
 
     return res.json(response.data);
   } catch (error) {

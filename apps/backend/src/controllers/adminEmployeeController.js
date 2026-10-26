@@ -1,6 +1,5 @@
 import wp from "../services/wordpress.js";
 import { invalidateUserSessionCache } from "../middlewares/authMiddleware.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError } from "../utils/logger.js";
 
 const ALLOWED_EMPLOYEE_ROLES = ["employee"];
@@ -73,13 +72,6 @@ export const requestEmployeeAccess = async (req, res) => {
       }
     );
 
-    logAuditEvent({
-      req,
-      action: "employee.access_requested",
-      targetType: "employee_candidate",
-      targetId: normalizedEmail,
-      details: { role: "employee", is_registered: response.data?.is_registered },
-    });
 
     return res.json(response.data);
   } catch (error) {
@@ -138,13 +130,6 @@ export const approveEmployee = async (req, res) => {
     // Invalidate cached server-side sessions
     invalidateUserSessionCache(targetUserId);
 
-    logAuditEvent({
-      req,
-      action: "employee.approved",
-      targetType: "employee",
-      targetId: targetUserId,
-      details: { assigned_role: role },
-    });
 
     return res.json(response.data);
   } catch (error) {
@@ -195,13 +180,6 @@ export const rejectEmployee = async (req, res) => {
 
     invalidateUserSessionCache(targetUserId);
 
-    logAuditEvent({
-      req,
-      action: "employee.rejected",
-      targetType: "employee",
-      targetId: targetUserId,
-      details: { reason },
-    });
 
     return res.json(response.data);
   } catch (error) {
@@ -259,13 +237,6 @@ export const updateEmployeeStatus = async (req, res) => {
 
     invalidateUserSessionCache(targetUserId);
 
-    logAuditEvent({
-      req,
-      action: status === "deactivated" ? "employee.deactivated" : "employee.reactivated",
-      targetType: "employee",
-      targetId: targetUserId,
-      details: { status },
-    });
 
     return res.json(response.data);
   } catch (error) {
@@ -313,12 +284,6 @@ export const revokeEmployeeSessions = async (req, res) => {
 
     invalidateUserSessionCache(targetUserId);
 
-    logAuditEvent({
-      req,
-      action: "employee.sessions_revoked",
-      targetType: "employee",
-      targetId: targetUserId,
-    });
 
     return res.json(response.data);
   } catch (error) {

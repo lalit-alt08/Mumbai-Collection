@@ -9,7 +9,6 @@ import {
 } from "../services/wordpressMediaService.js";
 import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
-import { logAuditEvent } from "../utils/auditLogger.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 
@@ -420,13 +419,6 @@ export const updateProduct = async (req, res) => {
     serverCache.invalidatePrefix("catalog:");
     serverCache.delete("seo:sitemap_xml");
 
-    logAuditEvent({
-      req,
-      action: "PRODUCT_UPDATE",
-      targetType: "product",
-      targetId: id,
-      details: updatePayload,
-    });
 
     // If images were updated, mark them as attached
     if (req.body.images || req.body.image_url) {
@@ -480,12 +472,6 @@ export const deleteProduct = async (req, res) => {
     serverCache.invalidatePrefix("catalog:");
     serverCache.delete("seo:sitemap_xml");
 
-    logAuditEvent({
-      req,
-      action: "PRODUCT_DELETE",
-      targetType: "product",
-      targetId: numericId,
-    });
 
     // Safely cleanup product media that is completely unreferenced elsewhere
     const deletedImages = (response.data?.images || []).map((img) => img.id).filter(Boolean);
@@ -681,13 +667,6 @@ export const createProduct = async (req, res) => {
       }
     }
 
-    logAuditEvent({
-      req,
-      action: "PRODUCT_CREATE",
-      targetType: "product",
-      targetId: createdProductId,
-      details: { name: payload.name, price: payload.regular_price, sku: payload.sku },
-    });
 
     res.status(201).json({
       success: true,

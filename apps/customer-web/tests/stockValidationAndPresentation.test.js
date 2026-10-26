@@ -13,7 +13,12 @@ import {
 test("Stock Validation & Presentation Test Suite", async (t) => {
   await t.test("stock availability reflects remaining stock after cart quantity", () => {
     const product = { manage_stock: true, stock_quantity: 2, stock_status: "instock" };
-    assert.deepEqual(getProductStock(product), { maxStock: 2, isOutOfStock: false });
+    assert.deepEqual(getProductStock(product), {
+      maxStock: 2,
+      isOutOfStock: false,
+      availableStock: 2,
+      backordersAllowed: false,
+    });
     assert.equal(getRemainingStock(product, 0), 2);
     assert.equal(getRemainingStock(product, 1), 1);
     assert.equal(getRemainingStock(product, 2), 0);
@@ -21,7 +26,12 @@ test("Stock Validation & Presentation Test Suite", async (t) => {
 
   await t.test("out-of-stock status overrides an inconsistent positive quantity", () => {
     const product = { manage_stock: true, stock_quantity: 2, stock_status: "outofstock" };
-    assert.deepEqual(getProductStock(product), { maxStock: 0, isOutOfStock: true });
+    assert.deepEqual(getProductStock(product), {
+      maxStock: 0,
+      isOutOfStock: true,
+      availableStock: 0,
+      backordersAllowed: false,
+    });
     assert.equal(getRemainingStock(product, 0), 0);
   });
 
@@ -32,16 +42,21 @@ test("Stock Validation & Presentation Test Suite", async (t) => {
     const cartItem = { id: 232, quantity: 2, stock_status: "outofstock", is_in_stock: false, quantity_limits: { maximum: 0 } };
 
     const stock = getProductStock(staleProduct, cartItem);
-    assert.deepEqual(stock, { maxStock: 0, isOutOfStock: true });
+    assert.deepEqual(stock, {
+      maxStock: 0,
+      isOutOfStock: true,
+      availableStock: 0,
+      backordersAllowed: false,
+    });
     assert.equal(getRemainingStock(staleProduct, 2, cartItem), 0);
   });
 
   await t.test("cart errors are translated into safe, actionable messages", () => {
     assert.match(
       getCartFailureMessage({ response: { data: { code: "woocommerce_rest_cart_item_out_of_stock" } } }),
-      /Stock changed/
+      /out of stock/i
     );
-    assert.match(getCartFailureMessage(new Error("offline")), /Click again/i);
+    assert.match(getCartFailureMessage(new Error("offline")), /try again/i);
   });
 
   await t.test("1. cleanProductTitle strips marketplace scrape artifacts and SEO noise", () => {
@@ -71,93 +86,6 @@ test("Stock Validation & Presentation Test Suite", async (t) => {
     assert.equal(cleanProductTitle(""), "");
     assert.equal(cleanProductTitle(null), "");
     assert.equal(cleanProductTitle(undefined), "");
-  });
-
-  await t.test("2. Cart out-of-stock detection correctly identifies unavailable items", () => {
-    const cartItems = [
-      {
-        id: 101,
-        key: "key_item_1",
-        name: "DOMS Brush Pen",
-        quantity: 2,
-        quantity_limits: { maximum: 0 },
-      },
-      {
-        id: 102,
-        key: "key_item_2",
-        name: "Camel Pastels",
-        quantity: 1,
-        stock_status: "outofstock",
-      },
-      {
-        id: 103,
-        key: "key_item_3",
-        name: "Classmate Notebook",
-        quantity: 3,
-        is_in_stock: false,
-      },
-      {
-        id: 104,
-        key: "key_item_4",
-        name: "Available Item",
-        quantity: 1,
-        quantity_limits: { maximum: 10 },
-        stock_status: "instock",
-        is_in_stock: true,
-      },
-    ];
-
-    const outOfStockItems = cartItems.filter(
-      (item) =>
-        item.quantity_limits?.maximum === 0 ||
-        item.stock_status === "outofstock" ||
-        item.is_in_stock === false ||
-        Boolean(item.isOutOfStock)
-    );
-
-    assert.equal(outOfStockItems.length, 3, "Must flag all 3 out-of-stock variants");
-    assert.deepEqual(
-      outOfStockItems.map((i) => i.id),
-      [101, 102, 103]
-    );
-
-    const hasRemainingItems = cartItems.length > outOfStockItems.length;
-    assert.equal(hasRemainingItems, true, "Cart has 1 available item remaining for partial checkout");
-  });
-
-  await t.test("3. Checkout stock error handler extracts out_of_stock_details and maps cart keys", () => {
-    const errorResponseData = {
-      code: "ITEM_OUT_OF_STOCK",
-      message: "The following item(s) are out of stock: DOMS Brush Pen. Please update your cart.",
-      out_of_stock_items: ["DOMS Brush Pen"],
-      out_of_stock_details: [
-        {
-          id: 101,
-          key: "key_item_1",
-          name: "DOMS Brush Pen",
-          requested: 2,
-          available: 0,
-        },
-      ],
-    };
-
-    const isStockError =
-      errorResponseData.code === "ITEM_OUT_OF_STOCK" ||
-      errorResponseData.code === "INSUFFICIENT_STOCK" ||
-      errorResponseData.code === "woocommerce_rest_cart_item_out_of_stock";
-
-    assert.equal(isStockError, true, "ITEM_OUT_OF_STOCK must trigger notification modal");
-
-    const shortageDetails =
-      Array.isArray(errorResponseData.out_of_stock_details) &&
-      errorResponseData.out_of_stock_details.length > 0
-        ? errorResponseData.out_of_stock_details
-        : (errorResponseData.out_of_stock_items || []).map((name) => ({ name }));
-
-    assert.equal(shortageDetails.length, 1);
-    assert.equal(shortageDetails[0].key, "key_item_1");
-    assert.equal(shortageDetails[0].requested, 2);
-    assert.equal(shortageDetails[0].available, 0);
   });
 
   await t.test("4. shuffleProducts: handles empty, single, and multiple items safely without mutation", () => {

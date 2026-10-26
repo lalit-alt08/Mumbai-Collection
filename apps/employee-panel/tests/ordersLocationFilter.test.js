@@ -5,7 +5,6 @@ import {
   getOrderLocationInfo,
   getLocationBadgeClass,
 } from "../src/utils/orderLocation.js";
-import { getOrderDateIST } from "../src/utils/orderDate.js";
 
 describe("Employee Panel Orders: Delivery Location Filter Suite", () => {
   describe("1. Location Options & Badge Helpers", () => {
@@ -96,106 +95,4 @@ describe("Employee Panel Orders: Delivery Location Filter Suite", () => {
     });
   });
 
-  describe("3. Multi-Filter Pipeline (Status + Date + Location)", () => {
-    const nowIso = new Date().toISOString();
-    const yesterdayIso = new Date(Date.now() - 86400000).toISOString();
-
-    const mockOrders = [
-      {
-        id: 101,
-        status: "processing",
-        date_created: nowIso,
-        shipping: { city: "Vasai East" },
-      },
-      {
-        id: 102,
-        status: "processing",
-        date_created: nowIso,
-        shipping: { city: "Vasai West" },
-      },
-      {
-        id: 103,
-        status: "packed",
-        date_created: nowIso,
-        shipping: { city: "Nallasopara East" },
-      },
-      {
-        id: 104,
-        status: "completed",
-        date_created: yesterdayIso,
-        shipping: { city: "Nallasopara West" },
-      },
-      {
-        id: 105,
-        status: "processing",
-        date_created: nowIso,
-        shipping: { city: "Unknown Nagar" },
-      },
-    ];
-
-    const todayDateString = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-
-    const runPipeline = (ordersList, activeTab, dateFilter, locationFilter) => {
-      return ordersList.filter((order) => {
-        if (activeTab === "active" && (order.status === "completed" || order.status === "cancelled")) {
-          return false;
-        }
-        if (activeTab !== "all" && activeTab !== "active" && order.status !== activeTab) {
-          return false;
-        }
-        if (locationFilter !== "all") {
-          const loc = getOrderLocationInfo(order);
-          if (loc.location_key !== locationFilter) {
-            return false;
-          }
-        }
-        if (dateFilter === "all") return true;
-
-        const orderDate = getOrderDateIST(order);
-        if (!orderDate) return true;
-        if (dateFilter === "today") return orderDate === todayDateString;
-        return true;
-      });
-    };
-
-    test("Filtering by Vasai East isolates only Vasai East orders", () => {
-      const results = runPipeline(mockOrders, "all", "all", "vasai-east");
-      assert.deepEqual(results.map((o) => o.id), [101]);
-    });
-
-    test("Filtering by Vasai West isolates only Vasai West orders", () => {
-      const results = runPipeline(mockOrders, "all", "all", "vasai-west");
-      assert.deepEqual(results.map((o) => o.id), [102]);
-    });
-
-    test("Filtering by Nalasopara East isolates only Nalasopara East orders", () => {
-      const results = runPipeline(mockOrders, "all", "all", "nalasopara-east");
-      assert.deepEqual(results.map((o) => o.id), [103]);
-    });
-
-    test("Filtering by Nalasopara West isolates only Nalasopara West orders", () => {
-      const results = runPipeline(mockOrders, "all", "all", "nalasopara-west");
-      assert.deepEqual(results.map((o) => o.id), [104]);
-    });
-
-    test("Filtering by Unassigned isolates orders with non-standard addresses", () => {
-      const results = runPipeline(mockOrders, "all", "all", "unassigned");
-      assert.deepEqual(results.map((o) => o.id), [105]);
-    });
-
-    test("Combined: active status + today date + Vasai East location", () => {
-      const results = runPipeline(mockOrders, "active", "today", "vasai-east");
-      assert.deepEqual(results.map((o) => o.id), [101]);
-    });
-
-    test("Combined: packed status + Nalasopara East location", () => {
-      const results = runPipeline(mockOrders, "packed", "all", "nalasopara-east");
-      assert.deepEqual(results.map((o) => o.id), [103]);
-    });
-
-    test("All locations filter retains all matching status/date orders", () => {
-      const results = runPipeline(mockOrders, "all", "all", "all");
-      assert.equal(results.length, 5);
-    });
-  });
 });

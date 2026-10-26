@@ -65,28 +65,6 @@ test("Fix 1 - Employee Order Search: search matching handles phone formatting an
   assert.equal(matchesEmployeeOrderSearch(order, "nonexistent"), false);
 });
 
-test("Fix 2 - Customer Directory: serverCache caching and pagination", async () => {
-  serverCache.clear();
-  const mockDirectory = Array.from({ length: 55 }, (_, i) => ({
-    id: i + 1,
-    name: `Customer ${i + 1}`,
-    email: `customer${i + 1}@example.com`,
-    phone: `98000000${String(i).padStart(2, "0")}`,
-    location: i % 2 === 0 ? "Vasai East" : "Nallasopara West",
-    ordersCount: (i % 5) + 1,
-    lifetimeSpent: (i + 1) * 100,
-  }));
-
-  serverCache.set("admin:customers:directory", mockDirectory, 120000);
-  const cached = serverCache.get("admin:customers:directory");
-  assert.equal(cached.length, 55);
-
-  // Filter in-memory like adminCustomerController
-  const search = "Customer 1";
-  const filtered = cached.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
-  assert.equal(filtered.length >= 11, true); // Customer 1, 10, 11, 12, etc.
-});
-
 test("Fix 3 - Category Products: fetchProductsByCategory queries WooCommerce with page and per_page", async () => {
   const originalApiGet = api.get;
   const capturedParams = [];

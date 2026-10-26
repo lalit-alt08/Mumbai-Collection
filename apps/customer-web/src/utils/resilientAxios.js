@@ -58,9 +58,17 @@ export const attachStaleConnectionRetry = (axiosInstance) => {
       const config = error?.config;
       if (!config) return Promise.reject(error);
 
+      const errorCode = String(error.code || "").toUpperCase();
+      const errorMessage = String(error.message || "").toLowerCase();
+      const isTimeoutError =
+        errorCode === "ECONNABORTED" ||
+        errorCode === "ETIMEDOUT" ||
+        errorMessage.includes("timeout");
+      const shouldSkipTimeoutRetry = config.skipTimeoutRetry === true && isTimeoutError;
+
       // Only retry idempotent reads, once. The server may have processed a write
       // even when the browser received no response.
-      if (!config._networkRetryCount && shouldRetryReadRequest(error, config)) {
+      if (!config._networkRetryCount && !shouldSkipTimeoutRetry && shouldRetryReadRequest(error, config)) {
         const delayMs = getReadRetryDelayMs(error);
         if (delayMs === null) return Promise.reject(error);
         config._networkRetryCount = 1;

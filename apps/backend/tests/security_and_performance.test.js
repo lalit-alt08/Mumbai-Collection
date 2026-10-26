@@ -11,7 +11,7 @@ import {
 import { requireRole } from "../src/middlewares/roleMiddleware.js";
 import { formatEmployeeMediaUploadResponse } from "../src/controllers/employeeController.js";
 import { serverCache } from "../src/utils/memoryCache.js";
-import { maskEmail, maskPhone, redactSensitive } from "../src/utils/auditLogger.js";
+import { maskEmail, maskPhone, redactSensitive } from "../src/utils/piiUtils.js";
 
 // ==========================================
 // 1. CSRF Protection Middleware Tests
@@ -303,12 +303,12 @@ test("MemoryCache: Prefix invalidation properly removes matching keys", async (t
 // ==========================================
 // 4. Audit Logger PII Redaction Tests
 // ==========================================
-test("AuditLogger: Masks customer email and phone correctly", (t) => {
+test("PII helpers: Mask customer email and phone correctly", (t) => {
   assert.equal(maskEmail("john.doe@example.com"), "j***e@example.com");
   assert.equal(maskPhone("+91 98765 43210"), "******3210");
 });
 
-test("AuditLogger: Redacts sensitive password and token fields from audit details", (t) => {
+test("PII helpers: Redact sensitive password and token fields", (t) => {
   const sensitivePayload = {
     password: "supersecret123",
     auth_token: "jwt.token.here",

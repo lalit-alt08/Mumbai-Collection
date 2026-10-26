@@ -10,7 +10,6 @@ import {
   checkSessionSuspended,
   invalidateUserSessionCache,
 } from "../src/middlewares/authMiddleware.js";
-import { logAuditEvent } from "../src/utils/auditLogger.js";
 
 // Mock helper for Express req/res
 const createMockContext = ({
@@ -55,22 +54,9 @@ const createMockContext = ({
 test("Customer Suspension Architecture & Enforcement Suite", async (t) => {
   const originalWpGet = wp.get;
   const originalWpPost = wp.post;
-  let capturedLogs = [];
-  const originalConsoleLog = console.log;
-
-  t.beforeEach(() => {
-    capturedLogs = [];
-    console.log = (msg) => {
-      if (typeof msg === "string" && msg.startsWith("[AUDIT] ")) {
-        capturedLogs.push(JSON.parse(msg.slice(8)));
-      }
-    };
-  });
-
   t.afterEach(() => {
     wp.get = originalWpGet;
     wp.post = originalWpPost;
-    console.log = originalConsoleLog;
   });
 
   await t.test("1. Customer Lookup: Missing email returns 400", async () => {
@@ -175,7 +161,7 @@ test("Customer Suspension Architecture & Enforcement Suite", async (t) => {
     assert.match(res2.getData().message, /duration is required/i);
   });
 
-  await t.test("6. Suspend Customer: 3 months duration logs audit event with internal reason", async () => {
+  await t.test("6. Suspend Customer: 3 months duration returns suspension details", async () => {
     wp.post = async (url, data) => {
       assert.equal(url, "/wp-json/mumbai-auth/v1/admin/customer-suspension/suspend");
       assert.equal(data.email, "customer@example.com");
@@ -214,17 +200,6 @@ test("Customer Suspension Architecture & Enforcement Suite", async (t) => {
     assert.equal(res.getData().success, true);
     assert.equal(res.getData().customer.is_suspended, true);
 
-    // Verify audit log captured
-    assert.equal(capturedLogs.length, 1);
-    const log = capturedLogs[0];
-    assert.equal(log.action, "customer.suspended");
-    assert.equal(log.target.type, "customer");
-    assert.equal(log.target.id, 101);
-    assert.equal(log.actor.id, 1);
-    assert.equal(log.details.email, "c***r@example.com");
-    assert.equal(log.details.duration, "3_months");
-    assert.equal(log.details.is_permanent, false);
-    assert.equal(log.details.reason, "Repeated failed delivery");
   });
 
   await t.test("7. Suspend Customer: Permanent duration sets is_permanent=true and expires_at=null", async () => {
@@ -262,7 +237,7 @@ test("Customer Suspension Architecture & Enforcement Suite", async (t) => {
     assert.equal(res.getData().customer.expires_at, null);
   });
 
-  await t.test("8. Unsuspend Customer: Clears suspension and logs audit event", async () => {
+  await t.test("8. Unsuspend Customer: Clears suspension", async () => {
     wp.post = async (url, data) => {
       assert.equal(url, "/wp-json/mumbai-auth/v1/admin/customer-suspension/unsuspend");
       assert.equal(data.email, "customer@example.com");
@@ -287,11 +262,6 @@ test("Customer Suspension Architecture & Enforcement Suite", async (t) => {
     await unsuspendCustomer(req, res);
     assert.equal(res.getStatus(), 200);
     assert.equal(res.getData().customer.is_suspended, false);
-
-    assert.equal(capturedLogs.length, 1);
-    const log = capturedLogs[0];
-    assert.equal(log.action, "customer.unsuspended");
-    assert.equal(log.target.id, 101);
   });
 
   await t.test("9. Server-Side Expiry Evaluation: Expired temporary suspension is automatically inactive", () => {

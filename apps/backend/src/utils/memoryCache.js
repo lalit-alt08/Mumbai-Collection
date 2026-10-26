@@ -199,6 +199,7 @@ class MemoryCache {
               pipeline.exec().catch(() => {});
             }
           });
+          stream.on("error", () => {});
         } catch (err) {
           logger.debug({ prefix, err: err?.message }, "[Cache] Failed to scan and delete Redis prefix");
         }

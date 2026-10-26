@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Home, LayoutGrid, Package, User } from "lucide-react";
 import { triggerHaptic } from "../../utils/haptics";
+import HapticTapTarget from "../common/HapticTapTarget";
 
 function BottomNav() {
   const location = useLocation();
@@ -130,41 +131,46 @@ function BottomNav() {
           const active = item.isActive;
 
           return (
-            <Link
+            <HapticTapTarget
               key={item.id}
-              to={item.to}
-              onClick={() => {
-                if (!active) {
-                  triggerHaptic("selection");
-                }
-              }}
-              style={{ touchAction: "manipulation" }}
-              className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 select-none ${
-                active ? "text-[#42D6E8]" : "text-[#6E84A3] hover:text-[#42D6E8]"
-              }`}
+              className="flex flex-1 self-stretch"
+              enabled={!active}
             >
-              <div
-                className={`relative flex items-center justify-center transition-transform duration-200 ${
-                  active ? "scale-105" : "group-hover:scale-105"
+              <Link
+                to={item.to}
+                onClick={() => {
+                  if (!active) {
+                    triggerHaptic("selection");
+                  }
+                }}
+                style={{ touchAction: "manipulation" }}
+                className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 select-none ${
+                  active ? "text-[#42D6E8]" : "text-[#6E84A3] hover:text-[#42D6E8]"
                 }`}
               >
-                <Icon
-                  size={20}
-                  strokeWidth={active ? 2.5 : 1.8}
-                  className={`transition-colors ${
-                    active ? "text-[#42D6E8] fill-[#42D6E8]/20" : "text-[#6E84A3]"
+                <div
+                  className={`relative flex items-center justify-center transition-transform duration-200 ${
+                    active ? "scale-105" : "group-hover:scale-105"
                   }`}
-                />
-              </div>
+                >
+                  <Icon
+                    size={20}
+                    strokeWidth={active ? 2.5 : 1.8}
+                    className={`transition-colors ${
+                      active ? "text-[#42D6E8] fill-[#42D6E8]/20" : "text-[#6E84A3]"
+                    }`}
+                  />
+                </div>
 
-              <span
-                className={`text-[11px] tracking-tight transition-colors ${
-                  active ? "font-bold text-[#42D6E8]" : "font-medium text-[#6E84A3]"
-                }`}
-              >
-                {item.label}
-              </span>
-            </Link>
+                <span
+                  className={`text-[11px] tracking-tight transition-colors ${
+                    active ? "font-bold text-[#42D6E8]" : "font-medium text-[#6E84A3]"
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </Link>
+            </HapticTapTarget>
           );
         })}
       </div>
