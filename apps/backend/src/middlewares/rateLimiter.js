@@ -76,10 +76,20 @@ export const createRateLimiter = ({
     if (redis) {
       try {
         const redisKey = `ratelimit:${key}`;
-        const count = await redis.incr(redisKey);
-        if (count === 1) {
-          await redis.pexpire(redisKey, windowMs);
-        }
+        // Atomic INCR + PEXPIRE with self-healing for counters missing expiry
+        const LUA_RATELIMIT = `
+          local current = redis.call('INCR', KEYS[1])
+          if current == 1 then
+            redis.call('PEXPIRE', KEYS[1], ARGV[1])
+          else
+            local ttl = redis.call('PTTL', KEYS[1])
+            if ttl == -1 then
+              redis.call('PEXPIRE', KEYS[1], ARGV[1])
+            end
+          end
+          return current
+        `;
+        const count = Number(await redis.eval(LUA_RATELIMIT, 1, redisKey, windowMs));
         if (count > max) {
           const ttlMs = await redis.pttl(redisKey);
           const remainingSeconds = Math.max(1, Math.ceil(ttlMs / 1000));

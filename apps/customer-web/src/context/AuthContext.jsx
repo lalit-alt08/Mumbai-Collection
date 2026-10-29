@@ -12,13 +12,14 @@ import {
 } from "../services/authService";
 
 import { clearCartSession } from "../services/storeApi";
-import safeStorage from "../utils/safeStorage.js";
+import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   // ==========================================
   // RESTORE EXISTING LOGIN SESSION
@@ -34,6 +35,7 @@ export function AuthProvider({ children }) {
         safeStorage.removeItem("user_profile");
 
         if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
+          setIsReconnecting(false);
           const cachedUser = safeSessionStorage.getJSON("user", {});
           const cachedProfile = safeSessionStorage.getJSON("user_profile", {});
 
@@ -96,14 +98,28 @@ export function AuthProvider({ children }) {
             roles: userData.roles || [],
           });
         } else {
+          setIsReconnecting(false);
           setUser(null);
           safeSessionStorage.removeItem("user");
           safeSessionStorage.removeItem("user_profile");
         }
       } catch (error) {
-        setUser(null);
-        safeSessionStorage.removeItem("user");
-        safeSessionStorage.removeItem("user_profile");
+        if (error.response?.status === 401) {
+          setIsReconnecting(false);
+          setUser(null);
+          safeSessionStorage.removeItem("user");
+          safeSessionStorage.removeItem("user_profile");
+        } else {
+          // Outage / 503 / temporary network failure:
+          // Maintain reconnecting state and flag cached display data as unverified
+          setIsReconnecting(true);
+          const cached = safeSessionStorage.getJSON("user", null);
+          if (cached) {
+            setUser({ ...cached, isUnverified: true });
+          } else {
+            setUser(null);
+          }
+        }
       } finally {
         setLoading(false);
       }
@@ -117,6 +133,7 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const login = (userData) => {
+    setIsReconnecting(false);
     // Purge any leftover cart tokens from prior session/guest to prevent cross-account leakage
     clearCartSession();
     safeStorage.removeItem("user");
@@ -150,6 +167,7 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const handleSessionExpired = () => {
+    setIsReconnecting(false);
     setUser(null);
     safeSessionStorage.removeItem("user");
     safeSessionStorage.removeItem("user_profile");
@@ -165,9 +183,9 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       // Call Node → WordPress logout
-      await logoutApi();
+      return await logoutApi();
     } catch {
-      // Ignore logout API error, proceed to clear local state
+      return { server_revocation_confirmed: false };
     } finally {
       // Always clear frontend authentication & cart state
       handleSessionExpired();
@@ -195,6 +213,7 @@ export function AuthProvider({ children }) {
     try {
       const response = await getCurrentUser();
       if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
+        setIsReconnecting(false);
         const userData = response.user || {
           id: response.current_user_id,
           roles: response.roles || [],
@@ -209,9 +228,12 @@ export function AuthProvider({ children }) {
         if (response.user?.phone || response.phone) {
           userData.phone = response.user?.phone || response.phone;
         }
-        setUser((prev) => ({ ...(prev || {}), ...userData }));
-        const current = safeStorage.getJSON("user", {});
-        safeStorage.setJSON("user", { ...current, ...userData });
+        setUser((prev) => ({ ...(prev || {}), ...userData, isUnverified: false }));
+        safeSessionStorage.setJSON("user", {
+          id: userData.id || response.current_user_id,
+          name: userData.name || "",
+          roles: userData.roles || [],
+        });
         return userData;
       } else {
         handleSessionExpired();
@@ -224,6 +246,21 @@ export function AuthProvider({ children }) {
     return null;
   };
 
+  useEffect(() => {
+    if (!isReconnecting) return;
+    let cancelled = false;
+    let inFlight = false;
+    const retry = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try { await refreshUser(); } finally { inFlight = false; }
+    };
+    const timer = setInterval(retry, 10000);
+    const onVisible = () => { if (document.visibilityState === "visible") void retry(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [isReconnecting]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -234,7 +271,8 @@ export function AuthProvider({ children }) {
         logout,
         handleSessionExpired,
         deleteAccount,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && !isReconnecting && !user?.isUnverified,
+        isReconnecting,
         loading,
       }}
     >

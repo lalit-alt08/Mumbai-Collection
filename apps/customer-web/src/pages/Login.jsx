@@ -97,6 +97,10 @@ function Login() {
           err.response.data?.message ||
             "Too many login attempts. Please try again later.",
         );
+      } else if (err.response?.status === 400 || err.response?.status === 403 || err.response?.status === 409) {
+        setError(err.response.data?.message || "Login request rejected.");
+      } else if (err.response?.status === 503) {
+        setError("Authentication service is temporarily unavailable. Please retry in a moment.");
       } else {
         setError("Unable to connect to the server. Please try again.");
       }
@@ -107,22 +111,22 @@ function Login() {
   };
 
   return (
-    <div className="bg-[#0B1425] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">
+    <div className="bg-[#0B1425] font-sans md:flex md:min-h-[calc(100vh-80px)] md:items-center md:justify-center md:py-8 lg:py-12">
       {/* Login Form Container */}
-      <div className="mx-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[480px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-10 md:py-12 md:shadow-lg">
+      <div className="mx-auto my-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[460px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-8 md:py-8 md:shadow-2xl">
         <div className="w-full">
           {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[32px]">
+          <div className="mb-6 md:mb-5">
+            <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[30px]">
               Sign In
             </h1>
 
-            <p className="mt-2 text-[15px] text-[#8FA4BE] md:text-[16px]">
+            <p className="mt-2 text-[15px] text-[#8FA4BE] md:text-[15px]">
               Please enter your details to access your account.
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="flex flex-col gap-5">
+          <form onSubmit={handleLogin} className="flex flex-col gap-5 md:gap-4">
             {/* Email Field */}
             <div>
               <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
@@ -144,7 +148,7 @@ function Login() {
                     setEmailError("");
                     setError("");
                   }}
-                  className="h-[56px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
+                  className="h-[56px] md:h-[50px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
                   required
                 />
               </div>
@@ -175,7 +179,7 @@ function Login() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className="h-[56px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
+                  className="h-[56px] md:h-[50px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
                   required
                 />
 
@@ -192,7 +196,7 @@ function Login() {
                 <p className="mt-2 text-sm text-rose-400">{passwordError}</p>
               )}
 
-              <div className="mt-3 flex justify-end">
+              <div className="mt-2.5 flex justify-end">
                 <button
                   type="button"
                   onClick={() => navigate("/forgot-password")}
@@ -214,7 +218,7 @@ function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
+              className="mt-1 md:mt-2 flex h-[56px] md:h-[50px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Signing in..." : "Sign In"}
 
@@ -223,7 +227,7 @@ function Login() {
           </form>
 
           {/* Divider */}
-          <div className="relative my-6 flex items-center justify-center">
+          <div className="relative my-5 md:my-4 flex items-center justify-center">
             <div className="w-full border-t border-[#1E3252]/80" />
             <span className="absolute bg-[#0B1425] md:bg-[#111F36] px-3 text-[11px] font-bold uppercase tracking-wider text-[#6E84A3]">
               or sign in with Google
@@ -239,7 +243,7 @@ function Login() {
           </div>
 
           {/* Footer */}
-          <p className="mt-8 text-center text-[14px] text-[#8FA4BE]">
+          <p className="mt-6 md:mt-5 text-center text-[14px] text-[#8FA4BE]">
             Don't have an account?
             <button
               type="button"

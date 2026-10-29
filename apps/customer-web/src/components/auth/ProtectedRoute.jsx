@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 
 function ProtectedRoute() {
-  const { isAuthenticated, loading, handleSessionExpired } = useAuth();
+  const { isAuthenticated, isReconnecting, loading, handleSessionExpired } = useAuth();
   const location = useLocation();
 
   const isProfileSetupRoute = location.pathname === "/profile-setup";
@@ -14,8 +14,8 @@ function ProtectedRoute() {
 
   useEffect(() => {
     const checkProfile = async () => {
-      // AuthContext is still checking the server session
-      if (loading) {
+      // AuthContext is still checking the server session or reconnecting
+      if (loading || isReconnecting) {
         return;
       }
 
@@ -57,13 +57,19 @@ function ProtectedRoute() {
     };
 
     checkProfile();
-  }, [isAuthenticated, loading, location.pathname, handleSessionExpired]);
+  }, [isAuthenticated, loading, isReconnecting, location.pathname, handleSessionExpired]);
 
-  // AuthContext is still restoring/checking the login session
-  if (loading) {
+  // AuthContext is still restoring/checking the login session or reconnecting
+  if (loading || isReconnecting) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
+      <div className="flex min-h-[50vh] flex-col items-center justify-center p-6 text-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8] mb-3" />
+        {isReconnecting && (
+          <>
+            <p className="text-sm font-medium text-[#0A1628]/70">Reconnecting to store...</p>
+            <p className="text-xs text-[#0A1628]/50 mt-1">Our services are momentarily synchronizing. Please wait a moment.</p>
+          </>
+        )}
       </div>
     );
   }

@@ -703,7 +703,10 @@ function mumbai_login(WP_REST_Request $request)
     }
     $user = get_user_by('email', $email);
     if (!$user) {
-        // Generic message — don't reveal whether email exists
+        // Equalize response timing with valid accounts to prevent timing enumeration
+        $dummy_hash = '$P$B71VqT0EaKz.w6m0/5Q6Gz2sC/l0Bq.';
+        wp_check_password($password, $dummy_hash);
+        usleep(500000);
         return new WP_Error(
             'login_failed',
             'Invalid email or password.',
@@ -718,6 +721,8 @@ function mumbai_login(WP_REST_Request $request)
     if ($failed_attempts >= MUMBAI_MAX_LOGIN_ATTEMPTS && time() < $lockout_until) {
         $minutes_left = ceil(($lockout_until - time()) / 60);
         mumbai_log("Login blocked for user {$user->ID} — locked for {$minutes_left} more minutes.");
+        // Equalize response timing with password hash verification to prevent account enumeration
+        usleep(500000);
         return new WP_Error(
             'account_locked',
             "Too many failed attempts. Please try again in {$minutes_left} minute(s).",
@@ -769,8 +774,12 @@ function mumbai_login(WP_REST_Request $request)
     wp_set_current_user($signon->ID);
     /*
      * Create ONE session token and use it everywhere.
+     * Enforce 12-hour expiration on server-side WordPress session for staff/admins,
+     * and 30 days for regular customers.
      */
-    $expiration = time() + (30 * DAY_IN_SECONDS);
+    $user_roles = (array) $signon->roles;
+    $is_staff = !empty(array_intersect(['administrator', 'employee', 'shop_manager'], $user_roles));
+    $expiration = time() + ($is_staff ? (12 * HOUR_IN_SECONDS) : (30 * DAY_IN_SECONDS));
     $session_manager = WP_Session_Tokens::get_instance($signon->ID);
     $session_token   = $session_manager->create($expiration);
     /*
@@ -834,6 +843,14 @@ function mumbai_sso(WP_REST_Request $request)
 
     if (!$email || !$google_sub) {
         return new WP_Error('missing_data', 'Email and Google Sub are required for SSO.', ['status' => 400]);
+    }
+
+    $active_user_id = (int) $request->get_param('authenticated_user_id');
+    if ($active_user_id > 0) {
+        $active_user = get_user_by('id', $active_user_id);
+        if (!$active_user || strtolower(sanitize_email($active_user->user_email)) !== $email) {
+            return new WP_Error('sso_account_mismatch', 'Please choose the Google account matching your store account email.', ['status' => 409]);
+        }
     }
 
     $user = null;
@@ -908,7 +925,20 @@ function mumbai_sso(WP_REST_Request $request)
                 );
             }
 
-            // First time linking existing account to Google
+            // If account exists with this email but has never been linked to Google:
+            // Require proof of ownership: caller must already be authenticated as this candidate user.
+            $authenticated_user_id = (int) $request->get_param('authenticated_user_id');
+            $is_owner_confirmed = ($authenticated_user_id > 0 && $authenticated_user_id === (int) $candidate_user->ID);
+
+            if ($existing_google_sub === '' && !$is_owner_confirmed) {
+                return new WP_Error(
+                    'sso_linking_verification_required',
+                    'An account with this email already exists. Please sign in with your password or email OTP first, then link Google from your account.',
+                    ['status' => 409]
+                );
+            }
+
+            // Verified linking of existing account to Google
             $user = $candidate_user;
             if ($existing_google_sub === '') {
                 update_user_meta($user->ID, '_google_sub', $google_sub);
@@ -1578,6 +1608,42 @@ function mumbai_me()
         ? get_user_by('id', $validated_user_id)
         : null;
 
+    // Enforce 12-hour session lifetime on existing/active staff sessions in WordPress
+    if ($user && $cookie_value && class_exists('WP_Session_Tokens')) {
+        $user_roles = (array) $user->roles;
+        $is_staff = !empty(array_intersect(['administrator', 'employee', 'shop_manager'], $user_roles));
+        if ($is_staff) {
+            $cookie_elements = wp_parse_auth_cookie($cookie_value, 'logged_in');
+            if ($cookie_elements && !empty($cookie_elements['token'])) {
+                $token = $cookie_elements['token'];
+                $manager = WP_Session_Tokens::get_instance($user->ID);
+                $session = $manager->get($token);
+                if (is_array($session)) {
+                    $login_time = !empty($session['login']) ? (int) $session['login'] : 0;
+                    $max_allowed_expiration = $login_time > 0
+                        ? $login_time + (12 * HOUR_IN_SECONDS)
+                        : time() + (12 * HOUR_IN_SECONDS);
+
+                    // If the session was created more than 12 hours ago, revoke it immediately
+                    if ($login_time > 0 && time() > $max_allowed_expiration) {
+                        $manager->destroy($token);
+                        return [
+                            'logged_in'       => false,
+                            'current_user_id' => 0,
+                            'roles'           => [],
+                        ];
+                    }
+
+                    // If expiration exceeds 12 hours from session creation, clamp it
+                    if (isset($session['expiration']) && (int) $session['expiration'] > $max_allowed_expiration) {
+                        $session['expiration'] = $max_allowed_expiration;
+                        $manager->update($token, $session);
+                    }
+                }
+            }
+        }
+    }
+
     $is_phone_verified = false;
     $is_suspended = false;
     $phone = '';
@@ -1595,9 +1661,15 @@ function mumbai_me()
         if (is_array($prof) && !empty($prof['full_name'])) {
             $display_name = trim((string) $prof['full_name']);
         }
+        $first_name = (string) get_user_meta($user->ID, 'first_name', true);
+        $last_name = (string) get_user_meta($user->ID, 'last_name', true);
+        if (empty($first_name)) {
+            $first_name = (string) get_user_meta($user->ID, 'billing_first_name', true);
+        }
+        if (empty($last_name)) {
+            $last_name = (string) get_user_meta($user->ID, 'billing_last_name', true);
+        }
         if (empty($display_name)) {
-            $first_name = (string) get_user_meta($user->ID, 'first_name', true);
-            $last_name = (string) get_user_meta($user->ID, 'last_name', true);
             $billing_first = (string) get_user_meta($user->ID, 'billing_first_name', true);
             $billing_last = (string) get_user_meta($user->ID, 'billing_last_name', true);
             $full = trim("{$first_name} {$last_name}");
@@ -1610,6 +1682,9 @@ function mumbai_me()
         'logged_in'          => $validated_user_id > 0,
         'current_user_id'    => $validated_user_id,
         'email'              => $user ? (string) $user->user_email : '',
+        'username'           => $user ? (string) $user->user_login : '',
+        'first_name'         => $first_name,
+        'last_name'          => $last_name,
         'roles'              => $user ? array_values($user->roles) : [],
         'name'               => $display_name,
         'display_name'       => $display_name,

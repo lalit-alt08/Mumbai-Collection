@@ -59,17 +59,24 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-export const invalidateSessionCache = (cookie) => {
+export const invalidateSessionCache = async (cookie, { permanent = false } = {}) => {
   if (cookie) {
     sessionCache.delete(cookie);
     const redis = getRedisClient();
     if (redis) {
       try {
         const keyHash = hashCookieKey(cookie);
-        redis.del(`sess:${keyHash}`).catch(() => {});
-      } catch (_) {}
+        // Fallback for dropped Pub/Sub or unconfirmed upstream revocation:
+        // Use 30-day TTL (2592000s) if permanent, otherwise 65s for distributed broadcast
+        const ttl = permanent ? 30 * 86400 : 65;
+        await redis.set(`sess:revoked:${keyHash}`, "1", "EX", ttl);
+        await redis.del(`sess:${keyHash}`);
+        await redis.publish("mumbai:session:invalidate", JSON.stringify({ keyHash }));
+        return true;
+      } catch (error) { logger.warn({ err: error?.message }, "Session cache invalidation failed"); }
     }
   }
+  return false;
 };
 
 export const invalidateUserSessionCache = (userId) => {
@@ -121,10 +128,17 @@ try {
     sub.on("message", (channel, message) => {
       if (channel === "mumbai:session:invalidate") {
         try {
-          const { userId } = JSON.parse(message);
+          const { userId, keyHash } = JSON.parse(message);
           if (userId) {
             for (const [cookie, data] of sessionCache.entries()) {
               if (data.userId === userId || Number(data.userId) === Number(userId)) {
+                sessionCache.delete(cookie);
+              }
+            }
+          }
+          if (keyHash) {
+            for (const cookie of sessionCache.keys()) {
+              if (hashCookieKey(cookie) === keyHash) {
                 sessionCache.delete(cookie);
               }
             }
@@ -152,36 +166,49 @@ const executeAuth = async (context, req, res, next) => {
       });
     }
 
+    const keyHash = hashCookieKey(wpAuth);
+    const redis = getRedisClient();
+
+    // 1. Immediately block any session marked as revoked in distributed Redis
+    if (redis) {
+      try {
+        const isRevoked = await redis.get(`sess:revoked:${keyHash}`);
+        if (isRevoked) {
+          sessionCache.delete(wpAuth);
+          return res.status(401).json({
+            success: false,
+            message: "Session has been revoked.",
+          });
+        }
+      } catch (_) {}
+    }
+
     const now = Date.now();
     let cached = sessionCache.get(wpAuth);
 
     // If not in local process RAM, check distributed Redis cache across instances
-    if (!cached) {
-      const redis = getRedisClient();
-      if (redis) {
-        try {
-          const keyHash = hashCookieKey(wpAuth);
-          const redisData = await redis.get(`sess:${keyHash}`);
-          if (redisData) {
-            cached = JSON.parse(redisData);
-            sessionCache.set(wpAuth, cached);
-          }
-        } catch (_) {}
-      }
+    if (!cached && redis) {
+      try {
+        const redisData = await redis.get(`sess:${keyHash}`);
+        if (redisData) {
+          cached = JSON.parse(redisData);
+          sessionCache.set(wpAuth, cached);
+        }
+      } catch (_) {}
     }
 
-    // 1. Use 60-second session cache (from RAM or Redis) with distributed revocation check
-    if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
-      const redis = getRedisClient();
-      if (redis && cached.userId) {
-        try {
-          const revTime = await redis.get(`sess:user_rev:${cached.userId}`);
-          if (revTime && Number(revTime) >= cached.timestamp) {
-            sessionCache.delete(wpAuth);
-            cached = null;
-          }
-        } catch (_) {}
-      }
+    // Check user-level revocation marker if session is in cache
+    if (cached && redis && cached.userId) {
+      try {
+        const revTime = await redis.get(`sess:user_rev:${cached.userId}`);
+        if (revTime && Number(revTime) >= cached.timestamp) {
+          sessionCache.delete(wpAuth);
+          return res.status(401).json({
+            success: false,
+            message: "Session has been revoked.",
+          });
+        }
+      } catch (_) {}
     }
 
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
@@ -352,6 +379,16 @@ export const getSessionValidation = async (wpAuth) => {
     return { valid: false, error: "AUTH_REQUIRED" };
   }
 
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      if (await redis.get(`sess:revoked:${hashCookieKey(wpAuth)}`)) {
+        sessionCache.delete(wpAuth);
+        return { valid: false, error: "AUTH_REQUIRED" };
+      }
+    } catch (_) { return { valid: false, error: "AUTH_UNAVAILABLE" }; }
+  }
+
   const now = Date.now();
   const cached = sessionCache.get(wpAuth);
   if (
@@ -455,6 +492,19 @@ const executeOptionalAuth = async (context, req, res, next) => {
 
     if (!wpAuth) {
       return next();
+    }
+
+    const keyHash = hashCookieKey(wpAuth);
+    const redis = getRedisClient();
+
+    if (redis) {
+      try {
+        const isRevoked = await redis.get(`sess:revoked:${keyHash}`);
+        if (isRevoked) {
+          sessionCache.delete(wpAuth);
+          return next();
+        }
+      } catch (_) {}
     }
 
     const now = Date.now();

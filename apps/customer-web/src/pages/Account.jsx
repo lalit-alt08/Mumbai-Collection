@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import API_URL from "../config/api.js";
 import safeStorage from "../utils/safeStorage.js";
+import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
 import {
   User,
   Heart,
@@ -86,7 +87,10 @@ function Account() {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      const result = await logout();
+      if (!result?.server_revocation_confirmed) {
+        window.alert("You have been signed out on this device, but the server could not confirm logout. Please contact support if you need to secure your account.");
+      }
     } finally {
       navigate("/", { replace: true });
     }
@@ -289,6 +293,7 @@ function Account() {
         {/* LOGOUT ACTION CARD                                         */}
         {/* ────────────────────────────────────────────────────────── */}
         <div className="pt-1">
+          <div className="mb-3"><GoogleAuthButton mode="link" /></div>
           <button
             onClick={handleLogout}
             className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-900/60 bg-[#111F36] px-5 py-3.5 text-sm font-bold text-rose-400 shadow-xs transition-all hover:bg-rose-950/40 hover:border-rose-800 active:scale-[0.99] cursor-pointer"

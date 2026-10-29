@@ -37,6 +37,7 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
 
   const [loading, setLoading] = useState(false);
   const [internalError, setInternalError] = useState("");
+  const [linked, setLinked] = useState(false);
 
   const handleLoginSuccess = async (codeResponse) => {
     try {
@@ -44,6 +45,13 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
       setInternalError("");
 
       const res = await googleLogin({ code: codeResponse.code });
+
+      if (mode === "link") {
+        if (!res?.success || !res?.user) throw new Error("Google linking was not confirmed.");
+        loginUser(res.user);
+        setLinked(true);
+        return;
+      }
 
       if (res?.user) {
         loginUser(res.user);
@@ -91,7 +99,9 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
           });
         }
       } catch {
-        navigate("/profile-setup", { replace: true });
+        // If checking profile completeness experiences a network error, do not assume profile is incomplete!
+        const from = location.state?.from;
+        navigate(from || "/", { replace: true });
       }
     } catch (err) {
       const msg =
@@ -120,6 +130,7 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
 
   return (
     <div className="w-full space-y-3">
+      {linked && <p role="status" className="text-sm text-emerald-400">Google account linked successfully.</p>}
       {internalError && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-950/20 px-3.5 py-2.5 text-xs font-semibold text-rose-400">
           <AlertCircle size={15} className="shrink-0" />
@@ -145,7 +156,7 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
           <>
             <GoogleIcon className="h-4.5 w-4.5 sm:h-5 sm:w-5 shrink-0" />
             <span>
-              {mode === "signup" ? "Sign up with Google" : "Sign in with Google"}
+              {mode === "link" ? "Link Google account" : mode === "signup" ? "Sign up with Google" : "Sign in with Google"}
             </span>
           </>
         )}

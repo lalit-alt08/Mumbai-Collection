@@ -7,7 +7,7 @@ import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache, setSe
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
 import { formatCustomerDisplayName, parseFirstAndLastName } from "../utils/nameFormatter.js";
-import { logError } from "../utils/logger.js";
+import { logger, logError } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 
 /**
@@ -185,22 +185,33 @@ export const logout = async (req, res) => {
     const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
     const clearOptions = getClearCookieOptions(req);
 
+    let serverRevocationSuccess = true;
     if (wpAuth) {
-      invalidateSessionCache(wpAuth);
-
       // Invalidate session on WordPress server-side specifically for this session token
-      await axios.post(
-        `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
-        {},
-        {
-          headers: {
-            Cookie: wpAuth,
-            ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
-          },
-          httpsAgent,
-          timeout: 5000,
-        }
-      ).catch(() => {});
+      try {
+        await axios.post(
+          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
+          {},
+          {
+            headers: {
+              Cookie: wpAuth,
+              ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
+            },
+            httpsAgent,
+            timeout: 5000,
+          }
+        );
+      } catch (err) {
+        serverRevocationSuccess = false;
+        logger.warn({ err: err?.message }, "[Auth] Upstream WordPress session revocation could not be confirmed during logout");
+      }
+
+      // Invalidate session cache across all instances. If WordPress revocation failed,
+      // store a long-lived revocation marker in Redis to prevent session resurrection.
+      const sharedRevocationConfirmed = await invalidateSessionCache(wpAuth, { permanent: !serverRevocationSuccess });
+      if (!serverRevocationSuccess && !sharedRevocationConfirmed) {
+        logger.error("[Auth] Logout could not revoke the WordPress session or persist a Redis revocation marker");
+      }
     }
 
     // Clear only this panel's cookies, leaving other panels untouched
@@ -209,7 +220,10 @@ export const logout = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Logged out successfully.",
+      server_revocation_confirmed: serverRevocationSuccess,
+      message: serverRevocationSuccess
+        ? "Logged out successfully."
+        : "Local logout completed. Server session revocation could not be fully confirmed.",
       context,
     });
   } catch (error) {
@@ -443,14 +457,21 @@ export const me = async (req, res) => {
       phone: response.data?.phone || "",
     };
 
-    // Skip heavy WooCommerce customer lookup for administrators and staff
+    // Populate user profile from WordPress /me response directly
+    if (response.data?.first_name) userDetails.first_name = response.data.first_name;
+    if (response.data?.last_name) userDetails.last_name = response.data.last_name;
+    if (response.data?.username) userDetails.username = response.data.username;
+    if (response.data?.name) userDetails.name = response.data.name;
+
+    // Skip heavy WooCommerce customer lookup if name data is already present, or for staff
+    const hasNameData = Boolean(userDetails.first_name || userDetails.name);
     const isStaffOrAdmin =
       context === "admin" ||
       context === "employee" ||
       roles.includes("administrator") ||
       roles.includes("employee");
 
-    if (!isStaffOrAdmin && context === "customer") {
+    if (!hasNameData && !isStaffOrAdmin && context === "customer") {
       try {
         const customerRes = await wcApi.get(`customers/${userId}`);
         if (customerRes.data) {
@@ -459,8 +480,8 @@ export const me = async (req, res) => {
           const isSystemUsername =
             (c.username || "").toLowerCase() === "mumbaicollection" ||
             (c.username || "").toLowerCase() === "mumbai collection";
-          userDetails.first_name = c.first_name || "";
-          userDetails.last_name = c.last_name || "";
+          userDetails.first_name = c.first_name || userDetails.first_name || "";
+          userDetails.last_name = c.last_name || userDetails.last_name || "";
           userDetails.name =
             fullName || (!isSystemUsername ? c.username : "") || userDetails.name;
           userDetails.username =
@@ -490,6 +511,22 @@ export const me = async (req, res) => {
       verified_phone: response.data?.verified_phone || "",
     });
   } catch (error) {
+    const isUpstreamOutage =
+      !error.response ||
+      error.response.status >= 500 ||
+      error.code === "ECONNREFUSED" ||
+      error.code === "ETIMEDOUT";
+
+    if (isUpstreamOutage) {
+      return res.status(503).json({
+        success: false,
+        unavailable: true,
+        logged_in: false,
+        user: null,
+        message: "Authentication service temporarily unavailable.",
+      });
+    }
+
     res.status(error.response?.status || 401).json({
       success: false,
       logged_in: false,
