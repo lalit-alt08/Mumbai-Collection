@@ -12,6 +12,8 @@ import { logError, logger } from "../utils/logger.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 
+const MAX_HOME_SHELVES = 8;
+
 export const getAllProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
@@ -100,14 +102,17 @@ export const getProductById = async (req, res) => {
 export const getProductsByIds = async (req, res) => {
   try {
     const ids = [...new Set(String(req.query.ids || "").split(",").map(Number))];
+    const detailMode = ["selection", "cross-sells"].includes(req.query.details)
+      ? req.query.details
+      : "catalog";
     if (ids.length === 0 || ids.length > 12 || ids.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
       return res.status(400).json({ success: false, message: "Provide between 1 and 12 valid product IDs." });
     }
 
-    const cacheKey = `catalog:products:ids:${ids.join(",")}`;
+    const cacheKey = `catalog:products:ids:${detailMode}:${ids.join(",")}`;
     const products = await serverCache.getOrFetch(
       cacheKey,
-      () => fetchProductsByIds(ids),
+      () => fetchProductsByIds(ids, detailMode),
       30000
     );
     const selectedProducts = (Array.isArray(products) ? products : []);
@@ -282,8 +287,12 @@ export const getAllCategories = async (req, res) => {
  */
 export const getHomeShelves = async (req, res) => {
   try {
+    const page = Number(req.query.page) || 1;
+    const offset = (page - 1) * MAX_HOME_SHELVES;
     const result = await serverCache.getOrFetch(
-      "catalog:home_shelves",
+      // Version and page the cache key so an older Redis payload cannot keep
+      // serving unbounded shelves, and later pages are fetched independently.
+      `catalog:home_shelves:v3:page:${page}`,
       async () => {
         const categories = await serverCache.getOrFetch(
           "catalog:categories:all",
@@ -323,12 +332,17 @@ export const getHomeShelves = async (req, res) => {
             return orderA - orderB || Number(a.id) - Number(b.id);
           });
 
-        const shelves = new Array(departments.length);
+        // The full department list remains available on /categories. Keep the
+        // homepage feed bounded so a large catalog cannot mount hundreds of
+        // shelves and trigger stock checks for every product at once.
+        const homeDepartments = departments.slice(offset, offset + MAX_HOME_SHELVES);
+
+        const shelves = new Array(homeDepartments.length);
         let nextIndex = 0;
         const worker = async () => {
-          while (nextIndex < departments.length) {
+          while (nextIndex < homeDepartments.length) {
             const index = nextIndex++;
-            const department = departments[index];
+            const department = homeDepartments[index];
             try {
               const shelf = await serverCache.getOrFetch(
                 `catalog:home_shelf:${department.id}`,
@@ -350,11 +364,17 @@ export const getHomeShelves = async (req, res) => {
         };
 
         await Promise.all(
-          Array.from({ length: Math.min(4, departments.length) }, () => worker())
+          Array.from({ length: Math.min(4, homeDepartments.length) }, () => worker())
         );
         return {
-          categories: Array.isArray(categories) ? categories : [],
+          categories: page === 1 && Array.isArray(categories) ? categories : [],
           shelves: shelves.filter((shelf) => shelf?.products?.length > 0),
+          pagination: {
+            page,
+            per_page: MAX_HOME_SHELVES,
+            total_departments: departments.length,
+            has_more: offset + homeDepartments.length < departments.length,
+          },
         };
       },
       300000
@@ -364,6 +384,7 @@ export const getHomeShelves = async (req, res) => {
       success: true,
       categories: transformMediaUrls(result.categories || [], req),
       shelves: transformMediaUrls(result.shelves || [], req),
+      pagination: result.pagination || { page, per_page: MAX_HOME_SHELVES, total_departments: 0, has_more: false },
     });
   } catch (error) {
     logError(req, error, "Get homepage shelves error");

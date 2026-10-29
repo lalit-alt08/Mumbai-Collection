@@ -1,3 +1,4 @@
+import wp from "../services/wordpress.js";
 import axios from "axios";
 import api from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
@@ -157,6 +158,7 @@ export const fetchStockCounts = async () => {
         api.get("products", { per_page: 1, stock_status: "lowstock", status: "publish" }).catch(() => null),
       ]);
 
+      if (!allRes || !inStockRes || !outOfStockRes || !lowStockRes) throw new Error("Stock counts are temporarily unavailable.");
       const all = Number(allRes?.headers?.["x-wp-total"]) || 0;
       const outofstock = Number(outOfStockRes?.headers?.["x-wp-total"]) || 0;
       const lowstock = Number(lowStockRes?.headers?.["x-wp-total"]) || 0;
@@ -167,7 +169,7 @@ export const fetchStockCounts = async () => {
 
       return { all, instock, lowstock, outofstock };
     } catch (wcErr) {
-      return { all: 0, instock: 0, lowstock: 0, outofstock: 0 };
+      throw wcErr;
     }
   }, 60000);
 };
@@ -264,6 +266,7 @@ export const getAdminProducts = async (req, res) => {
     }
 
     const queryParams = {
+      context: "edit",
       page: pageNum,
       per_page: limit,
       orderby: "date",
@@ -411,7 +414,13 @@ export const updateProduct = async (req, res) => {
       updatePayload.categories = assignment.ids.map((categoryId) => ({ id: categoryId }));
     }
 
-    const response = await api.put(`products/${encodeURIComponent(id)}`, updatePayload);
+    const hasStock = Object.hasOwn(updatePayload, "stock_quantity");
+    if (hasStock && !Object.hasOwn(req.body, "expected_stock_quantity")) {
+      return res.status(409).json({ success: false, message: "Refresh this product before adjusting stock." });
+    }
+    const response = hasStock
+      ? await wp.post("/wp-json/mumbai-auth/v1/staff/products/" + id + "/adjust", { ...updatePayload, expected_stock_quantity: req.body.expected_stock_quantity })
+      : await api.put("products/" + encodeURIComponent(id), updatePayload);
 
     // Invalidate product list, stock counts, and public catalog caches
     serverCache.invalidatePrefix("admin_products:");

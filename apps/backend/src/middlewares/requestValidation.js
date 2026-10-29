@@ -74,7 +74,7 @@ export const schemas = {
     .object({
       phone: z.string().trim().min(3).max(254).optional(),
       email: email.optional(),
-      purpose: z.enum(["verify_phone", "reset_password", "register"]),
+      purpose: z.enum(["reset_password", "register"]),
     })
     .refine((data) => !!(data.phone || data.email), {
       message: "Email or phone number is required.",
@@ -85,7 +85,7 @@ export const schemas = {
       phone: z.string().trim().min(3).max(254).optional(),
       email: email.optional(),
       otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
-      purpose: z.enum(["verify_phone", "reset_password", "register"]),
+      purpose: z.enum(["reset_password", "register"]),
     })
     .refine((data) => !!(data.phone || data.email), {
       message: "Email or phone number is required.",
@@ -117,6 +117,7 @@ export const schemas = {
     images: z.array(z.union([positiveId, z.string().trim().max(2000), z.record(z.string(), z.any())])).optional(),
   }),
   productUpdate: z.object({
+    expected_stock_quantity: z.number().finite().nonnegative().nullable().optional(),
     name: boundedString(200).min(1).optional(),
     regular_price: z.union([numericString(), z.number().finite().nonnegative()]).optional(),
     sale_price: z.union([z.literal(""), numericString(), z.number().finite().nonnegative()]).optional(),
@@ -306,9 +307,12 @@ export const schemas = {
     per_page: z.coerce.number().int().positive().max(100).optional(),
   }),
   productDetailQuery: z.object({}).strict(),
-  homeShelvesQuery: z.object({}).strict(),
+  homeShelvesQuery: z.object({
+    page: z.coerce.number().int().positive().max(1000).optional(),
+  }).strict(),
   productsByIds: z.object({
     ids: z.string().trim().min(1).max(131).regex(/^\d+(,\d+){0,11}$/),
+    details: z.enum(["selection", "cross-sells"]).optional(),
   }).strict(),
   relatedProducts: z.object({
     categoryId: z.union([positiveId, z.string().trim().min(1).max(200)]).optional(),

@@ -4,6 +4,7 @@ import multer from "multer";
 import {
   getEmployeeOrders,
   updateOrderStatus,
+  bulkDispatchOrders,
   sendOrderRefundEmail,
   getEmployeeOverview,
   uploadEmployeeMedia,
@@ -116,6 +117,13 @@ router.get(
   getEmployeeOrders
 );
 
+router.post(
+  "/orders/bulk-status",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  bulkDispatchOrders
+);
+
 router.patch(
   "/orders/:id/status",
   requireAuth("employee"),
@@ -132,7 +140,7 @@ router.post(
   sendOrderRefundEmail
 );
 
-// Products & Inventory Management (No deletion allowed for employees)
+// Products & Inventory Management (Product deletion is an approved business requirement for employees)
 router.get(
   "/products",
   requireAuth("employee"),

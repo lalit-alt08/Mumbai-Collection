@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
-import { logError } from "../utils/logger.js";
-import { getRedisClient } from "../config/redis.js";
+import { logError, logger } from "../utils/logger.js";
+import { getRedisClient, getRedisSubscriber } from "../config/redis.js";
 
 export const COOKIE_NAMES = {
   customer: {
@@ -86,7 +86,54 @@ export const invalidateUserSessionCache = (userId) => {
       }
     }
   }
+  if (redis) {
+    try {
+      const now = Date.now();
+      redis.set(`sess:user_rev:${userId}`, now, "EX", 300).catch(() => {});
+      redis.publish("mumbai:session:invalidate", JSON.stringify({ userId, revAt: now })).catch(() => {});
+    } catch (_) {}
+  }
 };
+
+
+// Distributed session cache invalidation listener across instances
+try {
+  const sub = getRedisSubscriber();
+  if (sub && typeof sub.subscribe === "function") {
+    const subscribeToSessionInvalidation = async () => {
+      try {
+        await sub.subscribe("mumbai:session:invalidate");
+        logger.info("[Redis Sub] Subscribed to session invalidation channel");
+      } catch (err) {
+        logger.warn(
+          { err: err?.message || err },
+          "[Redis Sub] Failed to subscribe to session invalidation channel; local session cache remains active"
+        );
+      }
+    };
+
+    // Upstash may still be establishing its TLS connection while modules are
+    // loading. Hostinger's local Redis is usually ready immediately. Support
+    // both without issuing commands while ioredis' offline queue is disabled.
+    sub.on("ready", () => { sessionCache.clear(); void subscribeToSessionInvalidation(); });
+    if (sub.status === "ready") void subscribeToSessionInvalidation();
+
+    sub.on("message", (channel, message) => {
+      if (channel === "mumbai:session:invalidate") {
+        try {
+          const { userId } = JSON.parse(message);
+          if (userId) {
+            for (const [cookie, data] of sessionCache.entries()) {
+              if (data.userId === userId || Number(data.userId) === Number(userId)) {
+                sessionCache.delete(cookie);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    });
+  }
+} catch (_) {}
 
 export const _setSessionCacheForTesting = (cookie, data) => {
   sessionCache.set(cookie, data);
@@ -123,7 +170,20 @@ const executeAuth = async (context, req, res, next) => {
       }
     }
 
-    // 1. Use 60-second session cache (from RAM or Redis)
+    // 1. Use 60-second session cache (from RAM or Redis) with distributed revocation check
+    if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
+      const redis = getRedisClient();
+      if (redis && cached.userId) {
+        try {
+          const revTime = await redis.get(`sess:user_rev:${cached.userId}`);
+          if (revTime && Number(revTime) >= cached.timestamp) {
+            sessionCache.delete(wpAuth);
+            cached = null;
+          }
+        } catch (_) {}
+      }
+    }
+
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
       req.wpAuthCookie = wpAuth;
       req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || (context === "customer" ? req.cookies?.mumbai_wp_nonce : undefined);
@@ -258,14 +318,19 @@ export const requireVerifiedPhone = (req, res, next) => {
     req.body?.shipping_address?.phone ||
     req.body?.phone;
   const rawDigits = typeof payloadPhone === "string" ? payloadPhone.replace(/\D/g, "") : "";
-  const cleanPhone = rawDigits.length === 12 && rawDigits.startsWith("91") ? rawDigits.slice(2) : rawDigits;
+  let cleanPhone = rawDigits;
+  if (cleanPhone.length === 12 && cleanPhone.startsWith("91")) {
+    cleanPhone = cleanPhone.slice(2);
+  } else if (cleanPhone.length === 11 && cleanPhone.startsWith("0")) {
+    cleanPhone = cleanPhone.slice(1);
+  }
   const isPayloadPhoneValid = /^[6-9]\d{9}$/.test(cleanPhone);
 
-  if (req.user?.is_phone_verified !== true && req.isPhoneVerified !== true && !isPayloadPhoneValid) {
-    return res.status(403).json({
+  if (!isPayloadPhoneValid) {
+    return res.status(400).json({
       success: false,
-      code: "PHONE_NOT_VERIFIED",
-      message: "Please verify your mobile number before placing an order.",
+      code: "INVALID_CONTACT_PHONE",
+      message: "Please provide a valid 10-digit Indian mobile number for delivery contact.",
     });
   }
 

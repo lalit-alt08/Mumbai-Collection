@@ -1,3 +1,4 @@
+import { getRedisClient } from "../config/redis.js";
 /**
  * Lightweight, zero-dependency in-memory rate limiter
  * Protects auth and upload routes from brute-force and spam attacks.
@@ -14,10 +15,10 @@ export const getClientIp = (req) => {
   if (typeof cfIp === "string") {
     const trimmed = cfIp.trim();
     if (net.isIP(trimmed)) {
-      const cfRay = req?.headers?.["cf-ray"];
       const isTestEnv = process.env.NODE_ENV === "test";
       const isExplicitlyTrusted = process.env.TRUST_CLOUDFLARE_PROXY === "true";
-      if (cfRay || isTestEnv || isExplicitlyTrusted) {
+      // Trust CF-Connecting-IP only when proxy trust is explicitly configured or in test environments
+      if (isTestEnv || isExplicitlyTrusted) {
         return trimmed;
       }
     }
@@ -51,10 +52,15 @@ export const createRateLimiter = ({
     cleanupTimer.unref();
   }
 
-  const limiter = (req, res, next) => {
-    // In local development or if disabled, pass through
+  const limiter = async (req, res, next) => {
+    // In local development or if disabled, pass through — but NEVER in production
+    const isProduction = process.env.NODE_ENV === "production";
     if (process.env.DISABLE_RATE_LIMIT === "true") {
-      return next();
+      if (isProduction) {
+        console.error("[RateLimiter] CRITICAL: DISABLE_RATE_LIMIT=true is ignored in production mode.");
+      } else {
+        return next();
+      }
     }
 
     let key;
@@ -63,6 +69,31 @@ export const createRateLimiter = ({
     }
     if (!key) {
       key = getClientIp(req);
+    }
+
+    // Try atomic distributed Redis limiter first if Redis is active
+    const redis = getRedisClient();
+    if (redis) {
+      try {
+        const redisKey = `ratelimit:${key}`;
+        const count = await redis.incr(redisKey);
+        if (count === 1) {
+          await redis.pexpire(redisKey, windowMs);
+        }
+        if (count > max) {
+          const ttlMs = await redis.pttl(redisKey);
+          const remainingSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+          res.set("Retry-After", String(remainingSeconds));
+          return res.status(429).json({
+            success: false,
+            message: `${message} (${remainingSeconds}s remaining)`,
+            retryAfter: remainingSeconds,
+          });
+        }
+        return next();
+      } catch (_) {
+        // Fall back gracefully to in-memory store
+      }
     }
 
     const now = Date.now();

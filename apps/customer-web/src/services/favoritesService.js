@@ -24,8 +24,10 @@ export const getFavoriteIds = async () => {
 /**
  * Fetch all favorites with full product details for logged-in customer (for /favorites page)
  */
-export const getFavorites = async () => {
-  const res = await api.get("");
+export const getFavorites = async ({ page = 1, perPage = 24 } = {}) => {
+  const res = await api.get("", {
+    params: { page, per_page: perPage },
+  });
   return res.data;
 };
 

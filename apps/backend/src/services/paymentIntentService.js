@@ -22,6 +22,14 @@ let wpClient = axios.create({
 
 const defaultWpClient = wpClient;
 
+// Unit tests must inject a mock client; they must never populate a real store's recovery queue.
+defaultWpClient.interceptors.request.use((config) => {
+  const testRunner = process.env.NODE_ENV === "test" || Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.some((arg) => /\.test\.[cm]?js$/.test(arg));
+  if (testRunner) throw new Error("Payment storage HTTP is disabled in unit tests; inject an isolated mock using _setWpClientForTesting");
+  return config;
+});
+
 export const _setWpClientForTesting = (client) => {
   wpClient = client || defaultWpClient;
 };
@@ -56,6 +64,17 @@ export const releaseCheckoutStock = async (reservationId) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const findActiveCartIntent = async (userId, fingerprint) => {
+  const response = await wpClient.post('/wp-json/mumbai-auth/v1/payment-intent/get', {
+    active_user_id: Number(userId), cart_fingerprint: fingerprint,
+  });
+  return response.data?.active_order_id || null;
+};
+
+export const createPaidOrder = async (payload) => {
+  return wpClient.post('/wp-json/mumbai-auth/v1/orders/finalize-payment', payload, { timeout: 60000 });
+};
+
 /**
  * Stores payment intent in both fast local serverCache and persistent WordPress transients.
  */
@@ -89,18 +108,19 @@ export const storePaymentIntent = async (rzpOrderId, intent, expiresInSeconds = 
 /**
  * Retrieves payment intent by Razorpay order ID (checking memory first, then WordPress transient).
  */
-export const getPaymentIntent = async (rzpOrderId) => {
+export const getPaymentIntent = async (rzpOrderId, { fresh = false } = {}) => {
   if (!rzpOrderId) return null;
 
   const cacheKey = `payment_intent:${rzpOrderId}`;
   const inMemory = serverCache.get(cacheKey);
-  if (inMemory) {
+  if (inMemory && !fresh) {
     return inMemory;
   }
 
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/get", {
       rzp_order_id: rzpOrderId,
+      fresh,
     });
     const intent = res.data?.intent || null;
     if (intent) {
@@ -112,6 +132,7 @@ export const getPaymentIntent = async (rzpOrderId) => {
       { rzpOrderId, err: err.message },
       "[PaymentIntentService] Upstream error retrieving intent from WordPress"
     );
+    if (fresh) throw err;
     return null;
   }
 };
@@ -141,7 +162,7 @@ export const deletePaymentIntent = async (rzpOrderId) => {
 
 /**
  * Acquires a distributed atomic lock for the given Razorpay order ID using WordPress options table.
- * Supports stale lock self-healing (> 30 seconds) and retry polling.
+ * Supports a five-minute crash lease, owner renewal, and retry polling.
  */
 export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
   if (!rzpOrderId) return false;
@@ -262,6 +283,7 @@ const _updatePaymentIntentStatusImpl = async ({
             ...(wcOrderId && { wc_order_id: wcOrderId }),
             ...(refundId && { refund_id: refundId }),
             error_reason: toStatus === "order_created" ? null : (errorReason ?? inMemory.error_reason),
+            ...(incrementAttempts ? { attempts: Number(inMemory.attempts || 0) + 1 } : {}),
             ...(capturedAmountPaise && { captured_amount_paise: capturedAmountPaise }),
           },
           3600 * 1000
@@ -339,26 +361,27 @@ export const storeWebhookEvent = async ({
 /**
  * Fetches intents needing reconciliation from WordPress with pagination and watermark support.
  */
-export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanMinutes = 2, watermark = "" } = {}) => {
+export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanMinutes = 2, cursor = "" } = {}) => {
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/reconciliation-list", {
       limit,
       page,
       older_than_minutes: olderThanMinutes,
-      watermark,
+      cursor,
     });
     return {
       intents: Array.isArray(res.data?.intents) ? res.data.intents : [],
       page: res.data?.page || page,
       limit: res.data?.limit || limit,
       hasMore: Boolean(res.data?.has_more),
+      nextCursor: res.data?.next_cursor || "",
     };
   } catch (err) {
     logger.warn(
       { err: err.message },
       "[PaymentIntentService] Failed to fetch reconciliation list"
     );
-    return { intents: [], page, limit, hasMore: false };
+    throw err;
   }
 };
 
@@ -419,8 +442,11 @@ export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1 } = {}) =>
     const res = await wpClient.get("/wp-json/mumbai-auth/v1/webhook-events/orphans", {
       params: { limit, page },
     });
+    if (!Number.isSafeInteger(Number(res.data?.count)) || Number(res.data.count) < 0 || !Array.isArray(res.data?.orphans)) {
+      throw new Error("Invalid orphan webhook health response");
+    }
     return {
-      count: res.data?.count || 0,
+      count: Number(res.data.count),
       orphans: Array.isArray(res.data?.orphans) ? res.data.orphans : [],
       page: res.data?.page || page,
       limit: res.data?.limit || limit,
@@ -430,7 +456,7 @@ export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1 } = {}) =>
       { err: err.message },
       "[PaymentIntentService] Failed to fetch orphan webhook events"
     );
-    return { count: 0, orphans: [], page, limit };
+    throw err; // Health reporting must distinguish an unavailable database from zero orphan events.
   }
 };
 
@@ -449,11 +475,13 @@ export const findWcOrderByRazorpayOrderId = async (rzpOrderId) => {
       { rzpOrderId, err: err.message },
       "[PaymentIntentService] HPOS order lookup failed"
     );
-    return null;
+    throw err;
   }
 };
 
 const serviceWrapper = {
+  createPaidOrder,
+  findActiveCartIntent,
   storePaymentIntent,
   getPaymentIntent,
   deletePaymentIntent,

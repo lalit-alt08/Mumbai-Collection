@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://styles-cult-contractor-pentium.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://styles-cult-contractor-pentium.trycloudflare.com/sitemap.xml"
+      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://styles-cult-contractor-pentium.trycloudflare.com/api/:path*"
+      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

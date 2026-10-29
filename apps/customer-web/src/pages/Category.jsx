@@ -1,8 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProductsByCategory, getCategories } from "../services/productService";
+import { getProductsByCategory, getCategories, getCachedCategories } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
-import staticCategories from "../data/category.js";
 import { ArrowLeft, ShoppingBag, Loader2 } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
@@ -14,7 +13,7 @@ function Category() {
   const { categoryId } = useParams();
   const navigate = useNavigate();
 
-  const [allCategories, setAllCategories] = useState(staticCategories);
+  const [allCategories, setAllCategories] = useState(() => getCachedCategories() || []);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -30,7 +29,10 @@ function Category() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [categoryTitle, setCategoryTitle] = useState("");
-  useLiveProductStock(products, setProducts);
+  // Keep polling bounded as more pages are appended. Checkout and add-to-cart
+  // still perform authoritative server validation for every item.
+  const liveProducts = useMemo(() => products.slice(-40), [products]);
+  useLiveProductStock(liveProducts, setProducts);
 
   // Fetch full category tree on mount to establish parent-child relationships
   useEffect(() => {
@@ -426,8 +428,11 @@ function Category() {
                     <img
                       src={getCategoryImageUrl(currentCategoryInfo.department)}
                       alt=""
+                      width="48"
+                      height="48"
                       className="h-full w-full object-contain"
                       loading="lazy"
+                      decoding="async"
                     />
                   </span>
                   <span className="w-full break-words text-[10px] font-bold leading-tight sm:text-xs">All</span>
@@ -452,8 +457,11 @@ function Category() {
                         <img
                           src={getCategoryImageUrl(sub)}
                           alt=""
+                          width="48"
+                          height="48"
                           className="h-full w-full object-contain"
                           loading="lazy"
+                          decoding="async"
                           onError={(event) => {
                             if (event.currentTarget.dataset.fallback !== "true") {
                               event.currentTarget.dataset.fallback = "true";

@@ -101,7 +101,11 @@ function HeroBanner() {
             <img
               src={desktopSrc}
               alt={item.title || "Mumbai Collection Promotional Banner"}
+              width="1600"
+              height="700"
               loading={index === 0 ? "eager" : "lazy"}
+              decoding="async"
+              fetchPriority={index === 0 ? "high" : "auto"}
               className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
             />
           </picture>
@@ -109,7 +113,11 @@ function HeroBanner() {
           <img
             src={desktopSrc || mobileSrc}
             alt={item.title || "Mumbai Collection Promotional Banner"}
+            width="1600"
+            height="700"
             loading={index === 0 ? "eager" : "lazy"}
+            decoding="async"
+            fetchPriority={index === 0 ? "high" : "auto"}
             className="aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] w-full rounded-[18px] sm:rounded-[22px] object-cover"
           />
         );

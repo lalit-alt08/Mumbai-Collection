@@ -405,6 +405,11 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_find_order_by_razorpay_order_id',
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
+    register_rest_route('mumbai-auth/v1', '/orders/finalize-payment', [
+        'methods' => 'POST',
+        'callback' => 'mumbai_create_paid_order_once',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
     register_rest_route('mumbai-auth/v1', '/payment-intent/lock', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_payment_intent_lock',
@@ -546,6 +551,29 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_get_product_stock_counts',
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
+    register_rest_route('mumbai-auth/v1', '/catalog/search', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_catalog_search',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'q'        => ['required' => true, 'sanitize_callback' => 'sanitize_text_field'],
+            'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
+            'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
+        ],
+    ]);
+    register_rest_route('mumbai-auth/v1', '/catalog/products/(?P<id>\d+)/review-summary', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_catalog_review_summary',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/catalog/products/(?P<id>\d+)/review-exists', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_catalog_review_exists',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'email' => ['required' => true, 'sanitize_callback' => 'sanitize_email'],
+        ],
+    ]);
 
     // Employee Access & Allowlist Management (Internal Node.js only)
     register_rest_route('mumbai-auth/v1', '/admin/employees', [
@@ -613,6 +641,15 @@ add_action('rest_api_init', function () {
             'before'   => ['sanitize_callback' => 'sanitize_text_field'],
             'search'   => ['sanitize_callback' => 'sanitize_text_field'],
         ],
+    ]);
+
+    register_rest_route('mumbai-auth/v1', '/staff/orders/(?P<id>\d+)/status', [
+        'methods' => 'POST', 'callback' => 'mumbai_staff_update_order_status',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/staff/products/(?P<id>\d+)/adjust', [
+        'methods' => 'POST', 'callback' => 'mumbai_staff_adjust_product',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
 
     // Analytics Summary & Customer LTV Aggregations (Internal Node.js only)
@@ -833,6 +870,15 @@ function mumbai_sso(WP_REST_Request $request)
                 ['status' => 403]
             );
         }
+
+        $mapped_roles = (array) $user->roles;
+        if (array_intersect(['administrator', 'employee', 'shop_manager'], $mapped_roles)) {
+            return new WP_Error(
+                'sso_linking_not_allowed',
+                'Google login is disabled for staff and administrator accounts. Please log in with your email and password.',
+                ['status' => 403]
+            );
+        }
     }
 
     // 2. Try finding by email (for first-time linking)
@@ -841,17 +887,14 @@ function mumbai_sso(WP_REST_Request $request)
         
         if ($candidate_user) {
             $user_roles = (array) $candidate_user->roles;
-            $is_staff_or_admin = in_array('administrator', $user_roles, true) || in_array('employee', $user_roles, true);
+            $is_staff_or_admin = !empty(array_intersect(['administrator', 'employee', 'shop_manager'], $user_roles));
 
             if ($is_staff_or_admin) {
-                $authenticated_user_id = (int) $request->get_param('authenticated_user_id');
-                if (!$authenticated_user_id || $authenticated_user_id !== (int) $candidate_user->ID) {
-                    return new WP_Error(
-                        'sso_linking_not_allowed',
-                        'Automatic Google login is disabled for staff and administrator accounts. Please log in with your email and password.',
-                        ['status' => 403]
-                    );
-                }
+                return new WP_Error(
+                    'sso_linking_not_allowed',
+                    'Google login is disabled for staff and administrator accounts. Please log in with your email and password.',
+                    ['status' => 403]
+                );
             }
 
             // Never replace a different Google identity already linked to this
@@ -1055,6 +1098,24 @@ function mumbai_register(WP_REST_Request $request)
             ['status' => 409]
         );
     }
+    $norm_email = strtolower(trim($email));
+    $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
+    $transient_key = '_mumbai_reg_otp_' . md5($norm_email);
+    if (!empty($otp_hash)) {
+        $stored = get_transient($transient_key);
+        if (!$stored || !is_array($stored) || empty($stored['hash'])) {
+            return new WP_Error('expired_otp', 'Verification code has expired or was not requested.', ['status' => 400]);
+        }
+        if (($stored['attempts'] ?? 0) >= 5) {
+            delete_transient($transient_key);
+            return new WP_Error('too_many_attempts', 'Too many invalid attempts. Please request a new code.', ['status' => 429]);
+        }
+        if (!hash_equals((string) $stored['hash'], (string) $otp_hash)) {
+            $stored['attempts'] = ($stored['attempts'] ?? 0) + 1;
+            set_transient($transient_key, $stored, 300);
+            return new WP_Error('invalid_otp', 'Invalid verification code.', ['status' => 400]);
+        }
+    }
     $phone = sanitize_text_field($request->get_param('phone'));
     if (!empty($phone)) {
         $existing_by_phone = mumbai_get_user_by_phone($phone);
@@ -1089,6 +1150,9 @@ function mumbai_register(WP_REST_Request $request)
             $user_id->get_error_message(),
             ['status' => 500]
         );
+    }
+    if (!empty($otp_hash)) {
+        delete_transient($transient_key);
     }
     // Assign WooCommerce customer role (M4 fix) and set display name
     $wp_user = new WP_User($user_id);
@@ -1259,34 +1323,64 @@ function mumbai_reset_password(WP_REST_Request $request)
             ['status' => 400]
         );
     }
-    $user    = $users[0];
-    $expires = get_user_meta($user->ID, '_mumbai_reset_expires', true);
-    if (!$expires || time() > (int) $expires) {
-        // Clean up expired token
+    $user = $users[0];
+
+    global $wpdb;
+    $has_db_lock = !empty($wpdb) && method_exists($wpdb, 'get_var');
+    $lock_name = 'mumbai_reset_' . (int) $user->ID;
+    if ($has_db_lock) {
+        $got_lock = (int) $wpdb->get_var($wpdb->prepare("SELECT GET_LOCK(%s, 5)", $lock_name));
+        if (!$got_lock) {
+            return new WP_Error('lock_timeout', 'Password reset in progress, please retry.', ['status' => 429]);
+        }
+    }
+
+    try {
+        if (function_exists('clean_user_cache')) {
+            clean_user_cache($user->ID);
+        }
+
+        $stored_token_hash = get_user_meta($user->ID, '_mumbai_reset_token', true);
+        if (!$stored_token_hash || !hash_equals((string) $stored_token_hash, (string) $token_hash)) {
+            return new WP_Error(
+                'invalid_token',
+                'This password reset link is invalid or has already been used.',
+                ['status' => 400]
+            );
+        }
+
+        $expires = get_user_meta($user->ID, '_mumbai_reset_expires', true);
+        if (!$expires || time() > (int) $expires) {
+            // Clean up expired token
+            delete_user_meta($user->ID, '_mumbai_reset_token');
+            delete_user_meta($user->ID, '_mumbai_reset_expires');
+            return new WP_Error(
+                'expired_token',
+                'This password reset link has expired.',
+                ['status' => 400]
+            );
+        }
+        // Reset the password
+        reset_password($user, $password);
+        // Revoke ALL active sessions so a compromised token cannot persist (H7 fix)
+        WP_Session_Tokens::get_instance($user->ID)->destroy_all();
+        // Make token single-use
         delete_user_meta($user->ID, '_mumbai_reset_token');
         delete_user_meta($user->ID, '_mumbai_reset_expires');
-        return new WP_Error(
-            'expired_token',
-            'This password reset link has expired.',
-            ['status' => 400]
-        );
+        // Also clear any login lockout so user can log in immediately
+        delete_user_meta($user->ID, '_mumbai_failed_logins');
+        delete_user_meta($user->ID, '_mumbai_lockout_until');
+        mumbai_log("Password reset completed for user {$user->ID}. All sessions revoked.");
+        return [
+            'success' => true,
+            'message' => 'Password reset successfully. You can now login.',
+            'user_id' => (int) $user->ID,
+        ];
+    } finally {
+        if ($has_db_lock) {
+            $wpdb->query($wpdb->prepare("SELECT RELEASE_LOCK(%s)", $lock_name));
+        }
     }
-    // Reset the password
-    reset_password($user, $password);
-    // Revoke ALL active sessions so a compromised token cannot persist (H7 fix)
-    WP_Session_Tokens::get_instance($user->ID)->destroy_all();
-    // Make token single-use
-    delete_user_meta($user->ID, '_mumbai_reset_token');
-    delete_user_meta($user->ID, '_mumbai_reset_expires');
-    // Also clear any login lockout so user can log in immediately
-    delete_user_meta($user->ID, '_mumbai_failed_logins');
-    delete_user_meta($user->ID, '_mumbai_lockout_until');
-    mumbai_log("Password reset completed for user {$user->ID}. All sessions revoked.");
-    return [
-        'success' => true,
-        'message' => 'Password reset successfully. You can now login.',
-        'user_id' => (int) $user->ID,
-    ];
 }
 /*
  * ─────────────────────────────────────────────
@@ -1418,35 +1512,41 @@ function mumbai_normalize_phone($phone) {
 }
 
 /**
- * Effective Phone Verification Validator
- * Cryptographically valid ONLY if:
- * 1. _mumbai_is_phone_verified == 1 (or '1' or true)
- * 2. _mumbai_verified_phone is not empty
- * 3. billing_phone === _mumbai_verified_phone (both normalized)
- *
- * If _mumbai_verified_phone is missing, returns false (legacy unverified).
+ * Return the customer's valid 10-digit Indian contact number, if present.
+ * Phone numbers are billing/shipping contact data and are not OTP-verified.
  */
-function mumbai_is_user_phone_verified($user_id) {
+function mumbai_get_user_contact_phone($user_id) {
     if (!$user_id) {
-        return false;
+        return '';
     }
-    $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
-    if (!empty($billing_phone)) {
-        return true;
-    }
+
+    $candidates = [(string) get_user_meta($user_id, 'billing_phone', true)];
     $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
     if (is_array($profile) && !empty($profile['phone'])) {
-        return true;
+        $candidates[] = (string) $profile['phone'];
     }
+
     $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
     if (is_array($addresses)) {
         foreach ($addresses as $addr) {
             if (!empty($addr['phone'])) {
-                return true;
+                $candidates[] = (string) $addr['phone'];
             }
         }
     }
-    return false;
+
+    foreach ($candidates as $candidate) {
+        $clean_phone = mumbai_normalize_phone($candidate);
+        if (preg_match('/^[6-9][0-9]{9}$/', $clean_phone)) {
+            return $clean_phone;
+        }
+    }
+
+    return '';
+}
+
+function mumbai_is_user_phone_verified($user_id) {
+    return mumbai_get_user_contact_phone($user_id) !== '';
 }
 
 function mumbai_me()
@@ -1486,12 +1586,12 @@ function mumbai_me()
     if ($user) {
         $is_phone_verified = mumbai_is_user_phone_verified($user->ID);
         $is_suspended = function_exists('mumbai_is_customer_suspended') ? mumbai_is_customer_suspended($user->ID) : false;
-        $verified_phone = (string) get_user_meta($user->ID, '_mumbai_verified_phone', true);
         $phone = (string) get_user_meta($user->ID, 'billing_phone', true);
         $prof = get_user_meta($user->ID, '_mumbai_user_profile', true);
         if (empty($phone) && is_array($prof) && !empty($prof['phone'])) {
             $phone = (string) $prof['phone'];
         }
+        $verified_phone = mumbai_get_user_contact_phone($user->ID);
         if (is_array($prof) && !empty($prof['full_name'])) {
             $display_name = trim((string) $prof['full_name']);
         }
@@ -1945,7 +2045,7 @@ function mumbai_get_profile(WP_REST_Request $request)
         );
     }
     $billing_phone = (string) get_user_meta($user_id, 'billing_phone', true);
-    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+    $verified_phone = mumbai_get_user_contact_phone($user_id);
     $is_phone_verified = mumbai_is_user_phone_verified($user_id);
 
     $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
@@ -2075,8 +2175,6 @@ function mumbai_save_profile(WP_REST_Request $request)
 
         $clean_phone = $incoming_phone;
         update_user_meta($user_id, 'billing_phone', $clean_phone);
-        update_user_meta($user_id, '_mumbai_verified_phone', $clean_phone);
-        update_user_meta($user_id, '_mumbai_is_phone_verified', 1);
     } elseif (!empty($clean_old_billing)) {
         $clean_phone = $clean_old_billing;
     } else {
@@ -2090,6 +2188,15 @@ function mumbai_save_profile(WP_REST_Request $request)
     $password = $request->get_param('password');
     $password_changed = false;
     if (!empty($password)) {
+        $current_password = (string) $request->get_param('current_password');
+        $user_obj = get_userdata($user_id);
+        if (!$user_obj || empty($current_password) || !wp_check_password($current_password, $user_obj->user_pass, $user_id)) {
+            return new WP_Error(
+                'invalid_current_password',
+                'Your current password is required and must be correct to set a new password.',
+                ['status' => 403]
+            );
+        }
         $pw_check = mumbai_validate_password($password);
         if ($pw_check !== true) {
             return new WP_Error('weak_password', $pw_check, ['status' => 400]);
@@ -2121,7 +2228,7 @@ function mumbai_save_profile(WP_REST_Request $request)
     mumbai_sync_customer_search_index($user_id);
 
     $is_phone_verified = mumbai_is_user_phone_verified($user_id);
-    $current_verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+    $current_verified_phone = mumbai_get_user_contact_phone($user_id);
 
     $response = [
         'success'           => true,
@@ -2181,7 +2288,7 @@ function mumbai_check_profile_complete(WP_REST_Request $request)
         $addresses = [];
     }
     $is_phone_verified = mumbai_is_user_phone_verified($user_id);
-    $verified_phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
+    $verified_phone = mumbai_get_user_contact_phone($user_id);
 
     $profile_complete =
         !empty($profile['full_name']) &&
@@ -2248,6 +2355,23 @@ function mumbai_delete_account(WP_REST_Request $request)
             'user_not_found',
             'User account not found.',
             ['status' => 404]
+        );
+    }
+
+    $password = (string) $request->get_param('password');
+    if ($password === '') {
+        return new WP_Error(
+            'password_required',
+            'Your current password is required to delete your account.',
+            ['status' => 400]
+        );
+    }
+
+    if (!wp_check_password($password, $user->user_pass, $user_id)) {
+        return new WP_Error(
+            'invalid_password',
+            'The current password is incorrect.',
+            ['status' => 403]
         );
     }
 
@@ -2620,16 +2744,9 @@ add_filter('woocommerce_email_classes', function ($emails) {
 
 /*
  * ─────────────────────────────────────────────
- * OTP ENDPOINTS & PHONE VERIFICATION HOOKS
+ * EMAIL OTP ENDPOINTS
  * ─────────────────────────────────────────────
  */
-
-// Reset phone verification when billing_phone changes
-add_action('updated_user_meta', 'mumbai_reset_phone_verification', 10, 4);
-add_action('added_user_meta', 'mumbai_reset_phone_verification', 10, 4);
-function mumbai_reset_phone_verification($meta_id, $user_id, $meta_key, $meta_value) {
-    // Phone verification requirement removed - no reset required
-}
 
 function mumbai_get_user_by_phone($phone) {
     if (empty($phone)) return null;
@@ -2647,7 +2764,7 @@ function mumbai_get_user_by_phone($phone) {
          FROM (
              SELECT user_id, {$digits_only_meta} AS normalized_phone
              FROM {$wpdb->usermeta}
-             WHERE meta_key IN (%s, %s)
+             WHERE meta_key = %s
          ) AS phone_meta
          WHERE RIGHT(normalized_phone, 10) = %s
            AND (
@@ -2658,7 +2775,6 @@ function mumbai_get_user_by_phone($phone) {
          ORDER BY user_id ASC
          LIMIT 1",
         'billing_phone',
-        '_mumbai_verified_phone',
         $clean_phone
     );
     $user_id = (int) $wpdb->get_var($sql);
@@ -2754,9 +2870,8 @@ function mumbai_otp_store(WP_REST_Request $request) {
     $purpose = sanitize_text_field($request->get_param('purpose'));
     $phone = sanitize_text_field($request->get_param('phone'));
     $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
-    $user_id = (int) $request->get_param('user_id');
 
-    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password', 'register'])) {
+    if (!$phone || !$otp_hash || !in_array($purpose, ['reset_password', 'register'], true)) {
         return new WP_Error('invalid_params', 'Missing required parameters.', ['status' => 400]);
     }
 
@@ -2806,20 +2921,6 @@ function mumbai_otp_store(WP_REST_Request $request) {
         }
         if (!$user) {
             return array_merge($generic_success, ['user_found' => false]);
-        }
-    } else {
-        if (!$user_id) {
-            return new WP_Error('missing_user', 'User ID required for phone verification.', ['status' => 400]);
-        }
-        $user = get_user_by('id', $user_id);
-        if (!$user) {
-            return new WP_Error('invalid_user', 'Invalid User ID.', ['status' => 400]);
-        }
-
-        // Check if phone number is already registered to another user account
-        $existing_user = mumbai_get_user_by_phone($phone);
-        if ($existing_user && (int) $existing_user->ID !== (int) $user->ID) {
-            return new WP_Error('phone_in_use', 'This phone number is already registered to another account.', ['status' => 409]);
         }
     }
 
@@ -2887,9 +2988,8 @@ function mumbai_otp_verify(WP_REST_Request $request) {
     $purpose = sanitize_text_field($request->get_param('purpose'));
     $phone = sanitize_text_field($request->get_param('phone'));
     $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
-    $user_id = (int) $request->get_param('user_id');
 
-    if (!$phone || !$otp_hash || !in_array($purpose, ['verify_phone', 'reset_password', 'register'])) {
+    if (!$phone || !$otp_hash || !in_array($purpose, ['reset_password', 'register'], true)) {
         return new WP_Error('invalid_params', 'Missing required parameters.', ['status' => 400]);
     }
 
@@ -2928,16 +3028,6 @@ function mumbai_otp_verify(WP_REST_Request $request) {
         }
         if (!$user) {
             return new WP_Error('invalid_otp', 'Invalid or expired OTP.', ['status' => 400]);
-        }
-    } else {
-        if (!$user_id) return new WP_Error('missing_user', 'User ID required.', ['status' => 400]);
-        $user = get_user_by('id', $user_id);
-        if (!$user) return new WP_Error('invalid_user', 'Invalid User.', ['status' => 400]);
-
-        // Check if phone number is already registered to another user account
-        $existing_user = mumbai_get_user_by_phone($phone);
-        if ($existing_user && (int) $existing_user->ID !== (int) $user->ID) {
-            return new WP_Error('phone_in_use', 'This phone number is already registered to another account.', ['status' => 409]);
         }
     }
 
@@ -2998,37 +3088,16 @@ function mumbai_otp_verify(WP_REST_Request $request) {
         delete_user_meta($user->ID, '_mumbai_otp_purpose');
         delete_user_meta($user->ID, '_mumbai_otp_pending_phone');
 
-        if ($purpose === 'verify_phone') {
-            $clean_phone = mumbai_normalize_phone($phone);
-            update_user_meta($user->ID, '_mumbai_verified_phone', $clean_phone);
-            update_user_meta($user->ID, 'billing_phone', $clean_phone);
-            update_user_meta($user->ID, '_mumbai_is_phone_verified', 1);
+        $reset_token = wp_generate_password(64, false, false);
+        $reset_token_hash = hash('sha256', $reset_token);
+        update_user_meta($user->ID, '_mumbai_reset_auth_token', $reset_token_hash);
+        update_user_meta($user->ID, '_mumbai_reset_auth_expires', time() + 900);
 
-            $prof = get_user_meta($user->ID, '_mumbai_user_profile', true);
-            if (is_array($prof)) {
-                $prof['phone'] = $clean_phone;
-                update_user_meta($user->ID, '_mumbai_user_profile', $prof);
-            }
-            
-            return [
-                'success'           => true,
-                'message'           => 'Phone verified successfully.',
-                'phone'             => $clean_phone,
-                'verified_phone'    => $clean_phone,
-                'is_phone_verified' => true,
-            ];
-        } else {
-            $reset_token = wp_generate_password(64, false, false);
-            $reset_token_hash = hash('sha256', $reset_token);
-            update_user_meta($user->ID, '_mumbai_reset_auth_token', $reset_token_hash);
-            update_user_meta($user->ID, '_mumbai_reset_auth_expires', time() + 900);
-
-            return [
-                'success' => true,
-                'message' => 'OTP verified. Proceed to reset password.',
-                'reset_token' => $reset_token,
-            ];
-        }
+        return [
+            'success' => true,
+            'message' => 'OTP verified. Proceed to reset password.',
+            'reset_token' => $reset_token,
+        ];
     } finally {
         if ($has_db_lock) {
             $wpdb->query($wpdb->prepare("SELECT RELEASE_LOCK(%s)", $lock_name));
@@ -3762,6 +3831,197 @@ function mumbai_get_product_stock_counts($request) {
     ]);
 }
 
+/**
+ * Database-ranked catalog search. Matching and pagination happen before the
+ * Node gateway hydrates product cards, so relevant results are not lost by
+ * paginating WooCommerce's broader description search first.
+ */
+function mumbai_catalog_search(WP_REST_Request $request) {
+    global $wpdb;
+
+    $query = trim(substr((string) $request->get_param('q'), 0, 80));
+    $page = max(1, absint($request->get_param('page') ?: 1));
+    $per_page = min(50, max(1, absint($request->get_param('per_page') ?: 20)));
+    if (strlen($query) < 2) {
+        return rest_ensure_response([
+            'success' => true,
+            'ids' => [],
+            'total' => 0,
+            'totalPages' => 0,
+            'page' => $page,
+            'per_page' => $per_page,
+        ]);
+    }
+
+    $normalized = strtolower(remove_accents($query));
+    $normalized = preg_replace('/[^a-z0-9]+/', ' ', $normalized);
+    $normalized = trim(preg_replace('/\s+/', ' ', $normalized));
+    $stop_words = ['a', 'an', 'and', 'for', 'in', 'of', 'the', 'to', 'with'];
+    $tokens = array_values(array_unique(array_filter(
+        preg_split('/\s+/', $normalized),
+        static function ($token) use ($stop_words) {
+            return strlen($token) > 1 && !in_array($token, $stop_words, true);
+        }
+    )));
+    $tokens = array_slice($tokens, 0, 5);
+    if (!$tokens) {
+        return rest_ensure_response([
+            'success' => true,
+            'ids' => [],
+            'total' => 0,
+            'totalPages' => 0,
+            'page' => $page,
+            'per_page' => $per_page,
+        ]);
+    }
+
+    $field_match = static function ($token) use ($wpdb) {
+        $like = '%' . $wpdb->esc_like($token) . '%';
+        $title = $wpdb->prepare('LOWER(p.post_title) LIKE %s', $like);
+        $sku = $wpdb->prepare(
+            "EXISTS (SELECT 1 FROM {$wpdb->postmeta} sku_pm WHERE sku_pm.post_id = p.ID AND sku_pm.meta_key = '_sku' AND LOWER(sku_pm.meta_value) LIKE %s)",
+            $like
+        );
+        $attributes = $wpdb->prepare(
+            "EXISTS (SELECT 1 FROM {$wpdb->postmeta} attr_pm WHERE attr_pm.post_id = p.ID AND attr_pm.meta_key = '_product_attributes' AND LOWER(attr_pm.meta_value) LIKE %s)",
+            $like
+        );
+        $category = $wpdb->prepare(
+            "EXISTS (SELECT 1 FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_cat' INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id WHERE tr.object_id = p.ID AND LOWER(t.name) LIKE %s)",
+            $like
+        );
+        $excerpt = $wpdb->prepare('LOWER(p.post_excerpt) LIKE %s', $like);
+        $content = $wpdb->prepare('LOWER(p.post_content) LIKE %s', $like);
+        return compact('title', 'sku', 'attributes', 'category', 'excerpt', 'content');
+    };
+
+    $coverage_parts = [];
+    $primary_parts = [];
+    $category_parts = [];
+    $score_parts = [];
+    foreach ($tokens as $token) {
+        $match = $field_match($token);
+        $any = "({$match['title']} OR {$match['sku']} OR {$match['attributes']} OR {$match['category']} OR {$match['excerpt']} OR {$match['content']})";
+        $primary = "({$match['title']} OR {$match['sku']} OR {$match['attributes']})";
+        $coverage_parts[] = "(CASE WHEN {$any} THEN 1 ELSE 0 END)";
+        $primary_parts[] = "(CASE WHEN {$primary} THEN 1 ELSE 0 END)";
+        $category_parts[] = "(CASE WHEN {$match['category']} THEN 1 ELSE 0 END)";
+        $score_parts[] = "(CASE WHEN {$match['title']} THEN 240 ELSE 0 END)";
+        $score_parts[] = "(CASE WHEN {$match['sku']} THEN 170 ELSE 0 END)";
+        $score_parts[] = "(CASE WHEN {$match['attributes']} THEN 100 ELSE 0 END)";
+        $score_parts[] = "(CASE WHEN {$match['category']} THEN 45 ELSE 0 END)";
+        $score_parts[] = "(CASE WHEN {$match['excerpt']} THEN 20 ELSE 0 END)";
+        $score_parts[] = "(CASE WHEN {$match['content']} THEN 5 ELSE 0 END)";
+    }
+
+    $phrase_like = '%' . $wpdb->esc_like($normalized) . '%';
+    $prefix_like = $wpdb->esc_like($normalized) . '%';
+    $score_parts[] = '(CASE WHEN ' . $wpdb->prepare('LOWER(p.post_title) LIKE %s', $phrase_like) . ' THEN 1000 ELSE 0 END)';
+    $score_parts[] = '(CASE WHEN ' . $wpdb->prepare('LOWER(p.post_title) LIKE %s', $prefix_like) . ' THEN 120 ELSE 0 END)';
+    $accessory_like = '% with %' . $wpdb->esc_like($normalized) . '%';
+    $score_parts[] = '(CASE WHEN ' . $wpdb->prepare('LOWER(p.post_title) LIKE %s', $accessory_like) . ' THEN -300 ELSE 0 END)';
+
+    $coverage_sql = implode(' + ', $coverage_parts);
+    $primary_sql = implode(' + ', $primary_parts);
+    $category_sql = implode(' + ', $category_parts);
+    $score_sql = implode(' + ', $score_parts);
+    $minimum_coverage = count($tokens) === 1 ? 1 : (int) ceil(count($tokens) * 0.6);
+    $match_guard = "({$coverage_sql}) >= {$minimum_coverage} AND (({$primary_sql}) > 0";
+    if (count($tokens) === 1) {
+        $match_guard .= " OR ({$category_sql}) > 0";
+    }
+    $match_guard .= ')';
+
+    $base_from = "FROM {$wpdb->posts} p WHERE p.post_type = 'product' AND p.post_status = 'publish' AND {$match_guard}";
+    $total = (int) $wpdb->get_var("SELECT COUNT(*) {$base_from}");
+    $offset = ($page - 1) * $per_page;
+    $rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT p.ID, ({$score_sql}) AS relevance {$base_from} ORDER BY relevance DESC, p.post_date DESC, p.ID DESC LIMIT %d OFFSET %d",
+            $per_page,
+            $offset
+        ),
+        ARRAY_A
+    );
+
+    return rest_ensure_response([
+        'success' => true,
+        'ids' => array_map('intval', wp_list_pluck($rows ?: [], 'ID')),
+        'total' => $total,
+        'totalPages' => $total > 0 ? (int) ceil($total / $per_page) : 0,
+        'page' => $page,
+        'per_page' => $per_page,
+    ]);
+}
+
+/** Return an exact rating aggregate without hydrating every review body. */
+function mumbai_catalog_review_summary(WP_REST_Request $request) {
+    global $wpdb;
+    $product_id = absint($request->get_param('id'));
+    if (!$product_id) {
+        return new WP_Error('invalid_product', 'Invalid product ID.', ['status' => 400]);
+    }
+
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT CAST(cm.meta_value AS UNSIGNED) AS rating, COUNT(*) AS review_count
+         FROM {$wpdb->comments} c
+         INNER JOIN {$wpdb->commentmeta} cm ON cm.comment_id = c.comment_ID AND cm.meta_key = 'rating'
+         WHERE c.comment_post_ID = %d
+           AND c.comment_approved = '1'
+           AND c.comment_type IN ('review', '')
+           AND CAST(cm.meta_value AS UNSIGNED) BETWEEN 1 AND 5
+         GROUP BY CAST(cm.meta_value AS UNSIGNED)",
+        $product_id
+    ), ARRAY_A);
+
+    $distribution = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+    $total = 0;
+    $score = 0;
+    foreach ($rows ?: [] as $row) {
+        $rating = max(1, min(5, (int) $row['rating']));
+        $count = max(0, (int) $row['review_count']);
+        $distribution[$rating] = $count;
+        $total += $count;
+        $score += $rating * $count;
+    }
+
+    return rest_ensure_response([
+        'success' => true,
+        'productId' => $product_id,
+        'totalReviews' => $total,
+        'averageRating' => $total > 0 ? round($score / $total, 1) : 0,
+        'ratingDistribution' => $distribution,
+    ]);
+}
+
+/** Find a customer's review by indexed product/email fields across all pages. */
+function mumbai_catalog_review_exists(WP_REST_Request $request) {
+    global $wpdb;
+    $product_id = absint($request->get_param('id'));
+    $email = strtolower(trim(sanitize_email($request->get_param('email'))));
+    if (!$product_id || !$email) {
+        return new WP_Error('invalid_review_lookup', 'Product ID and customer email are required.', ['status' => 400]);
+    }
+
+    $review_id = (int) $wpdb->get_var($wpdb->prepare(
+        "SELECT comment_ID FROM {$wpdb->comments}
+         WHERE comment_post_ID = %d
+           AND LOWER(comment_author_email) = %s
+           AND comment_type IN ('review', '')
+           AND comment_approved != 'trash'
+         ORDER BY comment_ID DESC
+         LIMIT 1",
+        $product_id,
+        $email
+    ));
+
+    return rest_ensure_response([
+        'success' => true,
+        'exists' => $review_id > 0,
+        'reviewId' => $review_id ?: null,
+    ]);
+}
+
 /*
  * ─────────────────────────────────────────────
  * EMPLOYEE ACCESS MANAGEMENT (ADMIN INTERNAL)
@@ -3835,10 +4095,7 @@ function mumbai_admin_get_employees(WP_REST_Request $request) {
         $rejected_at = get_user_meta($u->ID, '_mumbai_employee_rejected_at', true);
         $notes = (string) get_user_meta($u->ID, '_mumbai_employee_notes', true);
 
-        $phone = (string) get_user_meta($u->ID, 'billing_phone', true);
-        if (empty($phone)) {
-            $phone = (string) get_user_meta($u->ID, '_mumbai_verified_phone', true);
-        }
+        $phone = mumbai_get_user_contact_phone($u->ID);
 
         $entry = [
             'id'             => $u->ID,
@@ -4208,6 +4465,45 @@ function mumbai_save_store_hours(WP_REST_Request $request) {
  */
 
 /** Name of the materialized per-customer order-metrics table. */
+/** Shared read-only reporting source: one row per sale, net of recorded refunds. */
+function mumbai_reporting_orders_source() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'wc_orders';
+    return "(SELECT sale.id, sale.type, sale.status, sale.customer_id, sale.billing_email,
+        sale.date_created_gmt, sale.payment_method, sale.currency,
+        GREATEST(0, sale.total_amount - COALESCE(refunds.amount, 0)) AS total_amount
+        FROM {$table} sale
+        LEFT JOIN (SELECT parent_order_id, SUM(ABS(total_amount)) AS amount FROM {$table}
+            WHERE type = 'shop_order_refund' GROUP BY parent_order_id) refunds ON refunds.parent_order_id = sale.id
+        WHERE sale.type = 'shop_order')";
+}
+
+/** Refund item quantities/totals are negative; fold them into their original line once. */
+function mumbai_reporting_itemmeta_source() {
+    global $wpdb;
+    $meta = $wpdb->prefix . 'woocommerce_order_itemmeta';
+    $items = $wpdb->prefix . 'woocommerce_order_items';
+    $orders = $wpdb->prefix . 'wc_orders';
+    return "(SELECT original.meta_id, original.order_item_id, original.meta_key,
+        CASE WHEN original.meta_key IN ('_qty', '_line_total')
+          THEN CAST(GREATEST(0, CAST(original.meta_value AS DECIMAL(20,6)) - COALESCE(refunds.amount, 0)) AS CHAR)
+          ELSE original.meta_value END AS meta_value
+        FROM {$meta} original LEFT JOIN (
+          SELECT CAST(reference.meta_value AS UNSIGNED) AS item_id, value.meta_key,
+                 SUM(ABS(CAST(value.meta_value AS DECIMAL(20,6)))) AS amount
+          FROM {$meta} reference JOIN {$meta} value ON value.order_item_id = reference.order_item_id
+          JOIN {$items} item ON item.order_item_id = reference.order_item_id
+          JOIN {$orders} refund ON refund.id = item.order_id AND refund.type = 'shop_order_refund'
+          WHERE reference.meta_key = '_refunded_item_id' AND value.meta_key IN ('_qty', '_line_total')
+          GROUP BY item_id, value.meta_key
+        ) refunds ON refunds.item_id = original.order_item_id AND refunds.meta_key = original.meta_key)";
+}
+
+function mumbai_require_reporting_hpos() {
+    return class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') &&
+        Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
+}
+
 function mumbai_customer_metrics_table_name() {
     global $wpdb;
     return $wpdb->prefix . 'mumbai_customer_metrics';
@@ -4327,7 +4623,7 @@ function mumbai_sync_customer_search_index($user_id) {
 
     $first = (string) get_user_meta($user_id, 'first_name', true);
     $last = (string) get_user_meta($user_id, 'last_name', true);
-    $phone = (string) (get_user_meta($user_id, 'billing_phone', true) ?: get_user_meta($user_id, '_mumbai_verified_phone', true));
+    $phone = mumbai_get_user_contact_phone($user_id);
     $city = (string) get_user_meta($user_id, 'billing_city', true);
     $state = (string) get_user_meta($user_id, 'billing_state', true);
     $postcode = (string) get_user_meta($user_id, 'billing_postcode', true);
@@ -4357,7 +4653,7 @@ function mumbai_sync_customer_search_index($user_id) {
 
 function mumbai_schedule_customer_search_index_update($user_id, $meta_id = null, $meta_key = null) {
     if ($meta_key !== null && !in_array($meta_key, [
-        'first_name', 'last_name', 'billing_phone', '_mumbai_verified_phone',
+        'first_name', 'last_name', 'billing_phone',
         'billing_city', 'billing_state', 'billing_postcode', 'billing_address_1', 'billing_address_2',
     ], true)) {
         return;
@@ -4414,6 +4710,8 @@ add_action('mumbai_customer_search_backfill_batch', 'mumbai_customer_search_back
 /** Recalculate exactly one customer's metrics after one of their orders changes. */
 function mumbai_refresh_customer_metrics($customer_id) {
     global $wpdb;
+    $reporting_source = mumbai_reporting_orders_source();
+    if (!mumbai_require_reporting_hpos()) return;
     $customer_id = absint($customer_id);
     $table_orders = $wpdb->prefix . 'wc_orders';
     $table_metrics = mumbai_customer_metrics_table_name();
@@ -4422,17 +4720,18 @@ function mumbai_refresh_customer_metrics($customer_id) {
         return;
     }
 
-    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
     $row = $wpdb->get_row($wpdb->prepare(
         "SELECT COUNT(id) AS orders_count,
                 COALESCE(SUM(total_amount), 0) AS lifetime_spent,
                 MAX(date_created_gmt) AS last_order_date_gmt,
                 MAX(id) AS last_order_id
-         FROM {$table_orders}
+         FROM {$reporting_source} reporting_orders
          WHERE customer_id = %d AND status NOT IN {$invalid_statuses_sql}",
         $customer_id
     ), ARRAY_A);
 
+    if ($wpdb->last_error) return;
     if (!$row || (int) $row['orders_count'] === 0) {
         $wpdb->delete($table_metrics, ['customer_id' => $customer_id], ['%d']);
         return;
@@ -4451,6 +4750,8 @@ function mumbai_refresh_customer_metrics($customer_id) {
 /** Populate metrics in bounded batches; safe to resume after a request interruption. */
 function mumbai_customer_metrics_backfill_batch() {
     global $wpdb;
+    $reporting_source = mumbai_reporting_orders_source();
+    if (!mumbai_require_reporting_hpos()) return;
     $table_orders = $wpdb->prefix . 'wc_orders';
     $table_metrics = mumbai_customer_metrics_table_name();
     if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) !== $table_orders ||
@@ -4461,7 +4762,7 @@ function mumbai_customer_metrics_backfill_batch() {
     $batch_size = 200;
     $last_id = (int) get_option('mumbai_customer_metrics_backfill_last_customer_id', 0);
     $customer_ids = $wpdb->get_col($wpdb->prepare(
-        "SELECT DISTINCT customer_id FROM {$table_orders}
+        "SELECT DISTINCT customer_id FROM {$reporting_source} reporting_orders
          WHERE customer_id > %d ORDER BY customer_id ASC LIMIT %d",
         $last_id,
         $batch_size
@@ -4480,13 +4781,13 @@ function mumbai_customer_metrics_backfill_batch() {
 
     $customer_ids = array_map('absint', $customer_ids);
     $placeholders = implode(',', array_fill(0, count($customer_ids), '%d'));
-    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
     $query = $wpdb->prepare(
         "SELECT customer_id, COUNT(id) AS orders_count,
                 COALESCE(SUM(total_amount), 0) AS lifetime_spent,
                 MAX(date_created_gmt) AS last_order_date_gmt,
                 MAX(id) AS last_order_id
-         FROM {$table_orders}
+         FROM {$reporting_source} reporting_orders
          WHERE customer_id IN ({$placeholders}) AND status NOT IN {$invalid_statuses_sql}
          GROUP BY customer_id",
         ...$customer_ids
@@ -4497,6 +4798,14 @@ function mumbai_customer_metrics_backfill_batch() {
         return;
     }
     $table_metrics = mumbai_customer_metrics_table_name();
+    $missing_ids = array_values(array_diff($customer_ids, array_map(static function ($row) { return (int) $row['customer_id']; }, $rows)));
+    if ($missing_ids) {
+        $missing_placeholders = implode(',', array_fill(0, count($missing_ids), '%d'));
+        if ($wpdb->query($wpdb->prepare("DELETE FROM {$table_metrics} WHERE customer_id IN ({$missing_placeholders})", ...$missing_ids)) === false) {
+            wp_schedule_single_event(time() + 30, 'mumbai_customer_metrics_backfill_batch');
+            return;
+        }
+    }
     $write_failed = false;
     foreach ($rows as $row) {
         if ($wpdb->replace($table_metrics, [
@@ -4557,6 +4866,20 @@ function mumbai_refresh_order_customer_metrics_after_save($order, $data_store = 
 }
 add_action('woocommerce_after_order_object_save', 'mumbai_refresh_order_customer_metrics_after_save', 30, 2);
 
+// Refund records belong to their original customer's sale, not a new order.
+add_action('woocommerce_order_refunded', static function ($order_id) {
+    $order = wc_get_order($order_id);
+    if ($order) mumbai_refresh_customer_metrics($order->get_customer_id());
+});
+
+add_action('init', static function () {
+    if (get_option('mumbai_net_metrics_v1')) return;
+    delete_option('mumbai_customer_metrics_backfill_complete');
+    delete_option('mumbai_customer_metrics_backfill_last_customer_id');
+    if (!wp_next_scheduled('mumbai_customer_metrics_backfill_batch')) wp_schedule_single_event(time() + 10, 'mumbai_customer_metrics_backfill_batch');
+    update_option('mumbai_net_metrics_v1', 1, false);
+}, 25);
+
 function mumbai_capture_deleted_order_customer($order_id) {
     global $wpdb;
     global $mumbai_deleted_order_customers;
@@ -4585,6 +4908,8 @@ add_action('woocommerce_delete_order', 'mumbai_refresh_deleted_order_customer_me
  */
 function mumbai_admin_get_customers(WP_REST_Request $request) {
     global $wpdb;
+    $reporting_source = mumbai_reporting_orders_source();
+    if (!mumbai_require_reporting_hpos()) return new WP_Error('hpos_required', 'Enable authoritative HPOS storage for reports.', ['status' => 503]);
 
     $search   = sanitize_text_field($request->get_param('search') ?? '');
     $location = sanitize_text_field($request->get_param('location') ?? '');
@@ -4666,7 +4991,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
             $where_clauses[] = $wpdb->prepare(
                 "(u.display_name LIKE %s OR u.user_email LIKE %s OR u.user_login LIKE %s
                   OR u.ID IN (SELECT DISTINCT sm.user_id FROM {$table_usermeta} sm
-                    WHERE sm.meta_key IN ('first_name', 'last_name', 'billing_phone', '_mumbai_verified_phone', 'billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode')
+                    WHERE sm.meta_key IN ('first_name', 'last_name', 'billing_phone', 'billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode')
                     AND sm.meta_value LIKE %s))",
                 $like, $like, $like, $like
             );
@@ -4711,7 +5036,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
         }
     }
 
-    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
 
     // HPOS order metrics are linked only by customer_id. Email matching could
     // incorrectly reattach orders from a deleted account to a later account.
@@ -4735,7 +5060,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
                     o.total_amount,
                     o.date_created_gmt,
                     o.customer_id AS uid
-                FROM {$table_orders} o
+                FROM {$reporting_source} o
                 WHERE o.status NOT IN {$invalid_statuses_sql}
                   AND o.customer_id > 0
             ) ord_u
@@ -4810,6 +5135,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
 
     // Prime the WordPress user metadata cache in a single bulk query for only the current page items
     $user_ids = wp_list_pluck($rows, 'ID');
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
     if (!empty($user_ids)) {
         update_meta_cache('user', $user_ids);
     }
@@ -4826,10 +5152,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
             $display_name = trim("{$first_name} {$last_name}") ?: $u['user_login'];
         }
 
-        $phone = (string) get_user_meta($user_id, 'billing_phone', true);
-        if (empty($phone)) {
-            $phone = (string) get_user_meta($user_id, '_mumbai_verified_phone', true);
-        }
+        $phone = mumbai_get_user_contact_phone($user_id);
 
         $addr1 = (string) get_user_meta($user_id, 'billing_address_1', true);
         $addr2 = (string) get_user_meta($user_id, 'billing_address_2', true);
@@ -4873,8 +5196,105 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
  * HPOS-Safe Analytics & Customer LTV Aggregations
  * Direct SQL aggregates over wp_wc_orders to prevent 2,000 order caps and slow loops.
  */
+function mumbai_staff_update_order_status(WP_REST_Request $request) {
+    global $wpdb;
+    $id = absint($request['id']);
+    $key = hash('sha256', 'staff-order:' . $id);
+    if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 3)', $key)) !== 1) {
+        return new WP_Error('order_busy', 'Another staff member is updating this order.', ['status' => 409]);
+    }
+    try {
+        $order = wc_get_order($id);
+        if (!$order) return new WP_Error('order_missing', 'Order not found.', ['status' => 404]);
+        $core = $order->get_status();
+        $effective = $order->get_meta('_delivery_status', true) ?: $core;
+        $target = sanitize_key($request->get_param('target_status'));
+        $modified = $order->get_date_modified();
+        $modified_gmt = $modified ? gmdate('Y-m-d\TH:i:s', $modified->getTimestamp()) : '';
+        if ($request->get_param('expected_status') !== $core ||
+            $request->get_param('expected_delivery_status') !== $effective ||
+            $request->get_param('expected_modified') !== $modified_gmt) {
+            return new WP_Error('order_changed', 'This order changed. Refresh it before updating.', ['status' => 409]);
+        }
+        $terminal = ['completed', 'cancelled', 'refunded', 'failed'];
+        if ((in_array($core, $terminal, true) || in_array($effective, $terminal, true)) && $target !== $effective) {
+            return new WP_Error('terminal_order', 'A terminal order cannot be reopened.', ['status' => 409]);
+        }
+        $allowed = [
+            'pending' => ['processing', 'cancelled', 'failed'],
+            'on-hold' => ['cancelled', 'failed'],
+            'processing' => ['packed', 'out-for-delivery', 'dispatched', 'cancelled', 'failed'],
+            'packed' => ['out-for-delivery', 'dispatched', 'cancelled'],
+            'out-for-delivery' => ['completed'], 'dispatched' => ['completed'],
+        ];
+        if ($target !== $effective && !in_array($target, $allowed[$effective] ?? [], true)) {
+            return new WP_Error('invalid_transition', 'This fulfillment transition is not allowed.', ['status' => 409]);
+        }
+        if (in_array($target, ['processing', 'packed', 'out-for-delivery', 'dispatched', 'completed'], true) &&
+            $order->get_payment_method() !== 'cod' && !$order->get_date_paid() &&
+            !$order->get_transaction_id() && !$order->get_meta('_payment_verified_at', true)) {
+            return new WP_Error('unpaid_order', 'Online payment has not been confirmed.', ['status' => 409]);
+        }
+        if ($target !== $effective) {
+            $order->set_status(in_array($target, ['packed', 'out-for-delivery', 'dispatched'], true) ? 'processing' : $target);
+            $order->update_meta_data('_delivery_status', $target);
+            if ($target === 'completed') $order->update_meta_data('_delivery_completed_at', gmdate('c'));
+            $order->save();
+        }
+        $controller = new WC_REST_Orders_Controller();
+        return $controller->prepare_object_for_response($order, new WP_REST_Request('GET'));
+    } catch (Throwable $error) {
+        error_log('[Mumbai Staff] Status mutation failed: ' . $error->getMessage());
+        return new WP_Error('status_unavailable', 'Could not update the order.', ['status' => 503]);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $key));
+    }
+}
+
+/** Compare and replace while holding the same authoritative stock row used by WooCommerce. */
+function mumbai_staff_adjust_product(WP_REST_Request $request) {
+    global $wpdb;
+    $product = wc_get_product(absint($request['id']));
+    $payload = $request->get_json_params();
+    if (!$product || !array_key_exists('expected_stock_quantity', $payload) ||
+        !isset($payload['stock_quantity']) || !is_numeric($payload['stock_quantity']) || (float) $payload['stock_quantity'] < 0) {
+        return new WP_Error('invalid_stock', 'Refresh the product and provide a valid stock quantity.', ['status' => 400]);
+    }
+    if ($wpdb->query('START TRANSACTION') === false) return new WP_Error('stock_unavailable', 'Inventory is unavailable.', ['status' => 503]);
+    try {
+        $managed_id = $product->get_stock_managed_by_id();
+        $stock = $wpdb->get_var(WC_Data_Store::load('product')->get_query_for_stock($managed_id) . ' FOR UPDATE');
+        if ($stock === null || $wpdb->last_error) throw new RuntimeException('Could not lock stock row.');
+        if (($payload['expected_stock_quantity'] === null && $product->managing_stock()) ||
+            ($payload['expected_stock_quantity'] !== null && (float) $stock !== (float) $payload['expected_stock_quantity'])) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('stock_changed', 'Stock changed since you opened this product. Refresh and review the new quantity.', ['status' => 409]);
+        }
+        if ((float) $payload['stock_quantity'] < (float) wc_get_held_stock_quantity(wc_get_product($managed_id))) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('stock_reserved', 'This quantity is reserved by active checkouts. Review those orders before reducing stock.', ['status' => 409]);
+        }
+        unset($payload['expected_stock_quantity']);
+        $update = new WP_REST_Request('PUT');
+        $update->set_param('context', 'edit');
+        $update->set_param('id', $product->get_id());
+        foreach ($payload as $name => $value) $update->set_param($name, $value);
+        $response = (new WC_REST_Products_Controller())->update_item($update);
+        if (is_wp_error($response)) { $wpdb->query('ROLLBACK'); return $response; }
+        if ($wpdb->query('COMMIT') === false) throw new RuntimeException('Stock commit failed.');
+        return $response;
+    } catch (Throwable $error) {
+        $wpdb->query('ROLLBACK');
+        wc_delete_product_transients($product->get_id());
+        error_log('[Mumbai Staff] Stock adjustment failed: ' . $error->getMessage());
+        return new WP_Error('stock_unavailable', 'Could not safely update stock.', ['status' => 503]);
+    }
+}
+
 function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
     global $wpdb;
+    $reporting_source = mumbai_reporting_orders_source();
+    if (!mumbai_require_reporting_hpos()) return new WP_Error('hpos_required', 'Enable authoritative HPOS storage for reports.', ['status' => 503]);
 
     $type = sanitize_text_field($request->get_param('type') ?? 'all');
     $table_orders = $wpdb->prefix . 'wc_orders';
@@ -4888,7 +5308,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
         ]);
     }
 
-    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
 
     // Customer LTV aggregations across entire store history (for Admin Customer Directory)
     if ($type === 'customer_ltv') {
@@ -4899,12 +5319,13 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
                 COALESCE(SUM(total_amount), 0) AS lifetimeSpent,
                 MAX(date_created_gmt) AS lastOrderDate,
                 MAX(id) AS lastOrderId
-             FROM {$table_orders}
+             FROM {$reporting_source} reporting_orders
              WHERE status NOT IN {$invalid_statuses_sql}
                AND customer_id > 0
              GROUP BY customer_id",
             ARRAY_A
         );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
 
         return rest_ensure_response([
             'success'      => true,
@@ -4919,27 +5340,29 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
     if ($has_meta) {
         $status_rows = $wpdb->get_results(
             "SELECT 
-                LOWER(TRIM(COALESCE(NULLIF(dm.meta_value, ''), REPLACE(o.status, 'wc-', '')))) AS clean_status,
+                CASE WHEN REPLACE(o.status, 'wc-', '') IN ('cancelled','failed','refunded','completed') THEN REPLACE(o.status, 'wc-', '') ELSE LOWER(TRIM(COALESCE(NULLIF(dm.meta_value, ''), REPLACE(o.status, 'wc-', '')))) END AS clean_status,
                 COUNT(o.id) AS count,
                 COALESCE(SUM(o.total_amount), 0) AS total_revenue
-             FROM {$table_orders} o
-             LEFT JOIN {$table_meta} dm ON dm.order_id = o.id AND dm.meta_key = '_delivery_status'
+             FROM {$reporting_source} o
+             LEFT JOIN (SELECT order_id, MAX(meta_value) AS meta_value FROM {$table_meta} WHERE meta_key = '_delivery_status' GROUP BY order_id) dm ON dm.order_id = o.id
              GROUP BY clean_status",
             ARRAY_A
         );
-        $valid_revenue_where = "COALESCE(NULLIF(LOWER(TRIM(dm.meta_value)), ''), REPLACE(LOWER(TRIM(o.status)), 'wc-', '')) NOT IN ('pending', 'cancelled', 'failed', 'refunded', 'trash')";
-        $join_dm_sql = "LEFT JOIN {$table_meta} dm ON dm.order_id = o.id AND dm.meta_key = '_delivery_status'";
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
+        $valid_revenue_where = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') IN ('processing', 'completed')";
+        $join_dm_sql = "LEFT JOIN (SELECT order_id, MAX(meta_value) AS meta_value FROM {$table_meta} WHERE meta_key = '_delivery_status' GROUP BY order_id) dm ON dm.order_id = o.id";
     } else {
         $status_rows = $wpdb->get_results(
             "SELECT 
                 LOWER(TRIM(REPLACE(status, 'wc-', ''))) AS clean_status,
                 COUNT(id) AS count,
                 COALESCE(SUM(total_amount), 0) AS total_revenue
-             FROM {$table_orders}
+             FROM {$reporting_source} reporting_orders
              GROUP BY clean_status",
             ARRAY_A
         );
-        $valid_revenue_where = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') NOT IN ('pending', 'cancelled', 'failed', 'refunded', 'trash')";
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
+        $valid_revenue_where = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') NOT IN ('pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
         $join_dm_sql = "";
     }
 
@@ -4992,12 +5415,13 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
                 COALESCE(SUM(op.shipping_total_amount), 0) AS shipping_revenue,
                 COALESCE(SUM(op.discount_total_amount), 0) AS discount_total,
                 COUNT(o.id) AS valid_order_count
-             FROM {$table_orders} o
+             FROM {$reporting_source} o
              {$join_dm_sql}
              LEFT JOIN {$table_operational} op ON op.order_id = o.id
              WHERE {$valid_revenue_where}",
             ARRAY_A
         );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
     } else {
         $rev_row = $wpdb->get_row(
             "SELECT 
@@ -5005,11 +5429,12 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
                 0 AS shipping_revenue,
                 0 AS discount_total,
                 COUNT(o.id) AS valid_order_count
-             FROM {$table_orders} o
+             FROM {$reporting_source} o
              {$join_dm_sql}
              WHERE {$valid_revenue_where}",
             ARRAY_A
         );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
     }
 
     $total_revenue = (float) ($rev_row['total_revenue'] ?? 0);
@@ -5019,37 +5444,39 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
     $avg_order_value = $valid_order_count > 0 ? (int) round($total_revenue / $valid_order_count) : 0;
 
     // Today's Sales in IST (respecting operational status overrides)
-    $today_after = sanitize_text_field($request->get_param('today_after') ?? '');
-    $today_before = sanitize_text_field($request->get_param('today_before') ?? '');
+    $today_after = $request->get_param('today_after') ? gmdate('Y-m-d H:i:s', strtotime($request->get_param('today_after'))) : '';
+    $today_before = $request->get_param('today_before') ? gmdate('Y-m-d H:i:s', strtotime($request->get_param('today_before'))) : '';
     $today_sales = 0.0;
     if (!empty($today_after) && !empty($today_before)) {
         $today_row = $wpdb->get_row($wpdb->prepare(
             "SELECT COALESCE(SUM(o.total_amount), 0) AS today_sales
-             FROM {$table_orders} o
+             FROM {$reporting_source} o
              {$join_dm_sql}
              WHERE o.date_created_gmt >= %s AND o.date_created_gmt <= %s
                AND {$valid_revenue_where}",
             $today_after,
             $today_before
         ), ARRAY_A);
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
         $today_sales = (float) ($today_row['today_sales'] ?? 0);
     }
 
     // Month's Sales in IST (respecting operational status overrides)
-    $month_after = sanitize_text_field($request->get_param('month_after') ?? '');
-    $month_before = sanitize_text_field($request->get_param('month_before') ?? '');
+    $month_after = $request->get_param('month_after') ? gmdate('Y-m-d H:i:s', strtotime($request->get_param('month_after'))) : '';
+    $month_before = $request->get_param('month_before') ? gmdate('Y-m-d H:i:s', strtotime($request->get_param('month_before'))) : '';
     $month_sales = 0.0;
     $month_orders = 0;
     if (!empty($month_after) && !empty($month_before)) {
         $month_row = $wpdb->get_row($wpdb->prepare(
             "SELECT COALESCE(SUM(o.total_amount), 0) AS month_sales, COUNT(o.id) AS month_orders
-             FROM {$table_orders} o
+             FROM {$reporting_source} o
              {$join_dm_sql}
-             WHERE o.date_created_gmt >= %s AND o.date_created_gmt <= %s
+             WHERE o.date_created_gmt >= %s AND o.date_created_gmt < %s
                AND {$valid_revenue_where}",
             $month_after,
             $month_before
         ), ARRAY_A);
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
         $month_sales = (float) ($month_row['month_sales'] ?? 0);
         $month_orders = (int) ($month_row['month_orders'] ?? 0);
     }
@@ -5060,7 +5487,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
             DATE(DATE_ADD(o.date_created_gmt, INTERVAL 330 MINUTE)) AS ist_date,
             COUNT(o.id) AS orders_count,
             COALESCE(SUM(o.total_amount), 0) AS daily_revenue
-         FROM {$table_orders} o
+         FROM {$reporting_source} o
          {$join_dm_sql}
          WHERE o.date_created_gmt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 8 DAY)
            AND {$valid_revenue_where}
@@ -5068,6 +5495,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
          ORDER BY ist_date ASC",
         ARRAY_A
     );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
 
     $weekly_trend = [];
     if ($daily_sales_rows) {
@@ -5086,12 +5514,13 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
             o.payment_method,
             COUNT(o.id) AS count,
             COALESCE(SUM(o.total_amount), 0) AS revenue
-         FROM {$table_orders} o
+         FROM {$reporting_source} o
          {$join_dm_sql}
          WHERE {$valid_revenue_where}
          GROUP BY o.payment_method",
         ARRAY_A
     );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
 
     $cod_count = 0;
     $cod_revenue = 0.0;
@@ -5124,7 +5553,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
                 COUNT(o.id) AS ordersCount,
                 ROUND(COALESCE(SUM(o.total_amount), 0)) AS lifetimeSpent,
                 MAX(TRIM(CONCAT(COALESCE(addr.first_name, ''), ' ', COALESCE(addr.last_name, '')))) AS name
-             FROM {$table_orders} o
+             FROM {$reporting_source} o
              LEFT JOIN {$table_addresses} addr ON addr.order_id = o.id AND addr.address_type = 'billing'
              WHERE o.status NOT IN {$invalid_statuses_sql}
                AND o.billing_email != ''
@@ -5133,6 +5562,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
              LIMIT 5",
             ARRAY_A
         );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
     } else {
         $top_customers_rows = $wpdb->get_results(
             "SELECT 
@@ -5140,7 +5570,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
                 COUNT(id) AS ordersCount,
                 ROUND(COALESCE(SUM(total_amount), 0)) AS lifetimeSpent,
                 '' AS name
-             FROM {$table_orders}
+             FROM {$reporting_source} reporting_orders
              WHERE status NOT IN {$invalid_statuses_sql}
                AND billing_email != ''
              GROUP BY LOWER(TRIM(billing_email))
@@ -5148,6 +5578,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
              LIMIT 5",
             ARRAY_A
         );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
     }
 
     $top_customers = [];
@@ -5174,13 +5605,14 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
             SUM(CASE WHEN order_count > 1 THEN 1 ELSE 0 END) AS repeat_customers
          FROM (
             SELECT LOWER(TRIM(billing_email)) AS email, COUNT(id) AS order_count
-            FROM {$table_orders}
+            FROM {$reporting_source} reporting_orders
             WHERE status NOT IN {$invalid_statuses_sql}
               AND billing_email != ''
             GROUP BY LOWER(TRIM(billing_email))
          ) AS cust_stats",
         ARRAY_A
     );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
     $total_unique_cust = (int) ($repeat_row['total_customers'] ?? 0);
     $repeat_cust = (int) ($repeat_row['repeat_customers'] ?? 0);
     $repeat_rate = $total_unique_cust > 0 ? (int) round(($repeat_cust / $total_unique_cust) * 100) : 0;
@@ -5190,6 +5622,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
     $table_itemmeta = $wpdb->prefix . 'woocommerce_order_itemmeta';
     $has_items = ($wpdb->get_var("SHOW TABLES LIKE '{$table_items}'") === $table_items);
 
+    $table_itemmeta = mumbai_reporting_itemmeta_source();
     $top_products = [];
     if ($has_items) {
         $top_product_rows = $wpdb->get_results(
@@ -5209,6 +5642,7 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
              LIMIT 5",
             ARRAY_A
         );
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
         if ($top_product_rows) {
             foreach ($top_product_rows as $tpr) {
                 $top_products[] = [
@@ -5255,6 +5689,8 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
  */
 function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
     global $wpdb;
+    $reporting_source = mumbai_reporting_orders_source();
+    if (!mumbai_require_reporting_hpos()) return new WP_Error('hpos_required', 'Enable authoritative HPOS storage for reports.', ['status' => 503]);
 
     $table_orders = $wpdb->prefix . 'wc_orders';
     if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) !== $table_orders) {
@@ -5264,19 +5700,32 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
     $date_after = sanitize_text_field($request->get_param('date_after') ?? '');
     $date_before = sanitize_text_field($request->get_param('date_before') ?? '');
     $product_id = absint($request->get_param('product_id') ?? 0);
-    if (!$date_after || !$date_before) {
+    if (!$date_after || !$date_before || strtotime($date_after) === false || strtotime($date_before) === false || strtotime($date_after) >= strtotime($date_before)) {
         return new WP_Error('invalid_date_range', 'A valid start and end date are required.', ['status' => 400]);
     }
 
+    $date_after = gmdate('Y-m-d H:i:s', strtotime($date_after));
+    $date_before = gmdate('Y-m-d H:i:s', strtotime($date_before));
+    if ($product_id) {
+        $itemmeta_source = mumbai_reporting_itemmeta_source();
+        $items_table = $wpdb->prefix . 'woocommerce_order_items';
+        $reporting_source = $wpdb->prepare("(SELECT sale.id, sale.status, sale.date_created_gmt, totals.total_amount
+          FROM {$reporting_source} sale INNER JOIN (
+            SELECT item.order_id, SUM(CAST(line.meta_value AS DECIMAL(20,6))) AS total_amount
+            FROM {$items_table} item JOIN {$itemmeta_source} product ON product.order_item_id = item.order_item_id AND product.meta_key = '_product_id'
+            JOIN {$itemmeta_source} line ON line.order_item_id = item.order_item_id AND line.meta_key = '_line_total'
+            WHERE item.order_item_type = 'line_item' AND CAST(product.meta_value AS UNSIGNED) = %d
+            GROUP BY item.order_id) totals ON totals.order_id = sale.id)", $product_id);
+    }
     $table_meta = $wpdb->prefix . 'wc_orders_meta';
     $has_meta = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_meta)) === $table_meta;
     if ($has_meta) {
-        $join_status = "LEFT JOIN {$table_meta} dm ON dm.order_id = o.id AND dm.meta_key = '_delivery_status'";
-        $valid_status = "COALESCE(NULLIF(LOWER(TRIM(dm.meta_value)), ''), REPLACE(LOWER(TRIM(o.status)), 'wc-', '')) NOT IN ('pending', 'cancelled', 'failed', 'refunded', 'trash')";
-        $completed_status = "COALESCE(NULLIF(LOWER(TRIM(dm.meta_value)), ''), REPLACE(LOWER(TRIM(o.status)), 'wc-', '')) IN ('completed', 'delivered')";
+        $join_status = "LEFT JOIN (SELECT order_id, MAX(meta_value) AS meta_value FROM {$table_meta} WHERE meta_key = '_delivery_status' GROUP BY order_id) dm ON dm.order_id = o.id";
+        $valid_status = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') IN ('processing', 'completed')";
+        $completed_status = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') = 'completed'";
     } else {
         $join_status = '';
-        $valid_status = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') NOT IN ('pending', 'cancelled', 'failed', 'refunded', 'trash')";
+        $valid_status = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') NOT IN ('pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
         $completed_status = "REPLACE(LOWER(TRIM(o.status)), 'wc-', '') IN ('completed', 'delivered')";
     }
 
@@ -5284,19 +5733,20 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
         "SELECT COUNT(DISTINCT o.id) AS orders_count,
                 COALESCE(SUM(o.total_amount), 0) AS revenue,
                 COALESCE(SUM(CASE WHEN {$completed_status} THEN o.total_amount ELSE 0 END), 0) AS completed_revenue
-         FROM {$table_orders} o
+         FROM {$reporting_source} o
          {$join_status}
          WHERE o.date_created_gmt >= %s AND o.date_created_gmt < %s
            AND {$valid_status}",
         $date_after,
         $date_before
     ), ARRAY_A);
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
 
     $daily_rows = $wpdb->get_results($wpdb->prepare(
         "SELECT DATE(DATE_ADD(o.date_created_gmt, INTERVAL 330 MINUTE)) AS report_date,
                 COUNT(DISTINCT o.id) AS orders_count,
                 COALESCE(SUM(o.total_amount), 0) AS revenue
-         FROM {$table_orders} o
+         FROM {$reporting_source} o
          {$join_status}
          WHERE o.date_created_gmt >= %s AND o.date_created_gmt < %s
            AND {$valid_status}
@@ -5305,12 +5755,14 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
         $date_after,
         $date_before
     ), ARRAY_A);
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
 
     $table_items = $wpdb->prefix . 'woocommerce_order_items';
     $table_itemmeta = $wpdb->prefix . 'woocommerce_order_itemmeta';
     $products = [];
     if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_items)) === $table_items &&
         $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_itemmeta)) === $table_itemmeta) {
+        $table_itemmeta = mumbai_reporting_itemmeta_source();
         $product_clause = '';
         $product_args = [$date_after, $date_before];
         if ($product_id > 0) {
@@ -5323,7 +5775,7 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
                     COUNT(DISTINCT o.id) AS orders_count,
                     COALESCE(SUM(CAST(quantity_meta.meta_value AS DECIMAL(12,2))), 0) AS units_sold,
                     COALESCE(SUM(CAST(total_meta.meta_value AS DECIMAL(12,2))), 0) AS product_revenue
-             FROM {$table_orders} o
+             FROM {$reporting_source} o
              {$join_status}
              INNER JOIN {$table_items} items ON items.order_id = o.id AND items.order_item_type = 'line_item'
              INNER JOIN {$table_itemmeta} product_meta ON product_meta.order_item_id = items.order_item_id AND product_meta.meta_key = '_product_id'
@@ -5336,6 +5788,7 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
              LIMIT 100",
             ...$product_args
         ), ARRAY_A);
+    if ($wpdb->last_error) return new WP_Error("report_query_failed", "Reporting is temporarily unavailable. Check the server logs.", ["status" => 503]);
 
         foreach ($product_rows ?: [] as $row) {
             $products[] = [
@@ -5348,11 +5801,12 @@ function mumbai_admin_get_analytics_report(WP_REST_Request $request) {
         }
     }
 
+    if ($wpdb->last_error) return new WP_Error('report_query_failed', 'Sales reporting is temporarily unavailable.', ['status' => 503]);
     return rest_ensure_response([
         'success' => true,
         'data'    => [
-            'date_from' => substr($date_after, 0, 10),
-            'date_to'   => substr($date_before, 0, 10),
+            'date_from' => gmdate('Y-m-d', strtotime($date_after . ' UTC') + 19800),
+            'date_to'   => gmdate('Y-m-d', strtotime($date_before . ' UTC') + 19800 - 1),
             'summary'   => [
                 'orders'           => (int) ($summary['orders_count'] ?? 0),
                 'revenue'          => (float) ($summary['revenue'] ?? 0),
@@ -5544,7 +5998,7 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
     ];
 
     $active_statuses = ['pending', 'processing', 'on-hold', 'packed', 'out-for-delivery', 'dispatched'];
-    $operational_wc_statuses = ['pending', 'processing', 'on-hold', 'completed'];
+    $operational_wc_statuses = ['pending', 'processing', 'on-hold'];
 
     if ($status === 'active') {
         $args['status'] = $operational_wc_statuses;
@@ -5626,7 +6080,7 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
                     'id', 'number', 'status', 'total', 'date_created', 'date_created_gmt',
                     'date_completed', 'date_completed_gmt', 'customer_id', 'billing', 'shipping',
                     'line_items', 'meta_data', 'payment_method', 'payment_method_title',
-                    'shipping_total', 'discount_total', 'total_tax', 'customer_note', 'fee_lines',
+                    'shipping_total', 'discount_total', 'total_tax', 'customer_note', 'fee_lines', 'date_paid', 'transaction_id',
                 ]));
             }
         }
@@ -5841,10 +6295,7 @@ function mumbai_admin_customer_suspension_lookup(WP_REST_Request $request) {
         $display_name = trim("{$first_name} {$last_name}") ?: $user->user_login;
     }
 
-    $phone = (string) get_user_meta($user->ID, 'billing_phone', true);
-    if (empty($phone)) {
-        $phone = (string) get_user_meta($user->ID, '_mumbai_verified_phone', true);
-    }
+    $phone = mumbai_get_user_contact_phone($user->ID);
 
     return rest_ensure_response([
         'success'  => true,
@@ -6005,7 +6456,7 @@ function mumbai_run_durable_payments_migration() {
     $already_checked = true;
 
     $installed_ver = (int) get_option('mumbai_durable_db_ver', 0);
-    $target_ver = 2;
+    $target_ver = 3;
 
     // Fast path: In WordPress, options are autoloaded into memory. If already installed, skip all DB queries!
     if ($installed_ver >= $target_ver) {
@@ -6034,6 +6485,7 @@ function mumbai_run_durable_payments_migration() {
             error_reason text DEFAULT NULL,
             attempts int(10) unsigned NOT NULL DEFAULT 0,
             last_attempt_at datetime DEFAULT NULL,
+            first_paid_at datetime DEFAULT NULL,
             created_at datetime NOT NULL,
             updated_at datetime NOT NULL,
             PRIMARY KEY  (rzp_order_id),
@@ -6079,6 +6531,35 @@ function mumbai_run_durable_payments_migration() {
         update_option('mumbai_durable_db_ver', $target_ver);
 }
 add_action('init', 'mumbai_run_durable_payments_migration');
+
+// Older releases wrote local WordPress wall-clock values. Convert those once
+// before any REST callback writes UTC timestamps. GET_LOCK serializes upgrades.
+function mumbai_migrate_payment_clock_to_utc() {
+    if (get_option('mumbai_payment_clock_utc_v1')) return;
+    global $wpdb;
+    $key = 'mumbai_payment_clock_utc_v1';
+    if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $key)) !== 1) return;
+    try {
+        if (get_option('mumbai_payment_clock_utc_v1')) return;
+        if ($wpdb->query('START TRANSACTION') === false) throw new RuntimeException('Payment clock migration unavailable');
+        $offset = (new DateTimeImmutable('now', wp_timezone()))->getOffset();
+        foreach (['mumbai_payment_intents', 'mumbai_webhook_events'] as $suffix) {
+            $table = $wpdb->prefix . $suffix;
+            $columns = $suffix === 'mumbai_payment_intents' ? ['created_at', 'updated_at', 'last_attempt_at'] : ['created_at'];
+            $parts = [];
+            foreach ($columns as $column) $parts[] = "`{$column}` = DATE_SUB(`{$column}`, INTERVAL " . (int) $offset . ' SECOND)';
+            if ($offset && $wpdb->query("UPDATE `{$table}` SET " . implode(', ', $parts)) === false) throw new RuntimeException('Payment clock conversion failed');
+        }
+        update_option('mumbai_payment_clock_utc_v1', 1);
+        if ($wpdb->query('COMMIT') === false) throw new RuntimeException('Payment clock migration commit failed');
+    } catch (Throwable $error) {
+        $wpdb->query('ROLLBACK');
+        wp_cache_delete('mumbai_payment_clock_utc_v1', 'options');
+        wp_cache_delete('alloptions', 'options');
+        error_log('[Mumbai Auth] ' . $error->getMessage());
+    } finally { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $key)); }
+}
+add_action('init', 'mumbai_migrate_payment_clock_to_utc', 11);
 
 /**
  * Atomically holds managed WooCommerce stock for deferred Razorpay checkout.
@@ -6213,6 +6694,9 @@ add_filter('woocommerce_query_for_reserved_stock', 'mumbai_include_deferred_hold
  * If reserved holds bring available stock to 0, marks stock_quantity as 0 and outofstock.
  */
 function mumbai_adjust_rest_product_stock($response, $product, $request) {
+    // Authorized inventory editors need physical stock, including held units,
+    // for compare-and-set adjustments. Storefront reads still show availability.
+    if ($request->get_param('context') === 'edit') return $response;
     if ($product && $product->managing_stock()) {
         $raw_stock = $product->get_stock_quantity();
         if ($raw_stock !== null && function_exists('wc_get_held_stock_quantity')) {
@@ -6254,6 +6738,7 @@ if (!wp_next_scheduled('mumbai_daily_maintenance')) {
 
 function mumbai_payment_intent_store(WP_REST_Request $request) {
     global $wpdb;
+    if (!get_option('mumbai_payment_clock_utc_v1')) return new WP_Error('payment_storage_upgrading', 'Payment storage upgrade pending.', ['status' => 503]);
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     $payload      = $request->get_param('payload');
     $expires_in   = absint($request->get_param('expires_in') ?? 3600);
@@ -6270,14 +6755,14 @@ function mumbai_payment_intent_store(WP_REST_Request $request) {
     // Durable store in wp_mumbai_payment_intents table
     mumbai_run_durable_payments_migration();
     $table = $wpdb->prefix . 'mumbai_payment_intents';
-    $now = current_time('mysql');
+    $now = gmdate('Y-m-d H:i:s');
 
     $user_id = isset($payload['user_id']) ? absint($payload['user_id']) : (isset($payload['customer_id']) ? absint($payload['customer_id']) : 0);
     $amount_paise = isset($payload['amount_paise']) ? absint($payload['amount_paise']) : (isset($payload['amount_in_paise']) ? absint($payload['amount_in_paise']) : (isset($payload['amount']) ? absint($payload['amount']) : 0));
     $cart_fingerprint = isset($payload['cart_fingerprint']) ? sanitize_text_field($payload['cart_fingerprint']) : '';
     $json_payload = wp_json_encode($payload);
 
-    $wpdb->query($wpdb->prepare(
+    $stored = $wpdb->query($wpdb->prepare(
         "INSERT INTO {$table} (rzp_order_id, user_id, amount_paise, status, cart_fingerprint, checkout_payload, created_at, updated_at)
          VALUES (%s, %d, %d, 'created', %s, %s, %s, %s)
          ON DUPLICATE KEY UPDATE 
@@ -6288,12 +6773,24 @@ function mumbai_payment_intent_store(WP_REST_Request $request) {
             updated_at = VALUES(updated_at)",
         $rzp_order_id, $user_id, $amount_paise, $cart_fingerprint, $json_payload, $now, $now
     ));
-
+    if ($stored === false) {
+        delete_transient('_mumbai_pay_' . $rzp_order_id);
+        return new WP_Error('intent_storage_failed', 'Could not durably store payment session.', ['status' => 503]);
+    }
     return rest_ensure_response(['success' => true]);
 }
 
 function mumbai_payment_intent_get(WP_REST_Request $request) {
     global $wpdb;
+    if ($request->get_param('active_user_id')) {
+        $active = $wpdb->get_var($wpdb->prepare(
+            "SELECT rzp_order_id FROM {$wpdb->prefix}mumbai_payment_intents WHERE user_id = %d AND cart_fingerprint = %s AND ((status = 'created' AND created_at >= UTC_TIMESTAMP() - INTERVAL 15 MINUTE) OR status IN ('paid', 'orphan_payment', 'quarantined', 'refund_pending', 'refund_failed', 'refund_escalated', 'reconciliation_escalated', 'amount_mismatch')) ORDER BY created_at DESC LIMIT 1",
+            absint($request->get_param('active_user_id')),
+            sanitize_text_field($request->get_param('cart_fingerprint'))
+        ));
+        if ($wpdb->last_error) return new WP_Error('intent_lookup_failed', 'Payment session lookup unavailable.', ['status' => 503]);
+        return rest_ensure_response(['success' => true, 'active_order_id' => $active ?: null]);
+    }
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     if (empty($rzp_order_id)) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
@@ -6316,11 +6813,13 @@ function mumbai_payment_intent_get(WP_REST_Request $request) {
         $intent['captured_amount_paise'] = (int) $row['captured_amount_paise'];
         $intent['attempts'] = (int) $row['attempts'];
         $intent['error_reason'] = $row['error_reason'];
-        $intent['created_at'] = $row['created_at'];
+        if (empty($intent['created_at'])) $intent['created_at'] = $row['created_at'];
         $intent['updated_at'] = $row['updated_at'];
+        $intent['first_paid_at'] = $row['first_paid_at'] ?? null;
     }
 
-    if (!$intent) {
+    if ($wpdb->last_error) return new WP_Error('intent_lookup_failed', 'Could not read payment state.', ['status' => 503]);
+    if (!$intent && !$request->get_param('fresh')) {
         $intent = get_transient('_mumbai_pay_' . $rzp_order_id);
     }
 
@@ -6333,6 +6832,7 @@ function mumbai_payment_intent_get(WP_REST_Request $request) {
 
 function mumbai_payment_intent_update_status(WP_REST_Request $request) {
     global $wpdb;
+    if (!get_option('mumbai_payment_clock_utc_v1')) return new WP_Error('payment_storage_upgrading', 'Payment storage upgrade pending.', ['status' => 503]);
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     $from_status  = sanitize_text_field($request->get_param('from_status'));
     $to_status    = sanitize_text_field($request->get_param('to_status'));
@@ -6343,7 +6843,7 @@ function mumbai_payment_intent_update_status(WP_REST_Request $request) {
 
     mumbai_run_durable_payments_migration();
     $table = $wpdb->prefix . 'mumbai_payment_intents';
-    $now = current_time('mysql');
+    $now = gmdate('Y-m-d H:i:s');
 
     $rzp_payment_id = $request->get_param('rzp_payment_id') ? sanitize_text_field($request->get_param('rzp_payment_id')) : null;
     $wc_order_id    = $request->get_param('wc_order_id') ? absint($request->get_param('wc_order_id')) : null;
@@ -6354,6 +6854,13 @@ function mumbai_payment_intent_update_status(WP_REST_Request $request) {
 
     $set_clauses = ["status = %s", "updated_at = %s"];
     $params = [$to_status, $now];
+    if ($to_status === 'paid') {
+        $set_clauses[] = 'first_paid_at = COALESCE(first_paid_at, %s)';
+        $params[] = $now;
+    }
+    if ($to_status === 'refund_pending' && $from_status && !in_array($from_status, ['refund_pending', 'refund_failed', 'refund_escalated'], true)) {
+        $set_clauses[] = 'attempts = 0';
+    }
 
     if ($rzp_payment_id !== null) {
         $set_clauses[] = "rzp_payment_id = %s";
@@ -6421,43 +6928,35 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
     if ($limit <= 0 || $limit > 100) $limit = 50;
     $page = absint($request->get_param('page') ?? 1);
     if ($page <= 0) $page = 1;
-    $offset = ($page - 1) * $limit;
+    $cursor = sanitize_text_field($request->get_param('cursor') ?? '');
 
     $older_than_param = $request->get_param('older_than_minutes');
     $older_than_minutes = ($older_than_param !== null && $older_than_param !== '') ? absint($older_than_param) : 2;
     $cutoff = ($older_than_minutes > 0)
-        ? date('Y-m-d H:i:s', time() - ($older_than_minutes * MINUTE_IN_SECONDS))
-        : date('Y-m-d H:i:s', time() + 60);
+        ? gmdate('Y-m-d H:i:s', time() - ($older_than_minutes * MINUTE_IN_SECONDS))
+        : gmdate('Y-m-d H:i:s', time() + 60);
 
     $created_older_than_param = $request->get_param('created_older_than_minutes');
     $created_older_than_minutes = ($created_older_than_param !== null && $created_older_than_param !== '')
         ? absint($created_older_than_param)
         : ($older_than_minutes === 0 ? 0 : 10);
     $created_cutoff = ($created_older_than_minutes > 0)
-        ? date('Y-m-d H:i:s', time() - ($created_older_than_minutes * MINUTE_IN_SECONDS))
-        : date('Y-m-d H:i:s', time() + 60);
+        ? gmdate('Y-m-d H:i:s', time() - ($created_older_than_minutes * MINUTE_IN_SECONDS))
+        : gmdate('Y-m-d H:i:s', time() + 60);
 
-    // Overlapping window: if watermark provided, overlap by 5 minutes (300 seconds)
-    $watermark = sanitize_text_field($request->get_param('watermark') ?? '');
     $params = [$cutoff, $created_cutoff];
-    $watermark_where = "";
-
-    if (!empty($watermark)) {
-        $watermark_ts = strtotime($watermark);
-        if ($watermark_ts) {
-            $overlap_cutoff = date('Y-m-d H:i:s', $watermark_ts - 300);
-            $watermark_where = " AND updated_at >= %s";
-            $params[] = $overlap_cutoff;
-        }
+    $watermark_where = '';
+    if ($cursor !== '') {
+        $watermark_where = ' AND rzp_order_id > %s';
+        $params[] = $cursor;
     }
 
     $sql = "SELECT * FROM {$table} 
-         WHERE ((status IN ('paid', 'refund_pending', 'refund_failed', 'quarantined') AND updated_at < %s)
-            OR (status = 'created' AND created_at < %s))" . $watermark_where . "
-         ORDER BY updated_at ASC LIMIT %d OFFSET %d";
+         WHERE ((status IN ('paid', 'refund_pending', 'refund_failed', 'quarantined', 'orphan_payment') AND updated_at < %s)
+            OR (status IN ('created', 'cancelled', 'abandoned') AND created_at < %s AND created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY))" . $watermark_where . "
+         ORDER BY rzp_order_id ASC LIMIT %d";
 
     $params[] = $limit;
-    $params[] = $offset;
 
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
     $count = is_array($rows) ? count($rows) : 0;
@@ -6467,6 +6966,7 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
         'page'      => $page,
         'limit'     => $limit,
         'has_more'  => ($count === $limit),
+        'next_cursor' => $count ? $rows[$count - 1]['rzp_order_id'] : '',
         'intents'   => is_array($rows) ? $rows : [],
     ]);
 }
@@ -6485,7 +6985,7 @@ function mumbai_webhook_event_store(WP_REST_Request $request) {
     }
 
     $table = $wpdb->prefix . 'mumbai_webhook_events';
-    $now = current_time('mysql');
+    $now = gmdate('Y-m-d H:i:s');
     $payload_str = is_string($raw_payload) ? $raw_payload : wp_json_encode($raw_payload);
 
     $inserted = $wpdb->query($wpdb->prepare(
@@ -6515,9 +7015,9 @@ function mumbai_webhook_event_update_status(WP_REST_Request $request) {
         return new WP_Error('missing_params', 'event_id and status are required.', ['status' => 400]);
     }
 
-    $valid_statuses = ['stored', 'processed', 'orphan', 'failed'];
+    $valid_statuses = ['stored', 'processed', 'orphan', 'failed', 'test_archived'];
     if (!in_array($status, $valid_statuses, true)) {
-        return new WP_Error('invalid_status', 'Status must be one of stored, processed, orphan, failed.', ['status' => 400]);
+        return new WP_Error('invalid_status', 'Status must be one of stored, processed, orphan, failed, test_archived.', ['status' => 400]);
     }
 
     $table = $wpdb->prefix . 'mumbai_webhook_events';
@@ -6564,13 +7064,14 @@ function mumbai_webhook_events_orphans(WP_REST_Request $request) {
 }
 
 function mumbai_find_order_by_razorpay_order_id(WP_REST_Request $request) {
+    global $wpdb;
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
     if (empty($rzp_order_id)) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
     }
 
     if (!function_exists('wc_get_orders')) {
-        return rest_ensure_response(['success' => true, 'order' => null]);
+        return new WP_Error('commerce_unavailable', 'WooCommerce order lookup unavailable.', ['status' => 503]);
     }
 
     $orders = wc_get_orders([
@@ -6580,12 +7081,15 @@ function mumbai_find_order_by_razorpay_order_id(WP_REST_Request $request) {
         'return'     => 'objects',
     ]);
 
+    if ($wpdb->last_error) return new WP_Error('order_lookup_failed', 'Could not verify payment order.', ['status' => 503]);
     if (!empty($orders)) {
         $order = $orders[0];
         return rest_ensure_response([
             'success' => true,
             'order'   => [
                 'id'             => $order->get_id(),
+                'number'         => $order->get_order_number(),
+                'customer_id'    => $order->get_customer_id(),
                 'status'         => $order->get_status(),
                 'transaction_id' => $order->get_transaction_id(),
                 'total'          => $order->get_total(),
@@ -6606,6 +7110,41 @@ function mumbai_payment_intent_delete(WP_REST_Request $request) {
     return rest_ensure_response(['success' => true]);
 }
 
+/** Serialize lookup + WooCommerce creation at the database connection itself.
+ * This protects a retry even when the original Node lease expired or timed out.
+ */
+function mumbai_create_paid_order_once(WP_REST_Request $request) {
+    global $wpdb;
+    $payload = $request->get_json_params();
+    $rzp_order_id = '';
+    foreach (($payload['meta_data'] ?? []) as $meta) {
+        if (($meta['key'] ?? '') === '_razorpay_order_id') $rzp_order_id = sanitize_text_field($meta['value']);
+    }
+    if (!$rzp_order_id || ($payload['payment_method'] ?? '') !== 'razorpay') {
+        return new WP_Error('invalid_payment_order', 'Payment order identity required.', ['status' => 400]);
+    }
+    $key = hash('sha256', 'wc-order:' . $rzp_order_id);
+    if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $key)) !== 1) {
+        return new WP_Error('order_in_progress', 'Payment order creation is in progress.', ['status' => 409]);
+    }
+    try {
+        $orders = wc_get_orders(['limit' => 1, 'meta_key' => '_razorpay_order_id', 'meta_value' => $rzp_order_id]);
+        if ($wpdb->last_error) throw new RuntimeException('Could not verify existing payment order.');
+        $controller = new WC_REST_Orders_Controller();
+        if (!empty($orders)) {
+            $read = new WP_REST_Request('GET');
+            return $controller->prepare_object_for_response($orders[0], $read);
+        }
+        $create = new WP_REST_Request('POST');
+        foreach ($payload as $name => $value) $create->set_param($name, $value);
+        return $controller->create_item($create);
+    } catch (Throwable $error) {
+        return new WP_Error('payment_order_unavailable', $error->getMessage(), ['status' => 503]);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $key));
+    }
+}
+
 function mumbai_payment_intent_lock(WP_REST_Request $request) {
     global $wpdb;
     $rzp_order_id = sanitize_text_field($request->get_param('rzp_order_id'));
@@ -6615,7 +7154,7 @@ function mumbai_payment_intent_lock(WP_REST_Request $request) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
     }
 
-    $lock_key = '_mumbai_lock_' . $rzp_order_id;
+    $lock_key = hash('sha256', $rzp_order_id);
     $now = time();
     $table_name = $wpdb->prefix . 'mumbai_locks';
 
@@ -6631,10 +7170,13 @@ function mumbai_payment_intent_lock(WP_REST_Request $request) {
     if (!$acquired) {
         // Atomic stale lock recovery (worker timed out > 30s)
         $stale = $wpdb->query($wpdb->prepare(
-            "UPDATE `{$table_name}` SET `worker_id` = %s, `locked_at` = %d WHERE `lock_key` = %s AND `locked_at` < %d",
-            $worker_id, $now, $lock_key, $now - 30
+            "UPDATE `{$table_name}` SET `worker_id` = %s, `locked_at` = %d WHERE `lock_key` = %s AND (`worker_id` = %s OR `locked_at` < %d)",
+            $worker_id, $now, $lock_key, $worker_id, $now - 300
         ));
-        if ($stale === 1) {
+        if ($stale === 1 || $wpdb->get_var($wpdb->prepare(
+            "SELECT worker_id FROM `{$table_name}` WHERE lock_key = %s AND locked_at >= %d",
+            $lock_key, $now - 300
+        )) === $worker_id) {
             $acquired = true;
         }
     }
@@ -6653,14 +7195,14 @@ function mumbai_payment_intent_unlock(WP_REST_Request $request) {
         return new WP_Error('missing_params', 'rzp_order_id is required.', ['status' => 400]);
     }
 
-    $lock_key = '_mumbai_lock_' . $rzp_order_id;
+    $lock_key = hash('sha256', $rzp_order_id);
     $table_name = $wpdb->prefix . 'mumbai_locks';
     if (!empty($worker_id)) {
         $now = time();
         // Delete only if owned by this worker or if the lock has exceeded 30s stale window
         $wpdb->query($wpdb->prepare(
-            "DELETE FROM `{$table_name}` WHERE `lock_key` = %s AND (`worker_id` = %s OR `locked_at` < %d)",
-            $lock_key, $worker_id, $now - 30
+            "DELETE FROM `{$table_name}` WHERE `lock_key` = %s AND `worker_id` = %s",
+            $lock_key, $worker_id
         ));
     } else {
         $wpdb->delete($table_name, ['lock_key' => $lock_key]);

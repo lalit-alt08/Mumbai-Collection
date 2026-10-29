@@ -415,7 +415,7 @@ function Products() {
 
     try {
       setAdjustSaving(true);
-      const res = await updateProduct(quickAdjustProduct.id, validation.updateData);
+      const res = await updateProduct(quickAdjustProduct.id, { ...validation.updateData, expected_stock_quantity: quickAdjustProduct.stock_quantity ?? null });
       if (res.success) {
         setProducts((prev) =>
           prev.map((p) =>
@@ -425,7 +425,7 @@ function Products() {
           )
         );
         showToast("Product updated successfully!");
-        handleCloseQuickAdjust();
+        setQuickAdjustProduct(null);
         fetchProductList();
       } else {
         showToast(res.message || "Failed to update product.", "error");

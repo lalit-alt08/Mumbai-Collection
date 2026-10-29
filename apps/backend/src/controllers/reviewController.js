@@ -5,6 +5,7 @@ import { checkSessionSuspended } from "../middlewares/authMiddleware.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { logError, logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
+import wp from "../services/wordpress.js";
 
 /**
  * In-process promise mutex map for serializing review check + insert per user and product
@@ -187,47 +188,41 @@ export const getProductReviews = async (req, res) => {
     const publicReviewData = await serverCache.getOrFetch(
       publicCacheKey,
       async () => {
-        let allApprovedReviews = [];
-        let page = 1;
-        const MAX_REVIEWS_CAP = 500;
-
-        while (allApprovedReviews.length < MAX_REVIEWS_CAP) {
-          const pageRes = await api.get("products/reviews", {
+        const [latestReviewsResult, summaryResult] = await Promise.allSettled([
+          api.get("products/reviews", {
             product: [productId],
             status: "approved",
-            per_page: 100,
-            page,
+            per_page: 50,
+            page: 1,
             order: "desc",
             orderby: "date",
+          }),
+          wp.get(`/wp-json/mumbai-auth/v1/catalog/products/${productId}/review-summary`),
+        ]);
+
+        if (latestReviewsResult.status !== "fulfilled") {
+          throw latestReviewsResult.reason;
+        }
+        const latestReviewsRes = latestReviewsResult.value;
+        const rawLatest50 = Array.isArray(latestReviewsRes?.data) ? latestReviewsRes.data : [];
+        let summary = summaryResult.status === "fulfilled" ? (summaryResult.value?.data || {}) : {};
+        if (summaryResult.status !== "fulfilled") {
+          logger.warn(
+            { productId, err: summaryResult.reason?.message },
+            "Exact review aggregate unavailable; using WooCommerce product totals"
+          );
+          const productRes = await api.get(`products/${productId}`, {
+            _fields: "id,average_rating,rating_count",
           });
-
-          const list = Array.isArray(pageRes?.data) ? pageRes.data : [];
-          if (list.length === 0) break;
-
-          allApprovedReviews.push(...list);
-
-          const totalPages = Number(pageRes.headers?.["x-wp-totalpages"]);
-          if (!isNaN(totalPages) && page >= totalPages) break;
-          if (list.length < 100) break;
-
-          page++;
+          summary = {
+            totalReviews: Number(productRes.data?.rating_count) || 0,
+            averageRating: Number(productRes.data?.average_rating) || 0,
+            ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+          };
         }
-
-        const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-        let totalScore = 0;
-
-        for (const r of allApprovedReviews) {
-          const ratingNum = Math.max(1, Math.min(5, Number(r.rating) || 5));
-          totalScore += ratingNum;
-          ratingDistribution[ratingNum] = (ratingDistribution[ratingNum] || 0) + 1;
-        }
-
-        const totalReviews = allApprovedReviews.length;
-        const averageRating =
-          totalReviews > 0 ? Number((totalScore / totalReviews).toFixed(1)) : 0;
-
-        // Slice latest 50 reviews for frontend display
-        const rawLatest50 = allApprovedReviews.slice(0, 50);
+        const ratingDistribution = summary.ratingDistribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        const totalReviews = Number(summary.totalReviews) || 0;
+        const averageRating = Number(summary.averageRating) || 0;
 
         const formattedReviews = rawLatest50.map((r) => {
           const ratingNum = Math.max(1, Math.min(5, Number(r.rating) || 5));
@@ -265,7 +260,7 @@ export const getProductReviews = async (req, res) => {
           reviews: formattedReviews,
         };
       },
-      300000 // 5-minute TTL
+      900000 // 15-minute fallback for direct wp-admin moderation; API writes invalidate immediately
     );
 
     // Dynamic, user-specific mapping for current requester (prevents cross-user cache leakage)
@@ -409,26 +404,45 @@ export const createOrUpdateReview = async (req, res) => {
     reviewMutex.set(mutexKey, mutexPromise);
 
     try {
-      // Check if customer already submitted review for this product (including held/spam statuses)
-      const existingReviewsRes = await api.get("products/reviews", {
-        product: [productId],
-        status: "all",
-        per_page: 100,
-      });
-
-      const existingList = Array.isArray(existingReviewsRes?.data) ? existingReviewsRes.data : [];
-      const existingReview = existingList.find(
-        (r) =>
-          r.reviewer_email &&
-          r.reviewer_email.toLowerCase() === reviewerEmail.toLowerCase()
-      );
-
-      if (existingReview) {
+      // Check the indexed WordPress comment table so reviews beyond the first
+      // WooCommerce REST page cannot bypass the one-review-per-customer rule.
+      let existingReviewId = null;
+      try {
+        const existingReviewRes = await wp.get(
+          `/wp-json/mumbai-auth/v1/catalog/products/${productId}/review-exists`,
+          { params: { email: reviewerEmail } }
+        );
+        if (existingReviewRes?.data?.exists) {
+          existingReviewId = existingReviewRes.data.reviewId;
+        }
+      } catch (lookupError) {
+        logger.warn(
+          { productId, err: lookupError?.message },
+          "Indexed review lookup unavailable; using paginated compatibility check"
+        );
+        for (let page = 1; page <= 50 && !existingReviewId; page += 1) {
+          const pageRes = await api.get("products/reviews", {
+            product: [productId],
+            status: "all",
+            per_page: 100,
+            page,
+          });
+          const list = Array.isArray(pageRes?.data) ? pageRes.data : [];
+          const match = list.find((item) =>
+            item.reviewer_email &&
+            item.reviewer_email.toLowerCase() === reviewerEmail.toLowerCase()
+          );
+          if (match) existingReviewId = match.id;
+          const totalPages = Number(pageRes.headers?.["x-wp-totalpages"]);
+          if (list.length < 100 || (Number.isFinite(totalPages) && page >= totalPages)) break;
+        }
+      }
+      if (existingReviewId) {
         return res.status(409).json({
           success: false,
           code: "ALREADY_REVIEWED",
           message: "You have already reviewed this product. Each customer can submit one review.",
-          reviewId: existingReview.id,
+          reviewId: existingReviewId,
         });
       }
 

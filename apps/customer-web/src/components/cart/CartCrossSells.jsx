@@ -18,7 +18,7 @@ function CartCrossSells({ items = [] }) {
 
     const loadCrossSells = async () => {
       try {
-        const cartProducts = await getProductsByIds(cartIds);
+        const cartProducts = await getProductsByIds(cartIds, { details: "cross-sells" });
         const candidates = [...new Set(cartProducts.flatMap((product) =>
           Array.isArray(product.cross_sell_ids) ? product.cross_sell_ids.map(Number) : []
         ))]

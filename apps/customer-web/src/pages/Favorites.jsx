@@ -3,10 +3,22 @@ import { Heart, ShoppingBag, ArrowLeft, ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFavorites } from "../context/FavoritesContext";
 import ProductCard from "../components/product/ProductCard";
+import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
 function Favorites() {
   const navigate = useNavigate();
-  const { favorites, loading, loadFullFavorites } = useFavorites();
+  const {
+    favorites,
+    loading,
+    loadingMore,
+    favoritePage,
+    favoriteTotalPages,
+    favoriteTotal,
+    updateLoadedFavorites,
+    loadFullFavorites,
+    loadMoreFavorites,
+  } = useFavorites();
+  useLiveProductStock(favorites.slice(-24), updateLoadedFavorites);
 
   useEffect(() => {
     if (typeof loadFullFavorites === "function") {
@@ -35,7 +47,7 @@ function Favorites() {
                 My Wishlist
               </h1>
               <p className="text-xs font-semibold text-[#8FA4BE] mt-0.5">
-                {favorites.length} saved item{favorites.length === 1 ? "" : "s"} ready for shopping
+                {favoriteTotal} saved item{favoriteTotal === 1 ? "" : "s"} ready for shopping
               </p>
             </div>
           </div>
@@ -83,10 +95,24 @@ function Favorites() {
           </div>
         ) : (
           /* Favorites Grid */
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {favorites.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+              {favorites.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+            {favoritePage < favoriteTotalPages && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={loadMoreFavorites}
+                  disabled={loadingMore}
+                  className="rounded-full border border-[#42D6E8]/60 bg-[#111F36] px-6 py-2.5 text-sm font-extrabold text-[#67E8F9] transition hover:bg-[#162744] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {loadingMore ? "Loading…" : "Load more favorites"}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -15,6 +15,32 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
 
     const isProduction = process.env.NODE_ENV === "production";
 
+    // Production accepts only exact origins explicitly owned and configured by the operator.
+    const envAllowed = (process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const configuredProductionOrigins = [
+      process.env.CUSTOMER_ORIGIN,
+      process.env.ADMIN_ORIGIN,
+      process.env.EMPLOYEE_ORIGIN,
+      process.env.CLIENT_ORIGIN,
+      process.env.FRONTEND_URL,
+      ...envAllowed,
+      ...(Array.isArray(allowedOrigins) ? allowedOrigins : []),
+      // Verified exact Vercel production deployments
+      "https://mumbai-collection-web.vercel.app",
+      "https://mumbai-collection-admin.vercel.app",
+      "https://mumbai-collection.vercel.app",
+    ].filter(Boolean);
+
+    if (isProduction) {
+      return configuredProductionOrigins.some(
+        (allowed) => typeof allowed === "string" && allowed.trim().replace(/\/$/, "") === parsed.origin
+      );
+    }
+
     // 1. Localhost / Local IP development (any port, HTTP & HTTPS)
     // In production, localhost is disabled unless explicitly enabled via ALLOW_LOCAL_ORIGINS="true"
     const allowLocalOrigins = !isProduction || process.env.ALLOW_LOCAL_ORIGINS === "true";
@@ -37,37 +63,15 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
     }
 
     // 3. Vercel deployments (development/testing and preview builds)
-    // In production, wildcards are disabled by default to prevent arbitrary multi-tenant subdomains from accessing production APIs.
-    // Set ALLOW_PREVIEW_ORIGINS="true" in .env only if preview/testing wildcards are needed in production.
-    const allowPreviewOrigins = !isProduction || process.env.ALLOW_PREVIEW_ORIGINS === "true";
-
     if (
-      allowPreviewOrigins &&
       parsed.protocol === "https:" &&
       (host === "vercel.app" || host.endsWith(".vercel.app"))
     ) {
       return true;
     }
 
-    // 4. Production custom domains (mumbaicollection.in and designated panel subdomains)
-    const ALLOWED_STORE_SUBDOMAINS = new Set([
-      "mumbaicollection.in",
-      "www.mumbaicollection.in",
-      "admin.mumbaicollection.in",
-      "employee.mumbaicollection.in",
-      "api.mumbaicollection.in",
-    ]);
-
+    // 4. Cloudflare tunnels (development/testing)
     if (
-      parsed.protocol === "https:" &&
-      ALLOWED_STORE_SUBDOMAINS.has(host)
-    ) {
-      return true;
-    }
-
-    // 5. Cloudflare tunnels (development/testing)
-    if (
-      allowPreviewOrigins &&
       parsed.protocol === "https:" &&
       (host === "trycloudflare.com" || host.endsWith(".trycloudflare.com"))
     ) {

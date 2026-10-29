@@ -15,7 +15,19 @@
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { logger } from "../utils/logger.js";
+import { logger, getErrorMessage } from "../utils/logger.js";
+
+// The SDK rejects with { statusCode, error: { description, code } }, not an Error.
+// Normalize read failures so callers never record "undefined" or log raw gateway payloads.
+const gatewayRead = async (operation) => {
+  try { return await operation(); } catch (original) {
+    const error = new Error(getErrorMessage(original));
+    error.name = "RazorpayError";
+    error.code = original?.error?.code || original?.code;
+    error.statusCode = original?.statusCode || original?.response?.status;
+    throw error;
+  }
+};
 
 // ─────────────────────────────────────────────────────────
 // Razorpay Client Initialization
@@ -141,7 +153,7 @@ export const verifyPaymentSignature = ({ razorpay_order_id, razorpay_payment_id,
  */
 export const fetchRazorpayPayment = async (paymentId) => {
   const razorpay = getRazorpayInstance();
-  return razorpay.payments.fetch(paymentId);
+  return gatewayRead(() => razorpay.payments.fetch(paymentId));
 };
 
 /**
@@ -152,7 +164,7 @@ export const fetchRazorpayPayment = async (paymentId) => {
  */
 export const fetchRazorpayOrder = async (orderId) => {
   const razorpay = getRazorpayInstance();
-  return razorpay.orders.fetch(orderId);
+  return gatewayRead(() => razorpay.orders.fetch(orderId));
 };
 
 /**
@@ -213,7 +225,7 @@ export const verifyWebhookSignature = (rawBody, signature) => {
  */
 export const fetchRazorpayOrderPayments = async (orderId) => {
   const razorpay = getRazorpayInstance();
-  return razorpay.orders.fetchPayments(orderId);
+  return gatewayRead(() => razorpay.orders.fetchPayments(orderId));
 };
 
 /**
@@ -244,6 +256,17 @@ export const refundRazorpayPayment = async ({ paymentId, amountInPaise, notes = 
   }
 
   const finalRefundPaise = Math.min(amountInPaise, remainingCapturable);
+
+  // A previous request may have succeeded despite a lost HTTP response. Observe
+  // gateway refund records before submitting another financial mutation.
+  for (let skip = 0; ; skip += 100) {
+    const page = await razorpay.payments.fetchMultipleRefund(paymentId, { count: 100, skip });
+    const refunds = page?.items || [];
+    const pending = refunds.find((item) => item.status !== 'processed' && item.status !== 'failed');
+    if (pending) return { ...pending, status: 'pending', existing_pending: true };
+    if (refunds.length < 100) break;
+    if (skip >= 900) throw new Error('Refund history requires staff review before further refunds');
+  }
 
   const refund = await razorpay.payments.refund(paymentId, {
     amount: finalRefundPaise,

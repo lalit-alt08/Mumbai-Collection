@@ -50,11 +50,15 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
   const originalClearCart = paymentIntentService.clearCustomerWcCart;
   const originalReserveStock = paymentIntentService.reserveCheckoutStock;
   const originalReleaseStock = paymentIntentService.releaseCheckoutStock;
+  const originalCreatePaidOrder = paymentIntentService.createPaidOrder;
 
   t.before(async () => {
     _setAnomalyHandlerForTesting(() => {});
     _setWpClientForTesting({
-      post: async () => ({ data: { success: true } }),
+      post: async (path, body) => ({ data: {
+        success: true, updated: true,
+        ...(path.endsWith('/payment-intent/get') ? { intent: serverCache.get(`payment_intent:${body.rzp_order_id}`) || null } : {}),
+      } }),
       get: async () => ({ data: { success: true } }),
     });
     paymentIntentService.acquireLock = async () => true;
@@ -62,6 +66,7 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
     paymentIntentService.clearCustomerWcCart = async () => true;
     paymentIntentService.reserveCheckoutStock = async () => ({ success: true });
     paymentIntentService.releaseCheckoutStock = async () => true;
+    paymentIntentService.createPaidOrder = async payload => api.post('orders', payload);
 
     server = http.createServer(app);
     await new Promise((resolve) => server.listen(0, resolve));
@@ -78,6 +83,7 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
     paymentIntentService.clearCustomerWcCart = originalClearCart;
     paymentIntentService.reserveCheckoutStock = originalReserveStock;
     paymentIntentService.releaseCheckoutStock = originalReleaseStock;
+    paymentIntentService.createPaidOrder = originalCreatePaidOrder;
     _setRazorpayInstanceForTesting(null);
     _setAnomalyHandlerForTesting(null);
     _setWpClientForTesting(null);
@@ -453,6 +459,7 @@ test("Payment Auth, Verify, and Recovery Security Suite (Through Real Express Ro
 
     _setRazorpayInstanceForTesting({
       orders: {
+        fetchPayments: async () => ({ items: [] }),
         fetch: async () => ({
           id: rzpOrderId,
           status: "created",

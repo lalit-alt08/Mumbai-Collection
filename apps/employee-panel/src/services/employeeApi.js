@@ -64,6 +64,11 @@ export const updateOrderStatus = async (id, status) => {
   return res.data;
 };
 
+export const bulkDispatchOrders = async (ids) => {
+  const res = await api.post("/orders/bulk-status", { ids, status: "out-for-delivery" }, { timeout: 180000 });
+  return res.data;
+};
+
 export const sendOrderRefundEmail = async (id) => {
   const res = await api.post(`/orders/${id}/refund-email`);
   return res.data;

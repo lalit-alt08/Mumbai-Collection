@@ -24,14 +24,19 @@ export function useLiveProductStock(products, setProducts) {
     if (!idsKey) return undefined;
     let disposed = false;
     let requestId = 0;
+    let activeController = null;
 
     const refresh = async (force = false) => {
       if (document.visibilityState !== "visible") return;
       if (!force && Date.now() - lastRefreshAt.current < WAKE_COOLDOWN_MS) return;
       const currentRequest = ++requestId;
       lastRefreshAt.current = Date.now();
+      activeController?.abort();
+      activeController = new AbortController();
       try {
-        const latest = await getLiveProductStockByIds(idsKey.split(",").map(Number));
+        const latest = await getLiveProductStockByIds(idsKey.split(",").map(Number), {
+          signal: activeController.signal,
+        });
         if (disposed || currentRequest !== requestId || latest.length === 0) return;
         const stockById = new Map(latest.map((item) => [Number(item.id), item]));
         setterRef.current((current) => {
@@ -50,9 +55,9 @@ export function useLiveProductStock(products, setProducts) {
     };
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") refresh(true);
+      if (document.visibilityState === "visible") refresh();
     };
-    const onPageShow = () => refresh(true);
+    const onPageShow = () => refresh();
     const interval = window.setInterval(() => refresh(), REFRESH_INTERVAL_MS);
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pageshow", onPageShow);
@@ -61,6 +66,7 @@ export function useLiveProductStock(products, setProducts) {
     return () => {
       disposed = true;
       requestId += 1;
+      activeController?.abort();
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pageshow", onPageShow);

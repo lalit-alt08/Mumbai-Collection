@@ -1,10 +1,15 @@
 import { useMemo } from "react";
-import staticCategories from "../../data/category.js";
+import { Link } from "react-router-dom";
 import CategoryCard from "./CategoryCard";
 
-function CategoryGrid({ categories: propCategories = [] }) {
-  // Use categories passed from Home.jsx or fallback to static data
-  const categories = propCategories.length > 0 ? propCategories : staticCategories;
+const HOME_CATEGORY_PREVIEW_LIMIT = 8;
+const EMPTY_CATEGORIES = [];
+
+function CategoryGrid({ categories: propCategories = EMPTY_CATEGORIES }) {
+  const categories = useMemo(
+    () => (Array.isArray(propCategories) ? propCategories : EMPTY_CATEGORIES),
+    [propCategories]
+  );
 
   // Filter out system "Uncategorized", subcategories, and empty categories (count === 0) from customer category browsing
   const displayCategories = useMemo(() => {
@@ -40,19 +45,31 @@ function CategoryGrid({ categories: propCategories = [] }) {
     );
   }, [categories]);
 
-  if (displayCategories.length === 0) return null;
+  const visibleCategories = displayCategories.slice(0, HOME_CATEGORY_PREVIEW_LIMIT);
+
+  if (visibleCategories.length === 0) return null;
 
   return (
     <section className="hidden md:block">
       <div className="mb-3 sm:mb-4 flex items-center gap-2 sm:gap-2.5">
         <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
-        <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
-          Shop by Category
-        </h2>
+        <div className="flex w-full items-center justify-between gap-3">
+          <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
+            Shop by Category
+          </h2>
+          {displayCategories.length > HOME_CATEGORY_PREVIEW_LIMIT && (
+            <Link
+              to="/categories"
+              className="shrink-0 text-xs sm:text-sm font-bold text-[#42D6E8] hover:text-[#67E8F9]"
+            >
+              All categories
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3.5 md:gap-4">
-        {displayCategories.map((category) => (
+        {visibleCategories.map((category) => (
           <CategoryCard
             key={category.id}
             category={category}

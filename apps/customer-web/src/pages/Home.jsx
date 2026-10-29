@@ -4,7 +4,7 @@ import HeroBanner from "../components/home/HeroBanner";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
 import { getHomeShelves } from "../services/productService";
-import { CheckCircle2, X, ChevronRight } from "lucide-react";
+import { AlertCircle, CheckCircle2, X, ChevronRight } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
@@ -34,6 +34,8 @@ function Home() {
   const [homeShelves, setHomeShelves] = useState(() => cachedHomeData.shelves || []);
   // Instant hydration: If cached data exists in memory, skip initial loading skeleton
   const [loading, setLoading] = useState(() => !cachedHomeData.shelves);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
   const lastHomeFetchAt = useRef(0);
   // One randomized catalog order per browser/app session; stock refreshes reuse it.
@@ -62,6 +64,7 @@ function Home() {
       if (!force && Date.now() - lastHomeFetchAt.current < HOME_RESUME_REFRESH_COOLDOWN_MS) return;
       lastHomeFetchAt.current = Date.now();
       try {
+        setLoadError("");
         // Only trigger skeleton if we have no prior cache
         if (!cachedHomeData.shelves) {
           setLoading(true);
@@ -89,12 +92,14 @@ function Home() {
             cachedHomeData.shelves = shelfList;
             cachedHomeData.products = productList;
             cachedHomeData.categories = catList;
+          } else {
+            throw homeDataResult.reason || new Error("Home catalog request failed");
           }
 
           cachedHomeData.timestamp = Date.now();
         }
       } catch {
-        // Fallback or empty home state
+        if (isMounted) setLoadError("We could not refresh the store catalog. Check your connection and try again.");
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -113,7 +118,7 @@ function Home() {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       window.removeEventListener("pageshow", refreshOnPageShow);
     };
-  }, []);
+  }, [reloadKey]);
 
   // The backend returns a bounded first page for each department, so a shelf
   // is not omitted just because its products fall after the global catalog page.
@@ -192,6 +197,18 @@ function Home() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : loadError && categorySections.length === 0 ? (
+          <div className="rounded-[18px] border border-amber-400/40 bg-[#111F36] p-6 text-center shadow-xs">
+            <AlertCircle className="mx-auto mb-2 text-amber-300" size={24} />
+            <p className="text-sm font-semibold text-[#D8E5F3]">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => setReloadKey((value) => value + 1)}
+              className="mt-4 rounded-full border border-[#42D6E8]/60 px-5 py-2 text-sm font-extrabold text-[#67E8F9] transition hover:bg-[#162744]"
+            >
+              Retry
+            </button>
           </div>
         ) : categorySections.length > 0 ? (
           categorySections.map((section) => (

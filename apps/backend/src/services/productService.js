@@ -1,9 +1,13 @@
 import api from "../config/woocommerce.js";
+import wp from "./wordpress.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 
 const CATALOG_PRODUCT_FIELDS =
   "id,name,slug,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count";
+const CROSS_SELL_PRODUCT_FIELDS = `${CATALOG_PRODUCT_FIELDS},cross_sell_ids`;
+const SELECTED_PRODUCT_FIELDS =
+  `${CATALOG_PRODUCT_FIELDS},type,attributes,variations,cross_sell_ids`;
 
 const SEARCH_STOP_WORDS = new Set(["a", "an", "and", "for", "in", "of", "the", "to", "with"]);
 
@@ -172,16 +176,22 @@ export const fetchProductById = async (id) => {
   return product;
 };
 
-export const fetchProductsByIds = async (rawIds = []) => {
+export const fetchProductsByIds = async (rawIds = [], detailMode = "catalog") => {
   const ids = [...new Set(rawIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 12);
   if (ids.length === 0) return [];
+
+  const fields = detailMode === "selection"
+    ? SELECTED_PRODUCT_FIELDS
+    : detailMode === "cross-sells"
+      ? CROSS_SELL_PRODUCT_FIELDS
+      : CATALOG_PRODUCT_FIELDS;
 
   const response = await api.get("products", {
     status: "publish",
     include: ids.join(","),
     orderby: "include",
     per_page: ids.length,
-    _fields: CATALOG_PRODUCT_FIELDS,
+    _fields: fields,
   });
 
   if (!Array.isArray(response.data)) {
@@ -262,6 +272,51 @@ export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) =
   const perPageNum = Math.min(100, Math.max(1, Number(per_page) || 20));
   const terms = getSearchTerms(search);
   const candidateTerms = getCandidateSearchTerms(search);
+  try {
+    const rankedResponse = await wp.get("/wp-json/mumbai-auth/v1/catalog/search", {
+      params: { q: search, page: pageNum, per_page: perPageNum },
+    });
+    const rankedData = rankedResponse?.data || {};
+    const rankedIds = Array.isArray(rankedData.ids)
+      ? rankedData.ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
+      : [];
+    if (rankedData.success === true) {
+      if (rankedIds.length === 0) {
+        return {
+          products: [],
+          total: Number(rankedData.total) || 0,
+          totalPages: Number(rankedData.totalPages) || 0,
+          page: pageNum,
+          per_page: perPageNum,
+        };
+      }
+      const hydrated = await api.get("products", {
+        status: "publish",
+        include: rankedIds.join(","),
+        orderby: "include",
+        per_page: rankedIds.length,
+        _fields: CATALOG_PRODUCT_FIELDS,
+      });
+      const products = Array.isArray(hydrated.data) ? hydrated.data : [];
+      const order = new Map(rankedIds.map((id, index) => [id, index]));
+      products.sort((a, b) =>
+        (order.get(Number(a.id)) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(Number(b.id)) ?? Number.MAX_SAFE_INTEGER)
+      );
+      return {
+        products,
+        total: Number(rankedData.total) || products.length,
+        totalPages: Number(rankedData.totalPages) || (products.length > 0 ? 1 : 0),
+        page: pageNum,
+        per_page: perPageNum,
+      };
+    }
+  } catch (error) {
+    logger.warn(
+      { err: error?.message },
+      "Ranked catalog search unavailable; using WooCommerce compatibility fallback"
+    );
+  }
   const response = await api.get("products", {
     status: "publish",
     search,

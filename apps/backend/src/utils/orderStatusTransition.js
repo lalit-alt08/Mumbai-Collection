@@ -50,7 +50,7 @@ export const getOrderDeliveredTimestamp = (order) => {
 
   // 3. date_completed
   if (order.date_completed) {
-    const t = new Date(order.date_completed).getTime();
+    const t = new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(order.date_completed) ? order.date_completed : order.date_completed + "+05:30").getTime();
     if (!isNaN(t) && t > 0) return t;
   }
 
@@ -65,7 +65,7 @@ export const getOrderDeliveredTimestamp = (order) => {
 
   // 5. date_created
   if (order.date_created) {
-    const t = new Date(order.date_created).getTime();
+    const t = new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(order.date_created) ? order.date_created : order.date_created + "+05:30").getTime();
     if (!isNaN(t) && t > 0) return t;
   }
 
@@ -110,14 +110,13 @@ export const isCodOrder = (order) => {
 /**
  * Determines whether an order is an online order that has not yet received payment.
  * COD orders are never unpaid in this context (collected on delivery).
- * Online orders with captured payments (date_paid, transaction_id, or razorpay payment meta) are paid.
- * Online orders in pending/failed/on-hold status with no payment proof are unpaid.
+ * Online orders require a paid date, transaction ID, or explicit payment verification timestamp.
+ * A fulfillment status alone does not establish payment.
  */
 export const isOnlineOrderUnpaid = (order) => {
   if (!order) return false;
   if (isCodOrder(order)) return false;
 
-  const status = String(order.status || "").toLowerCase();
 
   // If order has captured payment indicators, it is paid
   if (order.date_paid) return false;
@@ -126,24 +125,14 @@ export const isOnlineOrderUnpaid = (order) => {
     Array.isArray(order.meta_data) &&
     order.meta_data.some(
       (m) =>
-        (m.key === "_razorpay_payment_id" || m.key === "_payment_method_detail") &&
+        m.key === "_payment_verified_at" &&
         Boolean(m.value)
     )
   ) {
     return false;
   }
 
-  // Active fulfillment or completed orders are not considered unpaid pending orders
-  if (status === "processing" || status === "completed") {
-    return false;
-  }
-
-  // Pending, failed, or on-hold without payment confirmation are unpaid
-  if (status === "pending" || status === "failed" || status === "on-hold") {
-    return true;
-  }
-
-  return false;
+  return true;
 };
 
 /**
@@ -186,6 +175,24 @@ export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs 
 
   const fulfillmentStatuses = ["processing", "packed", "out-for-delivery", "dispatched", "completed"];
   const currentStatus = String(currentOrder?.status || "").toLowerCase();
+  const effectiveStatus = currentOrder?.meta_data?.find((m) => m.key === "_delivery_status")?.value || currentStatus;
+  const terminal = ["cancelled", "refunded", "failed", "completed"];
+  if (terminal.includes(currentStatus) || terminal.includes(effectiveStatus)) {
+    return targetStatus === currentStatus || targetStatus === effectiveStatus
+      ? { valid: true }
+      : { valid: false, message: "A terminal order cannot be reopened or regressed through fulfillment controls." };
+  }
+  const allowed = {
+    pending: ["processing", "cancelled", "failed"],
+    "on-hold": ["cancelled", "failed"],
+    processing: ["packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
+    packed: ["out-for-delivery", "dispatched", "cancelled"],
+    "out-for-delivery": ["completed"],
+    dispatched: ["completed"],
+  };
+  if (targetStatus !== effectiveStatus && !(allowed[effectiveStatus] || []).includes(targetStatus)) {
+    return { valid: false, message: `Cannot transition ${effectiveStatus} to ${targetStatus}.` };
+  }
 
   // 2. Terminal statuses cannot transition to active fulfillment
   if ((currentStatus === "cancelled" || currentStatus === "refunded") && fulfillmentStatuses.includes(targetStatus)) {

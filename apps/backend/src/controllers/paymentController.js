@@ -26,6 +26,7 @@
  */
 
 import crypto from "crypto";
+import { acquirePaymentLease } from "../services/paymentLease.js";
 import axios from "axios";
 import https from "https";
 import api from "../config/woocommerce.js";
@@ -93,55 +94,10 @@ export const _setFinalizeHandlerForTesting = (fn) => {
  * Prevents dual checkout creation across multiple server processes.
  */
 const acquireCheckoutConcurrencyLock = async (userId, cartFingerprint, timeoutMs = 3000) => {
-  const lockKey = `create_order_lock:${userId}:${cartFingerprint}`;
-  const workerId = `proc_${process.pid}_${crypto.randomUUID()}`;
-  const redis = getRedisClient();
-
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (redis && isRedisActive()) {
-      try {
-        const res = await redis.set(lockKey, workerId, "PX", 5000, "NX");
-        if (res === "OK") {
-          return { acquired: true, key: lockKey, workerId, driver: "redis" };
-        }
-      } catch (err) {
-        logger.warn({ err: err.message }, "[Payment Lock] Redis lock attempt warning; checking shared DB lock");
-      }
-    } else {
-      const dbAcquired = await acquireLock(lockKey, workerId, 300);
-      if (dbAcquired) {
-        return { acquired: true, key: lockKey, workerId, driver: "db" };
-      }
-    }
-    await new Promise((r) => setTimeout(r, 80));
-  }
-
-  return { acquired: false, key: lockKey, workerId, driver: null };
+  const lease = await acquirePaymentLease('checkout:' + userId + ':' + cartFingerprint, 'checkout', timeoutMs);
+  return { acquired: Boolean(lease), lease };
 };
-
-/**
- * Releases the distributed checkout concurrency lock.
- */
-const releaseCheckoutConcurrencyLock = async (lockHandle) => {
-  if (!lockHandle || !lockHandle.acquired) return;
-  const { key, workerId, driver } = lockHandle;
-  const redis = getRedisClient();
-
-  if (driver === "redis" && redis && isRedisActive()) {
-    try {
-      const current = await redis.get(key);
-      if (current === workerId) {
-        await redis.del(key);
-      }
-    } catch (_) {}
-  } else if (driver === "db") {
-    try {
-      await releaseLock(key, workerId);
-    } catch (_) {}
-  }
-  serverCache.delete(key);
-};
+const releaseCheckoutConcurrencyLock = async (handle) => handle?.lease?.release();
 
 /**
  * Retrieves the active checkout order ID across servers.
@@ -156,7 +112,7 @@ const getActiveCartIntentId = async (userId, cartFingerprint) => {
       if (rzpOrderId) return rzpOrderId;
     } catch (_) {}
   }
-  return serverCache.get(cacheKey) || null;
+  return await paymentIntentService.findActiveCartIntent(userId, cartFingerprint);
 };
 
 /**
@@ -248,46 +204,8 @@ export const computeCartFingerprint = (cart) => {
  * Looks up an existing WooCommerce order matching a given Razorpay order ID in order meta.
  */
 export const findOrderByRazorpayOrderId = async (rzpOrderId) => {
-  if (!rzpOrderId) return null;
-  try {
-    // 1. Fast durable check in payment_intents table
-    const intent = await paymentIntentService.getPaymentIntent(rzpOrderId);
-    if (intent && intent.wc_order_id) {
-      return {
-        id: Number(intent.wc_order_id),
-        status: intent.status === "order_created" ? "processing" : intent.status,
-        customer_id: Number(intent.customer_id || intent.user_id || 0),
-      };
-    }
-
-    // 2. Authoritative HPOS-safe lookup via wc_get_orders meta
-    const hposOrder = await paymentIntentService.findWcOrderByRazorpayOrderId(rzpOrderId);
-    if (hposOrder) {
-      return {
-        id: Number(hposOrder.id),
-        status: hposOrder.status,
-        customer_id: Number(hposOrder.customer_id || 0),
-      };
-    }
-
-    // 3. Upstream WooCommerce query fallback
-    const res = await api.get("orders", {
-      search: rzpOrderId,
-      per_page: 5,
-    });
-    const orders = Array.isArray(res.data) ? res.data : [];
-    const match = orders.find((o) => getExistingRazorpayOrderId(o) === rzpOrderId);
-    if (match) {
-      return {
-        ...match,
-        customer_id: Number(match.customer_id || 0),
-      };
-    }
-    return null;
-  } catch (err) {
-    logger.warn({ rzpOrderId, err: err.message }, "[Payment] Notice: Lookup for order by Razorpay order ID error");
-    return null;
-  }
+  // Lookup failure is not evidence that an order does not exist.
+  return paymentIntentService.findWcOrderByRazorpayOrderId(rzpOrderId);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,7 +374,10 @@ export const createOrder = async (req, res) => {
       // 7a. Reuse existing active unpaid payment intent across servers
       const existingRzpOrderId = await getActiveCartIntentId(userId, cartFingerprint);
       if (existingRzpOrderId) {
-        const existingIntent = await paymentIntentService.getPaymentIntent(existingRzpOrderId);
+        const existingIntent = await paymentIntentService.getPaymentIntent(existingRzpOrderId, { fresh: true });
+        if (existingIntent && !['created', 'cancelled', 'abandoned', 'refunded'].includes(existingIntent.status)) {
+          return res.status(409).json({ success: false, code: 'ORDER_PROCESSING', message: 'A previous payment for this cart is still being resolved. Please check its status before paying again.' });
+        }
         if (
           existingIntent &&
           existingIntent.status === "created" &&
@@ -763,17 +684,9 @@ export const finalizePaymentAndCreateOrder = async ({
     };
   }
 
-  if ((rzpPayment.currency || "").toUpperCase() !== "INR") {
-    return {
-      success: false,
-      status: 400,
-      message: "Payment verification failed: currency mismatch.",
-    };
-  }
-
   // 3. Acquire Distributed Atomic Lock for rzpOrderId
-  const workerId = `${source}_${process.pid}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-  const lockAcquired = await paymentIntentService.acquireLock(rzpOrderId, workerId, 4000);
+  const lease = await acquirePaymentLease(rzpOrderId, source, 4000);
+  const lockAcquired = Boolean(lease);
   if (!lockAcquired) {
     // Check if concurrent thread already created the order
     const existing = await findOrderByRazorpayOrderId(rzpOrderId);
@@ -812,7 +725,7 @@ export const finalizePaymentAndCreateOrder = async ({
     }
 
     // 5. Retrieve Stored Payment Intent
-    const intent = await paymentIntentService.getPaymentIntent(rzpOrderId);
+    const intent = await paymentIntentService.getPaymentIntent(rzpOrderId, { fresh: true });
     if (intent && (intent.status === "order_created" || intent.wc_order_id)) {
       logger.info(
         { wc_order_id: intent.wc_order_id, rzpOrderId, source },
@@ -876,16 +789,30 @@ export const finalizePaymentAndCreateOrder = async ({
       };
     }
 
-    if (rzpPayment.amount !== intent.amount_in_paise) {
-      logger.error(
-        { expected_amount: intent.amount_in_paise, actual_amount: rzpPayment.amount },
-        "[Payment Finalize] Amount mismatch detected"
-      );
-      return {
-        success: false,
-        status: 400,
-        message: "Payment verification failed: amount mismatch.",
-      };
+    const paymentMismatch = Number(rzpPayment.amount) !== Number(intent.amount_in_paise) ||
+      String(rzpPayment.currency || '').toUpperCase() !== 'INR';
+
+    // Refund decisions are irreversible for fulfillment, including pending refunds.
+    if (["reconciliation_escalated", "test_archived"].includes(intent.status)) {
+      return { success: false, status: 200, terminal: true, support_required: true,
+        message: "This payment requires staff review. Please do not pay again; contact support with your checkout reference." };
+    }
+    if (["refund_pending", "refund_failed", "refund_escalated", "refunded", "amount_mismatch"].includes(intent.status)) {
+      return { success: false, status: 200, terminal: true, refunded: intent.status === "refunded",
+        refund_status: intent.status, message: intent.status === "refunded" ? "Your payment was refunded." : "Your payment requires refund/support review. Please do not pay again." };
+    }
+    if (Number(rzpPayment.amount_refunded || 0) > 0 || rzpPayment.refund_status) {
+      await updatePaymentIntentStatus({ rzpOrderId, fromStatus: intent.status, toStatus: 'refund_escalated',
+        rzpPaymentId, errorReason: 'Gateway reports a refund before order creation; staff review required.' });
+      return { success: false, status: 200, terminal: true, refunded: false,
+        message: 'A refund exists for this payment. Support must review it before the order can be completed.' };
+    }
+
+    if (intent.status !== 'paid' || !intent.first_paid_at) {
+      const tracked = await updatePaymentIntentStatus({ rzpOrderId, fromStatus: intent.status,
+        toStatus: 'paid', rzpPaymentId, capturedAmountPaise: rzpPayment.amount });
+      if (!tracked) return { success: false, status: 503, message: 'Payment recovery is being recorded. Please do not pay again.' };
+      intent.status = 'paid';
     }
 
     // 7. Revalidate Store Hours & Operating Constraints
@@ -905,12 +832,15 @@ export const finalizePaymentAndCreateOrder = async ({
     // legitimately reserved the last units.
     const lineItems = intent.checkout_payload?.line_items || [];
     let stockValid = true;
+    const retryExpired = Boolean(intent.first_paid_at) &&
+      Date.now() - Date.parse(String(intent.first_paid_at).replace(' ', 'T') + 'Z') >= 15 * 60 * 1000;
+    if (retryExpired || paymentMismatch) stockValid = false;
 
     // Reacquire/renew the durable hold before finalization. A captured payment
     // without a valid hold must never be finalized as a successful order.
     const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || crypto.randomUUID();
     try {
-      await reserveCheckoutStock({ reservationId, lineItems });
+      if (!retryExpired && !paymentMismatch) await reserveCheckoutStock({ reservationId, lineItems });
     } catch (reservationErr) {
       if (reservationErr.response?.status === 409) {
         stockValid = false;
@@ -939,13 +869,16 @@ export const finalizePaymentAndCreateOrder = async ({
       );
 
       // Transition to refund_pending FIRST via compare-and-set
-      await updatePaymentIntentStatus({
+      const refundTracked = await updatePaymentIntentStatus({
         rzpOrderId,
+        fromStatus: intent.status,
         toStatus: "refund_pending",
         rzpPaymentId,
-        errorReason: "ITEM_OUT_OF_STOCK",
+        errorReason: paymentMismatch ? "AMOUNT_MISMATCH" : retryExpired ? "FINALIZATION_TIMEOUT" : "ITEM_OUT_OF_STOCK",
       });
 
+      if (!refundTracked) return { success: false, status: 503, message: "Payment recovery is pending. Please do not pay again." };
+      await lease.refresh();
       let refundConfirmed = false;
       let refundId = null;
 
@@ -1012,7 +945,10 @@ export const finalizePaymentAndCreateOrder = async ({
         success: false,
         status: 422,
         code: "ITEM_OUT_OF_STOCK",
-        message: "An item in your order went out of stock during payment. Your payment has been refunded automatically.",
+        terminal: true,
+        refunded: refundConfirmed,
+        refund_status: refundConfirmed ? "completed" : "pending",
+        message: refundConfirmed ? "Your payment has been refunded." : "Your order could not be completed. Refund recovery is pending; please do not pay again.",
         refund_id: refundId,
       };
     }
@@ -1059,7 +995,8 @@ export const finalizePaymentAndCreateOrder = async ({
 
     let createdOrder;
     try {
-      const orderResponse = await api.post("orders", wcOrderPayload);
+      await lease.refresh();
+      const orderResponse = await paymentIntentService.createPaidOrder(wcOrderPayload);
       createdOrder = orderResponse.data;
     } catch (orderErr) {
       logger.error(
@@ -1216,7 +1153,7 @@ export const finalizePaymentAndCreateOrder = async ({
     };
   } finally {
     // 11. Guarantee Distributed Lock Release
-    await paymentIntentService.releaseLock(rzpOrderId, workerId);
+    await lease.release();
   }
 };
 
@@ -1329,7 +1266,7 @@ export const checkPaymentStatus = async (req, res) => {
     }
 
     // 0. Authorization check on stored payment intent (if present)
-    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id);
+    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id, { fresh: true });
     if (intent) {
       const intentCustomerId = Number(intent.customer_id || intent.user_id || 0);
       if (userId && intentCustomerId && intentCustomerId !== userId) {
@@ -1360,6 +1297,10 @@ export const checkPaymentStatus = async (req, res) => {
     }
 
     // 1b. Check if payment intent reached a terminal refunded status
+    if (intent && ["reconciliation_escalated", "test_archived"].includes(intent.status)) {
+      return res.json({ success: false, terminal: true, support_required: true,
+        message: "This payment requires staff review. Please do not pay again; contact support with your checkout reference." });
+    }
     if (intent && intent.status === "refunded") {
       return res.json({
         success: false,
@@ -1375,7 +1316,7 @@ export const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    if (intent && intent.status === "refund_pending") {
+    if (intent && ["refund_pending", "refund_failed", "refund_escalated"].includes(intent.status)) {
       return res.json({
         success: false,
         paid: false,
@@ -1414,6 +1355,15 @@ export const checkPaymentStatus = async (req, res) => {
       });
       const statusCode = typeof result.status === "number" ? result.status : (result.success ? 200 : 400);
       return res.status(statusCode).json(result);
+    }
+
+    const processing = items.some(payment => payment.status === 'authorized');
+    if (!processing && intent && ['cancelled', 'abandoned'].includes(intent.status)) {
+      return res.json({ success: false, terminal: true, cancelled: true, paid: false, message: 'This checkout has no confirmed payment. You can start a new checkout.' });
+    }
+    const createdAt = typeof intent?.created_at === 'number' ? intent.created_at : Date.parse(String(intent?.created_at || '').replace(' ', 'T') + 'Z');
+    if (!processing && intent?.status === 'created' && Date.now() - createdAt >= 15 * 60000) {
+      return cancelPaymentOrder(req, res);
     }
 
     return res.json({
@@ -1555,12 +1505,7 @@ export const handleWebhook = async (req, res) => {
           // Unknown intent or unfinalized order: Record orphan record, alert, reconciler handles it
           logger.warn({ rzpOrderId, rzpPaymentId, result }, "[Payment Webhook] Webhook missing intent or failed order creation — recorded for reconciliation");
           await updateWebhookEventStatus({ eventId, status: "orphan" });
-          await updatePaymentIntentStatus({
-            rzpOrderId,
-            toStatus: "orphan_payment",
-            rzpPaymentId,
-            errorReason: result?.message || "Missing intent on webhook capture",
-          });
+
 
           await alertStaffAnomaly({
             type: "ORPHAN_PAYMENT_WEBHOOK",
@@ -1593,107 +1538,30 @@ export const handleWebhook = async (req, res) => {
       });
 
       setImmediate(async () => {
+        let refundLease;
         try {
-          if (!rzpOrderId && rzpPaymentId) {
-            try {
-              const paymentData = await fetchRazorpayPayment(rzpPaymentId);
-              rzpOrderId = paymentData?.order_id;
-            } catch (fetchErr) {
-              logger.warn({ rzpPaymentId, err: fetchErr.message }, "[Payment Webhook] Could not resolve order ID for refund event");
-            }
+          const payment = await fetchRazorpayPayment(rzpPaymentId);
+          rzpOrderId = payment.order_id || rzpOrderId;
+          if (!rzpOrderId) throw new Error('Refund payment has no order ID');
+          refundLease = await acquirePaymentLease(rzpOrderId, 'refund-event');
+          if (!refundLease) throw new Error('Payment refund is already being processed');
+          const intent = await paymentIntentService.getPaymentIntent(rzpOrderId, { fresh: true });
+          if (!intent) throw new Error('Refund intent missing; requires staff review');
+          const full = payment.refund_status === 'full' || Number(payment.amount_refunded || 0) >= Number(payment.amount || Infinity);
+          if (full) {
+            await updatePaymentIntentStatus({ rzpOrderId, fromStatus: intent.status, toStatus: 'refunded', refundId: refundEntity?.id });
+            await releaseCheckoutStock(intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || rzpOrderId);
+          } else {
+            // Partial/manual refunds do not authorize refunding the remaining purchase.
+            await alertStaffAnomaly({ type: 'PARTIAL_OR_FAILED_REFUND', severity: 'warning', rzpOrderId, rzpPaymentId,
+              message: 'Refund event observed; existing refund recovery state preserved.', details: { event, amount_refunded: payment.amount_refunded } });
           }
-
-          if (!rzpOrderId) {
-            logger.warn({ event, refundId: refundEntity?.id, rzpPaymentId }, "[Payment Webhook] Missing order ID for refund event");
-            await updateWebhookEventStatus({ eventId, status: "orphan" });
-            return;
-          }
-
-          if (event === "refund.processed") {
-            const isFullRefund = paymentEntity?.refund_status === "full" ||
-              (paymentEntity?.amount && paymentEntity?.amount_refunded && Number(paymentEntity.amount_refunded) >= Number(paymentEntity.amount));
-
-            if (isFullRefund) {
-              await updatePaymentIntentStatus({
-                rzpOrderId,
-                toStatus: "refunded",
-                refundId: refundEntity?.id || "refund_webhook",
-              });
-
-              // Release stock hold if present
-              try {
-                const intent = await getPaymentIntent(rzpOrderId);
-                const reservationId = intent?.raw?.stock_reservation_id ||
-                  intent?.checkout_payload?.stock_reservation_id ||
-                  intent?.raw?.checkout_payload?.stock_reservation_id || rzpOrderId;
-                if (reservationId) {
-                  await releaseCheckoutStock(reservationId);
-                }
-              } catch (stockErr) {
-                logger.warn({ rzpOrderId, err: stockErr.message }, "[Payment Webhook] Failed to release stock on refund.processed webhook");
-              }
-
-              logger.info({ rzpOrderId, refundId: refundEntity?.id }, "[Payment Webhook] Payment marked fully refunded via refund.processed webhook");
-            } else {
-              // Partial refund: MUST NOT mark as "refunded" because that drops it from reconciliation.
-              // Keep it in refund_pending so remaining funds are reconciled and recovered.
-              const amountRefunded = Number(paymentEntity?.amount_refunded || refundEntity?.amount || 0);
-              const totalAmount = Number(paymentEntity?.amount || 0);
-              await updatePaymentIntentStatus({
-                rzpOrderId,
-                toStatus: "refund_pending",
-                refundId: refundEntity?.id || "partial_refund_webhook",
-                errorReason: `PARTIAL_REFUND_WEBHOOK: ${amountRefunded}/${totalAmount} paise refunded`,
-              });
-
-              await alertStaffAnomaly({
-                type: "PARTIAL_REFUND_WEBHOOK",
-                severity: "warning",
-                rzpOrderId,
-                rzpPaymentId,
-                message: `Partial refund webhook received for ${rzpOrderId}: ₹${(amountRefunded / 100).toFixed(2)} of ₹${(totalAmount / 100).toFixed(2)} refunded. Intent kept in refund_pending for reconciliation.`,
-                details: {
-                  refund_id: refundEntity?.id,
-                  amount_refunded: amountRefunded,
-                  total_amount: totalAmount,
-                },
-              });
-
-              logger.warn(
-                { rzpOrderId, refundId: refundEntity?.id, amountRefunded, totalAmount },
-                "[Payment Webhook] Partial refund webhook received — kept in refund_pending for recovery"
-              );
-            }
-            await updateWebhookEventStatus({ eventId, status: "processed" });
-          } else if (event === "refund.failed") {
-            const failReason = refundEntity?.error_description || "Gateway refund processing failed";
-            await updatePaymentIntentStatus({
-              rzpOrderId,
-              toStatus: "refund_failed",
-              incrementAttempts: true,
-              errorReason: `REFUND_WEBHOOK_FAILED: ${failReason}`,
-            });
-
-            await alertStaffAnomaly({
-              type: "REFUND_WEBHOOK_FAILED",
-              severity: "critical",
-              rzpOrderId,
-              rzpPaymentId,
-              message: `Razorpay refund failed: ${failReason}`,
-              details: {
-                refund_id: refundEntity?.id,
-                error_code: refundEntity?.error_code,
-                error_description: refundEntity?.error_description,
-              },
-            });
-
-            logger.error({ rzpOrderId, refundId: refundEntity?.id, failReason }, "[Payment Webhook] Refund failed event processed");
-            await updateWebhookEventStatus({ eventId, status: "processed" });
-          }
+          await updateWebhookEventStatus({ eventId, status: 'processed' });
         } catch (err) {
-          logger.error({ err: err.message, eventId, rzpOrderId }, "[Payment Webhook] Unhandled error during refund webhook processing");
-          await updateWebhookEventStatus({ eventId, status: "failed" });
-        }
+          logger.error({ err: err.message, eventId, rzpOrderId }, '[Payment Webhook] Refund event requires retry/review');
+          serverCache.delete('webhook:event:' + eventId);
+          await updateWebhookEventStatus({ eventId, status: 'orphan' });
+        } finally { await refundLease?.release(); }
       });
 
       return;
@@ -1843,6 +1711,7 @@ export const reconcileOrder = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const cancelPaymentOrder = async (req, res) => {
+  let lease;
   try {
     const { razorpay_order_id } = req.body;
     if (!razorpay_order_id) {
@@ -1857,9 +1726,11 @@ export const cancelPaymentOrder = async (req, res) => {
       });
     }
 
-    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id);
+    lease = await acquirePaymentLease(razorpay_order_id, "cancel");
+    if (!lease) return res.status(409).json({ success: false, message: "Payment processing is in progress. Please check its status." });
+    const intent = await paymentIntentService.getPaymentIntent(razorpay_order_id, { fresh: true });
     if (!intent) {
-      return res.status(200).json({ success: true, message: "No active checkout intent found." });
+      return res.status(404).json({ success: false, message: "Checkout intent not found. Please check payment status." });
     }
 
     // 1. Authorize: Intent must belong to the requesting authenticated customer
@@ -1875,6 +1746,10 @@ export const cancelPaymentOrder = async (req, res) => {
     }
 
     // 2. State Guard: Cannot cancel a payment that is already completed or processing
+    if (["reconciliation_escalated", "test_archived"].includes(intent.status)) {
+      return res.status(409).json({ success: false, code: "PAYMENT_REVIEW_REQUIRED",
+        message: "This checkout requires staff review and cannot be cancelled automatically." });
+    }
     if (intent.status === "paid" || intent.status === "order_created") {
       logger.warn(
         { rzpOrderId: razorpay_order_id, status: intent.status },
@@ -1901,22 +1776,25 @@ export const cancelPaymentOrder = async (req, res) => {
           message: "Payment has already been processed by the gateway. This session cannot be cancelled.",
         });
       }
+      const payments = await fetchRazorpayOrderPayments(razorpay_order_id);
+      if ((payments.items || []).some(payment => ['authorized', 'captured'].includes(payment.status))) {
+        return res.status(409).json({ success: false, message: 'A payment is processing. Please check status before paying again.' });
+      }
     } catch (rzpErr) {
-      logger.warn({ rzpOrderId: razorpay_order_id, err: rzpErr.message }, "[Payment Cancel] Warning checking Razorpay status");
+      logger.warn({ rzpOrderId: razorpay_order_id, err: rzpErr.message }, "[Payment Cancel] Gateway unavailable; retaining payment recovery");
+      return res.status(503).json({ success: false, message: "Payment status is uncertain. Please check again; do not pay again yet." });
     }
 
     // 4. Safe Cancellation & Stock Release
     if (intent.status === "created") {
+      const cancelled = await updatePaymentIntentStatus({ rzpOrderId: razorpay_order_id, fromStatus: "created", toStatus: "cancelled", errorReason: "Customer dismissed checkout; late captures remain recoverable." });
+      if (!cancelled) return res.status(409).json({ success: false, message: "Payment state changed. Please check status." });
       const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id;
       if (reservationId) {
         await (paymentIntentService.releaseCheckoutStock || releaseCheckoutStock)(reservationId);
       }
 
-      await updatePaymentIntentStatus({
-        rzpOrderId: razorpay_order_id,
-        toStatus: "cancelled",
-        errorReason: "Customer dismissed checkout modal or cancelled payment.",
-      });
+
 
       if (intent.customer_id && intent.cart_fingerprint) {
         await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
@@ -1925,11 +1803,15 @@ export const cancelPaymentOrder = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      cancelled: intent.status === 'created',
+      terminal: intent.status === 'created',
       message: "Checkout session cancelled and reserved stock released.",
     });
   } catch (err) {
     logError(req, err, "[Payment Cancel] Error cancelling payment intent");
     return res.status(500).json({ success: false, message: "Failed to cancel checkout session." });
+  } finally {
+    await lease?.release();
   }
 };
 

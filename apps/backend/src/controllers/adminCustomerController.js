@@ -95,7 +95,7 @@ export const getAdminCustomerOrders = async (req, res) => {
     const customerId = Number(req.params?.id);
     const page = Math.max(1, Number(req.query?.page) || 1);
     const perPage = Math.min(50, Math.max(1, Number(req.query?.per_page) || 10));
-    const customerEmail = String(req.query?.email || "").trim().toLowerCase();
+
 
     if (!Number.isSafeInteger(customerId) || customerId <= 0) {
       return res.status(400).json({ success: false, message: "A valid customer ID is required." });
@@ -137,34 +137,7 @@ export const getAdminCustomerOrders = async (req, res) => {
       totalCount = Number(wcRes.headers?.["x-wp-total"]) || rawOrders.length;
       totalPages = Number(wcRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalCount / perPage) || 1;
     } catch (wcErr) {
-      logger.warn({ customerId, err: wcErr.message }, "[AdminCustomers] WooCommerce customer orders query error");
-    }
-
-    // 3. Secondary fallback for legacy guest orders if customer ID search yielded 0 results and email is provided
-    if (rawOrders.length === 0 && customerEmail && page === 1) {
-      try {
-        const searchRes = await api.get("orders", {
-          search: customerEmail,
-          page: 1,
-          per_page: perPage,
-          orderby: "date",
-          order: "desc",
-        });
-
-        const batch = Array.isArray(searchRes.data) ? searchRes.data : [];
-        const matchedOrders = batch.filter((o) => {
-          const billingEmail = (o.billing?.email || "").trim().toLowerCase();
-          return billingEmail === customerEmail || Number(o.customer_id) === customerId;
-        });
-
-        if (matchedOrders.length > 0) {
-          rawOrders = matchedOrders;
-          totalCount = Number(searchRes.headers?.["x-wp-total"]) || matchedOrders.length;
-          totalPages = Number(searchRes.headers?.["x-wp-totalpages"]) || Math.ceil(totalCount / perPage) || 1;
-        }
-      } catch (searchErr) {
-        logger.warn({ customerId, customerEmail, err: searchErr.message }, "[AdminCustomers] Email search fallback error");
-      }
+      throw wcErr;
     }
 
     const formattedOrders = rawOrders

@@ -14,8 +14,11 @@ function CategoryCard({ category }) {
         <img
           src={imageUrl}
           alt={category.name}
+          width="480"
+          height="480"
           className="aspect-square w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
           loading="lazy"
+          decoding="async"
         />
       </div>
 

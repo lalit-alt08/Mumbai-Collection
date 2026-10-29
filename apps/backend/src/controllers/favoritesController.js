@@ -53,6 +53,11 @@ export const getFavorites = async (req, res) => {
     }
 
     const productIds = await getFavoriteProductIds(userId);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const perPage = Math.min(48, Math.max(1, Number(req.query.per_page) || 24));
+    const total = productIds.length;
+    const totalPages = total > 0 ? Math.ceil(total / perPage) : 0;
+    const pageProductIds = productIds.slice((page - 1) * perPage, page * perPage);
     if (typeof res.setHeader === "function") {
       res.setHeader("Cache-Control", "private, no-store, max-age=0");
     }
@@ -63,15 +68,18 @@ export const getFavorites = async (req, res) => {
         count: 0,
         productIds: [],
         favorites: [],
+        page,
+        per_page: perPage,
+        total,
+        totalPages,
       });
     }
 
-    // Fetch compact product details in WooCommerce-sized batches. Two parallel
-    // batches cover up to 200 saved items without one oversized include query.
+    // Fetch only the requested wishlist page in WooCommerce-sized batches.
     try {
       const batches = [];
-      for (let index = 0; index < productIds.length; index += 100) {
-        batches.push(productIds.slice(index, index + 100));
+      for (let index = 0; index < pageProductIds.length; index += 100) {
+        batches.push(pageProductIds.slice(index, index + 100));
       }
 
       const products = [];
@@ -95,7 +103,7 @@ export const getFavorites = async (req, res) => {
         }
       }
 
-      const productOrder = new Map(productIds.map((id, index) => [Number(id), index]));
+      const productOrder = new Map(pageProductIds.map((id, index) => [Number(id), index]));
       products.sort((a, b) =>
         (productOrder.get(Number(a.id)) ?? Number.MAX_SAFE_INTEGER) -
         (productOrder.get(Number(b.id)) ?? Number.MAX_SAFE_INTEGER)
@@ -103,9 +111,13 @@ export const getFavorites = async (req, res) => {
 
       res.json({
         success: true,
-        count: products.length,
+        count: total,
         productIds,
         favorites: products,
+        page,
+        per_page: perPage,
+        total,
+        totalPages,
       });
     } catch (wcErr) {
       logger.warn({ err: wcErr.message }, "WooCommerce products fetch for favorites warning");
@@ -115,6 +127,10 @@ export const getFavorites = async (req, res) => {
         count: productIds.length,
         productIds,
         favorites: [],
+        page,
+        per_page: perPage,
+        total,
+        totalPages,
       });
     }
   } catch (error) {

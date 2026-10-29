@@ -1,18 +1,22 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import staticCategories from "../data/category.js";
 import { getCachedCategories, getCategories } from "../services/productService.js";
 import { getCategoryImageUrl } from "../utils/categoryImage.js";
-import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
+
+const CATEGORY_PAGE_SIZE = 24;
 
 function Categories() {
   const navigate = useNavigate();
   const [categories, setCategories] = useState(() => {
     const cachedCategories = getCachedCategories();
-    return Array.isArray(cachedCategories) && cachedCategories.length > 0
-      ? cachedCategories
-      : staticCategories;
+    return Array.isArray(cachedCategories) ? cachedCategories : [];
   });
+  const [loading, setLoading] = useState(() => categories.length === 0);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const hasCachedCategoriesRef = useRef(categories.length > 0);
+  const [visibleCategoryCount, setVisibleCategoryCount] = useState(CATEGORY_PAGE_SIZE);
 
   // Category subtitles / highlights for rich cards
   const categoryMeta = {
@@ -34,19 +38,24 @@ function Categories() {
     let isMounted = true;
     const loadCategories = async () => {
       try {
+        setLoadError("");
+        if (!hasCachedCategoriesRef.current) setLoading(true);
         const liveData = await getCategories();
-        if (isMounted && Array.isArray(liveData) && liveData.length > 0) {
+        if (isMounted && Array.isArray(liveData)) {
           setCategories(liveData);
+          hasCachedCategoriesRef.current = true;
         }
       } catch {
-        // Fallback handled seamlessly
+        if (isMounted) setLoadError("Categories could not be loaded. Check your connection and try again.");
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
     loadCategories();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   // Filter out system "Uncategorized", subcategories, and empty categories (count === 0) from top-level customer browsing
   const displayCategories = useMemo(() => {
@@ -120,8 +129,27 @@ function Categories() {
         {/* ────────────────────────────────────────────────────────── */}
         {/* 2-COLUMN OPTIMIZED CATEGORY GRID                           */}
         {/* ────────────────────────────────────────────────────────── */}
+        {loadError && categories.length === 0 ? (
+          <div className="rounded-[20px] border border-amber-400/40 bg-[#111F36] p-7 text-center">
+            <AlertCircle className="mx-auto mb-2 text-amber-300" size={24} />
+            <p className="text-sm font-semibold text-[#D8E5F3]">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => setReloadKey((value) => value + 1)}
+              className="mt-4 rounded-full border border-[#42D6E8]/60 px-5 py-2 text-sm font-extrabold text-[#67E8F9]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="aspect-[0.78] animate-pulse rounded-[22px] border border-[#1E3252]/60 bg-[#111F36]" />
+            ))}
+          </div>
+        ) : (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
-          {displayCategories.map((category) => {
+          {displayCategories.slice(0, visibleCategoryCount).map((category) => {
             const meta = categoryMeta[category.id] || {
               subtitle: "Explore collection",
               accent: "from-[#0A1D15] to-[#0E261D]",
@@ -141,8 +169,11 @@ function Categories() {
                   <img
                     src={imageUrl}
                     alt={category.name}
+                    width="480"
+                    height="480"
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
+                    decoding="async"
                   />
 
                 </div>
@@ -175,6 +206,24 @@ function Categories() {
             );
           })}
         </div>
+        )}
+
+        {!loading && displayCategories.length > 0 && (
+          <div className="flex flex-col items-center gap-2 pt-1">
+            <p className="text-xs font-medium text-[#8FA4BE]">
+              Showing {Math.min(visibleCategoryCount, displayCategories.length)} of {displayCategories.length} categories
+            </p>
+            {visibleCategoryCount < displayCategories.length && (
+              <button
+                type="button"
+                onClick={() => setVisibleCategoryCount((current) => current + CATEGORY_PAGE_SIZE)}
+                className="rounded-xl border border-[#1E3252] bg-[#111F36] px-5 py-2.5 text-sm font-bold text-[#42D6E8] transition hover:border-[#42D6E8]/60 hover:bg-[#162744] active:scale-[0.98]"
+              >
+                Load more categories
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

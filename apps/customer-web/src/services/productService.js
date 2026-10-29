@@ -25,28 +25,67 @@ export const getProductById = async (id, { signal } = {}) => {
   return response.data;
 };
 
-export const getProductsByIds = async (ids = [], { signal } = {}) => {
-  const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 12);
+export const getProductsByIds = async (ids = [], { signal, details } = {}) => {
+  const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
   if (productIds.length === 0) return [];
 
-  const response = await catalogClient.get("/products/by-ids", {
-    params: { ids: productIds.join(",") },
-    signal,
-  });
-  return Array.isArray(response.data) ? response.data : [];
+  const batches = [];
+  for (let index = 0; index < productIds.length; index += 12) {
+    batches.push(productIds.slice(index, index + 12));
+  }
+
+  const results = new Array(batches.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < batches.length) {
+      const index = nextIndex++;
+      const response = await catalogClient.get("/products/by-ids", {
+        params: {
+          ids: batches[index].join(","),
+          ...(details ? { details } : {}),
+        },
+        signal,
+      });
+      results[index] = Array.isArray(response.data) ? response.data : [];
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(2, batches.length) }, () => worker())
+  );
+
+  const products = results.flat();
+  const order = new Map(productIds.map((id, index) => [id, index]));
+  return products.sort(
+    (a, b) => (order.get(Number(a.id)) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(Number(b.id)) ?? Number.MAX_SAFE_INTEGER)
+  );
 };
 
-export const getLiveProductStockByIds = async (ids = []) => {
+export const getLiveProductStockByIds = async (ids = [], { signal } = {}) => {
   const productIds = [...new Set(ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
   if (productIds.length === 0) return [];
   const batches = [];
   for (let index = 0; index < productIds.length; index += 100) {
     batches.push(productIds.slice(index, index + 100));
   }
-  const responses = await Promise.all(batches.map((batch) => catalogClient.get("/products/stock", {
-    params: { ids: batch.join(",") },
-  })));
-  return responses.flatMap((response) => Array.isArray(response.data) ? response.data : []);
+  const responses = new Array(batches.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < batches.length) {
+      const index = nextIndex++;
+      responses[index] = await catalogClient.get("/products/stock", {
+        params: { ids: batches[index].join(",") },
+        signal,
+        // Stock polling is background UX data. If WooCommerce is slow, let the
+        // next scheduled refresh try again instead of immediately doubling load.
+        skipTimeoutRetry: true,
+      });
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(2, batches.length) }, () => worker())
+  );
+  return responses.flatMap((response) => Array.isArray(response?.data) ? response.data : []);
 };
 
 export const getRelatedProducts = async (
@@ -108,13 +147,18 @@ export const getCategories = async (options = {}) => {
   return trackedRequest;
 };
 
-export const getHomeShelves = async (options = {}) => {
+export const getHomeShelves = async ({ page = 1, ...options } = {}) => {
   const response = await catalogClient.get("/products/home-shelves", {
     timeout: 25000,
     skipTimeoutRetry: true,
     ...options,
+    // Keep page 1 backward-compatible with older deployed API versions that
+    // accepted no query parameters on this endpoint.
+    ...(page > 1 ? { params: { ...(options.params || {}), page } } : {}),
   });
-  if (Array.isArray(response.data?.categories)) cachedCategories = response.data.categories;
+  if (Array.isArray(response.data?.categories) && response.data.categories.length > 0) {
+    cachedCategories = response.data.categories;
+  }
   return response.data;
 };
 

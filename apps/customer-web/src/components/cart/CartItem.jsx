@@ -40,7 +40,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
         <img
           src={getCatalogImageUrl(item)}
           alt={item.name || "Cart item"}
+          width="72"
+          height="72"
           className="h-full w-full object-contain"
+          loading="lazy"
+          decoding="async"
           onError={(e) => {
             if (e.currentTarget.getAttribute("data-fallback") !== "true") {
               e.currentTarget.setAttribute("data-fallback", "true");

@@ -6,7 +6,6 @@ import { httpsAgent } from "../config/httpAgent.js";
 import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache, setSessionCache } from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
-import { maskEmail } from "../utils/piiUtils.js";
 import { formatCustomerDisplayName, parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
@@ -58,17 +57,24 @@ const resolveContext = (req) => {
   return "customer";
 };
 
-const getCookieOptions = (req) => {
+const getCookieOptions = (req, role = "customer") => {
   const isHttps =
     req.secure ||
     req.headers["x-forwarded-proto"] === "https" ||
     process.env.NODE_ENV === "production";
 
+  const roles = Array.isArray(role) ? role : [role];
+  const isStaffSession = roles.some((value) =>
+    ["admin", "administrator", "employee", "shop_manager"].includes(value)
+  );
+
   return {
     httpOnly: true,
     secure: isHttps,
     sameSite: isHttps ? "none" : "lax",
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge: isStaffSession
+      ? 12 * 60 * 60 * 1000
+      : 30 * 24 * 60 * 60 * 1000,
     path: "/",
   };
 };
@@ -93,7 +99,6 @@ export const login = async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
-    const cookieOptions = getCookieOptions(req);
 
     const response = await wp.post("/wp-json/mumbai-auth/v1/login", {
       email,
@@ -122,6 +127,8 @@ export const login = async (req, res) => {
         message: "Access denied: Staff privileges required.",
       });
     }
+
+    const cookieOptions = getCookieOptions(req, userRoles);
 
     if (data.success && data.session && data.cookie_name) {
       const fullCookieVal = `${data.cookie_name}=${data.session}`;
@@ -243,14 +250,23 @@ export const register = async (req, res) => {
     }
 
     const otpHash = hashOtp(otp);
+    const effectivePassword = `${crypto.randomBytes(24).toString("hex")}!Aa1`;
+    const cleanFullName = `${firstName} ${lastName}`;
+    const context = resolveContext(req);
+    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
+
+    // Atomic OTP verification and account creation in WordPress (Finding #11 fix)
+    let response;
     try {
-      const verifyRes = await wp.post(
-        "/wp-json/mumbai-auth/v1/otp/verify",
+      response = await wp.post(
+        "/wp-json/mumbai-auth/v1/register",
         {
-          phone: email,
-          purpose: "register",
+          name: cleanFullName,
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          password: effectivePassword,
           otp_hash: otpHash,
-          user_id: 0,
         },
         {
           headers: {
@@ -258,34 +274,14 @@ export const register = async (req, res) => {
           },
         }
       );
-      if (!verifyRes.data?.success) {
-        return res.status(400).json({
-          success: false,
-          message: verifyRes.data?.message || "Invalid or expired verification code.",
-        });
-      }
-    } catch (verifyErr) {
-      const errStatus = verifyErr.response?.status || 400;
-      const errMsg = verifyErr.response?.data?.message || "Invalid or expired verification code.";
+    } catch (regErr) {
+      const errStatus = regErr.response?.status || 400;
+      const errMsg = regErr.response?.data?.message || "Registration failed. Please check your verification code.";
       return res.status(errStatus).json({
         success: false,
         message: errMsg,
       });
     }
-
-    const effectivePassword = `${crypto.randomBytes(24).toString("hex")}!Aa1`;
-    const cleanFullName = `${firstName} ${lastName}`;
-    const context = resolveContext(req);
-    const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
-    const cookieOptions = getCookieOptions(req);
-
-    const response = await wp.post("/wp-json/mumbai-auth/v1/register", {
-      name: cleanFullName,
-      first_name: firstName,
-      last_name: lastName,
-      email,
-      password: effectivePassword,
-    });
 
     // A newly registered account should be visible immediately in the admin directory.
     serverCache.invalidatePrefix("admin:customers");
@@ -314,6 +310,11 @@ export const register = async (req, res) => {
         logError(req, loginErr, "Auto-login after registration fallback warning");
       }
     }
+
+    const cookieOptions = getCookieOptions(
+      req,
+      Array.isArray(authUser?.roles) ? authUser.roles : ["customer"]
+    );
 
     if (session && cookieName && typeof res.cookie === "function") {
       const fullCookieVal = `${cookieName}=${session}`;
@@ -569,7 +570,6 @@ export const googleLogin = async (req, res) => {
 
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
-    const cookieOptions = getCookieOptions(req);
 
     const authenticated_user_id = req.user?.id || req.wpUserId || null;
 
@@ -618,6 +618,8 @@ export const googleLogin = async (req, res) => {
         message: "Access denied: Staff privileges required.",
       });
     }
+
+    const cookieOptions = getCookieOptions(req, userRoles);
 
     if (data.success && data.session && data.cookie_name) {
       res.cookie(
@@ -672,7 +674,7 @@ export const sendOtp = async (req, res) => {
   try {
     const rawTarget = req.body.phone || req.body.email;
     const { purpose } = req.body;
-    if (!rawTarget || !["verify_phone", "reset_password", "register"].includes(purpose)) {
+    if (!rawTarget || !["reset_password", "register"].includes(purpose)) {
       return res.status(400).json({ success: false, message: "Invalid phone, email or purpose." });
     }
 
@@ -689,15 +691,6 @@ export const sendOtp = async (req, res) => {
       cleanPhone = rawInput.toLowerCase();
     } else if (isEmailInput) {
       cleanPhone = rawInput.toLowerCase();
-    } else if (purpose === "verify_phone") {
-      const normalized = normalizePhoneNumber(rawInput);
-      if (!normalized) {
-        return res.status(400).json({
-          success: false,
-          message: "Please enter a valid 10-digit Indian mobile number.",
-        });
-      }
-      cleanPhone = normalized.local;
     } else {
       const normalized = normalizePhoneNumber(rawInput);
       cleanPhone = normalized ? normalized.local : rawInput;
@@ -711,49 +704,6 @@ export const sendOtp = async (req, res) => {
       );
     }
 
-    // Hardening: verify_phone OTP send strictly requires an authenticated customer session.
-    // Customer identity must be derived solely from the authenticated session.
-    // Never accept arbitrary user_id from req.body.
-    let userId = 0;
-    let userEmail = "";
-    let userName = "";
-
-    if (purpose === "verify_phone") {
-      userId = req.wpUserId || req.user?.id || 0;
-      userEmail = req.wpUserEmail || req.user?.email || "";
-      if (!userId && req.cookies) {
-        const cookieConfig = COOKIE_NAMES.customer;
-        const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
-        if (wpAuth) {
-          try {
-            const meRes = await axios.get(
-              `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
-              {
-                headers: {
-                  Cookie: wpAuth,
-                  ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
-                },
-                httpsAgent,
-                timeout: 4000,
-              }
-            );
-            if (meRes.data?.current_user_id) {
-              userId = meRes.data.current_user_id;
-              userEmail = meRes.data.email || userEmail;
-              userName = meRes.data.name || "";
-            }
-          } catch (_) {}
-        }
-      }
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "Authentication required to verify phone number.",
-        });
-      }
-    }
-
     // Generate secure 6-digit OTP
     const otp = crypto.randomInt(100000, 1000000).toString();
     const otpHash = hashOtp(otp);
@@ -765,7 +715,6 @@ export const sendOtp = async (req, res) => {
         phone: cleanPhone,
         purpose,
         otp_hash: otpHash,
-        user_id: userId,
       },
       {
         headers: {
@@ -781,8 +730,8 @@ export const sendOtp = async (req, res) => {
       });
     }
 
-    const targetEmail = storeResponse.data?.email || (purpose === "register" ? cleanPhone : userEmail);
-    const targetName = storeResponse.data?.name || req.body.first_name || req.body.name || userName || "Valued Customer";
+    const targetEmail = storeResponse.data?.email || (purpose === "register" ? cleanPhone : "");
+    const targetName = storeResponse.data?.name || req.body.first_name || req.body.name || "Valued Customer";
 
     // Uniform response for reset_password prevents account enumeration.
     // If in cooldown or user not found, cooldown/suppression is enforced silently without leaking account existence.
@@ -820,7 +769,6 @@ export const sendOtp = async (req, res) => {
           {
             phone: cleanPhone,
             purpose,
-            user_id: userId,
           },
           {
             headers: {
@@ -853,12 +801,7 @@ export const sendOtp = async (req, res) => {
       });
     }
 
-    const masked = maskEmail(targetEmail);
-    return res.status(200).json({
-      success: true,
-      masked_email: masked,
-      message: masked ? `Verification code sent to ${masked}.` : "Verification code sent to your registered email.",
-    });
+    return res.status(400).json({ success: false, message: "Unsupported OTP purpose." });
   } catch (error) {
     if (error.message === "OTP_HMAC_SECRET is not configured") {
       logError(req, error, "Critical OTP Configuration Error: OTP_HMAC_SECRET is missing");
@@ -895,7 +838,7 @@ export const verifyOtp = async (req, res) => {
   try {
     const rawTarget = req.body.phone || req.body.email;
     const { otp, purpose } = req.body;
-    if (!rawTarget || !otp || !purpose || !["verify_phone", "reset_password", "register"].includes(purpose)) {
+    if (!rawTarget || !otp || !purpose || !["reset_password", "register"].includes(purpose)) {
       return res.status(400).json({ success: false, message: "Missing or invalid parameters." });
     }
 
@@ -904,49 +847,9 @@ export const verifyOtp = async (req, res) => {
     let cleanPhone = "";
     if (isEmail) {
       cleanPhone = rawPhone.toLowerCase();
-    } else if (purpose === "verify_phone") {
-      const normalized = normalizePhoneNumber(rawPhone);
-      cleanPhone = normalized ? normalized.local : rawPhone.replace(/\D/g, "");
     } else {
       const normalized = normalizePhoneNumber(rawPhone);
       cleanPhone = normalized ? normalized.local : rawPhone;
-    }
-
-    // Hardening: verify_phone OTP verify strictly requires an authenticated customer session.
-    // Customer identity must be derived solely from the authenticated session.
-    // Never accept arbitrary user_id from req.body.
-    let userId = 0;
-    if (purpose === "verify_phone") {
-      userId = req.wpUserId || req.user?.id || 0;
-      if (!userId && req.cookies) {
-        const cookieConfig = COOKIE_NAMES.customer;
-        const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
-        if (wpAuth) {
-          try {
-            const meRes = await axios.get(
-              `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
-              {
-                headers: {
-                  Cookie: wpAuth,
-                  ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
-                },
-                httpsAgent,
-                timeout: 4000,
-              }
-            );
-            if (meRes.data?.current_user_id) {
-              userId = meRes.data.current_user_id;
-            }
-          } catch (_) {}
-        }
-      }
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "Authentication required to verify phone number.",
-        });
-      }
     }
 
     const otpHash = hashOtp(otp);
@@ -957,7 +860,6 @@ export const verifyOtp = async (req, res) => {
         phone: cleanPhone,
         purpose,
         otp_hash: otpHash,
-        user_id: userId,
       },
       {
         headers: {
@@ -965,14 +867,6 @@ export const verifyOtp = async (req, res) => {
         },
       }
     );
-
-    if (purpose === "verify_phone" && verifyResponse.data?.success) {
-      const cookieConfig = COOKIE_NAMES.customer;
-      const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
-      if (wpAuth) {
-        invalidateSessionCache(wpAuth);
-      }
-    }
 
     return res.status(200).json(verifyResponse.data);
   } catch (error) {

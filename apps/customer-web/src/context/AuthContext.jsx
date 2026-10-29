@@ -29,9 +29,13 @@ export function AuthProvider({ children }) {
       try {
         const response = await getCurrentUser();
 
+        // Purge legacy persistent storage to prevent PII retention on disk (Finding #12 fix)
+        safeStorage.removeItem("user");
+        safeStorage.removeItem("user_profile");
+
         if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
-          const cachedUser = safeStorage.getJSON("user", {});
-          const cachedProfile = safeStorage.getJSON("user_profile", {});
+          const cachedUser = safeSessionStorage.getJSON("user", {});
+          const cachedProfile = safeSessionStorage.getJSON("user_profile", {});
 
           const userData = response.user || {
             id: response.current_user_id,
@@ -85,16 +89,21 @@ export function AuthProvider({ children }) {
 
           setUser(userData);
 
-          safeStorage.setJSON("user", userData);
+          // Store only minimal display fields in sessionStorage (cleared on browser close)
+          safeSessionStorage.setJSON("user", {
+            id: userData.id,
+            name: userData.name || "",
+            roles: userData.roles || [],
+          });
         } else {
           setUser(null);
-          safeStorage.removeItem("user");
-          safeStorage.removeItem("user_profile");
+          safeSessionStorage.removeItem("user");
+          safeSessionStorage.removeItem("user_profile");
         }
       } catch (error) {
         setUser(null);
-        safeStorage.removeItem("user");
-        safeStorage.removeItem("user_profile");
+        safeSessionStorage.removeItem("user");
+        safeSessionStorage.removeItem("user_profile");
       } finally {
         setLoading(false);
       }
@@ -110,8 +119,14 @@ export function AuthProvider({ children }) {
   const login = (userData) => {
     // Purge any leftover cart tokens from prior session/guest to prevent cross-account leakage
     clearCartSession();
+    safeStorage.removeItem("user");
+    safeStorage.removeItem("user_profile");
     setUser(userData);
-    safeStorage.setJSON("user", userData);
+    safeSessionStorage.setJSON("user", {
+      id: userData?.id,
+      name: userData?.name || "",
+      roles: userData?.roles || [],
+    });
   };
 
   // ==========================================
@@ -121,7 +136,11 @@ export function AuthProvider({ children }) {
   const updateUser = (newData) => {
     setUser((prev) => {
       const updated = { ...(prev || {}), ...newData };
-      safeStorage.setJSON("user", updated);
+      safeSessionStorage.setJSON("user", {
+        id: updated.id,
+        name: updated.name || "",
+        roles: updated.roles || [],
+      });
       return updated;
     });
   };
@@ -132,6 +151,8 @@ export function AuthProvider({ children }) {
 
   const handleSessionExpired = () => {
     setUser(null);
+    safeSessionStorage.removeItem("user");
+    safeSessionStorage.removeItem("user_profile");
     safeStorage.removeItem("user");
     safeStorage.removeItem("user_profile");
     clearCartSession();
@@ -157,11 +178,12 @@ export function AuthProvider({ children }) {
   // DELETE ACCOUNT
   // ==========================================
 
-  const deleteAccount = async () => {
+  const deleteAccount = async (password) => {
     try {
-      await deleteAccountApi();
-    } finally {
+      await deleteAccountApi(password);
       handleSessionExpired();
+    } catch (error) {
+      throw error;
     }
   };
 

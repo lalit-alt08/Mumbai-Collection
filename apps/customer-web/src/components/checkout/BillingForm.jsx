@@ -83,6 +83,7 @@ function BillingForm({
   totalAmount,
   standaloneBar = false,
   hasOutOfStock = false,
+  stockChecking = false,
 }) {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
@@ -193,14 +194,6 @@ function BillingForm({
       return;
     }
 
-    const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
-    if (Date.now() - (stored.timestamp || 0) > MAX_AGE_MS) {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-      clearPendingPayment();
-      setIsPersistentPending(false);
-      return;
-    }
-
     // Query payment finalization state by Razorpay order ID FIRST
     try {
       setCheckingPendingStatus(true);
@@ -237,19 +230,6 @@ function BillingForm({
       setCheckingPendingStatus(false);
     }
 
-    const currentFingerprint = computeCartFingerprint(cart);
-    const currentItemsFingerprint = computeCartItemsFingerprint(cart);
-    const itemsChanged = stored.itemsFingerprint
-      ? stored.itemsFingerprint !== currentItemsFingerprint
-      : stored.cartFingerprint && stored.cartFingerprint !== currentFingerprint;
-
-    if (itemsChanged) {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-      clearPendingPayment();
-      setIsPersistentPending(false);
-      return;
-    }
-
     // Schedule next backoff attempt: 2s, 4s, 8s, 15s, then every 30s (~3 min)
     setPollAttempt((prev) => {
       const nextAttempt = isManualOrTrigger ? 0 : prev + 1;
@@ -270,16 +250,6 @@ function BillingForm({
 
   useEffect(() => {
     idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
-    const currentFingerprint = computeCartFingerprint(cart);
-    const currentItemsFingerprint = computeCartItemsFingerprint(cart);
-    const stored = getPendingPayment();
-    const itemsChanged = stored?.itemsFingerprint
-      ? stored.itemsFingerprint !== currentItemsFingerprint
-      : stored?.cartFingerprint && stored.cartFingerprint !== currentFingerprint;
-
-    if (itemsChanged) {
-      clearPendingPayment();
-    }
   }, [cart]);
 
   // Check pending order status on mount (load), when tab becomes visible, and when network reconnects
@@ -596,7 +566,14 @@ function BillingForm({
             } catch (_) {}
 
             if (orderRes?.razorpay_order_id) {
-              cancelPaymentOrder(orderRes.razorpay_order_id).catch(() => {});
+              try {
+                const cancelled = await cancelPaymentOrder(orderRes.razorpay_order_id);
+                if (!cancelled?.cancelled) throw new Error('Cancellation not confirmed');
+              } catch {
+                setIsPersistentPending(true);
+                setError('Payment status is still being checked. Please do not pay again.');
+                return;
+              }
             }
             clearPendingPayment();
             setIsPersistentPending(false);
@@ -708,9 +685,19 @@ function BillingForm({
       };
 
       const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (failedRes) => {
+      rzp.on("payment.failed", async (failedRes) => {
         if (failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id) {
-          cancelPaymentOrder(failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id).catch(() => {});
+          try {
+            const cancelled = await cancelPaymentOrder(failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id);
+            if (!cancelled?.cancelled) throw new Error('Cancellation not confirmed');
+          } catch {
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep('');
+            setIsPersistentPending(true);
+            setError('Payment status is uncertain. Please check status before paying again.');
+            return;
+          }
         }
         isSubmittingRef.current = false;
         setLoading(false);
@@ -843,15 +830,15 @@ function BillingForm({
   const isStoreClosed = storeHours && storeHours.is_open === false;
   const pending = getPendingPayment();
   const hasActivePendingPayment = Boolean(
-    pending?.razorpay_order_id &&
-    Date.now() - (pending.timestamp || 0) < 30 * 60 * 1000
+    pending?.razorpay_order_id
   );
   const isDisabled =
     loading ||
+    stockChecking ||
     isStoreClosed ||
     hasOutOfStock ||
     isBelowMin ||
-    (paymentMethod === "online" && hasActivePendingPayment) ||
+    hasActivePendingPayment ||
     (isAuthenticated && addresses.length > 0 && !selectedAddress);
 
   if (loadingAddresses && !standaloneBar) {
@@ -864,6 +851,11 @@ function BillingForm({
 
   return (
     <div className="space-y-4">
+      {stockChecking && (
+        <div className="rounded-xl border border-[#42D6E8]/30 bg-[#132B45] px-3.5 py-2.5 text-xs font-bold text-[#A9EAF2]">
+          Checking current availability…
+        </div>
+      )}
       {/* Error Banner */}
       {error && (
         <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-3.5 py-2.5 text-xs font-bold text-rose-300 shadow-xs">
@@ -1457,7 +1449,7 @@ function BillingForm({
               className={`group flex items-center justify-between gap-3 sm:gap-4 h-[56px] sm:h-[60px] px-4 sm:px-5 rounded-[20px] font-black transition-all shadow-[0_7px_24px_rgba(66,214,232,0.3)] active:scale-[0.98] cursor-pointer flex-1 max-w-[250px] sm:max-w-[280px] ${
                 isStoreClosed
                   ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
-                  : hasActivePendingPayment && paymentMethod === "online"
+                  : hasActivePendingPayment
                   ? "bg-cyan-800 text-white cursor-wait opacity-90"
                   : hasOutOfStock || isBelowMin
                   ? "bg-[#0E1A2E] text-[#6E84A3] border border-[#1E3252] shadow-none cursor-not-allowed opacity-80"
@@ -1495,7 +1487,7 @@ function BillingForm({
                         : "Processing..."}
                     </span>
                   </>
-                ) : hasActivePendingPayment && paymentMethod === "online" ? (
+                ) : hasActivePendingPayment ? (
                   <>
                     <Loader2 size={15} className="animate-spin shrink-0" />
                     <span className="truncate">Verifying...</span>

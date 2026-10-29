@@ -26,18 +26,23 @@ function Overview() {
   const [reconcileFeedback, setReconcileFeedback] = useState(null);
   const { setDashboardRefresh } = useOutletContext();
 
+  const dashboardRequestRef = useRef(null);
   const fetchDashboardData = async (isRefresh = false) => {
+    dashboardRequestRef.current?.abort();
+    const controller = new AbortController();
+    dashboardRequestRef.current = controller;
     try {
       setLoading(true);
       setError("");
-      const res = await getOverview(isRefresh ? { refresh: "true" } : {});
-      if (res.success) {
+      const res = await getOverview(isRefresh ? { refresh: "true" } : {}, { signal: controller.signal });
+      if (!controller.signal.aborted && res.success) {
         setData(res.data);
       }
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError("Failed to load dashboard metrics. Check backend connection.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -80,6 +85,7 @@ function Overview() {
 
   useEffect(() => {
     fetchDashboardData(false);
+    return () => dashboardRequestRef.current?.abort();
   }, []);
 
   if (loading) {

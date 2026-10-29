@@ -10,7 +10,7 @@ process.env.RAZORPAY_KEY_SECRET = "mock_secret_key_456";
 const { default: api } = await import("../src/config/woocommerce.js");
 const { default: storeHoursService } = await import("../src/services/storeHoursService.js");
 const { serverCache } = await import("../src/utils/memoryCache.js");
-const { default: paymentIntentService } = await import("../src/services/paymentIntentService.js");
+const { default: paymentIntentService, _setWpClientForTesting } = await import("../src/services/paymentIntentService.js");
 const { default: axios } = await import("axios");
 const { _setRazorpayInstanceForTesting } = await import("../src/services/razorpayService.js");
 const { createOrder } = await import("../src/controllers/paymentController.js");
@@ -65,12 +65,26 @@ test("Stock Validation & Idempotency Loop Regression Test Suite", async (t) => {
   await new Promise((resolve) => server.listen(0, resolve));
 
   t.beforeEach(() => {
+    const durable = new Map();
+    _setWpClientForTesting({ post: async (path, body) => {
+      if (path.endsWith('/payment-intent/get')) {
+        const active = [...durable.entries()].find(([, value]) => value.customer_id === body.active_user_id && value.cart_fingerprint === body.cart_fingerprint && value.status === 'created');
+        return { data: { success: true, intent: durable.get(body.rzp_order_id) || null, active_order_id: active?.[0] || null } };
+      }
+      if (path.endsWith('/payment-intent/store')) durable.set(body.rzp_order_id, { ...body.payload });
+      if (path.endsWith('/payment-intent/update-status')) {
+        const intent = durable.get(body.rzp_order_id);
+        if (intent) intent.status = body.to_status;
+      }
+      return { data: { success: true, updated: true, acquired: true } };
+    } });
     _clearIdempotencyStoreForTesting();
     serverCache.clear();
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
   });
 
   t.afterEach(() => {
+    _setWpClientForTesting(null);
     api.get = originalApiGet;
     axios.get = originalAxiosGet;
     storeHoursService.getStoreStatus = originalGetStoreStatus;
@@ -116,7 +130,7 @@ test("Stock Validation & Idempotency Loop Regression Test Suite", async (t) => {
 
     // Mock WooCommerce product 232 as out of stock
     api.get = async (path) => {
-      if (path === "products/232") {
+      if (path === "products/232" || path === "products") {
         return {
           data: {
             id: 232,

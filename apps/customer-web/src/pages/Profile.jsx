@@ -37,6 +37,8 @@ function Profile() {
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -395,13 +397,19 @@ function Profile() {
 
   const handleDeleteAccount = async () => {
     if (isDeleting) return;
+    if (!deletePassword) {
+      setDeleteError("Enter your current password to confirm account deletion.");
+      return;
+    }
 
     try {
       setIsDeleting(true);
       setError("");
+      setDeleteError("");
 
-      await deleteAccount();
+      await deleteAccount(deletePassword);
       setShowDeleteModal(false);
+      setDeletePassword("");
 
       navigate("/", {
         replace: true,
@@ -411,11 +419,10 @@ function Profile() {
         },
       });
     } catch (err) {
-      setError(
+      setDeleteError(
         err.response?.data?.message ||
           "Failed to delete account. Please try again or contact support."
       );
-      setShowDeleteModal(false);
     } finally {
       setIsDeleting(false);
     }
@@ -799,11 +806,40 @@ function Profile() {
       <ConfirmModal
         isOpen={showDeleteModal}
         onClose={() => {
-          if (!isDeleting) setShowDeleteModal(false);
+          if (!isDeleting) {
+            setShowDeleteModal(false);
+            setDeletePassword("");
+            setDeleteError("");
+          }
         }}
         onConfirm={handleDeleteAccount}
         title="Delete Account Permanently?"
-        message="Are you sure you want to permanently delete your Mumbai Collection account? All your profile data, saved addresses, and favorites will be permanently erased and you will be logged out immediately."
+        message={
+          <span className="block text-left">
+            <span className="block text-center">
+              This permanently erases your profile, saved addresses, and favorites. Enter your current password to continue.
+            </span>
+            <label className="mt-4 block text-xs font-bold text-[#C9D6E8]">
+              Current Password
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(event) => {
+                  setDeletePassword(event.target.value);
+                  setDeleteError("");
+                }}
+                autoComplete="current-password"
+                disabled={isDeleting}
+                className="mt-2 h-12 w-full rounded-xl border border-[#2A4265] bg-[#080F1C] px-4 text-sm text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] disabled:opacity-60"
+              />
+            </label>
+            {deleteError && (
+              <span role="alert" className="mt-2 block text-xs font-semibold text-rose-400">
+                {deleteError}
+              </span>
+            )}
+          </span>
+        }
         confirmText="Yes, Delete Account"
         cancelText="Keep Account"
         isLoading={isDeleting}

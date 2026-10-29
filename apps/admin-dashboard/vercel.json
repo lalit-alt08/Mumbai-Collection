@@ -17,7 +17,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://styles-cult-contractor-pentium.trycloudflare.com/api/:path*"
+      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

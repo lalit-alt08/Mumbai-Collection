@@ -1,3 +1,4 @@
+import { mutateStaffOrder } from "../services/staffOrderService.js";
 import api from "../config/woocommerce.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { serverCache } from "../utils/memoryCache.js";
@@ -123,46 +124,12 @@ export const updateAdminOrderStatus = async (req, res) => {
       });
     }
 
-    // Fetch existing order from WooCommerce to enforce 72-hour (3-day) status lock on delivered orders
-    const existingOrderRes = await api.get(`orders/${encodeURIComponent(id)}`);
-    const currentOrder = existingOrderRes?.data;
-
-    if (!currentOrder) {
-      return res.status(404).json({
-        success: false,
-        message: `Order #${id} not found.`,
-      });
-    }
-
-    // Enforce status transition rules (72-hour delivery lock, unpaid online orders, terminal statuses)
-    const transitionValidation = validateOrderStatusTransition(currentOrder, status);
-    if (!transitionValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        message: transitionValidation.message,
-      });
-    }
-
-    const payload = buildOrderStatusPayload(status);
-
-    const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
-
-    // Publish minimal real-time event for employee dashboard (fire-and-forget, never throws)
-    publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: id, status });
-
-    serverCache.invalidatePrefix("admin:analytics");
-    serverCache.invalidatePrefix("admin:customers");
-    serverCache.invalidatePrefix("employee:overview");
-    if (currentOrder.customer_id) {
-      serverCache.invalidatePrefix(`customer:orders:${currentOrder.customer_id}:`);
-    }
-    await invalidateOrderDetailCache(id);
-
+    const order = await mutateStaffOrder(id, status);
 
     res.json({
       success: true,
       message: `Order #${id} updated to ${status}.`,
-      order: response.data,
+      order,
     });
   } catch (error) {
     logError(req, error, "Update admin order status error");

@@ -1,8 +1,9 @@
 import Redis from "ioredis";
-import { logger, sanitizeError } from "../utils/logger.js";
+import { logger, sanitizeError, getErrorMessage } from "../utils/logger.js";
 
 let redisClient = null;
 let isReady = false;
+let redisWasUnavailable = false;
 
 const REDIS_URL = process.env.REDIS_URL || process.env.REDIS_HOST;
 
@@ -22,12 +23,10 @@ if (REDIS_URL) {
       maxRetriesPerRequest: 2,
       enableOfflineQueue: false, // Fail fast to in-memory fallback if Redis is temporarily unreachable
       connectTimeout: 5000,
+      commandTimeout: 3000,
       retryStrategy: (times) => {
-        if (times > 5) {
-          logger.warn("[Redis] Maximum reconnection attempts reached; keeping in-memory fallback active");
-          return null; // Stop reconnecting after 5 attempts
-        }
-        return Math.min(times * 500, 3000);
+        // Recover automatically with bounded backoff and jitter.
+        return Math.min(500 * (2 ** Math.min(times - 1, 6)), 30000) + Math.floor(Math.random() * 250);
       },
     };
 
@@ -49,15 +48,27 @@ if (REDIS_URL) {
       isReady = true;
       logger.info("[Redis] Redis client is ready for operations");
       unrefClientStream(redisClient);
+      if (redisWasUnavailable) {
+        redisWasUnavailable = false;
+        void import("../services/alertService.js").then(({ alertStaffAnomaly }) => alertStaffAnomaly({
+          type: "REDIS_RECOVERED", severity: "info", message: "Redis connectivity has recovered; shared cache and event delivery are available again."
+        })).catch(() => {});
+      }
     });
 
     redisClient.on("error", (err) => {
       isReady = false;
+      redisWasUnavailable = true;
       logger.warn({ err: sanitizeError(err) }, "[Redis] Redis error encountered; falling back to in-memory store");
+      void import("../services/alertService.js").then(({ alertStaffAnomaly }) => alertStaffAnomaly({
+        type: "REDIS_UNAVAILABLE", severity: "warning", message: "Redis is unavailable. Local fallback is active; cross-instance updates are degraded.",
+        details: { code: err.code || err.name || "UNKNOWN", reason: getErrorMessage(err), connectionState: redisClient?.status || "unknown" }
+      })).catch(() => {});
     });
 
     redisClient.on("close", () => {
       isReady = false;
+      redisWasUnavailable = true;
       logger.debug("[Redis] Redis connection closed");
     });
   } catch (err) {
@@ -73,7 +84,7 @@ let subscriberClient = null;
 let isSubscriberReady = false;
 
 export const getRedisClient = () => (isReady ? redisClient : null);
-export const isRedisConfigured = () => Boolean(redisClient);
+export const isRedisConfigured = () => Boolean(REDIS_URL);
 export const isRedisActive = () => isReady;
 
 /**

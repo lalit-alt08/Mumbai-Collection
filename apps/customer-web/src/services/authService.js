@@ -71,14 +71,15 @@ export const resetPassword = async (token, password) => {
   return data;
 };
 
-export const deleteAccount = async () => {
+export const deleteAccount = async (password) => {
   const { data } = await axios.delete(`${API_URL}/profile`, {
     withCredentials: true,
+    data: { password },
   });
   return data;
 };
 
-export const sendOtp = async (target, purpose = "verify_phone", extra = {}) => {
+export const sendOtp = async (target, purpose = "reset_password", extra = {}) => {
   const trimmed = typeof target === "string" ? target.trim() : target;
   const isEmail = typeof trimmed === "string" && trimmed.includes("@");
   const { data } = await API.post("/otp/send", {
@@ -89,7 +90,7 @@ export const sendOtp = async (target, purpose = "verify_phone", extra = {}) => {
   return data;
 };
 
-export const verifyOtp = async (target, otp, purpose = "verify_phone") => {
+export const verifyOtp = async (target, otp, purpose = "reset_password") => {
   const trimmed = typeof target === "string" ? target.trim() : target;
   const isEmail = typeof trimmed === "string" && trimmed.includes("@");
   const { data } = await API.post("/otp/verify", {

@@ -22,7 +22,9 @@ import { verifyCsrf, isOriginAllowed } from "./middlewares/csrfMiddleware.js";
 import { storeLimiter, catalogLimiter } from "./middlewares/rateLimiter.js";
 import pinoHttp from "pino-http";
 import crypto from "crypto";
+import { alertStaffAnomaly } from "./services/alertService.js";
 import { logger, sanitizeError } from "./utils/logger.js";
+import { operationalHealth } from "./services/operationalHealth.js";
 
 const app = express();
 
@@ -170,6 +172,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/sitemap.xml", generateSitemapXml);
+app.get("/api/ops/health", operationalHealth);
 
 // 404 Handler for undefined API routes (L13 fix)
 app.use("/api", (req, res) => {
@@ -186,6 +189,7 @@ app.use((err, req, res, next) => {
 
   if (status >= 500) {
     logger.error({ err: sanitizeError(err), requestId: req.id }, "Unhandled API error");
+    void alertStaffAnomaly({ type: "UNHANDLED_API_FAILURE", severity: "critical", message: "An API handler failed unexpectedly. Inspect logs using the request ID.", details: { requestId: req.id, source: `${req.method}:${(req.originalUrl || req.url || "unmatched").split("?")[0].replace(/\/\d+(?=\/|$)/g, "/:id")}:${err.code || status}` } });
   }
 
   res.status(status).json({

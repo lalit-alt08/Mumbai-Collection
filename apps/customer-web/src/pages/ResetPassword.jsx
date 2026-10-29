@@ -7,16 +7,18 @@ import {
   ArrowLeft,
   Check,
 } from "lucide-react";
-import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { resetPassword } from "../services/authService";
 import { validatePassword, getPasswordRuleChecks } from "../utils/passwordValidator.js";
 
 function ResetPassword() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [token] = useState(() => new URLSearchParams(window.location.search).get("token"));
 
-  const token = searchParams.get("token");
+  useEffect(() => {
+    window.history.replaceState({}, "", "/reset-password");
+  }, []);
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

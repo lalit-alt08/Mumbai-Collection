@@ -12,13 +12,15 @@ localBus.setMaxListeners(200);
 const employeeClients = new Set();
 
 let isSubscriberInitialized = false;
+let isSubscriberInitializing = false;
+let isSubscriberMessageListenerAttached = false;
 
 /**
  * Initializes the dedicated Redis subscriber for order events.
  * Idempotent and fails gracefully if Redis is unavailable.
  */
 export const initRedisOrderSubscriber = () => {
-  if (isSubscriberInitialized) return;
+  if (isSubscriberInitialized || isSubscriberInitializing) return;
 
   const subscriber = getRedisSubscriber();
   if (!subscriber) {
@@ -26,16 +28,7 @@ export const initRedisOrderSubscriber = () => {
     return;
   }
 
-  try {
-    subscriber.subscribe(ORDER_EVENTS_CHANNEL, (err, count) => {
-      if (err) {
-        logger.warn({ err: err.message }, "[OrderNotification] Failed to subscribe to orders channel");
-        return;
-      }
-      isSubscriberInitialized = true;
-      logger.info({ count }, "[OrderNotification] Subscribed to Redis order events channel");
-    });
-
+  if (!isSubscriberMessageListenerAttached) {
     subscriber.on("message", (channel, message) => {
       if (channel !== ORDER_EVENTS_CHANNEL) return;
       try {
@@ -45,8 +38,29 @@ export const initRedisOrderSubscriber = () => {
         logger.warn({ err: parseErr.message, message }, "[OrderNotification] Malformed order event message received");
       }
     });
-  } catch (subErr) {
-    logger.warn({ err: subErr.message }, "[OrderNotification] Error setting up Redis subscriber listener");
+    subscriber.on("close", () => { isSubscriberInitialized = false; });
+    subscriber.on("ready", () => { void subscribeToOrderEvents(); });
+    isSubscriberMessageListenerAttached = true;
+  }
+
+  isSubscriberInitializing = true;
+  const subscribeToOrderEvents = async () => {
+    try {
+      const count = await subscriber.subscribe(ORDER_EVENTS_CHANNEL);
+      isSubscriberInitialized = true;
+      logger.info({ count }, "[OrderNotification] Subscribed to Redis order events channel");
+    } catch (subErr) {
+      logger.warn(
+        { err: subErr?.message || subErr },
+        "[OrderNotification] Redis subscription unavailable; using in-memory local bus"
+      );
+    } finally {
+      isSubscriberInitializing = false;
+    }
+  };
+
+  if (subscriber.status === "ready") {
+    void subscribeToOrderEvents();
   }
 };
 
@@ -74,11 +88,7 @@ export const broadcastToEmployeeClients = (payload) => {
 // Wire up local bus listener for in-memory / test / fallback scenarios
 localBus.on("order_event", (payload) => {
   // If Redis subscriber is active, Redis will handle message distribution to avoid local duplicate
-  const redis = getRedisClient();
-  const subActive = isRedisSubscriberActive();
-  if (redis && isRedisActive() && subActive) {
-    return;
-  }
+  // A failed Redis publish must always remain deliverable locally.
   broadcastToEmployeeClients(payload);
 });
 
@@ -109,10 +119,11 @@ export const publishOrderEvent = async ({ event, orderId, status } = {}) => {
   if (redis && isRedisActive()) {
     try {
       await redis.publish(ORDER_EVENTS_CHANNEL, JSON.stringify(payload));
+      if (!isRedisSubscriberActive() || !isSubscriberInitialized) broadcastToEmployeeClients(payload);
       return true;
     } catch (err) {
       logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Redis publish failed, falling back to local bus");
-      localBus.emit("order_event", payload);
+      broadcastToEmployeeClients(payload);
       return true;
     }
   }
@@ -169,6 +180,16 @@ export const handleEmployeeOrderStream = (req, res) => {
 
 /** Testing inspection helpers */
 export const _getConnectedClientCount = () => employeeClients.size;
+export const closeEmployeeOrderStreams = () => {
+  for (const client of employeeClients) {
+    try {
+      client.end();
+    } catch (_) {
+      // Ignored: client socket already closed or terminated
+    }
+  }
+  employeeClients.clear();
+};
 export const _resetNotificationServiceForTesting = () => {
   employeeClients.clear();
   isSubscriberInitialized = false;

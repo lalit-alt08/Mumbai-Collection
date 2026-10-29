@@ -93,10 +93,7 @@ export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
   let title = "Reset Your Password";
   let lead = "We received a request to reset your Mumbai Collection account password. Please use the 6-digit verification code below to proceed.";
 
-  if (purpose === "verify_phone") {
-    title = "Verify Your Mobile Number";
-    lead = "Please use the 6-digit verification code below to verify your mobile number on your Mumbai Collection account.";
-  } else if (purpose === "register") {
+  if (purpose === "register") {
     title = "Verify Your Email Address";
     lead = "Welcome to Mumbai Collection! Please use the 6-digit verification code below to verify your email and complete your account setup.";
   }
@@ -179,10 +176,10 @@ export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
  * @param {string} params.toEmail - Destination email address
  * @param {string} [params.toName] - Destination recipient name
  * @param {string} params.otp - 6-digit verification code
- * @param {string} [params.purpose] - Purpose: "verify_phone" | "reset_password"
+ * @param {string} [params.purpose] - Purpose: "register" | "reset_password"
  * @returns {Promise<{success: boolean, messageId?: string, mock?: boolean}>}
  */
-export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "verify_phone" }) => {
+export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "reset_password" }) => {
   if (!otp || typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
     throw new Error("Invalid OTP code provided for email dispatch");
   }
@@ -204,14 +201,16 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "verify_pho
 
   // 1. Development Mock Mode
   if (isMockEmailEnabled()) {
+    const maskedOtp = `${"*".repeat(Math.max(0, otp.length - 2))}${otp.slice(-2)}`;
+    const maskedSubject = subject.replace(otp, maskedOtp);
     console.log(
-      `\n[MOCK EMAIL] Destination: ${cleanEmail}\n[MOCK EMAIL] Subject: ${subject}\n[MOCK EMAIL] OTP: ${otp}\n`
+      `\n[MOCK EMAIL] Destination: ${cleanEmail}\n[MOCK EMAIL] Subject: ${maskedSubject}\n[MOCK EMAIL] OTP: ${maskedOtp}\n`
     );
 
     return {
       success: true,
       mock: true,
-      messageId: `mock_email_${Date.now()}_${otp}`,
+      messageId: `mock_email_${Date.now()}`,
     };
   }
 

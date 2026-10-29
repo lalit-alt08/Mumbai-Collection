@@ -27,7 +27,7 @@ import {
   ArrowRight,
   MoreVertical,
 } from "lucide-react";
-import { getOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl } from "../services/employeeApi.js";
+import { getOrders, bulkDispatchOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl } from "../services/employeeApi.js";
 import {
   triggerNewOrderNotification,
   requestNotificationPermission,
@@ -125,9 +125,7 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
 
   // 3. date_completed
   if (!timestamp && order.date_completed) {
-    const s = order.date_completed.endsWith("Z")
-      ? order.date_completed
-      : `${order.date_completed}Z`;
+    const s = /(Z|[+-]\d{2}:?\d{2})$/.test(order.date_completed) ? order.date_completed : order.date_completed + "+05:30";
     const t = new Date(s).getTime();
     if (!isNaN(t) && t > 0) timestamp = t;
   }
@@ -143,9 +141,7 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
 
   // 5. date_created
   if (!timestamp && order.date_created) {
-    const s = order.date_created.endsWith("Z")
-      ? order.date_created
-      : `${order.date_created}Z`;
+    const s = /(Z|[+-]\d{2}:?\d{2})$/.test(order.date_created) ? order.date_created : order.date_created + "+05:30";
     const t = new Date(s).getTime();
     if (!isNaN(t) && t > 0) timestamp = t;
   }
@@ -162,6 +158,11 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
 function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const bulkBusyRef = useRef(false);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkResults, setBulkResults] = useState([]);
   const [ordersQueryKey, setOrdersQueryKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -277,6 +278,7 @@ function Orders() {
   }, [searchQuery]);
 
   const fetchOrderList = async (isBackground = false) => {
+    if (isBackground && updatingIdsRef.current.size > 0) return;
     let controller = null;
     if (!isBackground) {
       abortControllerRef.current?.abort();
@@ -405,7 +407,7 @@ function Orders() {
     const startPolling = () => {
       if (!pollTimerRef.current) {
         pollTimerRef.current = setInterval(() => {
-          fetchOrderList(true);
+          if (!document.hidden) fetchOrderList(true);
         }, 45000);
       }
     };
@@ -441,6 +443,31 @@ function Orders() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
+
+  const eligibleForDispatch = (order) => order.status === "packed" && !order.is_unpaid && !order.is_status_locked;
+  useEffect(() => { setSelectedIds(new Set()); setBulkConfirm(false); }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
+  const toggleDispatch = (id) => setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else if (next.size < 50) next.add(id); return next; });
+  const dispatchSelected = async () => {
+    if (bulkBusyRef.current || selectedIds.size === 0) return;
+    bulkBusyRef.current = true;
+    const ids = [...selectedIds];
+    ids.forEach((id) => updatingIdsRef.current.add(id));
+    setBulkBusy(true); setBulkConfirm(false); setBulkResults([]);
+    try {
+      const result = await bulkDispatchOrders(ids);
+      setBulkResults(result.results || []);
+      const succeeded = new Set((result.results || []).filter((row) => row.success).map((row) => row.id));
+      setOrders((current) => current.map((order) => succeeded.has(order.id) ? { ...order, status: "out-for-delivery" } : order));
+      setSelectedIds(new Set(ids.filter((id) => !succeeded.has(id))));
+      showToast(succeeded.size + " orders dispatched; " + (ids.length - succeeded.size) + " need review.");
+    } catch (error) {
+      showToast(error.response?.data?.message || "Dispatch confirmation was interrupted. Refresh orders to check which succeeded before retrying.", "error");
+    } finally {
+      ids.forEach((id) => updatingIdsRef.current.delete(id));
+      bulkBusyRef.current = false; setBulkBusy(false);
+      void fetchOrderList(true);
+    }
+  };
 
   const handleTabChange = (newTab) => {
     setActiveTab(newTab);
@@ -1137,6 +1164,30 @@ function Orders() {
 
       {/* ORDERS PRESENTATION (MOBILE STACKED CARDS / DESKTOP CLEAN TABLE) */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-xs overflow-hidden">
+        <div className="border-b border-gray-100 p-4 space-y-3">
+          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
+            <input type="checkbox" disabled={bulkBusy} checked={orders.filter(eligibleForDispatch).length > 0 && orders.filter(eligibleForDispatch).slice(0, 50).every((order) => selectedIds.has(order.id))}
+              onChange={(event) => setSelectedIds(event.target.checked ? new Set(orders.filter(eligibleForDispatch).slice(0, 50).map((order) => order.id)) : new Set())} />
+            Select packed orders on this page
+          </label>
+          {selectedIds.size > 0 && <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span>{selectedIds.size} selected</span>
+            <button type="button" disabled={bulkBusy} onClick={() => setBulkConfirm(true)} className="rounded-full bg-emerald-600 px-4 py-2 font-bold text-white disabled:opacity-50">{bulkBusy ? "Dispatching…" : "Dispatch selected"}</button>
+            <button type="button" disabled={bulkBusy} onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          </div>}
+          {bulkResults.some((row) => !row.success) && <div role="alert" className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800">
+            {bulkResults.filter((row) => !row.success).map((row) => <p key={row.id}>Order #{row.id}: {row.message}</p>)}
+            Failed orders remain selected. Review them before retrying.
+          </div>}
+        </div>
+        {bulkConfirm && <div role="dialog" aria-modal="true" aria-label="Confirm bulk dispatch" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4">
+            <h2 className="font-bold">Dispatch {selectedIds.size} packed orders?</h2>
+            <div className="text-sm text-gray-600">{Object.entries(orders.filter((order) => selectedIds.has(order.id)).reduce((groups, order) => { const location = getOrderLocationInfo(order).location; groups[location] = (groups[location] || 0) + 1; return groups; }, {})).map(([location, count]) => <p key={location}>{location}: {count}</p>)}</div>
+            <p className="text-xs text-gray-500">Customer tracking updates on its next refresh. Each order is checked again before dispatch.</p>
+            <div className="flex gap-3"><button type="button" onClick={dispatchSelected} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Confirm dispatch</button><button type="button" onClick={() => setBulkConfirm(false)}>Cancel</button></div>
+          </div>
+        </div>}
         {!hasCurrentOrders && error ? (
           <div className="p-8 text-center text-rose-600">
             <p className="text-sm font-bold">{error}</p>
@@ -1207,6 +1258,7 @@ function Orders() {
                     {/* Card Header: Order # + Date + Location + Status */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                        <input aria-label={"Select order " + order.id} type="checkbox" disabled={bulkBusy || !eligibleForDispatch(order)} checked={selectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
                         <span className="font-extrabold text-gray-900 text-sm">#{order.id}</span>
                         <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${getLocationBadgeClass(locationInfo.location_key)}`}>
                           <MapPin size={10} className="shrink-0" />
@@ -1291,6 +1343,7 @@ function Orders() {
                       >
                         {/* Order # and Date */}
                         <td className="px-5 py-3.5">
+                          <input aria-label={"Select order " + order.id} type="checkbox" className="mr-2" disabled={bulkBusy || !eligibleForDispatch(order)} checked={selectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
                           <span className="font-extrabold text-gray-900">#{order.id}</span>
                           <p className="text-[11px] text-gray-400 mt-0.5">
                             {(() => {
@@ -1713,7 +1766,7 @@ function Orders() {
                   {getStatusBadge(selectedOrder.status, selectedOrder.is_unpaid)}
                 </div>
 
-                {isOrderDeliveredLocked(selectedOrder) ? (
+                {selectedOrder.status === "completed" || isOrderDeliveredLocked(selectedOrder) ? (
                   <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-xs space-y-1.5 shadow-2xs">
                     <div className="flex items-center gap-2 font-bold text-gray-800">
                       <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
@@ -1721,7 +1774,7 @@ function Orders() {
                     </div>
                     <p className="text-[11px] font-medium text-gray-400 flex items-center gap-1.5">
                       <Lock size={12} className="text-gray-400 shrink-0" />
-                      <span>Status changes are locked after 72 hours (3 days).</span>
+                      <span>Delivered orders are final and cannot be reopened here.</span>
                     </p>
                   </div>
                 ) : selectedOrder.is_unpaid ? (
@@ -1763,7 +1816,7 @@ function Orders() {
                     {/* Custom In-DOM Dropdown Menu */}
                     {isStatusDropdownOpen && (
                       <div className="absolute top-full left-0 right-0 z-40 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
-                        {STATUS_OPTIONS.map((option) => {
+                        {STATUS_OPTIONS.filter((option) => option.value === selectedOrder.status || (selectedOrder.allowed_next_statuses || []).includes(option.value)).map((option) => {
                           const isSelected = selectedOrder.status === option.value;
                           return (
                             <button
@@ -1927,7 +1980,7 @@ function Orders() {
                 const orderTotal = Number(selectedOrder.total) || 0;
                 const calculatedSubtotal =
                   itemsSubtotal > 0
-                    ? itemsSubtotal
+                    ? itemsSubtotal + discountTotal
                     : Math.max(0, orderTotal - shippingTotal - taxTotal - feeTotal + discountTotal);
 
                 return (

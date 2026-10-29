@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours } from "../services/storeApi";
-import { getProductById, getLiveProductStockByIds } from "../services/productService";
+import { getProductsByIds, getLiveProductStockByIds } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
@@ -24,6 +24,31 @@ function Cart() {
   const { isAuthenticated } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
   const [storeHours, setStoreHours] = useState(null);
+  const lastCartResumeRefreshAt = useRef(0);
+
+  useEffect(() => {
+    let disposed = false;
+    const refreshAfterResume = async () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastCartResumeRefreshAt.current < 15_000) return;
+      lastCartResumeRefreshAt.current = Date.now();
+      try {
+        await refreshCart();
+      } catch {
+        // Checkout remains protected by authoritative server-side validation.
+      }
+    };
+    const onVisibilityChange = () => {
+      if (!disposed) refreshAfterResume();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pageshow", onVisibilityChange);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pageshow", onVisibilityChange);
+    };
+  }, [refreshCart]);
 
   useEffect(() => {
     let isMounted = true;
@@ -97,9 +122,15 @@ function Cart() {
     setSharedError("");
 
     try {
-      const results = await Promise.allSettled(
-        parsed.map(async ({ id, quantity, variationId, variation }) => {
-          const product = await getProductById(id);
+      const hydratedProducts = await getProductsByIds(
+        parsed.map((item) => item.id),
+        { details: "selection" }
+      );
+      const productsById = new Map(
+        hydratedProducts.map((product) => [Number(product.id), product])
+      );
+      const verifyItem = async ({ id, quantity, variationId, variation }) => {
+          const product = productsById.get(Number(id));
           if (!product || !product.id) return null;
 
           const isVariable =
@@ -264,8 +295,15 @@ function Cart() {
             isAvailable: !isVarOutOfStock,
             outOfStockMessage: isVarOutOfStock ? "Currently out of stock" : "",
           };
-        })
-      );
+      };
+
+      // Variable-product Store API verification is intentionally bounded so a
+      // large shared cart cannot fan out dozens of simultaneous WordPress calls.
+      const results = [];
+      for (let index = 0; index < parsed.length; index += 3) {
+        const group = await Promise.allSettled(parsed.slice(index, index + 3).map(verifyItem));
+        results.push(...group);
+      }
 
       const resolved = results
         .filter((r) => r.status === "fulfilled" && r.value !== null)
@@ -433,14 +471,17 @@ function Cart() {
   const MIN_ORDER_VALUE = 500;
 
   const [stockCheckMap, setStockCheckMap] = useState({});
+  const [stockChecking, setStockChecking] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     if (!cart?.items || cart.items.length === 0) {
       setStockCheckMap({});
+      setStockChecking(false);
       return;
     }
 
+    setStockChecking(true);
     const productIds = [...new Set(cart.items.map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
     Promise.allSettled([getLiveProductStockByIds(productIds)])
       .then((batches) => {
@@ -477,6 +518,9 @@ function Cart() {
           }
         }
         setStockCheckMap(nextMap);
+      })
+      .finally(() => {
+        if (isMounted) setStockChecking(false);
       });
 
     return () => {
@@ -720,6 +764,7 @@ function Cart() {
             totalAmount={total}
             standaloneBar={true}
             hasOutOfStock={hasOutOfStockItems}
+            stockChecking={stockChecking}
             onStoreClosed={() => setStoreHours((prev) => ({ ...(prev || {}), is_open: false }))}
           />
         </div>

@@ -1,3 +1,4 @@
+import { mutateStaffOrder } from "../services/staffOrderService.js";
 import api from "../config/woocommerce.js";
 import wp from "../services/wordpress.js";
 import { uploadMedia, deleteMediaIfUnreferenced } from "../services/wordpressMediaService.js";
@@ -234,7 +235,7 @@ export const getEmployeeOrders = async (req, res) => {
       per_page: 100,
       orderby: "date",
       order: "desc",
-      _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+      _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,customer_id,date_paid,transaction_id,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
     };
 
     // Server-side date boundary filtering across Asia/Kolkata store timezone
@@ -244,6 +245,7 @@ export const getEmployeeOrders = async (req, res) => {
 
     if (resolvedDateFilter && resolvedDateFilter !== "all") {
       const bounds = getISTDateBoundaries(resolvedDateFilter, resolvedDateFrom, resolvedDateTo);
+      if (!bounds) return res.status(400).json({ success: false, message: "Choose a valid date range." });
       if (bounds?.after && bounds?.before) {
         queryParams.after = bounds.after;
         queryParams.before = bounds.before;
@@ -345,6 +347,7 @@ export const getEmployeeOrders = async (req, res) => {
           const response = await api.get("orders", { ...queryParams, page: currentPage });
           const batch = Array.isArray(response.data) ? response.data : [];
           allOrders.push(...batch);
+          if (currentPage === MAX_SCAN_PAGES && Number(response.headers?.["x-wp-totalpages"]) > MAX_SCAN_PAGES) throw Object.assign(new Error("Complete filtering requires the updated HPOS plugin."), { response: { status: 503 } });
           const totalPagesHeader = Number(response.headers?.["x-wp-totalpages"]);
           if (
             batch.length === 0 ||
@@ -404,6 +407,7 @@ export const getEmployeeOrders = async (req, res) => {
         date_completed: o.date_completed || null,
         date_completed_gmt: o.date_completed_gmt || null,
         delivery_completed_at: deliveryCompletedAt,
+        allowed_next_statuses: ALLOWED_ORDER_STATUSES.filter((next) => next !== effectiveStatus && validateOrderStatusTransition(o, next).valid),
         is_status_locked: isOrderStatusLocked(o),
         is_unpaid: isOnlineOrderUnpaid(o),
         total: o.total,
@@ -478,6 +482,29 @@ export const getEmployeeOrders = async (req, res) => {
  * Update Order Status (Instant dispatch sync)
  * Shared / Generic business function for order fulfillment
  */
+export const bulkDispatchOrders = async (req, res) => {
+  const ids = req.body?.ids;
+  if (req.body?.status !== "out-for-delivery" || !Array.isArray(ids) || ids.length < 1 || ids.length > 50 ||
+      ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+    return res.status(400).json({ success: false, message: "Choose 1–50 unique order IDs and out-for-delivery status." });
+  }
+  const results = new Array(ids.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < ids.length) {
+      const index = cursor++;
+      try {
+        const order = await mutateStaffOrder(ids[index], "out-for-delivery", { packedOnly: true });
+        results[index] = { id: ids[index], success: true, order };
+      } catch (error) {
+        results[index] = { id: ids[index], success: false, message: error.response?.data?.message || error.message || "Dispatch failed." };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker));
+  return res.json({ success: true, results });
+};
+
 export const updateOrderStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -490,48 +517,12 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // Fetch existing order from WooCommerce to enforce 72-hour (3-day) status lock on delivered orders
-    const existingOrderRes = await api.get(`orders/${encodeURIComponent(id)}`);
-    const currentOrder = existingOrderRes?.data;
-
-    if (!currentOrder) {
-      return res.status(404).json({
-        success: false,
-        message: `Order #${id} not found.`,
-      });
-    }
-
-    // Enforce status transition rules (72-hour delivery lock, unpaid online orders, terminal statuses)
-    const transitionValidation = validateOrderStatusTransition(currentOrder, status);
-    if (!transitionValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        message: transitionValidation.message,
-      });
-    }
-
-    const payload = buildOrderStatusPayload(status);
-
-    const response = await api.put(`orders/${encodeURIComponent(id)}`, payload);
-
-    // Publish minimal real-time event for employee dashboard (fire-and-forget, never throws)
-    publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: id, status });
-
-    // Invalidate cached overview/analytics/customers immediately upon status transition
-    serverCache.invalidatePrefix("employee:overview");
-    serverCache.invalidatePrefix("employee:orders_scan");
-    serverCache.invalidatePrefix("admin:analytics");
-    serverCache.invalidatePrefix("admin:customers");
-    if (currentOrder.customer_id) {
-      serverCache.invalidatePrefix(`customer:orders:${currentOrder.customer_id}:`);
-    }
-    await invalidateOrderDetailCache(id);
-
+    const order = await mutateStaffOrder(id, status);
 
     res.json({
       success: true,
       message: `Order #${id} status updated to ${status}.`,
-      order: response.data,
+      order,
     });
   } catch (error) {
     logError(req, error, "Update order status error");

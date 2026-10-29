@@ -254,37 +254,25 @@ export const deleteAccount = async (req, res) => {
       });
     }
 
-    // 1. Invalidate session cache & WordPress token
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: "Your current password is required to delete your account.",
+      });
+    }
+
+    // 1. Preserve the current session until WordPress verifies the password and completes deletion
     const cookieConfig = COOKIE_NAMES.customer;
     const wpAuth =
       req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
 
-    if (wpAuth) {
-      invalidateSessionCache(wpAuth);
-
-      // Invalidate session on WordPress server-side
-      await axios
-        .post(
-          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
-          {},
-          {
-            headers: {
-              Cookie: wpAuth,
-            },
-            httpsAgent,
-            timeout: 5000,
-          }
-        )
-        .catch(() => {});
-    }
-
-    invalidateUserSessionCache(userId);
-
-    // 2. Delegate account deletion to WordPress custom plugin to enforce role protections,
-    // session revocation, and content reassignment
+    // 2. Delegate password verification and account deletion to WordPress custom plugin,
+    // which also enforces role protections, session revocation, and content reassignment
     const wpDeleteRes = await axios.delete(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
       {
+        data: { password },
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(userId),
@@ -294,6 +282,10 @@ export const deleteAccount = async (req, res) => {
       }
     );
 
+    if (wpAuth) {
+      invalidateSessionCache(wpAuth);
+    }
+    invalidateUserSessionCache(userId);
     serverCache.invalidatePrefix("admin:customers");
 
     // 3. Clear customer auth cookies on response
