@@ -3,7 +3,14 @@ import axios from "axios";
 import wp from "../services/wordpress.js";
 import wcApi from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
-import { COOKIE_NAMES, invalidateSessionCache, invalidateUserSessionCache, setSessionCache } from "../middlewares/authMiddleware.js";
+import {
+  COOKIE_NAMES,
+  getSessionValidation,
+  invalidateSessionCache,
+  invalidateUserSessionCache,
+  rolesMatchAuthContext,
+  setSessionCache,
+} from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
 import { formatCustomerDisplayName, parseFirstAndLastName } from "../utils/nameFormatter.js";
@@ -55,6 +62,61 @@ const resolveContext = (req) => {
   }
 
   return "customer";
+};
+
+const getContextAccessMessage = (context) => {
+  if (context === "admin") return "Access denied: Administrator privileges required.";
+  if (context === "employee") return "Access denied: Staff privileges required.";
+  return "Access denied: Please use a customer account for the storefront.";
+};
+
+const revokeIssuedWordPressSession = async (data) => {
+  if (!data?.session || !data?.cookie_name) return;
+
+  try {
+    await axios.post(
+      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
+      {},
+      {
+        headers: {
+          Cookie: `${data.cookie_name}=${data.session}`,
+          ...(process.env.MUMBAI_INTERNAL_API_KEY
+            ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY }
+            : {}),
+        },
+        httpsAgent,
+        timeout: 5000,
+      }
+    );
+  } catch (error) {
+    logger.warn(
+      { err: error?.message },
+      "[Auth] Could not revoke a WordPress session rejected by panel role policy"
+    );
+  }
+};
+
+const isAllowedGoogleOrigin = (origin) => {
+  if (!origin) return false;
+
+  const normalizeOrigin = (value) => {
+    try {
+      return new URL(value).origin;
+    } catch (_) {
+      return "";
+    }
+  };
+
+  const configured = String(process.env.CUSTOMER_ORIGIN || "")
+    .split(",")
+    .map((value) => normalizeOrigin(value.trim()))
+    .filter(Boolean);
+
+  if (process.env.NODE_ENV !== "production") {
+    configured.push("http://localhost:5173", "http://127.0.0.1:5173");
+  }
+
+  return configured.includes(normalizeOrigin(origin));
 };
 
 const getCookieOptions = (req, role = "customer") => {
@@ -110,21 +172,11 @@ export const login = async (req, res) => {
     // Role verification: ensure user has appropriate permissions for the requested panel context
     const userRoles = Array.isArray(data.user?.roles) ? data.user.roles : [];
 
-    if (context === "admin" && !userRoles.includes("administrator")) {
+    if (!rolesMatchAuthContext(context, userRoles)) {
+      await revokeIssuedWordPressSession(data);
       return res.status(403).json({
         success: false,
-        message: "Access denied: Administrator privileges required.",
-      });
-    }
-
-    if (
-      context === "employee" &&
-      !userRoles.includes("employee") &&
-      !userRoles.includes("administrator")
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied: Staff privileges required.",
+        message: getContextAccessMessage(context),
       });
     }
 
@@ -144,6 +196,13 @@ export const login = async (req, res) => {
           name: data.user.name || "",
           roles: Array.isArray(data.user.roles) ? data.user.roles : [],
           email: data.user.email || "",
+          username: data.user.username || "",
+          firstName: data.user.first_name || "",
+          lastName: data.user.last_name || "",
+          phone: data.user.phone || "",
+          verifiedPhone: data.user.verified_phone || "",
+          isGoogleUser: data.user.is_google_user === true,
+          hasUsablePassword: data.user.has_usable_password === true,
           isPhoneVerified: data.user.is_phone_verified === true,
           isSuspended: data.user.is_suspended === true,
           timestamp: Date.now(),
@@ -169,12 +228,8 @@ export const login = async (req, res) => {
       logError(req, error, "Login error");
     }
 
-    res.status(status).json({
-      success: false,
-      message:
-        error.response?.data?.message ||
-        "Unable to login.",
-    });
+    const { payload } = sanitizeAuthError(error, "Unable to login.", status);
+    res.status(status).json(payload);
   }
 };
 
@@ -238,7 +293,7 @@ export const logout = async (req, res) => {
 
 export const register = async (req, res) => {
   try {
-    const { otp } = req.body;
+    const { otp, registration_token, password } = req.body;
     const email = String(req.body.email || "").trim().toLowerCase();
     const { firstName, lastName } = parseFirstAndLastName(req.body);
 
@@ -256,15 +311,15 @@ export const register = async (req, res) => {
       });
     }
 
-    if (!otp) {
+    if (!otp && !registration_token) {
       return res.status(400).json({
         success: false,
         message: "Email verification code is required to create an account.",
       });
     }
 
-    const otpHash = hashOtp(otp);
-    const effectivePassword = `${crypto.randomBytes(24).toString("hex")}!Aa1`;
+    const otpHash = otp ? hashOtp(otp) : undefined;
+    const effectivePassword = password;
     const cleanFullName = `${firstName} ${lastName}`;
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
@@ -281,6 +336,7 @@ export const register = async (req, res) => {
           email,
           password: effectivePassword,
           otp_hash: otpHash,
+          registration_token,
         },
         {
           headers: {
@@ -340,8 +396,15 @@ export const register = async (req, res) => {
           name: authUser.name || cleanFullName,
           roles: Array.isArray(authUser.roles) ? authUser.roles : ["customer"],
           email: authUser.email || email,
+          username: authUser.username || "",
+          firstName: authUser.first_name || firstName,
+          lastName: authUser.last_name || lastName,
+          phone: authUser.phone || "",
+          verifiedPhone: authUser.verified_phone || "",
+          isGoogleUser: authUser.is_google_user === true,
+          hasUsablePassword: authUser.has_usable_password !== false,
           isPhoneVerified: authUser.is_phone_verified === true,
-          isSuspended: false,
+          isSuspended: authUser.is_suspended === true,
           timestamp: Date.now(),
         });
       }
@@ -423,23 +486,18 @@ export const me = async (req, res) => {
       });
     }
 
-    const response = await axios.get(
-      `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
-      {
-        headers: {
-          Cookie: wpAuth,
-          ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
-        },
-        httpsAgent,
-        timeout: 8000,
+    const session = await getSessionValidation(wpAuth);
+    if (!session.valid) {
+      if (["AUTH_UNAVAILABLE", "AUTH_TIMEOUT"].includes(session.error)) {
+        return res.status(503).json({
+          success: false,
+          unavailable: true,
+          logged_in: false,
+          user: null,
+          message: "Authentication service temporarily unavailable.",
+        });
       }
-    );
 
-    const userId = response.data?.current_user_id;
-    const roles = Array.isArray(response.data?.roles) ? response.data.roles : [];
-    const loggedIn = response.data?.logged_in === true && !!userId;
-
-    if (!loggedIn) {
       return res.status(401).json({
         success: false,
         logged_in: false,
@@ -448,22 +506,32 @@ export const me = async (req, res) => {
       });
     }
 
+    const userId = session.userId;
+    const roles = Array.isArray(session.roles) ? session.roles : [];
+    if (!rolesMatchAuthContext(context, roles)) {
+      return res.status(403).json({
+        success: false,
+        logged_in: false,
+        user: null,
+        message: getContextAccessMessage(context),
+      });
+    }
+
     let userDetails = {
       id: userId,
       roles,
-      name: response.data?.name || response.data?.display_name || "",
-      username: response.data?.username || "",
-      email: response.data?.email || "",
-      phone: response.data?.phone || "",
+      name: session.name || "",
+      username: session.username || "",
+      email: session.email || "",
+      phone: session.phone || "",
+      first_name: session.firstName || "",
+      last_name: session.lastName || "",
+      is_google_user: session.isGoogleUser === true,
+      has_usable_password: session.hasUsablePassword === true,
     };
 
-    // Populate user profile from WordPress /me response directly
-    if (response.data?.first_name) userDetails.first_name = response.data.first_name;
-    if (response.data?.last_name) userDetails.last_name = response.data.last_name;
-    if (response.data?.username) userDetails.username = response.data.username;
-    if (response.data?.name) userDetails.name = response.data.name;
-
-    // Skip heavy WooCommerce customer lookup if name data is already present, or for staff
+    // Skip the heavy WooCommerce customer lookup when the cached WordPress
+    // session already contains display data, and always skip it for staff.
     const hasNameData = Boolean(userDetails.first_name || userDetails.name);
     const isStaffOrAdmin =
       context === "admin" ||
@@ -471,7 +539,7 @@ export const me = async (req, res) => {
       roles.includes("administrator") ||
       roles.includes("employee");
 
-    if (!hasNameData && !isStaffOrAdmin && context === "customer") {
+    if (!isStaffOrAdmin && context === "customer") {
       try {
         const customerRes = await wcApi.get(`customers/${userId}`);
         if (customerRes.data) {
@@ -488,18 +556,18 @@ export const me = async (req, res) => {
             (!isSystemUsername ? c.username : "") || userDetails.username;
           userDetails.email = c.email || userDetails.email;
           userDetails.phone =
-            response.data?.phone || c.billing?.phone || userDetails.phone;
+            session.phone || c.billing?.phone || userDetails.phone;
         }
       } catch (wcErr) {
         // Fallback: If customer endpoint returns 404, keep default user details
       }
     }
 
-    if (!userDetails.phone && response.data?.phone) {
-      userDetails.phone = response.data.phone;
+    if (!userDetails.phone && session.phone) {
+      userDetails.phone = session.phone;
     }
-    userDetails.is_phone_verified = response.data?.is_phone_verified === true;
-    userDetails.verified_phone = response.data?.verified_phone || "";
+    userDetails.is_phone_verified = session.isPhoneVerified === true;
+    userDetails.verified_phone = session.verifiedPhone || "";
 
     res.json({
       success: true,
@@ -507,8 +575,8 @@ export const me = async (req, res) => {
       current_user_id: userId,
       roles,
       user: userDetails,
-      is_phone_verified: response.data?.is_phone_verified === true,
-      verified_phone: response.data?.verified_phone || "",
+      is_phone_verified: session.isPhoneVerified === true,
+      verified_phone: session.verifiedPhone || "",
     });
   } catch (error) {
     const isUpstreamOutage =
@@ -569,7 +637,7 @@ export const googleLogin = async (req, res) => {
           message: "Google authorization-code exchange is not configured on the server.",
         });
       }
-      if (!origin || req.headers["x-requested-with"] !== "XMLHttpRequest") {
+      if (!isAllowedGoogleOrigin(origin) || req.headers["x-requested-with"] !== "XMLHttpRequest") {
         return res.status(403).json({
           success: false,
           message: "Google sign-in request could not be verified. Please try again.",
@@ -638,32 +706,42 @@ export const googleLogin = async (req, res) => {
     // Role verification: ensure user has appropriate permissions for the requested panel context
     const userRoles = Array.isArray(data.user?.roles) ? data.user.roles : [];
 
-    if (context === "admin" && !userRoles.includes("administrator")) {
+    if (!rolesMatchAuthContext(context, userRoles)) {
+      await revokeIssuedWordPressSession(data);
       return res.status(403).json({
         success: false,
-        message: "Access denied: Administrator privileges required.",
-      });
-    }
-
-    if (
-      context === "employee" &&
-      !userRoles.includes("employee") &&
-      !userRoles.includes("administrator")
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied: Staff privileges required.",
+        message: getContextAccessMessage(context),
       });
     }
 
     const cookieOptions = getCookieOptions(req, userRoles);
 
     if (data.success && data.session && data.cookie_name) {
+      const fullCookieVal = `${data.cookie_name}=${data.session}`;
       res.cookie(
         cookieConfig.auth,
-        `${data.cookie_name}=${data.session}`,
+        fullCookieVal,
         cookieOptions
       );
+
+      if (data.user?.id) {
+        setSessionCache(fullCookieVal, {
+          userId: data.user.id,
+          name: data.user.name || "",
+          roles: userRoles,
+          email: data.user.email || "",
+          username: data.user.username || "",
+          firstName: data.user.first_name || "",
+          lastName: data.user.last_name || "",
+          phone: data.user.phone || "",
+          verifiedPhone: data.user.verified_phone || "",
+          isGoogleUser: data.user.is_google_user === true,
+          hasUsablePassword: data.user.has_usable_password === true,
+          isPhoneVerified: data.user.is_phone_verified === true,
+          isSuspended: data.user.is_suspended === true,
+          timestamp: Date.now(),
+        });
+      }
     }
 
     if (data.rest_nonce) {

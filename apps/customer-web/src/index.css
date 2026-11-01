@@ -170,4 +170,9 @@ img {
     touch-action: manipulation;
     cursor: pointer;
   }
+
+  .haptic-tap-target__switch:disabled {
+    pointer-events: none;
+    cursor: default;
+  }
 }

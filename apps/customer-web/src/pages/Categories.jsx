@@ -5,6 +5,7 @@ import { getCategoryImageUrl } from "../utils/categoryImage.js";
 import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
 
 const CATEGORY_PAGE_SIZE = 24;
+let cachedVisibleCategoryCount = CATEGORY_PAGE_SIZE;
 
 function Categories() {
   const navigate = useNavigate();
@@ -16,7 +17,9 @@ function Categories() {
   const [loadError, setLoadError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const hasCachedCategoriesRef = useRef(categories.length > 0);
-  const [visibleCategoryCount, setVisibleCategoryCount] = useState(CATEGORY_PAGE_SIZE);
+  const [visibleCategoryCount, setVisibleCategoryCount] = useState(() => cachedVisibleCategoryCount);
+  const sentinelRef = useRef(null);
+  const supportsAutoLoad = typeof window !== "undefined" && "IntersectionObserver" in window;
 
   // Category subtitles / highlights for rich cards
   const categoryMeta = {
@@ -90,6 +93,27 @@ function Categories() {
         (!hasCountData || populatedRootIds.has(Number(c.id)))
     );
   }, [categories]);
+
+  // Silent incremental prefetching for all categories as user scrolls
+  useEffect(() => {
+    cachedVisibleCategoryCount = visibleCategoryCount;
+    if (!supportsAutoLoad || visibleCategoryCount >= displayCategories.length) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisibleCategoryCount((count) => Math.min(count + CATEGORY_PAGE_SIZE, displayCategories.length));
+        }
+      },
+      { rootMargin: "600px 0px" }
+    );
+
+    const target = sentinelRef.current;
+    if (target) observer.observe(target);
+    return () => {
+      if (target) observer.unobserve(target);
+      observer.disconnect();
+    };
+  }, [supportsAutoLoad, visibleCategoryCount, displayCategories.length]);
 
   return (
     <div className="min-h-screen bg-[#0B1425] text-white px-4 pt-4 pb-28 sm:px-6 md:pt-8 md:pb-16">
@@ -208,18 +232,25 @@ function Categories() {
         </div>
         )}
 
-        {!loading && displayCategories.length > 0 && (
-          <div className="flex flex-col items-center gap-2 pt-1">
-            <p className="text-xs font-medium text-[#8FA4BE]">
-              Showing {Math.min(visibleCategoryCount, displayCategories.length)} of {displayCategories.length} categories
-            </p>
-            {visibleCategoryCount < displayCategories.length && (
+        {!loading && displayCategories.length > 0 && visibleCategoryCount < displayCategories.length && (
+          <div className="flex flex-col items-center gap-2 pt-3 pb-4">
+            {supportsAutoLoad ? (
+              <div ref={sentinelRef} className="h-10 flex items-center justify-center" aria-live="polite">
+                <span className="text-xs font-medium text-[#8FA4BE] animate-pulse">
+                  Loading more categories...
+                </span>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setVisibleCategoryCount((current) => current + CATEGORY_PAGE_SIZE)}
-                className="rounded-xl border border-[#1E3252] bg-[#111F36] px-5 py-2.5 text-sm font-bold text-[#42D6E8] transition hover:border-[#42D6E8]/60 hover:bg-[#162744] active:scale-[0.98]"
+                onClick={() =>
+                  setVisibleCategoryCount((count) =>
+                    Math.min(count + CATEGORY_PAGE_SIZE, displayCategories.length)
+                  )
+                }
+                className="rounded-full border border-[#42D6E8]/60 px-5 py-2 text-xs font-extrabold text-[#67E8F9] transition hover:bg-[#162744]"
               >
-                Load more categories
+                Show more categories
               </button>
             )}
           </div>

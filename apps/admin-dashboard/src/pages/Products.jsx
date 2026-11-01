@@ -207,7 +207,7 @@ function Products() {
       setDeletingId(product.id);
       const res = await deleteProduct(product.id);
       if (res.success) {
-        showToast(`Product "${product.name}" deleted successfully.`);
+        showToast(`Product "${product.name}" moved to Trash.`);
         setDeleteConfirmProduct(null);
 
         // Update product list and handle empty page edge case
@@ -919,7 +919,7 @@ function Products() {
         </div>
       )}
 
-      {/* Delete Product Confirmation Modal */}
+      {/* Move Product to Trash Confirmation Modal */}
       {deleteConfirmProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -928,17 +928,17 @@ function Products() {
             </div>
 
             <div className="text-center space-y-2">
-              <h3 className="text-lg font-black text-gray-900">Delete Product Permanently?</h3>
+              <h3 className="text-lg font-black text-gray-900">Move Product to Trash?</h3>
               <p className="text-xs text-gray-500 leading-relaxed">
-                Are you sure you want to delete{" "}
-                <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span>?
+                Are you sure you want to move{" "}
+                <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span> to Trash?
               </p>
               <div className="rounded-2xl bg-rose-50/60 p-3 border border-rose-100 text-left text-[11px] text-rose-700 space-y-1 mt-3">
                 <div className="font-bold flex items-center gap-1.5">
-                  <AlertTriangle size={13} /> Immediate Store-Wide Removal
+                  <AlertTriangle size={13} /> Remove From Storefront
                 </div>
                 <p className="text-rose-600/90 text-[10.5px]">
-                  This product will be permanently deleted from WooCommerce and will immediately disappear from the Customer Web catalog.
+                  This product will disappear from the Customer Web catalog, but can still be restored from WooCommerce Trash.
                 </p>
               </div>
             </div>
@@ -960,11 +960,11 @@ function Products() {
               >
                 {deletingId === deleteConfirmProduct.id ? (
                   <>
-                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                    <Loader2 size={14} className="animate-spin" /> Moving...
                   </>
                 ) : (
                   <>
-                    <Trash2 size={14} /> Delete Product
+                    <Trash2 size={14} /> Move to Trash
                   </>
                 )}
               </button>

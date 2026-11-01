@@ -1,5 +1,6 @@
 import wp from "../services/wordpress.js";
 import { invalidateUserSessionCache } from "../middlewares/authMiddleware.js";
+import { removeSubscriptionsForEmployee } from "../services/pushNotificationService.js";
 import { logError } from "../utils/logger.js";
 
 const ALLOWED_EMPLOYEE_ROLES = ["employee"];
@@ -179,7 +180,11 @@ export const rejectEmployee = async (req, res) => {
     );
 
     invalidateUserSessionCache(targetUserId);
-
+    try {
+      await removeSubscriptionsForEmployee(targetUserId);
+    } catch (pushErr) {
+      logError(req, pushErr, "Failed purging push subscriptions on employee rejection");
+    }
 
     return res.json(response.data);
   } catch (error) {
@@ -236,7 +241,13 @@ export const updateEmployeeStatus = async (req, res) => {
     );
 
     invalidateUserSessionCache(targetUserId);
-
+    if (status === "deactivated") {
+      try {
+        await removeSubscriptionsForEmployee(targetUserId);
+      } catch (pushErr) {
+        logError(req, pushErr, "Failed purging push subscriptions on employee deactivation");
+      }
+    }
 
     return res.json(response.data);
   } catch (error) {
@@ -283,7 +294,11 @@ export const revokeEmployeeSessions = async (req, res) => {
     );
 
     invalidateUserSessionCache(targetUserId);
-
+    try {
+      await removeSubscriptionsForEmployee(targetUserId);
+    } catch (pushErr) {
+      logError(req, pushErr, "Failed purging push subscriptions on employee rejection");
+    }
 
     return res.json(response.data);
   } catch (error) {

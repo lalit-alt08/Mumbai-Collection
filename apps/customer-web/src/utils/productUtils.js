@@ -315,3 +315,19 @@ export function mixProductsByCategory(products) {
   return mixed;
 }
 
+export function formatSubcategoryName(rawName, parentName = "") {
+  if (!rawName || typeof rawName !== "string") return "";
+  const name = rawName.trim();
+  const parent = (parentName || "").trim();
+
+  if (parent) {
+    const escapedParent = parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const prefixRegex = new RegExp("^" + escapedParent + "\\s*[-–—/:]\\s*", "i");
+    if (prefixRegex.test(name)) {
+      const stripped = name.replace(prefixRegex, "").trim();
+      if (stripped.length > 0) return stripped;
+    }
+  }
+
+  return name;
+}

@@ -22,6 +22,7 @@ import axios from "axios";
 import safeStorage from "../utils/safeStorage.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
+import { sendPasswordResetOtp, verifyPasswordResetOtp } from "../services/authService.js";
 
 function Profile() {
   const navigate = useNavigate();
@@ -39,6 +40,26 @@ function Profile() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [deleteCodeSent, setDeleteCodeSent] = useState(false);
+  const [deleteCodeSending, setDeleteCodeSending] = useState(false);
+  const [deleteResendAt, setDeleteResendAt] = useState(0);
+  const passwordlessGoogle = user?.is_google_user === true && user?.has_usable_password === false;
+
+  const sendDeleteCode = async () => {
+    if (deleteCodeSending || isDeleting || Date.now() < deleteResendAt) return;
+    setDeleteCodeSending(true);
+    setDeleteError("");
+    try {
+      await sendPasswordResetOtp(user.email);
+      setDeleteCodeSent(true);
+      setDeleteResendAt(Date.now() + 60000);
+      setDeletePassword("");
+    } catch (err) {
+      setDeleteError(err.response?.data?.message || "Unable to send the confirmation code.");
+    } finally {
+      setDeleteCodeSending(false);
+    }
+  };
 
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -398,7 +419,7 @@ function Profile() {
   const handleDeleteAccount = async () => {
     if (isDeleting) return;
     if (!deletePassword) {
-      setDeleteError("Enter your current password to confirm account deletion.");
+      setDeleteError(passwordlessGoogle ? "Enter the email confirmation code." : "Enter your current password to confirm account deletion.");
       return;
     }
 
@@ -407,7 +428,12 @@ function Profile() {
       setError("");
       setDeleteError("");
 
-      await deleteAccount(deletePassword);
+      if (passwordlessGoogle) {
+        const proof = await verifyPasswordResetOtp(user.email, deletePassword);
+        await deleteAccount({ reset_token: proof.reset_token });
+      } else {
+        await deleteAccount(deletePassword);
+      }
       setShowDeleteModal(false);
       setDeletePassword("");
 
@@ -810,6 +836,7 @@ function Profile() {
             setShowDeleteModal(false);
             setDeletePassword("");
             setDeleteError("");
+            setDeleteCodeSent(false);
           }
         }}
         onConfirm={handleDeleteAccount}
@@ -817,18 +844,24 @@ function Profile() {
         message={
           <span className="block text-left">
             <span className="block text-center">
-              This permanently erases your profile, saved addresses, and favorites. Enter your current password to continue.
+              This permanently erases your profile, saved addresses, and favorites. {passwordlessGoogle ? "Confirm with a code sent to your account email." : "Enter your current password to continue."}
             </span>
             <label className="mt-4 block text-xs font-bold text-[#C9D6E8]">
-              Current Password
+              {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
+              {passwordlessGoogle && <button type="button" disabled={deleteCodeSending || isDeleting} onClick={sendDeleteCode}
+                className="my-2 block text-[#42D6E8] disabled:opacity-50">
+                {deleteCodeSending ? "Sending..." : deleteCodeSent ? "Code sent. Resend after 60 seconds" : "Send confirmation code"}
+              </button>}
               <input
-                type="password"
+                type={passwordlessGoogle ? "text" : "password"}
+                inputMode={passwordlessGoogle ? "numeric" : undefined}
+                maxLength={passwordlessGoogle ? 6 : 256}
                 value={deletePassword}
                 onChange={(event) => {
                   setDeletePassword(event.target.value);
                   setDeleteError("");
                 }}
-                autoComplete="current-password"
+                autoComplete={passwordlessGoogle ? "one-time-code" : "current-password"}
                 disabled={isDeleting}
                 className="mt-2 h-12 w-full rounded-xl border border-[#2A4265] bg-[#080F1C] px-4 text-sm text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] disabled:opacity-60"
               />

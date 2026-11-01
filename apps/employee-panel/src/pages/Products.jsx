@@ -278,6 +278,18 @@ function Products() {
             String(category.name || "").toLowerCase() !== "uncategorized"
           );
           if (!hasDepartment) setCategoriesError("No product departments are available yet.");
+          if (categoryFilter !== "all" && !res.categories.some((c) => String(c.id) === String(categoryFilter))) {
+            setCategoryFilter("all");
+            setSearchParams(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("category");
+                return next;
+              },
+              { replace: true }
+            );
+            showToast("The selected category filter no longer exists and has been reset.", "info");
+          }
         } else if (isMounted) {
           setCategoriesError(res?.message || "Categories could not be loaded.");
         }
@@ -448,7 +460,7 @@ function Products() {
       setDeletingId(product.id);
       const res = await deleteProduct(product.id);
       if (res.success) {
-        showToast(`Product "${product.name}" deleted successfully.`);
+        showToast(`Product "${product.name}" moved to Trash.`);
         setDeleteConfirmProduct(null);
         fetchProductList();
       } else {
@@ -662,6 +674,11 @@ function Products() {
 
   // Selected category label and list helpers
   const selectedCategoryObj = categories.find((c) => String(c.id) === String(categoryFilter));
+  const selectedCategoryCount = selectedCategoryObj
+    ? Number(selectedCategoryObj.parent) > 0
+      ? selectedCategoryObj.direct_count ?? selectedCategoryObj.count
+      : selectedCategoryObj.total_count ?? selectedCategoryObj.count
+    : undefined;
   const productDepartments = categories.filter((category) =>
     (!category.parent || Number(category.parent) === 0) &&
     String(category.slug || "").toLowerCase() !== "uncategorized" &&
@@ -674,10 +691,46 @@ function Products() {
       String(category.name || "").toLowerCase() !== "uncategorized"
     )
     : [];
-  const totalCategoryProductsCount = categories.reduce((sum, c) => sum + (Number(c.count) || 0), 0);
-  const filteredCategories = categories.filter((c) =>
-    c.name.toLowerCase().includes(categorySearchQuery.trim().toLowerCase())
-  );
+  const totalCategoryProductsCount = stockCounts?.all ?? totalProducts;
+  const hierarchicalCategories = useMemo(() => {
+    const roots = categories.filter(
+      (c) =>
+        (!c.parent || Number(c.parent) === 0) &&
+        String(c.slug || "").toLowerCase() !== "uncategorized" &&
+        String(c.name || "").toLowerCase() !== "uncategorized"
+    );
+    const childrenByParent = new Map();
+    for (const c of categories) {
+      if (c.parent && Number(c.parent) > 0) {
+        const pId = Number(c.parent);
+        if (!childrenByParent.has(pId)) childrenByParent.set(pId, []);
+        childrenByParent.get(pId).push(c);
+      }
+    }
+    const query = categorySearchQuery.trim().toLowerCase();
+    const result = [];
+    for (const root of roots) {
+      const children = childrenByParent.get(Number(root.id)) || [];
+      const rootMatches = !query || root.name.toLowerCase().includes(query);
+      const matchingChildren = children.filter((child) => !query || child.name.toLowerCase().includes(query));
+      if (rootMatches || matchingChildren.length > 0) {
+        result.push({
+          ...root,
+          isRoot: true,
+          displayCount: root.total_count ?? root.count,
+        });
+        for (const child of query ? matchingChildren : children) {
+          result.push({
+            ...child,
+            isRoot: false,
+            parentName: root.name,
+            displayCount: child.direct_count ?? child.count,
+          });
+        }
+      }
+    }
+    return result;
+  }, [categories, categorySearchQuery]);
 
   // Stock filter tabs with authoritative counts from server (Low Stock removed as API doesn't support it)
   const stockFilterTabs = [
@@ -783,9 +836,9 @@ function Products() {
               <span className="truncate">
                 {selectedCategoryObj ? selectedCategoryObj.name : "All Categories"}
               </span>
-              {selectedCategoryObj?.count !== undefined && (
+              {selectedCategoryCount !== undefined && (
                 <span className="rounded-full bg-emerald-200/80 text-emerald-800 text-[10px] font-black px-1.5 py-0.5 shrink-0">
-                  {selectedCategoryObj.count}
+                  {selectedCategoryCount}
                 </span>
               )}
             </div>
@@ -883,8 +936,8 @@ function Products() {
                   )}
                 </button>
 
-                {/* Filtered Category Items */}
-                {filteredCategories.map((c) => {
+                {/* Filtered Category Items (Hierarchical) */}
+                {hierarchicalCategories.map((c) => {
                   const isSelected = String(categoryFilter) === String(c.id);
                   return (
                     <button
@@ -897,23 +950,24 @@ function Products() {
                         setIsCategoryDropdownOpen(false);
                         setCategorySearchQuery("");
                       }}
-                      className={`w-full min-h-[40px] flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                      className={`w-full min-h-[38px] flex items-center justify-between px-3.5 py-2 text-xs transition cursor-pointer text-left ${
                         isSelected
                           ? "bg-emerald-50 text-emerald-900 font-extrabold border-l-2 border-emerald-500"
                           : "text-gray-700 font-semibold hover:bg-gray-50 active:bg-gray-100"
-                      }`}
+                      } ${!c.isRoot ? "pl-7 bg-gray-50/40" : "font-bold text-gray-900 pt-2.5"}`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
+                        {!c.isRoot && <span className="text-gray-300 font-mono text-[11px] shrink-0">└─</span>}
                         <span className="truncate">{c.name}</span>
-                        {c.count !== undefined && (
+                        {c.displayCount !== undefined && (
                           <span
                             className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold shrink-0 ${
                               isSelected
                                 ? "bg-emerald-200/80 text-emerald-800"
-                                : "bg-gray-100 text-gray-500"
+                                : c.isRoot ? "bg-gray-200 text-gray-700 font-black" : "bg-gray-100 text-gray-500"
                             }`}
                           >
-                            {c.count}
+                            {c.displayCount}
                           </span>
                         )}
                       </div>
@@ -924,7 +978,7 @@ function Products() {
                   );
                 })}
 
-                {filteredCategories.length === 0 && (
+                {hierarchicalCategories.length === 0 && (
                   <div className="px-3.5 py-4 text-center text-xs text-gray-400">
                     No matching categories found
                   </div>
@@ -1813,10 +1867,10 @@ function Products() {
 
             <div className="text-center space-y-2">
               <h3 className="text-lg font-black text-gray-900">
-                Delete Product Permanently?
+                Move Product to Trash?
               </h3>
               <p className="text-xs text-gray-500 leading-relaxed">
-                Are you sure you want to delete <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span>?
+                Are you sure you want to move <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span> to Trash?
               </p>
 
               {deleteConfirmProduct.image && (
@@ -1831,10 +1885,10 @@ function Products() {
 
               <div className="rounded-2xl bg-rose-50/60 p-3 border border-rose-100 text-left text-[11px] text-rose-700 space-y-1 mt-3">
                 <div className="font-bold flex items-center gap-1.5">
-                  <AlertTriangle size={13} /> Immediate Store-Wide Removal
+                  <AlertTriangle size={13} /> Remove From Storefront
                 </div>
                 <p className="text-rose-600/90 text-[10.5px]">
-                  This product will be permanently deleted from WooCommerce and will immediately disappear from the store catalog.
+                  This product will disappear from the store catalog, but can still be restored from WooCommerce Trash.
                 </p>
               </div>
             </div>
@@ -1856,11 +1910,11 @@ function Products() {
               >
                 {deletingId === deleteConfirmProduct.id ? (
                   <>
-                    <Loader2 size={14} className="animate-spin" /> Deleting...
+                    <Loader2 size={14} className="animate-spin" /> Moving...
                   </>
                 ) : (
                   <>
-                    <Trash2 size={14} /> Delete Product
+                    <Trash2 size={14} /> Move to Trash
                   </>
                 )}
               </button>

@@ -35,6 +35,7 @@ function ProfileSetup() {
   const location = useLocation();
   const submittingRef = useRef(false);
   const { user, refreshUser, handleSessionExpired } = useAuth();
+  const needsPassword = user?.is_google_user !== true && user?.has_usable_password === false;
 
   const passedFirst = location.state?.first_name || "";
   const passedLast = location.state?.last_name || "";
@@ -367,18 +368,18 @@ function ProfileSetup() {
     const newErrors = {};
 
     // 1. Mandatory Password Validation (Entering first as requested)
-    if (!password) {
+    if (needsPassword && !password) {
       newErrors.password = "Please create a password for your account.";
-    } else {
+    } else if (needsPassword) {
       const passwordValidation = validatePassword(password);
       if (!passwordValidation.isValid) {
         newErrors.password = passwordValidation.message;
       }
     }
 
-    if (!confirmPassword) {
+    if (needsPassword && !confirmPassword) {
       newErrors.confirm_password = "Please confirm your password.";
-    } else if (password && password !== confirmPassword) {
+    } else if (needsPassword && password && password !== confirmPassword) {
       newErrors.confirm_password = "Passwords do not match.";
     }
 
@@ -461,7 +462,7 @@ function ProfileSetup() {
           last_name: cleanLast,
           full_name: cleanFullName,
           phone: cleanPhone,
-          password,
+          ...(needsPassword ? { password } : {}),
         },
         {
           withCredentials: true,
@@ -663,7 +664,7 @@ function ProfileSetup() {
                     Account Security & Contact
                   </h2>
                   <p className="text-[11px] font-medium text-[#8FA4BE]">
-                    Set your account password and mobile number
+                    {needsPassword ? "Set your account password and mobile number" : "Add your delivery contact number"}
                   </p>
                 </div>
               </div>
@@ -671,6 +672,8 @@ function ProfileSetup() {
             </div>
 
             {/* A. Password Inputs (Entered first as requested) */}
+            {needsPassword && (
+            <>
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {/* Password Field */}
@@ -801,6 +804,8 @@ function ProfileSetup() {
 
             {/* B. Divider */}
             <div className="border-t border-[#1E3252]/60 pt-3" />
+            </>
+            )}
 
             {/* C. Mobile Number & Confirm Mobile Number */}
             <div className="space-y-3">

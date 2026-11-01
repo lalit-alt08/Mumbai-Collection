@@ -15,8 +15,47 @@ function FloatingCartBar() {
   // 1. Scroll-direction listener strictly for the Homepage (/)
   // All React hooks MUST be called unconditionally at the top level of the component!
   const [isVisible, setIsVisible] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const lastScrollYRef = useRef(0);
   const tickingRef = useRef(false);
+
+  // Hide floating cart when any modal/dialog is open
+  useEffect(() => {
+    const checkModal = () => {
+      const hasOpenModal =
+        document.body.dataset.modalOpen === "true" ||
+        !!document.querySelector('[role="dialog"], [aria-modal="true"], [data-modal="true"]');
+      setIsModalOpen(hasOpenModal);
+    };
+
+    checkModal();
+
+    const handleModalEvent = (e) => {
+      if (typeof e.detail?.open === "boolean") {
+        setIsModalOpen(e.detail.open);
+      } else {
+        checkModal();
+      }
+    };
+
+    window.addEventListener("mc-modal-state", handleModalEvent);
+
+    const observer = new MutationObserver(() => {
+      checkModal();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["role", "aria-modal", "data-modal", "data-modal-open"],
+    });
+
+    return () => {
+      window.removeEventListener("mc-modal-state", handleModalEvent);
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isHomePage) {
@@ -86,7 +125,7 @@ function FloatingCartBar() {
     ? cart.items.reduce((total, item) => total + (Number(item.quantity) || 0), 0)
     : 0;
 
-  if (hideOnPages.some((p) => path.startsWith(p)) || !hasItems || totalItems === 0) {
+  if (isModalOpen || hideOnPages.some((p) => path.startsWith(p)) || !hasItems || totalItems === 0) {
     return null;
   }
 
@@ -117,9 +156,9 @@ function FloatingCartBar() {
     >
       <Link
         to="/cart"
-        className="flex min-w-[284px] max-w-[calc(100vw-24px)] items-center justify-between gap-3 rounded-full bg-[#42D6E8] p-1.5 pl-1.5 pr-2.5 shadow-[0_10px_30px_rgba(66,214,232,0.4)] transition-all hover:scale-[1.02] hover:bg-[#2CC4D8] active:scale-[0.98]"
+        className="group flex min-w-[255px] max-w-[295px] items-center justify-between gap-3.5 rounded-full bg-gradient-to-r from-[#174F6D] via-[#14445F] to-[#113B53] border border-[#2B7A9E]/45 p-1.5 pl-2 pr-3 shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.15)] transition-all hover:scale-[1.02] hover:border-[#3891BA]/60 active:scale-[0.98]"
       >
-        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#080F1C] p-1 border border-[#1E3252] shadow-xs">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#081220] p-0.5 border border-[#1E4362] shadow-xs">
           {firstItemImage ? (
             <img
               src={firstItemImage}
@@ -127,20 +166,20 @@ function FloatingCartBar() {
               className="h-full w-full rounded-full object-contain"
             />
           ) : (
-            <div className="h-full w-full rounded-full bg-[#080F1C]" />
+            <div className="h-full w-full rounded-full bg-[#081220]" />
           )}
         </div>
 
-        <div className="flex flex-col text-left">
-          <span className="text-[14px] font-black text-[#061220] leading-tight">
+        <div className="flex flex-col text-left min-w-0 flex-1">
+          <span className="text-[14px] font-bold text-white leading-tight truncate">
             View cart
           </span>
-          <span className="text-[11.5px] font-bold text-[#061220]/85 leading-tight">
+          <span className="text-[11.5px] font-semibold text-[#8FE3D9] leading-tight">
             {totalItems} {totalItems === 1 ? "Item" : "Items"}
           </span>
         </div>
 
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#061220]/15 text-[#061220] ml-0.5">
+        <div className="flex h-7.5 w-7.5 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white ml-0.5 transition-colors group-hover:bg-white/25">
           <ChevronRight size={16} strokeWidth={2.8} />
         </div>
       </Link>

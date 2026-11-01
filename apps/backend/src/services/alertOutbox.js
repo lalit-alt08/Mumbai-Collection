@@ -25,7 +25,9 @@ const redisClient = async () => {
   redisPromise ||= import("../config/redis.js");
   return (await redisPromise).getRedisClient();
 };
-const directories = () => Promise.all(["pending", "working", "delivered"].map((name) => mkdir(join(spool(), name), { recursive: true, mode: 0o700 })));
+const MAX_CHANNEL_ATTEMPTS = 15;
+const MAX_ALERT_AGE_MS = 24 * 60 * 60 * 1000;
+const directories = () => Promise.all(["pending", "working", "delivered", "dead-letter"].map((name) => mkdir(join(spool(), name), { recursive: true, mode: 0o700 })));
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const atomicWrite = async (path, value) => {
   const temporary = `${path}.${randomUUID()}.tmp`;
@@ -156,11 +158,27 @@ const drain = async ({ budgetMs = 15000 } = {}) => {
     if (processed >= 20 || Date.now() - started >= budgetMs) break;
     const pending = join(spool(), "pending", name);
     const candidate = await readJson(pending).catch(() => null);
-    if (candidate?.channels.every((c) => c.delivered)) {
+    if (!candidate) {
       await unlink(pending).catch(() => {});
       continue;
     }
-    if (!candidate || !candidate.channels.some((c) => !c.delivered && c.nextAttemptAt <= Date.now())) continue;
+    const isExpired = Date.now() - (candidate.createdAt || 0) > MAX_ALERT_AGE_MS;
+    const isExhausted = candidate.channels.every((c) => c.delivered || c.attempts >= MAX_CHANNEL_ATTEMPTS || isExpired);
+
+    if (isExhausted) {
+      if (candidate.channels.every((c) => c.delivered)) {
+        await unlink(pending).catch(() => {});
+      } else {
+        logger.error(
+          { id: candidate.id, type: candidate.alert?.type, attempts: candidate.channels.map((c) => c.attempts) },
+          "[Alerts] Alert exceeded max retry attempts or expired; archived to dead-letter"
+        );
+        await atomicWrite(join(spool(), "dead-letter", name), candidate).catch(() => {});
+        await unlink(pending).catch(() => {});
+      }
+      continue;
+    }
+    if (!candidate.channels.some((c) => !c.delivered && c.nextAttemptAt <= Date.now())) continue;
     const claimed = join(spool(), "working", `${Date.now()}-${randomUUID()}--${name}`);
     try { await rename(pending, claimed); } catch { continue; } // Exactly one worker claims this file.
     processed++;

@@ -8,6 +8,7 @@ import {
   XCircle,
   MessageCircle,
   Truck,
+  ShieldCheck,
 } from "lucide-react";
 
 function ReturnPolicy() {
@@ -34,10 +35,10 @@ function ReturnPolicy() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-[#F1F5F9] sm:text-lg leading-tight">
+            <h1 className="text-base font-bold text-white sm:text-lg leading-tight">
               Return & Refund Policy
             </h1>
-            <p className="text-[11px] font-medium text-[#8FA4BE]">
+            <p className="text-[11px] font-medium text-[#94A3B8]">
               Mumbai Collection • Vasai Quick Store
             </p>
           </div>
@@ -47,124 +48,175 @@ function ReturnPolicy() {
           href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20have%20a%20question%20regarding%20returns."
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-full bg-[#25D366]/15 border border-[#25D366]/30 px-3 py-1.5 text-xs font-bold text-[#67E8F9] transition hover:bg-[#25D366]/25 active:scale-95"
+          className="inline-flex items-center gap-1.5 rounded-full bg-[#25D366] px-3.5 py-1.5 text-xs font-bold text-[#061220] transition hover:bg-[#20bd5a] active:scale-95 shadow-xs"
         >
           <MessageCircle size={14} />
-          <span className="hidden xs:inline">Need Help?</span>
+          <span>Need Help?</span>
         </a>
       </header>
 
       {/* ================= CONTENT CONTAINER ================= */}
-      <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6 space-y-5">
-        {/* ================= 1. CONTACT STORE FOR RETURN VERIFICATION CARD ================= */}
-        <div className="rounded-[20px] border border-[#1E3252] bg-[#111F36] p-5 shadow-xs sm:p-6 space-y-3.5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] border border-[#1E3252] text-[#42D6E8]">
+      <div className="mx-auto max-w-3xl px-4 pt-4 sm:px-6 md:pt-6 space-y-5 sm:space-y-6">
+        
+        {/* Quick Highlights / 3 Core Rules Banner */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="flex items-center gap-3 rounded-2xl border border-[#1E3252] bg-[#111F36] p-3.5 shadow-xs">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#42D6E8]/15 text-[#42D6E8] border border-[#42D6E8]/30">
               <MessageCircle size={19} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-[#F1F5F9]">
+              <span className="block text-xs font-black text-white">1. Store Check</span>
+              <span className="block text-[11px] text-[#CBD5E1]">Prior WhatsApp verification</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-2xl border border-[#1E3252] bg-[#111F36] p-3.5 shadow-xs">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#25D366]/15 text-[#25D366] border border-[#25D366]/30">
+              <Clock size={19} />
+            </div>
+            <div>
+              <span className="block text-xs font-black text-white">2. 72-Hour Window</span>
+              <span className="block text-[11px] text-[#CBD5E1]">Report within 3 days of delivery</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-2xl border border-[#1E3252] bg-[#111F36] p-3.5 shadow-xs">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
+              <PackageCheck size={19} />
+            </div>
+            <div>
+              <span className="block text-xs font-black text-white">3. Original Box</span>
+              <span className="block text-[11px] text-[#CBD5E1]">Sealed & untouched pack</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ================= 1. CONTACT STORE FOR RETURN VERIFICATION CARD ================= */}
+        <div className="rounded-[22px] border border-[#1E3252] bg-[#111F36] p-5 sm:p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-3 border-b border-[#1E3252]/60 pb-3.5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#42D6E8]/15 text-[#42D6E8] border border-[#42D6E8]/30">
+              <MessageCircle size={20} />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
                 1. Contact Store to Verify Return Eligibility
-              </h3>
-              <p className="text-xs text-[#8FA4BE]">
-                Prior store confirmation required before initiating any return or exchange
+              </h2>
+              <p className="text-xs text-[#94A3B8] font-medium">
+                Prior store confirmation is required before initiating any return or exchange
               </p>
             </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-[#8FA4BE] leading-relaxed">
-            Please <strong className="text-[#F1F5F9]">contact our store directly to verify whether the product is returnable or not</strong>. Because Mumbai Collection carries toys, games, stationery, and collectibles with varying manufacturer return and exchange policies, our store team must confirm return eligibility before an item can be accepted for return or replacement.
+          <p className="text-sm text-[#E2E8F0] leading-relaxed">
+            Because Mumbai Collection carries <strong className="text-white">toys, games, electronics, and stationery</strong> with varying manufacturer policies, please <strong className="text-[#42D6E8]">contact our store team directly</strong> before sending any product back. Our staff must verify your item's eligibility to process an exchange or return.
           </p>
 
-          <div className="rounded-xl bg-[#132B45]/50 p-3.5 border border-[#1E3252] text-xs text-[#8FA4BE] leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <AlertCircle size={16} className="shrink-0 text-[#42D6E8] mt-0.5" />
-              <span>
-                <strong className="text-[#F1F5F9]">How to verify:</strong> Message or call our Vasai store team at <strong className="text-[#F1F5F9]">+91 87936 01567</strong> with your Order ID and photos of the product. Our team will verify whether the product is eligible for return or exchange within 72 hours of delivery.
-              </span>
+          {/* 3 Clear Verification Steps Box */}
+          <div className="rounded-2xl bg-[#080F1C] p-4 sm:p-5 border border-[#1E3252] space-y-3">
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#42D6E8] flex items-center gap-2">
+              <AlertCircle size={15} />
+              How to Verify in 3 Simple Steps:
+            </h3>
+
+            <div className="space-y-2.5 text-xs sm:text-sm text-[#E2E8F0]">
+              <div className="flex items-start gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#1E3252] text-[11px] font-black text-[#42D6E8]">1</span>
+                <p>Have your <strong className="text-white">Order ID</strong> ready (from My Orders or your SMS/Email receipt).</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#1E3252] text-[11px] font-black text-[#42D6E8]">2</span>
+                <p>Take <strong className="text-white">clear photos or an unboxing video</strong> showing the product, outer box, and factory seal.</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#1E3252] text-[11px] font-black text-[#42D6E8]">3</span>
+                <p>Send them to our Vasai team on WhatsApp or call us at <strong className="text-white">+91 87936 01567</strong> within <strong className="text-white">72 hours of delivery</strong>.</p>
+              </div>
             </div>
-            <a
-              href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20want%20to%20verify%20whether%20my%20product%20is%20returnable%20or%20not."
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#25D366] px-4 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-[#20bd5a] active:scale-95 shrink-0 self-start sm:self-auto"
-            >
-              <MessageCircle size={14} />
-              <span>Verify on WhatsApp</span>
-            </a>
+
+            <div className="pt-2">
+              <a
+                href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20want%20to%20verify%20whether%20my%20product%20is%20eligible%20for%20return/replacement."
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-xs sm:text-sm font-bold text-[#061220] shadow-sm transition hover:bg-[#20bd5a] active:scale-95"
+              >
+                <MessageCircle size={16} />
+                <span>Verify on WhatsApp (+91 87936 01567)</span>
+              </a>
+            </div>
           </div>
         </div>
 
         {/* ================= 2. THE "COMPLETE UNTOUCHED CONDITION" CHECKLIST ================= */}
-        <div className="rounded-[20px] border border-[#1E3252] bg-[#111F36] p-5 shadow-xs sm:p-6 space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] border border-[#1E3252] text-[#42D6E8]">
-              <PackageCheck size={19} />
+        <div className="rounded-[22px] border border-[#1E3252] bg-[#111F36] p-5 sm:p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-3 border-b border-[#1E3252]/60 pb-3.5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#42D6E8]/15 text-[#42D6E8] border border-[#42D6E8]/30">
+              <PackageCheck size={20} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
                 2. "Complete Untouched Condition" Requirement
-              </h3>
-              <p className="text-xs text-[#8FA4BE]">
-                Strict quality verification standards for returns & exchanges
+              </h2>
+              <p className="text-xs text-[#94A3B8] font-medium">
+                Strict quality verification standards for all returns and exchanges
               </p>
             </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-[#8FA4BE] leading-relaxed">
-            To prevent fraud and maintain the highest safety and hygiene standards for our customers, returned items must pass our <strong className="text-[#F1F5F9]">Untouched Condition Inspection</strong>:
+          <p className="text-sm text-[#E2E8F0] leading-relaxed">
+            To ensure genuine quality, hygiene, and product safety, returned products must pass our <strong className="text-white">Untouched Condition Inspection</strong> at the retail store:
           </p>
 
           {/* Dual Column Checklist */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             {/* Accepted / Eligible */}
-            <div className="rounded-xl border border-cyan-900/60 bg-cyan-950/30 p-3.5 space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] uppercase tracking-wide">
-                <CheckCircle2 size={15} className="text-[#42D6E8]" />
-                Eligible for Return / Swap
+            <div className="rounded-2xl border border-emerald-500/35 bg-emerald-950/25 p-4 sm:p-4.5 space-y-3">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-emerald-400 uppercase tracking-wide">
+                <CheckCircle2 size={17} className="text-emerald-400 shrink-0" />
+                Eligible for Return / Exchange
               </div>
-              <ul className="space-y-2 text-xs text-[#8FA4BE]">
-                <li className="flex items-start gap-2">
-                  <span className="text-[#42D6E8] font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Sealed & Unopened:</strong> Factory seals, blister packs, and shrink wrap must remain fully intact.</span>
+              <ul className="space-y-2.5 text-xs sm:text-sm text-[#E2E8F0]">
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-400 font-bold shrink-0 mt-0.5">✓</span>
+                  <span><strong className="text-white">Sealed & Unopened:</strong> Factory seals, blister packs, and shrink wrap fully intact.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#42D6E8] font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Original Brand Box:</strong> Outer box must be free from tears, heavy dents, or customer-applied tape.</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-400 font-bold shrink-0 mt-0.5">✓</span>
+                  <span><strong className="text-white">Original Brand Box:</strong> Outer retail box free from tears, heavy dents, or tape.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#42D6E8] font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">All Tags Intact:</strong> Barcode stickers, price tags, brand labels, and serial numbers untouched.</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-400 font-bold shrink-0 mt-0.5">✓</span>
+                  <span><strong className="text-white">All Tags Intact:</strong> Barcode, price tags, brand labels, and serial numbers attached.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#42D6E8] font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Complete Accessories:</strong> All cables, manuals, foam inserts, and freebies present.</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-emerald-400 font-bold shrink-0 mt-0.5">✓</span>
+                  <span><strong className="text-white">All Parts Included:</strong> Charging cables, manuals, foam inserts, and accessories present.</span>
                 </li>
               </ul>
             </div>
 
             {/* Rejected / Ineligible */}
-            <div className="rounded-xl border border-rose-900/60 bg-rose-950/30 p-3.5 space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-rose-400 uppercase tracking-wide">
-                <XCircle size={15} className="text-rose-400" />
+            <div className="rounded-2xl border border-rose-500/35 bg-rose-950/25 p-4 sm:p-4.5 space-y-3">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-rose-400 uppercase tracking-wide">
+                <XCircle size={17} className="text-rose-400 shrink-0" />
                 Not Eligible for Return
               </div>
-              <ul className="space-y-2 text-xs text-[#8FA4BE]">
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Tested or Used:</strong> Items showing scratches, signs of usage, or broken plastic seals.</span>
+              <ul className="space-y-2.5 text-xs sm:text-sm text-[#E2E8F0]">
+                <li className="flex items-start gap-2.5">
+                  <span className="text-rose-400 font-bold shrink-0 mt-0.5">✕</span>
+                  <span><strong className="text-white">Used or Played With:</strong> Scratches, dirt, peeled stickers, or broken plastic seals.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Missing Original Box:</strong> Items returned without their original manufacturer retail carton.</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-rose-400 font-bold shrink-0 mt-0.5">✕</span>
+                  <span><strong className="text-white">Missing Box:</strong> Products returned without their original manufacturer carton.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Customer Damage:</strong> Physical drops, water spills, burnt circuits, or improper handling after delivery.</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-rose-400 font-bold shrink-0 mt-0.5">✕</span>
+                  <span><strong className="text-white">Customer Damage:</strong> Drops, water spills, burnt circuits, or improper charging.</span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">•</span>
-                  <span><strong className="text-[#F1F5F9]">Unverified or Late Claims:</strong> Items returned without prior store verification or requested after the 72-hour window.</span>
+                <li className="flex items-start gap-2.5">
+                  <span className="text-rose-400 font-bold shrink-0 mt-0.5">✕</span>
+                  <span><strong className="text-white">Late Claims:</strong> Requests made after the 72-hour delivery window has passed.</span>
                 </li>
               </ul>
             </div>
@@ -172,11 +224,11 @@ function ReturnPolicy() {
         </div>
 
         {/* ================= DIRECT SUPPORT & ACTION FOOTER ================= */}
-        <div className="rounded-[20px] border border-[#1E3252] bg-[#111F36] p-5 text-center shadow-xs sm:p-7 space-y-3">
-          <h3 className="text-base font-bold text-[#F1F5F9]">
+        <div className="rounded-[22px] border border-[#1E3252] bg-[#111F36] p-5 text-center shadow-sm sm:p-7 space-y-3.5">
+          <h3 className="text-base sm:text-lg font-bold text-white">
             Have Questions About an Existing Order?
           </h3>
-          <p className="text-xs sm:text-sm text-[#8FA4BE] max-w-md mx-auto">
+          <p className="text-xs sm:text-sm text-[#E2E8F0] max-w-md mx-auto leading-relaxed">
             Our Vasai support team is available Monday to Sunday, 10:00 AM – 9:30 PM.
           </p>
 
@@ -185,16 +237,18 @@ function ReturnPolicy() {
               href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20would%20like%20to%20request%20a%20return/replacement%20for%20my%20order."
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-5 py-2.5 text-xs font-bold text-white transition hover:bg-[#1EBE5D] active:scale-95 shadow-sm"
+              className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-5 py-2.5 text-xs sm:text-sm font-bold text-[#061220] transition hover:bg-[#20bd5a] active:scale-95 shadow-sm"
             >
-              <MessageCircle size={16} /> WhatsApp Support
+              <MessageCircle size={16} />
+              <span>WhatsApp Support</span>
             </a>
 
             <Link
               to="/orders"
-              className="inline-flex items-center gap-2 rounded-full bg-[#132B45] border border-[#1E3252] px-5 py-2.5 text-xs font-bold text-[#F1F5F9] transition hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95"
+              className="inline-flex items-center gap-2 rounded-full bg-[#132B45] border border-[#1E3252] px-5 py-2.5 text-xs sm:text-sm font-bold text-[#F1F5F9] transition hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95"
             >
-              <Truck size={16} /> View My Orders
+              <Truck size={16} />
+              <span>View My Orders</span>
             </Link>
           </div>
         </div>

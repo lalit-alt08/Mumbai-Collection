@@ -332,11 +332,13 @@ test("Phase 5: Orphan & Abandoned Product-Image Cleanup Test Suite", async (t) =
     assert.equal(attachedProductId, 777);
   });
 
-  await t.test("11. Product Deletion: Safely triggers cleanup of deleted product's images", async () => {
+  await t.test("11. Product Deletion: Moves product to Trash and preserves its images", async () => {
     let cleanupIds = null;
     let cleanupContext = null;
+    let deleteOptions = null;
 
-    api.delete = async () => {
+    api.delete = async (_path, options) => {
+      deleteOptions = options;
       return {
         data: {
           id: 888,
@@ -366,8 +368,9 @@ test("Phase 5: Orphan & Abandoned Product-Image Cleanup Test Suite", async (t) =
 
     await deleteProduct(req, res);
     assert.equal(responseBody.success, true);
-    assert.deepEqual(cleanupIds, [701, 702]);
-    assert.equal(cleanupContext, "product_deletion");
+    assert.equal(deleteOptions?.force, false);
+    assert.equal(cleanupIds, null);
+    assert.equal(cleanupContext, null);
   });
 
   await t.test("12. Admin triggerOrphanCleanup: Controller calls cleanupPendingOrphanMedia and returns stats", async () => {

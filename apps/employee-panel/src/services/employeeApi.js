@@ -74,6 +74,26 @@ export const sendOrderRefundEmail = async (id) => {
   return res.data;
 };
 
+export const acknowledgeOrder = async (id) => {
+  const res = await api.post(`/orders/${id}/acknowledge`);
+  return res.data;
+};
+
+export const getVapidPublicKey = async () => {
+  const res = await api.get("/push/vapid-public-key");
+  return res.data?.publicKey;
+};
+
+export const subscribeToPush = async (subscription) => {
+  const res = await api.post("/push/subscribe", { subscription });
+  return res.data;
+};
+
+export const unsubscribeFromPush = async (endpoint) => {
+  const res = await api.post("/push/unsubscribe", { endpoint });
+  return res.data;
+};
+
 // Explicit Employee-owned function aliases
 export const getEmployeeOrders = getOrders;
 export const updateEmployeeOrderStatus = updateOrderStatus;
@@ -159,7 +179,7 @@ export const deleteMedia = async (mediaId) => {
 };
 
 export const getCategories = async (config = {}) => {
-  const res = await api.get("/categories", config);
+  const res = await api.get("/categories", { timeout: 25000, ...config });
   return res.data;
 };
 

@@ -21,7 +21,8 @@ const phoneAvailabilityLimiter = createRateLimiter({
 });
 
 const requireAccountDeletionPassword = (req, res, next) => {
-  if (typeof req.body?.password !== "string" || req.body.password.length === 0) {
+  if (!(typeof req.body?.password === "string" && req.body.password.length > 0) &&
+      !(typeof req.body?.reset_token === "string" && /^[A-Za-z0-9]{64}$/.test(req.body.reset_token))) {
     return res.status(400).json({
       success: false,
       message: "Your current password is required to delete your account.",

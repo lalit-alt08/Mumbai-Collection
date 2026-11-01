@@ -9,10 +9,23 @@ const woocommerceTimeoutMs =
     ? configuredTimeout
     : 15000;
 
+const isProduction = process.env.NODE_ENV === "production";
+const wooUrl = process.env.WOOCOMMERCE_URL || (isProduction ? "" : "https://mumbai-collection.local");
+const wooKey = process.env.WOOCOMMERCE_CONSUMER_KEY || (isProduction ? "" : "ck_mock");
+const wooSecret = process.env.WOOCOMMERCE_CONSUMER_SECRET || (isProduction ? "" : "cs_mock");
+
+if (isProduction) {
+  if (!wooUrl || wooUrl.includes(".local") || !wooKey || wooKey.includes("mock") || !wooSecret || wooSecret.includes("mock")) {
+    throw new Error(
+      "[WooCommerce Config] Production environment must specify valid non-mock WOOCOMMERCE_URL, WOOCOMMERCE_CONSUMER_KEY, and WOOCOMMERCE_CONSUMER_SECRET."
+    );
+  }
+}
+
 const api = new WooCommerceRestApi({
-  url: process.env.WOOCOMMERCE_URL || "https://mumbai-collection.local",
-  consumerKey: process.env.WOOCOMMERCE_CONSUMER_KEY || "ck_mock",
-  consumerSecret: process.env.WOOCOMMERCE_CONSUMER_SECRET || "cs_mock",
+  url: wooUrl,
+  consumerKey: wooKey,
+  consumerSecret: wooSecret,
   version: "wc/v3",
 
   axiosConfig: {

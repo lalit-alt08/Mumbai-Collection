@@ -509,26 +509,33 @@ function Orders() {
                     </div>
 
                     {/* Summary Footer Bar */}
-                    <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-[#1E3252]/70 pt-4">
-                      <div className="flex items-center gap-4">
-                        <div>
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-[#6E84A3]">
-                            Total Paid ({order.payment_method_title})
-                          </span>
-                          <div className="text-lg font-black text-white">
-                            ₹{order.total}
-                          </div>
+                    <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 sm:gap-4 border-t border-[#1E3252]/70 pt-4">
+                      <div className="flex items-baseline justify-between sm:flex-col sm:justify-start gap-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#6E84A3]">
+                          Total Paid ({order.payment_method_title})
+                        </span>
+                        <div className="text-lg sm:text-xl font-black text-white tracking-tight">
+                          ₹{order.total}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2.5">
+                      <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
                         <button
+                          type="button"
                           onClick={() => toggleExpandOrder(order.id)}
-                          className="flex items-center gap-1.5 rounded-xl border border-[#1E3252] bg-transparent px-4 py-2 text-xs font-bold text-[#8FA4BE] transition hover:bg-[#162744] hover:text-[#F1F5F9] cursor-pointer"
+                          className={`col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border px-3 sm:px-4 text-xs font-bold transition-all select-none cursor-pointer whitespace-nowrap active:scale-[0.98] ${
+                            isExpanded
+                              ? "border-[#42D6E8]/50 bg-[#112440] text-[#42D6E8] shadow-xs"
+                              : "border-[#1E3252] bg-[#0E1B30]/60 text-[#8FA4BE] hover:bg-[#162744] hover:text-[#F1F5F9] hover:border-[#2A4368]"
+                          }`}
                         >
-                          <Receipt size={14} />
-                          {isExpanded ? "Hide Details" : "Invoice Details"}
-                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          <Receipt size={14} className={`shrink-0 transition-colors ${isExpanded ? "text-[#42D6E8]" : "text-[#6E84A3]"}`} />
+                          <span>{isExpanded ? "Hide Details" : "Invoice Details"}</span>
+                          {isExpanded ? (
+                            <ChevronUp size={13} className="shrink-0 text-[#42D6E8]" />
+                          ) : (
+                            <ChevronDown size={13} className="shrink-0 text-[#6E84A3]" />
+                          )}
                         </button>
 
                         {["pending", "on-hold"].includes(order.status) && (
@@ -536,20 +543,28 @@ function Orders() {
                             type="button"
                             onClick={() => handleCheckPending(order.meta_data?.find((m) => m.key === "_razorpay_order_id")?.value || order.id)}
                             disabled={checkingPending}
-                            className="flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-4 py-2 text-xs font-black text-[#061220] transition hover:bg-[#2CC4D8] active:scale-95 cursor-pointer disabled:opacity-50"
+                            className="col-span-2 sm:col-auto inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#42D6E8] px-3.5 sm:px-4 text-xs font-black text-[#061220] transition-all select-none whitespace-nowrap hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
                           >
-                            <Clock size={14} />
-                            {checkingPending ? "Checking..." : "Check payment"}
+                            <Clock size={14} className="shrink-0" />
+                            <span>{checkingPending ? "Checking..." : "Check payment"}</span>
                           </button>
                         )}
 
-                        {!["cancelled", "failed", "refunded"].includes(order.status) && (
+                        {isLive ? (
                           <Link
                             to={`/orders/${order.id}/track`}
-                            className="flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-4 py-2 text-xs font-black text-[#061220] transition hover:bg-[#2CC4D8]"
+                            className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#42D6E8] px-3.5 sm:px-4 text-xs font-black text-[#061220] transition-all select-none whitespace-nowrap hover:bg-[#2CC4D8] active:scale-[0.98] shadow-sm shadow-[#42D6E8]/20"
                           >
-                            <Truck size={14} />
-                            Track Live
+                            <Truck size={14} className="shrink-0" />
+                            <span>Track Order</span>
+                          </Link>
+                        ) : (
+                          <Link
+                            to={`/orders/${order.id}/track`}
+                            className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border border-[#42D6E8]/35 bg-[#111F36] px-3.5 sm:px-4 text-xs font-bold text-[#42D6E8] transition-all select-none whitespace-nowrap hover:bg-[#162744] hover:border-[#42D6E8]/70 active:scale-[0.98]"
+                          >
+                            <Package size={14} className="shrink-0 text-[#42D6E8]" />
+                            <span>Order Details</span>
                           </Link>
                         )}
                       </div>
@@ -586,8 +601,11 @@ function Orders() {
 
                         {/* Itemized Bill Details */}
                         <div className="border-t border-[#1E3252]/70 pt-3 space-y-1.5 text-xs text-[#8FA4BE]">
-                          <div className="flex justify-between">
-                            <span>Items Subtotal</span>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-[#F1F5F9]">Items Subtotal</span>
+                              <span className="block text-[10px] text-[#6E84A3]">(Incl. of all taxes)</span>
+                            </div>
                             <span className="font-semibold text-[#F1F5F9]">
                               ₹{(Number(order.total) - Number(order.shipping_total) + Number(order.discount_total)).toFixed(2)}
                             </span>
@@ -604,15 +622,12 @@ function Orders() {
                               {Number(order.shipping_total) === 0 ? "FREE" : `₹${order.shipping_total}`}
                             </span>
                           </div>
-                          {Number(order.total_tax) > 0 && (
-                            <div className="flex justify-between">
-                              <span>Taxes</span>
-                              <span className="font-semibold text-[#F1F5F9]">₹{order.total_tax}</span>
+                          <div className="flex justify-between items-start border-t border-[#1E3252]/70 pt-2 text-sm font-bold text-white">
+                            <div>
+                              <span>Grand Total</span>
+                              <span className="block text-[10px] font-normal text-[#6E84A3]">Inclusive of all taxes (GST)</span>
                             </div>
-                          )}
-                          <div className="flex justify-between border-t border-[#1E3252]/70 pt-2 text-sm font-bold text-white">
-                            <span>Grand Total</span>
-                            <span>₹{order.total}</span>
+                            <span className="text-[#42D6E8] font-black">₹{order.total}</span>
                           </div>
                         </div>
 
@@ -643,21 +658,9 @@ function Orders() {
               type="button"
               onClick={handleLoadMore}
               disabled={loadingMore}
-              className="inline-flex items-center gap-2 rounded-full border border-[#1E3252] bg-[#111F36] px-6 py-2.5 text-xs font-bold text-[#F1F5F9] shadow-xs transition-all hover:bg-[#162744] hover:border-[#42D6E8]/50 active:scale-95 disabled:opacity-60 cursor-pointer"
+              className="inline-flex items-center justify-center rounded-full bg-[#42D6E8] px-7 py-2.5 text-xs sm:text-sm font-black text-[#061220] shadow-sm shadow-[#42D6E8]/20 transition-all hover:bg-[#2CC4D8] active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
             >
-              {loadingMore ? (
-                <>
-                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#42D6E8] border-t-transparent" />
-                  <span>Loading older orders...</span>
-                </>
-              ) : (
-                <>
-                  <span>Load More Orders</span>
-                  <span className="rounded-full bg-[#132B45] px-2 py-0.5 text-[10px] font-extrabold text-[#67E8F9] border border-[#1E3252]">
-                    {orders.length} of {totalOrders}
-                  </span>
-                </>
-              )}
+              Load More
             </button>
           </div>
         )}

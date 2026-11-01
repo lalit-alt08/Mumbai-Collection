@@ -75,16 +75,20 @@ function Header() {
         )}
 
         {/* ================= USER PROFILE BUTTON (Desktop Only) ================= */}
-        <HapticTapTarget className="hidden h-11 w-11 shrink-0 md:flex" radius="9999px">
-          <Link
-            to={user ? "/account" : "/login"}
-            onClick={() => triggerHaptic("light")}
-            aria-label={user ? "Account" : "Login"}
-            className={`flex h-11 w-11 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
-          >
-            <User size={19} strokeWidth={2.2} />
-          </Link>
-        </HapticTapTarget>
+        <div className="hidden md:flex">
+          <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
+            <Link
+              to={user ? "/account" : "/login"}
+              onClick={() => triggerHaptic("light")}
+              aria-label={user ? "Account" : "Login"}
+              className={`flex h-11 w-11 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
+            >
+              <User size={19} strokeWidth={2.2} />
+            </Link>
+          </HapticTapTarget>
+        </div>
+
+
       </div>
       </div>
     </header>

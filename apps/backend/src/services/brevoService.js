@@ -287,8 +287,14 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "reset_pass
   }
 };
 
-/** Sends a refund notification; called only from the explicit employee action. */
-export const sendRefundEmail = async ({ toEmail, toName, orderNumber, amountInInr }) => {
+/** Sends a refund notification; called only after the refund is verified. */
+export const sendRefundEmail = async ({
+  toEmail,
+  toName,
+  orderNumber,
+  amountInInr,
+  isPartial = false,
+}) => {
   if (!toEmail || typeof toEmail !== "string" || !toEmail.includes("@")) {
     throw new Error("Invalid destination email address");
   }
@@ -296,9 +302,13 @@ export const sendRefundEmail = async ({ toEmail, toName, orderNumber, amountInIn
   const safeName = escapeHtml(toName || "Customer");
   const safeOrderNumber = escapeHtml(String(orderNumber || ""));
   const safeAmount = escapeHtml(String(amountInInr || "0.00"));
-  const subject = `Refund Processed for Order #${safeOrderNumber} — Mumbai Collection`;
-  const textContent = `Hello ${toName || "Customer"},\n\nA refund of ₹${safeAmount} has been processed for your order #${safeOrderNumber}.\n\nMumbai Collection`;
-  const htmlContent = `<!doctype html><html><body style="margin:0;padding:32px 16px;background:#f8f9fd;font-family:Arial,sans-serif;color:#202033"><table role="presentation" style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:32px;width:100%"><tr><td><h1 style="color:#7138e8;margin-top:0">Mumbai Collection</h1><p>Hello ${safeName},</p><p>A refund of <strong>₹${safeAmount}</strong> has been processed for your order <strong>#${safeOrderNumber}</strong>.</p><p>The time it takes for the funds to appear depends on your original payment method and bank.</p><p style="color:#6b7280">Mumbai Collection · Vasai, Mumbai</p></td></tr></table></body></html>`;
+  const refundLabel = isPartial ? "Partial Refund" : "Refund";
+  const refundSentence = isPartial
+    ? `A partial refund of ₹${safeAmount} has been processed`
+    : `A refund of ₹${safeAmount} has been processed`;
+  const subject = `${refundLabel} Processed for Order #${safeOrderNumber} — Mumbai Collection`;
+  const textContent = `Hello ${toName || "Customer"},\n\n${refundSentence} for your order #${safeOrderNumber}.\n\nMumbai Collection`;
+  const htmlContent = `<!doctype html><html><body style="margin:0;padding:32px 16px;background:#f8f9fd;font-family:Arial,sans-serif;color:#202033"><table role="presentation" style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:32px;width:100%"><tr><td><h1 style="color:#7138e8;margin-top:0">Mumbai Collection</h1><p>Hello ${safeName},</p><p>${refundSentence} for your order <strong>#${safeOrderNumber}</strong>.</p><p>The time it takes for the funds to appear depends on your original payment method and bank.</p><p style="color:#6b7280">Mumbai Collection · Vasai, Mumbai</p></td></tr></table></body></html>`;
 
   if (isMockEmailEnabled()) {
     console.log(`[MOCK REFUND EMAIL] Destination: ${cleanEmail}\n[MOCK REFUND EMAIL] Subject: ${subject}`);

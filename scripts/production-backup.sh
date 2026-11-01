@@ -22,9 +22,10 @@ command -v flock >/dev/null
 exec 9>"$backup_root/backup.lock"
 flock -n 9 || exit 0
 backup_dir="$(mktemp -d "$backup_root/snapshot-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
+# Recommendation: Run during off-peak hours (e.g. 03:00 IST) to minimize the gap between DB export and wp-content archive.
 wp --path="$wp_root" db export "$backup_dir/database.sql" --single-transaction --quick --skip-lock-tables
 gzip "$backup_dir/database.sql"
-tar -C "$wp_root" -czf "$backup_dir/wp-content.tar.gz" wp-content
+tar -C "$wp_root" --exclude='wp-content/cache' --exclude='wp-content/upgrade' -czf "$backup_dir/wp-content.tar.gz" wp-content
 wp --path="$wp_root" core version > "$backup_dir/wordpress-version.txt"
 wp --path="$wp_root" plugin list --format=json > "$backup_dir/plugins.json"
 (

@@ -10,17 +10,34 @@ import { recordReconciliationHealth } from "./services/operationalHealth.js";
 
 const PORT = process.env.PORT || 5000;
 
-// Startup safety check for production configuration
+// Startup safety check for production configuration (Fail-closed)
 if (process.env.NODE_ENV === "production") {
   const wpUrl = process.env.WORDPRESS_URL || "";
   const wooUrl = process.env.WOOCOMMERCE_URL || "";
+  const configErrors = [];
 
-  if (wpUrl.includes(".local") || wooUrl.includes(".local")) {
-    logger.error({ wordpressUrl: wpUrl, woocommerceUrl: wooUrl }, "Production environment must not use local service URLs");
+  if (!wpUrl || wpUrl.includes(".local")) {
+    configErrors.push("WORDPRESS_URL is missing or set to a .local address");
+  }
+  if (!wooUrl || wooUrl.includes(".local")) {
+    configErrors.push("WOOCOMMERCE_URL is missing or set to a .local address");
+  }
+  if (!process.env.WOOCOMMERCE_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY.includes("mock")) {
+    configErrors.push("WOOCOMMERCE_CONSUMER_KEY is missing or set to a mock key");
+  }
+  if (!process.env.WOOCOMMERCE_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET.includes("mock")) {
+    configErrors.push("WOOCOMMERCE_CONSUMER_SECRET is missing or set to a mock secret");
+  }
+  if (!process.env.MUMBAI_INTERNAL_API_KEY) {
+    configErrors.push("MUMBAI_INTERNAL_API_KEY is missing");
+  }
+  if (!process.env.ADMIN_ORIGIN || !process.env.EMPLOYEE_ORIGIN) {
+    configErrors.push("ADMIN_ORIGIN or EMPLOYEE_ORIGIN is missing");
   }
 
-  if (!process.env.ADMIN_ORIGIN || !process.env.EMPLOYEE_ORIGIN) {
-    logger.warn("Production configuration missing ADMIN_ORIGIN or EMPLOYEE_ORIGIN");
+  if (configErrors.length > 0) {
+    logger.fatal({ errors: configErrors }, "Production startup aborted: critical configuration requirements not met");
+    process.exit(1);
   }
 
   if (!checkAlertChannelsConfigured()) {

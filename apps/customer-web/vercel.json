@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://jenny-sub-minimal-characteristic.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/sitemap.xml"
+      "destination": "https://jenny-sub-minimal-characteristic.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://inclusive-exceed-disco-offset.trycloudflare.com/api/:path*"
+      "destination": "https://jenny-sub-minimal-characteristic.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

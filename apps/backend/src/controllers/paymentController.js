@@ -76,6 +76,7 @@ const STORE_HOURS_FALLBACK_MAX_AGE_MS = 5 * 60 * 1000;
 
 export const _resetPaymentStoreHoursFallbackForTesting = () => {
   lastKnownStoreStatus = null;
+  storeHoursService._resetCheckoutStoreFallbackForTesting?.();
 };
 
 let _finalizePaymentOverrideForTesting = null;
@@ -226,50 +227,12 @@ export const createOrder = async (req, res) => {
     }
 
     // ── 2. Store Hours Guard ───────────────────────────────────────────────
-    try {
-      const storeStatus = await storeHoursService.getStoreStatus();
-      if (!storeStatus || typeof storeStatus.is_open !== "boolean") {
-        throw new Error("Invalid store status payload");
-      }
-
-      // Record last known valid store status
-      lastKnownStoreStatus = {
-        status: storeStatus,
-        timestamp: Date.now(),
-      };
-
-      if (!storeStatus.is_open) {
-        return res.status(403).json({
-          success: false,
-          code: "STORE_CLOSED",
-          message: storeStatus.message || "Our store is currently closed for new orders.",
-          next_opening: storeStatus.next_opening,
-        });
-      }
-    } catch (statusErr) {
-      logger.warn({ err: statusErr.message }, "[Payment] Store hours evaluation warning, checking fallback cache");
-
-      const hasValidFallback =
-        lastKnownStoreStatus &&
-        Date.now() - lastKnownStoreStatus.timestamp <= STORE_HOURS_FALLBACK_MAX_AGE_MS;
-
-      if (hasValidFallback) {
-        const fallback = lastKnownStoreStatus.status;
-        if (!fallback || !fallback.is_open) {
-          return res.status(403).json({
-            success: false,
-            code: "STORE_CLOSED",
-            message: fallback?.message || "Our store is currently closed for new orders.",
-            next_opening: fallback?.next_opening || null,
-          });
-        }
-      } else {
-        return res.status(503).json({
-          success: false,
-          code: "STORE_HOURS_UNAVAILABLE",
-          message: "Unable to verify store operating hours. Please try again in a few moments.",
-        });
-      }
+    const storeGuard = await storeHoursService.checkCheckoutStoreGuard(
+      lastKnownStoreStatus,
+      (val) => { lastKnownStoreStatus = val; }
+    );
+    if (!storeGuard.allowed) {
+      return res.status(storeGuard.statusCode).json(storeGuard.payload);
     }
 
     // ── 3. Online Checkout Flow (DEFERRED WC ORDER CREATION) ────────────────
@@ -748,6 +711,36 @@ export const finalizePaymentAndCreateOrder = async ({
           const legacyRes = await api.get(`orders/${encodeURIComponent(legacyOrderId)}`);
           const legacyOrder = legacyRes.data;
           if (legacyOrder && (legacyOrder.status === "pending" || legacyOrder.status === "on-hold")) {
+            // Customer authorization guard on legacy recovery
+            if (expectedCustomerId && Number(legacyOrder.customer_id) !== Number(expectedCustomerId)) {
+              logger.warn(
+                { expected: expectedCustomerId, actual: legacyOrder.customer_id, rzpOrderId },
+                "[Payment Finalize] Legacy recovery customer ID mismatch"
+              );
+              return {
+                success: false,
+                status: 403,
+                message: "You are not authorized to verify this payment.",
+              };
+            }
+
+            // Financial integrity guard on legacy recovery
+            const legacyTotalPaise = Math.round(Number(legacyOrder.total || 0) * 100);
+            const capturedPaise = Number(rzpPayment.amount || 0);
+            const currencyMatch = String(rzpPayment.currency || "").toUpperCase() === "INR";
+
+            if (legacyTotalPaise !== capturedPaise || !currencyMatch) {
+              logger.error(
+                { rzpOrderId, legacyOrderId, legacyTotalPaise, capturedPaise },
+                "[Payment Finalize] Legacy recovery amount or currency mismatch"
+              );
+              return {
+                success: false,
+                status: 400,
+                message: "Payment amount does not match order total.",
+              };
+            }
+
             await api.put(`orders/${legacyOrder.id}`, {
               status: "processing",
               transaction_id: rzpPaymentId,
@@ -1119,8 +1112,12 @@ export const finalizePaymentAndCreateOrder = async ({
     await releaseCheckoutStock(reservationId);
     await paymentIntentService.clearCustomerWcCart(intent.customer_id);
 
-    // Publish minimal real-time event for employee dashboard (fire-and-forget, never throws)
-    publishOrderEvent({ event: "ORDER_CREATED", orderId: createdOrder.id });
+    // Publish real-time event for employee dashboard & durable background push outbox
+    await publishOrderEvent({
+      event: "ORDER_CREATED",
+      orderId: createdOrder.id,
+      total: createdOrder.total,
+    });
 
     serverCache.invalidatePrefix("employee:overview");
     serverCache.invalidatePrefix("admin:analytics");
@@ -1437,7 +1434,6 @@ export const handleWebhook = async (req, res) => {
     if (eventId) {
       const cacheKey = `webhook:event:${eventId}`;
       if (serverCache.get(cacheKey)) {
-        await updateWebhookEventStatus({ eventId, status: "processed" });
         logger.info({ eventId }, "[Payment Webhook] Event already processed — returning idempotent 200");
         return res.status(200).json({
           success: true,
@@ -1445,7 +1441,6 @@ export const handleWebhook = async (req, res) => {
           _idempotent: true,
         });
       }
-      serverCache.set(cacheKey, true, 24 * 60 * 60 * 1000);
     }
 
     logger.info({ event, eventId }, "[Payment Webhook] Verified webhook received and stored durably");
@@ -1492,12 +1487,14 @@ export const handleWebhook = async (req, res) => {
 
           if (result.success) {
             await updateWebhookEventStatus({ eventId, status: "processed" });
+            if (eventId) serverCache.set(`webhook:event:${eventId}`, true, 24 * 60 * 60 * 1000);
             logger.info({ rzpOrderId, wc_order_id: result.order_id }, "[Payment Webhook] Finalized order successfully via webhook background worker");
             return;
           }
 
           if (result.status === 409 || result._idempotent) {
             await updateWebhookEventStatus({ eventId, status: "processed" });
+            if (eventId) serverCache.set(`webhook:event:${eventId}`, true, 24 * 60 * 60 * 1000);
             logger.info({ rzpOrderId }, "[Payment Webhook] Order already finalized or in progress");
             return;
           }
@@ -1549,14 +1546,45 @@ export const handleWebhook = async (req, res) => {
           if (!intent) throw new Error('Refund intent missing; requires staff review');
           const full = payment.refund_status === 'full' || Number(payment.amount_refunded || 0) >= Number(payment.amount || Infinity);
           if (full) {
-            await updatePaymentIntentStatus({ rzpOrderId, fromStatus: intent.status, toStatus: 'refunded', refundId: refundEntity?.id });
+            const updated = await updatePaymentIntentStatus({
+              rzpOrderId,
+              fromStatus: intent.status,
+              toStatus: 'refunded',
+              refundId: refundEntity?.id,
+            });
             await releaseCheckoutStock(intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || rzpOrderId);
+
+            // Locate and transition existing WooCommerce order to refunded status to prevent dispatch
+            const wcOrderId = intent.wc_order_id || (await findOrderByRazorpayOrderId(rzpOrderId))?.id;
+            if (wcOrderId) {
+              try {
+                await api.put(`orders/${wcOrderId}`, {
+                  status: "refunded",
+                  customer_note: "Order cancelled and marked refunded following full payment refund at gateway.",
+                });
+                await api.post(`orders/${wcOrderId}/notes`, {
+                  note: `[Razorpay Webhook] Full gateway refund confirmed (${refundEntity?.id || 'refunded'}). Order status moved to refunded.`,
+                  customer_note: false,
+                });
+                await invalidateOrderDetailCache(wcOrderId);
+                serverCache.invalidatePrefix("employee:overview");
+                publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: wcOrderId, status: "refunded" });
+                logger.info({ rzpOrderId, wcOrderId }, "[Payment Webhook] WooCommerce order moved to refunded following full gateway refund");
+              } catch (wcRefundErr) {
+                logger.error({ err: wcRefundErr.message, wcOrderId, rzpOrderId }, "[Payment Webhook] Failed to transition WooCommerce order to refunded");
+              }
+            }
+
+            if (!updated && intent.status !== "refunded") {
+              throw new Error("Could not transition payment intent to refunded");
+            }
           } else {
             // Partial/manual refunds do not authorize refunding the remaining purchase.
             await alertStaffAnomaly({ type: 'PARTIAL_OR_FAILED_REFUND', severity: 'warning', rzpOrderId, rzpPaymentId,
               message: 'Refund event observed; existing refund recovery state preserved.', details: { event, amount_refunded: payment.amount_refunded } });
           }
           await updateWebhookEventStatus({ eventId, status: 'processed' });
+          if (eventId) serverCache.set(`webhook:event:${eventId}`, true, 24 * 60 * 60 * 1000);
         } catch (err) {
           logger.error({ err: err.message, eventId, rzpOrderId }, '[Payment Webhook] Refund event requires retry/review');
           serverCache.delete('webhook:event:' + eventId);

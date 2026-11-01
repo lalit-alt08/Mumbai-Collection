@@ -388,7 +388,7 @@ function OrderSuccess() {
                   >
                     <MapPin size={18} strokeWidth={2.3} />
 
-                    <span>Track Live Order</span>
+                    <span>Track Order</span>
 
                     <ArrowRight
                       size={16}

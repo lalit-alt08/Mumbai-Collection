@@ -305,7 +305,7 @@ add_action('rest_api_init', function () {
     register_rest_route('mumbai-auth/v1', '/logout', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_logout',
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/sso', [
         'methods'             => 'POST',
@@ -642,6 +642,11 @@ add_action('rest_api_init', function () {
             'search'   => ['sanitize_callback' => 'sanitize_text_field'],
         ],
     ]);
+    register_rest_route('mumbai-auth/v1', '/employee/orders/summary', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_employee_get_order_summary',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
 
     register_rest_route('mumbai-auth/v1', '/staff/orders/(?P<id>\d+)/status', [
         'methods' => 'POST', 'callback' => 'mumbai_staff_update_order_status',
@@ -686,9 +691,12 @@ add_action('rest_api_init', function () {
  * LOGIN
  * ─────────────────────────────────────────────
  * Includes brute-force protection:
- * - Locks after MUMBAI_MAX_LOGIN_ATTEMPTS failures
- * - Lock lasts MUMBAI_LOCKOUT_DURATION seconds
+ * - Node applies distributed IP and identifier/IP rate limits before this endpoint
+ * - WordPress applies a fixed delay and records failures for monitoring
  * - Successful login resets the counter
+ *
+ * Do not hard-lock an account based only on its email: an unauthenticated
+ * attacker could otherwise deny service to a known customer or staff account.
  */
 function mumbai_login(WP_REST_Request $request)
 {
@@ -713,36 +721,14 @@ function mumbai_login(WP_REST_Request $request)
             ['status' => 401]
         );
     }
-    /*
-     * Brute-force protection: check if account is locked
-     */
+    /* Failure history is retained for monitoring, not as an account lock. */
     $failed_attempts = (int) get_user_meta($user->ID, '_mumbai_failed_logins', true);
-    $lockout_until   = (int) get_user_meta($user->ID, '_mumbai_lockout_until', true);
-    if ($failed_attempts >= MUMBAI_MAX_LOGIN_ATTEMPTS && time() < $lockout_until) {
-        $minutes_left = ceil(($lockout_until - time()) / 60);
-        mumbai_log("Login blocked for user {$user->ID} — locked for {$minutes_left} more minutes.");
-        // Equalize response timing with password hash verification to prevent account enumeration
-        usleep(500000);
-        return new WP_Error(
-            'account_locked',
-            "Too many failed attempts. Please try again in {$minutes_left} minute(s).",
-            ['status' => 429]
-        );
-    }
-    // If lockout period has passed, reset the counter
-    if ($lockout_until && time() >= $lockout_until) {
-        delete_user_meta($user->ID, '_mumbai_failed_logins');
-        delete_user_meta($user->ID, '_mumbai_lockout_until');
-    }
     /*
-     * Attempt WordPress sign-on
+     * Authenticate credentials without creating an implicit WordPress session.
+     * The BFF requires one explicitly bounded token, created below; wp_signon()
+     * would create an additional remembered session before that token exists.
      */
-    $creds = [
-        'user_login'    => $user->user_login,
-        'user_password' => $password,
-        'remember'      => true,
-    ];
-    $signon = wp_signon($creds, is_ssl());
+    $signon = wp_authenticate($user->user_login, $password);
     if (is_wp_error($signon)) {
         /*
          * Progressive delay to throttle automated brute-force attacks (500ms)
@@ -753,12 +739,10 @@ function mumbai_login(WP_REST_Request $request)
          * Increment failed login counter
          */
         $failed_attempts = (int) get_user_meta($user->ID, '_mumbai_failed_logins', true);
-        $failed_attempts++;
+        $failed_attempts = min($failed_attempts + 1, 1000000);
         update_user_meta($user->ID, '_mumbai_failed_logins', $failed_attempts);
-        if ($failed_attempts >= MUMBAI_MAX_LOGIN_ATTEMPTS) {
-            $lockout_time = time() + MUMBAI_LOCKOUT_DURATION;
-            update_user_meta($user->ID, '_mumbai_lockout_until', $lockout_time);
-            mumbai_log("User {$user->ID} locked out after {$failed_attempts} failed attempts.");
+        if ($failed_attempts === MUMBAI_MAX_LOGIN_ATTEMPTS || $failed_attempts % 25 === 0) {
+            mumbai_log("Repeated failed password logins recorded for user {$user->ID}: {$failed_attempts} attempts.");
         }
         return new WP_Error(
             'login_failed',
@@ -771,6 +755,9 @@ function mumbai_login(WP_REST_Request $request)
      */
     delete_user_meta($signon->ID, '_mumbai_failed_logins');
     delete_user_meta($signon->ID, '_mumbai_lockout_until');
+    // A successful password login proves this is a customer-known credential,
+    // including older accounts created before the explicit marker existed.
+    update_user_meta($signon->ID, '_mumbai_has_custom_password', true);
     wp_set_current_user($signon->ID);
     /*
      * Create ONE session token and use it everywhere.
@@ -792,6 +779,7 @@ function mumbai_login(WP_REST_Request $request)
         is_ssl(),
         $session_token
     );
+    do_action('wp_login', $signon->user_login, $signon);
     /*
      * Generate the exact logged-in cookie that
      * our Node backend will send back to WordPress.
@@ -822,6 +810,8 @@ function mumbai_login(WP_REST_Request $request)
             'email'    => $signon->user_email,
             'username' => $signon->user_login,
             'roles'    => array_values((array) $signon->roles),
+            'is_google_user' => (bool) get_user_meta($signon->ID, '_google_sub', true),
+            'has_usable_password' => true,
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
@@ -991,6 +981,7 @@ function mumbai_sso(WP_REST_Request $request)
         }
 
         update_user_meta($user_id, '_google_sub', $google_sub);
+        update_user_meta($user_id, '_mumbai_has_custom_password', '0');
         mumbai_sync_customer_search_index($user_id);
 
         $user = get_user_by('id', $user_id);
@@ -1032,6 +1023,8 @@ function mumbai_sso(WP_REST_Request $request)
             'username'          => $user->user_login,
             'roles'             => array_values((array) $user->roles),
             'is_phone_verified' => $is_phone_verified,
+            'is_google_user' => true,
+            'has_usable_password' => (bool) get_user_meta($user->ID, '_mumbai_has_custom_password', true),
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
@@ -1045,6 +1038,20 @@ function mumbai_sso(WP_REST_Request $request)
  * ─────────────────────────────────────────────
  */
 function mumbai_register(WP_REST_Request $request)
+{
+    global $wpdb;
+    $lock = 'mumbai_reg_' . md5(strtolower(trim((string) $request->get_param('email'))));
+    if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock))) {
+        return new WP_Error('registration_busy', 'Registration is in progress. Please retry.', ['status' => 429]);
+    }
+    try {
+        return mumbai_register_locked($request);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+    }
+}
+
+function mumbai_register_locked(WP_REST_Request $request)
 {
     $first_name = sanitize_text_field($request->get_param('first_name'));
     $last_name  = sanitize_text_field($request->get_param('last_name'));
@@ -1131,10 +1138,21 @@ function mumbai_register(WP_REST_Request $request)
     $norm_email = strtolower(trim($email));
     $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
     $transient_key = '_mumbai_reg_otp_' . md5($norm_email);
-    if (!empty($otp_hash)) {
+    $registration_token = (string) $request->get_param('registration_token');
+    $grant_key = '_mumbai_reg_grant_' . md5($norm_email);
+    if ($registration_token !== '') {
+        $grant = get_transient($grant_key);
+        if (!is_string($grant) || !hash_equals($grant, hash('sha256', $registration_token))) {
+            return new WP_Error('expired_registration', 'Email verification has expired. Please request a new code.', ['status' => 400]);
+        }
+    } elseif (!empty($otp_hash)) {
         $stored = get_transient($transient_key);
         if (!$stored || !is_array($stored) || empty($stored['hash'])) {
             return new WP_Error('expired_otp', 'Verification code has expired or was not requested.', ['status' => 400]);
+        }
+        if (!empty($stored['expires']) && time() > (int) $stored['expires']) {
+            delete_transient($transient_key);
+            return new WP_Error('expired_otp', 'Verification code has expired. Please request a new code.', ['status' => 400]);
         }
         if (($stored['attempts'] ?? 0) >= 5) {
             delete_transient($transient_key);
@@ -1142,9 +1160,12 @@ function mumbai_register(WP_REST_Request $request)
         }
         if (!hash_equals((string) $stored['hash'], (string) $otp_hash)) {
             $stored['attempts'] = ($stored['attempts'] ?? 0) + 1;
-            set_transient($transient_key, $stored, 300);
+            $remaining_ttl = !empty($stored['expires']) ? max(1, (int) $stored['expires'] - time()) : 300;
+            set_transient($transient_key, $stored, $remaining_ttl);
             return new WP_Error('invalid_otp', 'Invalid verification code.', ['status' => 400]);
         }
+    } else {
+        return new WP_Error('verification_required', 'Email verification is required.', ['status' => 400]);
     }
     $phone = sanitize_text_field($request->get_param('phone'));
     if (!empty($phone)) {
@@ -1184,6 +1205,8 @@ function mumbai_register(WP_REST_Request $request)
     if (!empty($otp_hash)) {
         delete_transient($transient_key);
     }
+    delete_transient($grant_key);
+    update_user_meta($user_id, '_mumbai_has_custom_password', true);
     // Assign WooCommerce customer role (M4 fix) and set display name
     $wp_user = new WP_User($user_id);
     $wp_user->set_role('customer');
@@ -1249,6 +1272,8 @@ function mumbai_register(WP_REST_Request $request)
             'email'    => $user->user_email,
             'username' => $user->user_login,
             'roles'    => array_values((array) $user->roles),
+            'is_google_user' => false,
+            'has_usable_password' => true,
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
@@ -1392,6 +1417,7 @@ function mumbai_reset_password(WP_REST_Request $request)
         }
         // Reset the password
         reset_password($user, $password);
+        update_user_meta($user->ID, '_mumbai_has_custom_password', true);
         // Revoke ALL active sessions so a compromised token cannot persist (H7 fix)
         WP_Session_Tokens::get_instance($user->ID)->destroy_all();
         // Make token single-use
@@ -1422,6 +1448,14 @@ function mumbai_reset_password(WP_REST_Request $request)
 function mumbai_logout(WP_REST_Request $request)
 {
     $cookie_value = $_COOKIE[LOGGED_IN_COOKIE] ?? '';
+    if (!$cookie_value) {
+        $raw_cookie = $request->get_header('cookie') ?? '';
+        if ($raw_cookie && defined('LOGGED_IN_COOKIE')) {
+            if (preg_match('/' . preg_quote(LOGGED_IN_COOKIE, '/') . '=([^;]+)/', $raw_cookie, $matches)) {
+                $cookie_value = urldecode($matches[1]);
+            }
+        }
+    }
     if (!$cookie_value) {
         return [
             'success' => true,
@@ -1649,7 +1683,15 @@ function mumbai_me()
     $phone = '';
     $verified_phone = '';
     $display_name = '';
+    $first_name = '';
+    $last_name = '';
+    $has_usable_password = false;
     if ($user) {
+        // Treat unmarked legacy credentials as established without mutating
+        // user metadata during a read-only session validation request.
+        $has_usable_password = metadata_exists('user', $user->ID, '_mumbai_has_custom_password')
+            ? (bool) get_user_meta($user->ID, '_mumbai_has_custom_password', true)
+            : true;
         $is_phone_verified = mumbai_is_user_phone_verified($user->ID);
         $is_suspended = function_exists('mumbai_is_customer_suspended') ? mumbai_is_customer_suspended($user->ID) : false;
         $phone = (string) get_user_meta($user->ID, 'billing_phone', true);
@@ -1692,6 +1734,8 @@ function mumbai_me()
         'is_suspended'       => $is_suspended,
         'phone'              => $phone,
         'verified_phone'     => $verified_phone,
+        'is_google_user'     => $user ? (bool) get_user_meta($user->ID, '_google_sub', true) : false,
+        'has_usable_password' => $has_usable_password,
     ];
 }
 /*
@@ -2165,6 +2209,22 @@ function mumbai_get_profile(WP_REST_Request $request)
  */
 function mumbai_save_profile(WP_REST_Request $request)
 {
+    global $wpdb;
+    // Serialize initial setup and later changes so two requests cannot both
+    // observe a passwordless account and replace each other's new password.
+    $lock = 'mumbai_profile_' . absint($request->get_header('X-Mumbai-User-ID'));
+    if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock))) {
+        return new WP_Error('profile_busy', 'Profile update is in progress. Please retry.', ['status' => 429]);
+    }
+    try {
+        return mumbai_save_profile_locked($request);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+    }
+}
+
+function mumbai_save_profile_locked(WP_REST_Request $request)
+{
     $user_id = absint($request->get_header('X-Mumbai-User-ID'));
     if (!$user_id) {
         return new WP_Error(
@@ -2249,7 +2309,6 @@ function mumbai_save_profile(WP_REST_Request $request)
         }
 
         $clean_phone = $incoming_phone;
-        update_user_meta($user_id, 'billing_phone', $clean_phone);
     } elseif (!empty($clean_old_billing)) {
         $clean_phone = $clean_old_billing;
     } else {
@@ -2265,7 +2324,19 @@ function mumbai_save_profile(WP_REST_Request $request)
     if (!empty($password)) {
         $current_password = (string) $request->get_param('current_password');
         $user_obj = get_userdata($user_id);
-        if (!$user_obj || empty($current_password) || !wp_check_password($current_password, $user_obj->user_pass, $user_id)) {
+        // Only explicitly marked, newly created passwordless accounts qualify.
+        // Missing metadata on legacy accounts must never bypass reauthentication.
+        $cookie = $_COOKIE[LOGGED_IN_COOKIE] ?? '';
+        $cookie_user = $cookie ? wp_validate_auth_cookie($cookie, 'logged_in') : 0;
+        $cookie_parts = $cookie ? wp_parse_auth_cookie($cookie, 'logged_in') : false;
+        $session = $cookie_parts && !empty($cookie_parts['token'])
+            ? WP_Session_Tokens::get_instance($user_id)->get($cookie_parts['token']) : null;
+        $first_password = get_user_meta($user_id, '_mumbai_has_custom_password', true) === '0'
+            && (int) $cookie_user === $user_id
+            && !empty($session['login']) && time() - (int) $session['login'] <= 600
+            && $user_obj && in_array('customer', (array) $user_obj->roles, true)
+            && !array_intersect(['administrator', 'employee', 'shop_manager'], (array) $user_obj->roles);
+        if (!$first_password && (!$user_obj || empty($current_password) || !wp_check_password($current_password, $user_obj->user_pass, $user_id))) {
             return new WP_Error(
                 'invalid_current_password',
                 'Your current password is required and must be correct to set a new password.',
@@ -2277,8 +2348,11 @@ function mumbai_save_profile(WP_REST_Request $request)
             return new WP_Error('weak_password', $pw_check, ['status' => 400]);
         }
         wp_set_password($password, $user_id);
+        update_user_meta($user_id, '_mumbai_has_custom_password', true);
         $password_changed = true;
     }
+
+    update_user_meta($user_id, 'billing_phone', $clean_phone);
 
     wp_update_user([
         'ID'           => $user_id,
@@ -2434,7 +2508,31 @@ function mumbai_delete_account(WP_REST_Request $request)
     }
 
     $password = (string) $request->get_param('password');
-    if ($password === '') {
+    $reset_token = (string) $request->get_param('reset_token');
+    $email_confirmed = false;
+    // Passwordless Google customers may confirm deletion with the existing
+    // single-use email recovery proof, bound to this authenticated user ID.
+    if ($password === '' && $reset_token !== '' && get_user_meta($user_id, '_google_sub', true)
+        && !get_user_meta($user_id, '_mumbai_has_custom_password', true)) {
+        global $wpdb;
+        $lock = 'mumbai_reset_' . $user_id;
+        if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock))) {
+            return new WP_Error('deletion_busy', 'Confirmation is in progress. Please retry.', ['status' => 429]);
+        }
+        try {
+            wp_cache_delete($user_id, 'user_meta');
+            $hash = (string) get_user_meta($user_id, '_mumbai_reset_auth_token', true);
+            $expires = (int) get_user_meta($user_id, '_mumbai_reset_auth_expires', true);
+            $email_confirmed = $hash !== '' && time() <= $expires && hash_equals($hash, hash('sha256', $reset_token));
+            if ($email_confirmed) {
+                delete_user_meta($user_id, '_mumbai_reset_auth_token');
+                delete_user_meta($user_id, '_mumbai_reset_auth_expires');
+            }
+        } finally {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+        }
+    }
+    if ($password === '' && !$email_confirmed) {
         return new WP_Error(
             'password_required',
             'Your current password is required to delete your account.',
@@ -2442,7 +2540,7 @@ function mumbai_delete_account(WP_REST_Request $request)
         );
     }
 
-    if (!wp_check_password($password, $user->user_pass, $user_id)) {
+    if (!$email_confirmed && !wp_check_password($password, $user->user_pass, $user_id)) {
         return new WP_Error(
             'invalid_password',
             'The current password is incorrect.',
@@ -3060,6 +3158,22 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
 }
 
 function mumbai_otp_verify(WP_REST_Request $request) {
+    if ($request->get_param('purpose') !== 'register') {
+        return mumbai_otp_verify_locked($request);
+    }
+    global $wpdb;
+    $lock = 'mumbai_reg_' . md5(strtolower(trim((string) $request->get_param('phone'))));
+    if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock))) {
+        return new WP_Error('verification_busy', 'Verification is in progress. Please retry.', ['status' => 429]);
+    }
+    try {
+        return mumbai_otp_verify_locked($request);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+    }
+}
+
+function mumbai_otp_verify_locked(WP_REST_Request $request) {
     $purpose = sanitize_text_field($request->get_param('purpose'));
     $phone = sanitize_text_field($request->get_param('phone'));
     $otp_hash = sanitize_text_field($request->get_param('otp_hash'));
@@ -3076,21 +3190,29 @@ function mumbai_otp_verify(WP_REST_Request $request) {
         if (!$stored || !is_array($stored) || empty($stored['hash'])) {
             return new WP_Error('expired_otp', 'Verification code has expired or was not requested.', ['status' => 400]);
         }
+        if (!empty($stored['expires']) && time() > (int) $stored['expires']) {
+            delete_transient($transient_key);
+            return new WP_Error('expired_otp', 'Verification code has expired. Please request a new code.', ['status' => 400]);
+        }
         if (($stored['attempts'] ?? 0) >= 5) {
             delete_transient($transient_key);
             return new WP_Error('too_many_attempts', 'Too many invalid attempts. Please request a new code.', ['status' => 429]);
         }
         if (!hash_equals((string) $stored['hash'], (string) $otp_hash)) {
             $stored['attempts'] = ($stored['attempts'] ?? 0) + 1;
-            set_transient($transient_key, $stored, 300);
+            $remaining_ttl = !empty($stored['expires']) ? max(1, (int) $stored['expires'] - time()) : 300;
+            set_transient($transient_key, $stored, $remaining_ttl);
             return new WP_Error('invalid_otp', 'Invalid verification code.', ['status' => 400]);
         }
 
         delete_transient($transient_key);
+        $registration_token = bin2hex(random_bytes(32));
+        set_transient('_mumbai_reg_grant_' . md5($norm_email), hash('sha256', $registration_token), 600);
         return [
             'success'  => true,
             'message'  => 'Email verified successfully.',
             'verified' => true,
+            'registration_token' => $registration_token,
         ];
     }
 
@@ -3226,6 +3348,7 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
         }
 
         reset_password($user, $new_password);
+        update_user_meta($user->ID, '_mumbai_has_custom_password', true);
         
         WP_Session_Tokens::get_instance($user->ID)->destroy_all();
         delete_user_meta($user->ID, '_mumbai_failed_logins');
@@ -6034,6 +6157,63 @@ function mumbai_order_location_backfill_batch() {
 add_action('mumbai_order_location_backfill_batch', 'mumbai_order_location_backfill_batch');
 
 /**
+ * Return exact operational queue counts without loading a capped page of order
+ * objects into Node. HPOS and the delivery-status meta index remain authoritative.
+ */
+function mumbai_employee_get_order_summary() {
+    global $wpdb;
+
+    if (!mumbai_require_reporting_hpos()) {
+        return new WP_Error('hpos_required', 'Operational order counts require WooCommerce HPOS.', ['status' => 503]);
+    }
+
+    $orders_source = mumbai_reporting_orders_source();
+    $table_meta = $wpdb->prefix . 'wc_orders_meta';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_meta)) !== $table_meta) {
+        return new WP_Error('order_summary_unavailable', 'Operational order counts are unavailable.', ['status' => 503]);
+    }
+
+    $rows = $wpdb->get_results(
+        "SELECT LOWER(TRIM(COALESCE(NULLIF(dm.meta_value, ''), REPLACE(o.status, 'wc-', '')))) AS effective_status,
+                COUNT(o.id) AS order_count
+         FROM {$orders_source} o
+         LEFT JOIN (
+             SELECT order_id, MAX(meta_value) AS meta_value
+             FROM {$table_meta}
+             WHERE meta_key = '_delivery_status'
+             GROUP BY order_id
+         ) dm ON dm.order_id = o.id
+         WHERE REPLACE(LOWER(TRIM(o.status)), 'wc-', '') IN ('pending', 'processing', 'on-hold')
+         GROUP BY effective_status",
+        ARRAY_A
+    );
+
+    if ($wpdb->last_error) {
+        mumbai_log('Employee order summary query failed: ' . $wpdb->last_error);
+        return new WP_Error('order_summary_unavailable', 'Operational order counts are unavailable.', ['status' => 503]);
+    }
+
+    $counts = [
+        'processing'       => 0,
+        'packed'           => 0,
+        'out-for-delivery' => 0,
+        'dispatched'       => 0,
+    ];
+    foreach (($rows ?: []) as $row) {
+        $status = sanitize_key((string) ($row['effective_status'] ?? ''));
+        if (array_key_exists($status, $counts)) {
+            $counts[$status] += (int) ($row['order_count'] ?? 0);
+        }
+    }
+
+    return rest_ensure_response([
+        'success' => true,
+        'counts'  => $counts,
+        'active'  => array_sum($counts),
+    ]);
+}
+
+/**
  * Fetch employee orders with DB-side status, location, and date filtering and
  * pagination. This internal endpoint requires HPOS for supported query semantics.
  */
@@ -6724,7 +6904,9 @@ function mumbai_reserve_checkout_stock(WP_REST_Request $request) {
                 throw new RuntimeException('Could not persist inventory reservation.');
             }
         }
-        $wpdb->query('COMMIT');
+        if ($wpdb->query('COMMIT') === false) {
+            throw new RuntimeException('Could not commit inventory reservation: ' . $wpdb->last_error);
+        }
         return rest_ensure_response(['success' => true, 'reservation_id' => $reservation_id, 'expires_in_minutes' => $hold_minutes]);
     } catch (DomainException $error) {
         $wpdb->query('ROLLBACK');

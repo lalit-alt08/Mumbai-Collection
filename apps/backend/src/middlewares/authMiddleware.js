@@ -19,6 +19,32 @@ export const COOKIE_NAMES = {
   },
 };
 
+const PRIVILEGED_ROLES = new Set(["administrator", "employee", "shop_manager"]);
+
+/**
+ * Cookie names isolate browser storage, but they are not an authorization
+ * boundary by themselves. Always bind the validated WordPress roles to the
+ * server-selected panel context before accepting a session.
+ */
+export const rolesMatchAuthContext = (context, roles = []) => {
+  const normalizedRoles = Array.isArray(roles) ? roles : [];
+
+  if (context === "admin") {
+    return normalizedRoles.includes("administrator");
+  }
+
+  if (context === "employee") {
+    return normalizedRoles.some((role) => PRIVILEGED_ROLES.has(role));
+  }
+
+  const hasPrivilegedRole = normalizedRoles.some((role) => PRIVILEGED_ROLES.has(role));
+  if (hasPrivilegedRole) {
+    return false;
+  }
+
+  return true;
+};
+
 // 60-second session cache to eliminate double-hop latency
 const sessionCache = new Map();
 const SESSION_CACHE_TTL = 60 * 1000; // 60 seconds
@@ -212,6 +238,13 @@ const executeAuth = async (context, req, res, next) => {
     }
 
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
+      if (!rolesMatchAuthContext(context, cached.roles)) {
+        return res.status(403).json({
+          success: false,
+          message: "This account is not authorized for the requested application.",
+        });
+      }
+
       req.wpAuthCookie = wpAuth;
       req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || (context === "customer" ? req.cookies?.mumbai_wp_nonce : undefined);
       req.wpUserId = cached.userId;
@@ -225,6 +258,13 @@ const executeAuth = async (context, req, res, next) => {
         name: cached.name || "",
         roles: cached.roles,
         email: cached.email || "",
+        username: cached.username || "",
+        first_name: cached.firstName || "",
+        last_name: cached.lastName || "",
+        phone: cached.phone || "",
+        verified_phone: cached.verifiedPhone || "",
+        is_google_user: cached.isGoogleUser === true,
+        has_usable_password: cached.hasUsablePassword === true,
         is_phone_verified: cached.isPhoneVerified === true,
         is_suspended: cached.isSuspended === true,
       };
@@ -252,6 +292,13 @@ const executeAuth = async (context, req, res, next) => {
       : (typeof response.data?.display_name === "string" ? response.data.display_name.trim() : "");
     const isPhoneVerified = response.data?.is_phone_verified === true;
     const isSuspended = response.data?.is_suspended === true;
+    const username = typeof response.data?.username === "string" ? response.data.username : "";
+    const firstName = typeof response.data?.first_name === "string" ? response.data.first_name : "";
+    const lastName = typeof response.data?.last_name === "string" ? response.data.last_name : "";
+    const phone = typeof response.data?.phone === "string" ? response.data.phone : "";
+    const verifiedPhone = typeof response.data?.verified_phone === "string" ? response.data.verified_phone : "";
+    const isGoogleUser = response.data?.is_google_user === true;
+    const hasUsablePassword = response.data?.has_usable_password === true;
 
     if (!response.data?.logged_in || !userId) {
       sessionCache.delete(wpAuth);
@@ -262,12 +309,26 @@ const executeAuth = async (context, req, res, next) => {
       });
     }
 
+    if (!rolesMatchAuthContext(context, roles)) {
+      return res.status(403).json({
+        success: false,
+        message: "This account is not authorized for the requested application.",
+      });
+    }
+
     // 3. Cache validated session, roles, email, and name
     setSessionCache(wpAuth, {
       userId,
       name,
       roles,
       email,
+      username,
+      firstName,
+      lastName,
+      phone,
+      verifiedPhone,
+      isGoogleUser,
+      hasUsablePassword,
       isPhoneVerified,
       isSuspended,
       timestamp: now,
@@ -275,7 +336,7 @@ const executeAuth = async (context, req, res, next) => {
 
     // 4. Attach authentication information to request
     req.wpAuthCookie = wpAuth;
-    req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || req.cookies?.mumbai_wp_nonce;
+    req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || (context === "customer" ? req.cookies?.mumbai_wp_nonce : undefined);
     req.wpUserId = userId;
     req.wpUserEmail = email;
     req.authContext = context;
@@ -287,6 +348,13 @@ const executeAuth = async (context, req, res, next) => {
       name,
       roles,
       email,
+      username,
+      first_name: firstName,
+      last_name: lastName,
+      phone,
+      verified_phone: verifiedPhone,
+      is_google_user: isGoogleUser,
+      has_usable_password: hasUsablePassword,
       is_phone_verified: isPhoneVerified,
       is_suspended: isSuspended,
     };
@@ -391,6 +459,17 @@ export const getSessionValidation = async (wpAuth) => {
 
   const now = Date.now();
   const cached = sessionCache.get(wpAuth);
+  if (cached && redis && cached.userId) {
+    try {
+      const revTime = await redis.get(`sess:user_rev:${cached.userId}`);
+      if (revTime && Number(revTime) >= cached.timestamp) {
+        sessionCache.delete(wpAuth);
+        return { valid: false, error: "AUTH_REQUIRED" };
+      }
+    } catch (_) {
+      return { valid: false, error: "AUTH_UNAVAILABLE" };
+    }
+  }
   if (
     cached &&
     now - cached.timestamp < SESSION_CACHE_TTL &&
@@ -401,6 +480,14 @@ export const getSessionValidation = async (wpAuth) => {
       userId: cached.userId,
       roles: cached.roles || [],
       email: cached.email || "",
+      name: cached.name || "",
+      username: cached.username || "",
+      firstName: cached.firstName || "",
+      lastName: cached.lastName || "",
+      phone: cached.phone || "",
+      verifiedPhone: cached.verifiedPhone || "",
+      isGoogleUser: cached.isGoogleUser === true,
+      hasUsablePassword: cached.hasUsablePassword === true,
       isPhoneVerified: cached.isPhoneVerified === true,
       isSuspended: cached.isSuspended === true,
     };
@@ -428,6 +515,16 @@ export const getSessionValidation = async (wpAuth) => {
       const isSuspended = response.data?.is_suspended === true;
       const roles = Array.isArray(response.data?.roles) ? response.data.roles : [];
       const email = typeof response.data?.email === "string" ? response.data.email : "";
+      const name = typeof response.data?.name === "string" && response.data.name.trim()
+        ? response.data.name.trim()
+        : (typeof response.data?.display_name === "string" ? response.data.display_name.trim() : "");
+      const username = typeof response.data?.username === "string" ? response.data.username : "";
+      const firstName = typeof response.data?.first_name === "string" ? response.data.first_name : "";
+      const lastName = typeof response.data?.last_name === "string" ? response.data.last_name : "";
+      const phone = typeof response.data?.phone === "string" ? response.data.phone : "";
+      const verifiedPhone = typeof response.data?.verified_phone === "string" ? response.data.verified_phone : "";
+      const isGoogleUser = response.data?.is_google_user === true;
+      const hasUsablePassword = response.data?.has_usable_password === true;
 
       if (!isLoggedIn || !userId) {
         sessionCache.delete(wpAuth);
@@ -436,8 +533,16 @@ export const getSessionValidation = async (wpAuth) => {
 
       setSessionCache(wpAuth, {
         userId,
+        name,
         roles,
         email,
+        username,
+        firstName,
+        lastName,
+        phone,
+        verifiedPhone,
+        isGoogleUser,
+        hasUsablePassword,
         isPhoneVerified: isVerified,
         isSuspended,
         timestamp: Date.now(),
@@ -448,6 +553,14 @@ export const getSessionValidation = async (wpAuth) => {
         userId,
         roles,
         email,
+        name,
+        username,
+        firstName,
+        lastName,
+        phone,
+        verifiedPhone,
+        isGoogleUser,
+        hasUsablePassword,
         isPhoneVerified: isVerified,
         isSuspended,
       };
@@ -510,17 +623,7 @@ const executeOptionalAuth = async (context, req, res, next) => {
     const now = Date.now();
     const cached = sessionCache.get(wpAuth);
     if (cached && now - cached.timestamp < SESSION_CACHE_TTL) {
-      const cachedRoles = cached.roles || [];
-      const isCustomer = cachedRoles.includes("customer") || cachedRoles.includes("subscriber");
-      const isAdmin = cachedRoles.includes("administrator");
-      const isEmployee = cachedRoles.includes("shop_manager") || cachedRoles.includes("employee");
-
-      const roleMatches =
-        (context === "customer" && (isCustomer || isAdmin)) ||
-        (context === "admin" && isAdmin) ||
-        (context === "employee" && (isEmployee || isAdmin));
-
-      if (!roleMatches) {
+      if (!rolesMatchAuthContext(context, cached.roles)) {
         return next();
       }
 
@@ -551,27 +654,36 @@ const executeOptionalAuth = async (context, req, res, next) => {
     const userId = response.data?.current_user_id;
     const roles = Array.isArray(response.data?.roles) ? response.data.roles : [];
     const email = typeof response.data?.email === "string" ? response.data.email : "";
+    const name = typeof response.data?.name === "string" && response.data.name.trim()
+      ? response.data.name.trim()
+      : (typeof response.data?.display_name === "string" ? response.data.display_name.trim() : "");
+    const username = typeof response.data?.username === "string" ? response.data.username : "";
+    const firstName = typeof response.data?.first_name === "string" ? response.data.first_name : "";
+    const lastName = typeof response.data?.last_name === "string" ? response.data.last_name : "";
+    const phone = typeof response.data?.phone === "string" ? response.data.phone : "";
+    const verifiedPhone = typeof response.data?.verified_phone === "string" ? response.data.verified_phone : "";
+    const isGoogleUser = response.data?.is_google_user === true;
+    const hasUsablePassword = response.data?.has_usable_password === true;
     const isPhoneVerified = response.data?.is_phone_verified === true;
     const isSuspended = response.data?.is_suspended === true;
 
     if (response.data?.logged_in && userId) {
-      const isCustomer = roles.includes("customer") || roles.includes("subscriber");
-      const isAdmin = roles.includes("administrator");
-      const isEmployee = roles.includes("shop_manager") || roles.includes("employee");
-
-      const roleMatches =
-        (context === "customer" && (isCustomer || isAdmin)) ||
-        (context === "admin" && isAdmin) ||
-        (context === "employee" && (isEmployee || isAdmin));
-
-      if (!roleMatches) {
+      if (!rolesMatchAuthContext(context, roles)) {
         return next();
       }
 
       setSessionCache(wpAuth, {
         userId,
+        name,
         roles,
         email,
+        username,
+        firstName,
+        lastName,
+        phone,
+        verifiedPhone,
+        isGoogleUser,
+        hasUsablePassword,
         isPhoneVerified,
         isSuspended,
         timestamp: now,
@@ -583,8 +695,16 @@ const executeOptionalAuth = async (context, req, res, next) => {
       req.isSuspended = isSuspended;
       req.user = {
         id: userId,
+        name,
         roles,
         email,
+        username,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        verified_phone: verifiedPhone,
+        is_google_user: isGoogleUser,
+        has_usable_password: hasUsablePassword,
         is_phone_verified: isPhoneVerified,
         is_suspended: isSuspended,
       };

@@ -1,6 +1,7 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 export const DAYS_OF_WEEK = [
   "sunday",
@@ -37,11 +38,21 @@ let lastKnownGoodConfig = null;
 let lastSuccessfulFetchTime = 0;
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds TTL
 export const MAX_FALLBACK_CONFIG_AGE_MS = 5 * 60 * 1000; // 5 minutes fallback window
+const STORE_HOURS_CACHE_KEY = "store_hours:config";
+
+// Shared checkout fallback cache
+let sharedCheckoutFallback = null;
+
+export const _resetCheckoutStoreFallbackForTesting = () => {
+  sharedCheckoutFallback = null;
+};
 
 export const _resetStoreHoursCacheForTesting = () => {
   storeHoursCache = null;
   lastKnownGoodConfig = null;
   lastSuccessfulFetchTime = 0;
+  sharedCheckoutFallback = null;
+  serverCache.delete(STORE_HOURS_CACHE_KEY);
 };
 
 /**
@@ -401,16 +412,30 @@ function capitalizeFirstLetter(string) {
  * 4. Safe default configuration
  */
 export const getStoreHoursConfig = async (forceFresh = false) => {
-  if (!forceFresh && storeHoursCache && Date.now() - storeHoursCache.timestamp < CACHE_TTL_MS) {
-    return {
-      ...storeHoursCache.data,
-      _metadata: {
-        source: "cache",
-        age_ms: Date.now() - (lastSuccessfulFetchTime || storeHoursCache.timestamp),
-        is_fallback: false,
-        is_stale: false,
-      },
-    };
+  if (!forceFresh) {
+    const sharedCached = serverCache.get(STORE_HOURS_CACHE_KEY);
+    if (sharedCached && typeof sharedCached === "object" && sharedCached.schedule) {
+      return {
+        ...sharedCached,
+        _metadata: {
+          source: "cache",
+          age_ms: Date.now() - (lastSuccessfulFetchTime || Date.now()),
+          is_fallback: false,
+          is_stale: false,
+        },
+      };
+    }
+    if (storeHoursCache && Date.now() - storeHoursCache.timestamp < CACHE_TTL_MS) {
+      return {
+        ...storeHoursCache.data,
+        _metadata: {
+          source: "cache",
+          age_ms: Date.now() - (lastSuccessfulFetchTime || storeHoursCache.timestamp),
+          is_fallback: false,
+          is_stale: false,
+        },
+      };
+    }
   }
 
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
@@ -434,6 +459,7 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
         data: normalized,
         timestamp: now,
       };
+      serverCache.set(STORE_HOURS_CACHE_KEY, normalized, CACHE_TTL_MS);
       lastKnownGoodConfig = normalized;
       lastSuccessfulFetchTime = now;
       return {
@@ -467,9 +493,8 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
     };
   }
 
-  // Fallback 2: Default static configuration
+  // Fallback 2: Default static configuration (do NOT assign to lastKnownGoodConfig so defaults don't overwrite true WP config)
   const defaultConfig = JSON.parse(JSON.stringify(DEFAULT_STORE_HOURS_CONFIG));
-  lastKnownGoodConfig = defaultConfig;
   return {
     ...defaultConfig,
     _metadata: {
@@ -515,7 +540,7 @@ export const saveStoreHoursConfig = async (newConfig) => {
 
   const saved = response.data?.store_hours ? normalizeStoreHoursConfig(response.data.store_hours) : normalized;
 
-  // Invalidate in-memory cache immediately
+  // Invalidate in-memory cache and broadcast across workers
   const now = Date.now();
   storeHoursCache = {
     data: saved,
@@ -523,6 +548,8 @@ export const saveStoreHoursConfig = async (newConfig) => {
   };
   lastKnownGoodConfig = saved;
   lastSuccessfulFetchTime = now;
+  serverCache.set(STORE_HOURS_CACHE_KEY, saved, CACHE_TTL_MS);
+  serverCache.delete(STORE_HOURS_CACHE_KEY);
 
   return saved;
 };
@@ -549,11 +576,107 @@ export const isStoreOpen = async (referenceDate = new Date()) => {
   return Boolean(status?.is_open);
 };
 
-export default {
+/**
+ * Shared Authoritative Checkout Store Hours Guard
+ * Evaluates whether the store is open for placing new orders / initiating payment intents.
+ * 
+ * Rules:
+ * 1. Must have a valid boolean is_open.
+ * 2. If status is_stale (> 5 minutes without fresh WP read), fail closed / trigger fallback check.
+ * 3. Fresh live reads update the last-known-good fallback cache; fallback/stale reads NEVER overwrite it.
+ * 4. If store is closed, returns { allowed: false, statusCode: 403, payload: { code: 'STORE_CLOSED', ... } }.
+ * 5. If upstream check fails or status is stale:
+ *    - Uses fresh fallback if recorded within MAX_FALLBACK_CONFIG_AGE_MS (5 mins).
+ *    - If fallback was closed, returns 403 STORE_CLOSED.
+ *    - If fallback was open, allows checkout (allowed: true).
+ *    - If no valid fallback within 5 mins, fails closed: { allowed: false, statusCode: 503, payload: { code: 'STORE_HOURS_UNAVAILABLE', ... } }.
+ */
+export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFallback = null) => {
+  try {
+    const fetchFn = (storeHoursService && storeHoursService.getStoreStatus) || getStoreStatus;
+    const storeStatus = await fetchFn();
+    if (!storeStatus || typeof storeStatus.is_open !== "boolean") {
+      throw new Error("Invalid store status payload");
+    }
+
+    if (storeStatus.is_stale) {
+      throw new Error("Store status configuration is stale (> 5 minutes)");
+    }
+
+    if (!storeStatus.is_fallback) {
+      const record = { status: storeStatus, timestamp: Date.now() };
+      sharedCheckoutFallback = record;
+      if (typeof setLocalFallback === "function") {
+        setLocalFallback(record);
+      }
+    }
+
+    if (!storeStatus.is_open) {
+      return {
+        allowed: false,
+        statusCode: 403,
+        payload: {
+          success: false,
+          code: "STORE_CLOSED",
+          message: storeStatus.message || "Our store is currently closed for new orders.",
+          next_opening: storeStatus.next_opening,
+          current_day: storeStatus.current_day,
+          current_time_ist: storeStatus.current_time_ist,
+          schedule_today: storeStatus.schedule_today,
+          timezone: storeStatus.timezone || "Asia/Kolkata",
+        },
+      };
+    }
+
+    return { allowed: true, storeStatus };
+  } catch (statusErr) {
+    logger.warn({ err: statusErr.message }, "[StoreHours] Checkout store hours evaluation warning, checking fallback cache");
+
+    const fallbackRecord = localFallback || sharedCheckoutFallback;
+    const hasValidFallback =
+      fallbackRecord &&
+      Date.now() - fallbackRecord.timestamp <= MAX_FALLBACK_CONFIG_AGE_MS;
+
+    if (hasValidFallback) {
+      const fallback = fallbackRecord.status;
+      if (!fallback || !fallback.is_open) {
+        return {
+          allowed: false,
+          statusCode: 403,
+          payload: {
+            success: false,
+            code: "STORE_CLOSED",
+            message: fallback?.message || "Our store is currently closed for new orders.",
+            next_opening: fallback?.next_opening || null,
+            current_day: fallback?.current_day,
+            current_time_ist: fallback?.current_time_ist,
+            schedule_today: fallback?.schedule_today,
+            timezone: fallback?.timezone || "Asia/Kolkata",
+          },
+        };
+      }
+      return { allowed: true, storeStatus: fallback, isFallback: true };
+    }
+
+    return {
+      allowed: false,
+      statusCode: 503,
+      payload: {
+        success: false,
+        code: "STORE_HOURS_UNAVAILABLE",
+        message: "Unable to verify store operating hours. Please try again in a few moments.",
+      },
+    };
+  }
+};
+
+const storeHoursService = {
   DAYS_OF_WEEK,
   DEFAULT_STORE_HOURS_CONFIG,
   MAX_FALLBACK_CONFIG_AGE_MS,
   _resetStoreHoursCacheForTesting,
+  _resetCheckoutStoreFallbackForTesting,
+  checkCheckoutStoreGuard,
   isValidTimeFormat,
   timeToMinutes,
   format12HourTime,
@@ -566,4 +689,6 @@ export default {
   getStoreStatus,
   isStoreOpen,
 };
+
+export default storeHoursService;
 

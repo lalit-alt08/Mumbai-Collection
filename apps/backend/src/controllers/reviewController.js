@@ -32,6 +32,18 @@ const decodeHtmlEntities = (str) => {
 /**
  * Helper to sanitize customer reviewer display name, avoiding email/phone/system fallbacks
  */
+const maskReviewerName = (rawName) => {
+  const tokens = String(rawName || "").trim().split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) return tokens[0] || "";
+  const first = tokens[0];
+  const lastInitial = tokens[tokens.length - 1].charAt(0).toUpperCase();
+  return `${first} ${lastInitial}.`;
+};
+
+/**
+ * Helper to sanitize customer reviewer display name, avoiding email/phone/system fallbacks
+ * and masking full legal names to privacy-preserving initials (e.g. "Ramesh C.")
+ */
 const sanitizeReviewerDisplayName = (rawName, fallback = "Customer") => {
   if (!rawName || typeof rawName !== "string") return fallback;
   const name = rawName.trim();
@@ -56,7 +68,7 @@ const sanitizeReviewerDisplayName = (rawName, fallback = "Customer") => {
     return fallback;
   }
 
-  return name;
+  return maskReviewerName(name);
 };
 
 /**

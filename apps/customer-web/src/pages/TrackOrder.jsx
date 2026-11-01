@@ -660,10 +660,13 @@ function TrackOrder() {
                       <span>Payment Method</span>
                       <span className="font-bold text-[#F1F5F9]">{order.payment_method_title || "Cash on Delivery"}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Delivery Charge</span>
-                      <span className="font-bold text-emerald-400">
-                        {Number(order.shipping_total) === 0 ? "FREE" : `₹${order.shipping_total}`}
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[#F1F5F9]">Items Subtotal</span>
+                        <span className="block text-[10px] text-[#6E84A3]">(Incl. of all taxes)</span>
+                      </div>
+                      <span className="font-bold text-[#F1F5F9]">
+                        ₹{(Number(order.total || 0) - Number(order.shipping_total || 0) + Number(order.discount_total || 0)).toFixed(2)}
                       </span>
                     </div>
                     {Number(order.discount_total) > 0 && (
@@ -672,8 +675,17 @@ function TrackOrder() {
                         <span className="font-bold">-₹{order.discount_total}</span>
                       </div>
                     )}
-                    <div className="flex justify-between border-t border-[#1E3252]/60 pt-2 text-sm font-black text-[#F1F5F9]">
-                      <span>Grand Total</span>
+                    <div className="flex justify-between">
+                      <span>Delivery Charge</span>
+                      <span className="font-bold text-emerald-400">
+                        {Number(order.shipping_total) === 0 ? "FREE" : `₹${order.shipping_total}`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-start border-t border-[#1E3252]/60 pt-2 text-sm font-black text-[#F1F5F9]">
+                      <div>
+                        <span>Grand Total</span>
+                        <span className="block text-[10px] font-normal text-[#6E84A3]">Inclusive of all taxes (GST)</span>
+                      </div>
                       <span className="text-[#42D6E8] font-black">₹{order.total}</span>
                     </div>
                   </div>

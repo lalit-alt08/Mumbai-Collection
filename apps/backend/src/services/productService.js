@@ -2,6 +2,7 @@ import api from "../config/woocommerce.js";
 import wp from "./wordpress.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { decodeHtmlEntities } from "../utils/textUtils.js";
 
 const CATALOG_PRODUCT_FIELDS =
   "id,name,slug,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count";
@@ -451,35 +452,116 @@ export const fetchProductsByCategory = async (
 };
 
 export const fetchAllProductCategories = async ({ fields } = {}) => {
-  const allCategories = [];
-  let page = 1;
-  let totalPages = null;
   const perPage = 100;
+  // Keep category pagination below the shared WooCommerce agent socket ceiling,
+  // even when other catalog and checkout traffic is active.
+  const BATCH_CONCURRENCY = 3;
+  const MAX_PAGE_SAFETY_LIMIT = 100; // safety ceiling: max 10,000 categories
 
-  while (page <= (totalPages ?? Number.MAX_SAFE_INTEGER)) {
-    if (page > 1000) {
-      throw new Error("WooCommerce category pagination exceeded the safety limit");
+  // 1. Fetch first page to inspect total pages header
+  const firstResponse = await api.get("products/categories", {
+    page: 1,
+    per_page: perPage,
+    hide_empty: false,
+    ...(fields ? { _fields: fields } : {}),
+  });
+
+  if (!Array.isArray(firstResponse.data)) {
+    throw new Error("Invalid WooCommerce categories response");
+  }
+
+  const allCategories = [...firstResponse.data];
+
+  // If first page returned fewer than perPage items, catalog pagination is complete
+  if (firstResponse.data.length < perPage) {
+    return allCategories;
+  }
+
+  const reportedPages = Number.parseInt(firstResponse.headers?.["x-wp-totalpages"], 10);
+
+  // 2. Fetch remaining pages concurrently
+  if (Number.isFinite(reportedPages) && reportedPages > 1) {
+    // Mode A: Total pages header present from WooCommerce
+    const remainingPages = [];
+    for (let p = 2; p <= Math.min(reportedPages, MAX_PAGE_SAFETY_LIMIT); p++) {
+      remainingPages.push(p);
     }
 
-    const response = await api.get("products/categories", {
-      page,
-      per_page: perPage,
-      hide_empty: false,
-      ...(fields ? { _fields: fields } : {}),
-    });
+    for (let i = 0; i < remainingPages.length; i += BATCH_CONCURRENCY) {
+      const pageBatch = remainingPages.slice(i, i + BATCH_CONCURRENCY);
+      const responses = await Promise.all(
+        pageBatch.map((p) =>
+          api.get("products/categories", {
+            page: p,
+            per_page: perPage,
+            hide_empty: false,
+            ...(fields ? { _fields: fields } : {}),
+          })
+        )
+      );
 
-    if (!Array.isArray(response.data)) {
-      throw new Error("Invalid WooCommerce categories response");
+      for (const res of responses) {
+        if (Array.isArray(res.data)) {
+          allCategories.push(...res.data);
+        }
+      }
     }
+  } else {
+    // Mode B: Reverse proxy/CDN stripped x-wp-totalpages.
+    // Fetch in bounded concurrent batches until a page returns fewer than perPage items.
+    let currentPage = 2;
+    let hasMore = true;
 
-    allCategories.push(...response.data);
-    const reportedPages = Number.parseInt(response.headers?.["x-wp-totalpages"], 10);
-    totalPages = Number.isFinite(reportedPages) && reportedPages > 0
-      ? reportedPages
-      : (response.data.length < perPage ? page : page + 1);
+    while (hasMore && currentPage <= MAX_PAGE_SAFETY_LIMIT) {
+      const pageBatch = [];
+      for (let i = 0; i < BATCH_CONCURRENCY && (currentPage + i) <= MAX_PAGE_SAFETY_LIMIT; i++) {
+        pageBatch.push(currentPage + i);
+      }
 
-    if (response.data.length === 0) break;
-    page += 1;
+      const settledResults = await Promise.allSettled(
+        pageBatch.map((p) =>
+          api.get("products/categories", {
+            page: p,
+            per_page: perPage,
+            hide_empty: false,
+            ...(fields ? { _fields: fields } : {}),
+          })
+        )
+      );
+
+      for (let i = 0; i < settledResults.length; i++) {
+        const res = settledResults[i];
+        if (res.status === "fulfilled") {
+          const batchData = Array.isArray(res.value?.data) ? res.value.data : [];
+          allCategories.push(...batchData);
+          if (batchData.length < perPage) {
+            hasMore = false;
+            break;
+          }
+        } else {
+          const error = res.reason;
+          const status = error?.response?.status;
+          const errorCode = error?.response?.data?.code;
+          const errorMsg = String(error?.response?.data?.message || "");
+
+          // WooCommerce returns 400 (rest_post_invalid_page_number) when requested page exceeds total available pages
+          const isInvalidPage =
+            status === 400 &&
+            (errorCode === "rest_post_invalid_page_number" ||
+              /invalid page number|larger than the maximum/i.test(errorMsg));
+
+          if (isInvalidPage) {
+            hasMore = false;
+            break;
+          }
+
+          // Legitimate network/server errors must propagate
+          throw error;
+        }
+      }
+
+      currentPage += pageBatch.length;
+    }
   }
 
   return allCategories;
@@ -500,7 +582,7 @@ export const fetchCategories = async () => {
 
   return sorted.map((c) => ({
     id: c.id,
-    name: c.name,
+    name: decodeHtmlEntities(c.name),
     slug: c.slug,
     parent: typeof c.parent === "number" ? c.parent : 0,
     count: c.count,
@@ -509,8 +591,8 @@ export const fetchCategories = async () => {
       ? {
           id: c.image.id,
           src: c.image.src,
-          name: c.image.name,
-          alt: c.image.alt,
+          name: decodeHtmlEntities(c.image.name),
+          alt: decodeHtmlEntities(c.image.alt),
         }
       : null,
   }));

@@ -38,6 +38,7 @@ function AddProduct() {
   const cameraInputRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const hasLoadedCategoriesRef = useRef(false);
+  const categoryRequestIdRef = useRef(0);
   const generateIdempotencyKey = () =>
     typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
@@ -87,10 +88,12 @@ function AddProduct() {
   };
 
   const fetchCategories = useCallback(async (initializeFromUrl = false) => {
+    const requestId = ++categoryRequestIdRef.current;
     try {
       if (!hasLoadedCategoriesRef.current) setLoadingCategories(true);
       setCategoriesError("");
       const res = await getCategories();
+      if (requestId !== categoryRequestIdRef.current) return;
       const fetchedCategories = Array.isArray(res?.categories)
         ? res.categories
         : Array.isArray(res)
@@ -128,13 +131,16 @@ function AddProduct() {
         }
       }
     } catch (err) {
+      if (requestId !== categoryRequestIdRef.current) return;
       setCategoriesError(err.response?.data?.message || err.message || "Categories could not be loaded. Retry to continue.");
       if (initializeFromUrl) {
         setFormData((previous) => ({ ...previous, category_id: "" }));
         setSubcategoryId("");
       }
     } finally {
-      setLoadingCategories(false);
+      if (requestId === categoryRequestIdRef.current) {
+        setLoadingCategories(false);
+      }
     }
   }, [requestedCategoryId]);
 
@@ -709,8 +715,10 @@ function AddProduct() {
                             <span className="min-w-0 flex-1 truncate font-medium">
                               {category.name}
                             </span>
-                            {category.count !== undefined && (
-                              <span className="shrink-0 text-xs text-gray-400">{category.count}</span>
+                            {(category.total_count ?? category.count) !== undefined && (
+                              <span className="shrink-0 text-xs text-gray-400">
+                                {category.total_count ?? category.count}
+                              </span>
                             )}
                             {selected && <Check size={15} className="shrink-0 text-emerald-700 ml-1" />}
                           </button>

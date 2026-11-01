@@ -49,20 +49,22 @@ export const EmployeeAuthProvider = ({ children }) => {
       throw new Error(data?.message || "Login failed.");
     }
 
-    const meData = await getCurrentUser();
-    const roles = Array.isArray(meData?.roles) ? meData.roles : (meData?.role ? [meData.role] : []);
+    const loginUser = data?.user;
+    const roles = Array.isArray(loginUser?.roles)
+      ? loginUser.roles
+      : (loginUser?.role ? [loginUser.role] : []);
     const isAllowed = roles.some((role) =>
       ["employee", "administrator"].includes(role)
     );
 
-    if (!meData?.logged_in || !isAllowed) {
+    if (!loginUser?.id || !isAllowed) {
       await logoutEmployee().catch(() => {});
       setUser(null);
       throw new Error("This account does not have employee access permissions.");
     }
 
     setUser({
-      id: meData.current_user_id,
+      id: loginUser.id,
       roles,
     });
 
@@ -71,6 +73,10 @@ export const EmployeeAuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      try {
+        const { unsubscribeDevicePush } = await import("../utils/pushSubscription.js");
+        await unsubscribeDevicePush();
+      } catch (_) {}
       await logoutEmployee();
     } finally {
       setUser(null);

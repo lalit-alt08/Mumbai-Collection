@@ -3,11 +3,14 @@ import { cloneElement, isValidElement, useRef } from "react";
 const supportsIOSSwitchHaptics = (() => {
   if (typeof navigator === "undefined") return false;
 
+  // Prefer the standard API if Apple adds support in the future. Rendering
+  // both paths would otherwise produce two tactile responses for one tap.
+  if ("vibrate" in navigator) return false;
+
   const userAgent = navigator.userAgent || "";
-  const isIOSDevice =
-    /iPad|iPhone|iPod/i.test(userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (!isIOSDevice) return false;
+  // WebKit documents switch haptics for iPhone. iPad and iPod do not have the
+  // same Taptic Engine behavior, so do not add an invisible forwarding layer.
+  if (!/iPhone/i.test(userAgent)) return false;
 
   const versionMatch =
     userAgent.match(/(?:CPU (?:iPhone )?OS|iPhone OS|OS)\s*(\d+)[._](\d+)/i) ||
@@ -15,8 +18,7 @@ const supportsIOSSwitchHaptics = (() => {
   if (!versionMatch) return false;
 
   const major = Number(versionMatch[1]);
-  const minor = Number(versionMatch[2]);
-  return major > 17 || (major === 17 && minor >= 4);
+  return major >= 18;
 })();
 
 /**
@@ -49,25 +51,30 @@ export default function HapticTapTarget({
 
   // Keep all non-iOS browsers and older iOS versions on the original DOM and
   // click path; Android continues using the existing Vibration API helper.
-  if (!supportsIOSSwitchHaptics || disabled) return children;
+  if (!supportsIOSSwitchHaptics) {
+    if (className) {
+      return cloneElement(children, {
+        className: `${children.props.className || ""} ${className}`.trim(),
+      });
+    }
+    return children;
+  }
 
-  const handleSwitchClick = (event) => {
-    // The native switch itself supplies the iOS haptic. Stop its click from
-    // reaching parent cards, then forward the action to the original control
-    // after the browser has completed the switch's native toggle behavior.
+  const handleSwitchChange = (event) => {
+    // `change` fires after the native switch has toggled. Forward within the
+    // same user-activation task so clipboard, media and popup-capable handlers
+    // do not inherit the reliability problems of a timer-delayed click.
     event.stopPropagation();
     if (disabled) return;
 
     const target = targetRef.current;
-    window.setTimeout(() => {
-      if (
-        target?.isConnected &&
-        !target.disabled &&
-        target.getAttribute("aria-disabled") !== "true"
-      ) {
-        target.click();
-      }
-    }, 0);
+    if (
+      target?.isConnected &&
+      !target.disabled &&
+      target.getAttribute("aria-disabled") !== "true"
+    ) {
+      target.click();
+    }
   };
 
   return (
@@ -81,8 +88,10 @@ export default function HapticTapTarget({
         tabIndex={-1}
         type="checkbox"
         switch=""
+        disabled={disabled}
         className="haptic-tap-target__switch"
-        onClick={handleSwitchClick}
+        onClick={(event) => event.stopPropagation()}
+        onChange={handleSwitchChange}
       />
     </span>
   );

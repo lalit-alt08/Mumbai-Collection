@@ -4,7 +4,13 @@ import { serverCache } from "../utils/memoryCache.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 import { fetchAllProductCategories } from "../services/productService.js";
+import { decodeHtmlEntities } from "../utils/textUtils.js";
 import { markMediaAttached, deleteMediaIfUnreferenced } from "../services/wordpressMediaService.js";
+import { sanitizeUpstreamError } from "../utils/upstreamError.js";
+import { getRedisClient } from "../config/redis.js";
+import { randomUUID } from "node:crypto";
+
+let localReorderMutex = Promise.resolve();
 
 const isUncategorizedCategory = (category) =>
   String(category?.slug || "").toLowerCase() === "uncategorized" ||
@@ -74,24 +80,48 @@ export const getAdminCategories = async (req, res) => {
         const categories = await fetchAllProductCategories({
           fields: "id,name,slug,parent,count,menu_order,image",
         });
-        const sorted = [...categories].sort((a, b) => {
+        const categoryList = Array.isArray(categories) ? categories : [];
+        const categoryById = new Map(categoryList.map((c) => [Number(c.id), c]));
+        const descendantCounts = new Map();
+
+        // Calculate rolled-up descendant product counts
+        for (const c of categoryList) {
+          const directCount = Number(c.count) || 0;
+          if (directCount <= 0) continue;
+          let current = c;
+          const visited = new Set();
+          while (current && current.parent && Number(current.parent) > 0 && !visited.has(Number(current.parent))) {
+            const pId = Number(current.parent);
+            visited.add(pId);
+            descendantCounts.set(pId, (descendantCounts.get(pId) || 0) + directCount);
+            current = categoryById.get(pId);
+          }
+        }
+
+        const sorted = [...categoryList].sort((a, b) => {
           const orderA = typeof a.menu_order === "number" && a.menu_order > 0 ? a.menu_order : 9999;
           const orderB = typeof b.menu_order === "number" && b.menu_order > 0 ? b.menu_order : 9999;
           if (orderA !== orderB) return orderA - orderB;
           return a.id - b.id;
         });
 
-        return sorted.map((c) => ({
-          id: c.id,
-          name: c.name,
-          slug: c.slug,
-          parent: c.parent,
-          count: c.count,
-          menu_order: c.menu_order || 0,
-          image: c.image
-            ? { id: c.image.id, src: c.image.src, name: c.image.name, alt: c.image.alt }
-            : null,
-        }));
+        return sorted.map((c) => {
+          const directCount = Number(c.count) || 0;
+          const totalCount = directCount + (descendantCounts.get(Number(c.id)) || 0);
+          return {
+            id: c.id,
+            name: decodeHtmlEntities(c.name),
+            slug: c.slug,
+            parent: c.parent,
+            count: directCount,
+            direct_count: directCount,
+            total_count: totalCount,
+            menu_order: c.menu_order || 0,
+            image: c.image
+              ? { id: c.image.id, src: c.image.src, name: c.image.name, alt: c.image.alt }
+              : null,
+          };
+        });
       },
       120000
     );
@@ -102,12 +132,8 @@ export const getAdminCategories = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Get categories error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to load categories.",
-      categories: [],
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to load categories.");
+    res.status(safeError.status).json({ ...safeError.payload, categories: [] });
   }
 };
 
@@ -218,16 +244,18 @@ export const createCategory = async (req, res) => {
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
     serverCache.invalidatePrefix("category:");
+    serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("admin:categories");
+    serverCache.delete("admin:categories:hierarchy");
     serverCache.delete("seo:sitemap_xml");
 
 
     res.status(201).json({
       success: true,
-      message: `Category "${cat.name}" created successfully.`,
+      message: `Category "${decodeHtmlEntities(cat.name)}" created successfully.`,
       category: {
         id: cat.id,
-        name: cat.name,
+        name: decodeHtmlEntities(cat.name),
         slug: cat.slug,
         parent: typeof cat.parent === "number" ? cat.parent : (payload.parent || 0),
         count: cat.count || 0,
@@ -243,21 +271,15 @@ export const createCategory = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Create category error");
-    const statusCode = error.response?.status || 500;
-    const rawMessage = error.response?.data?.message || error.message || "Failed to create category.";
-
-    let userMessage = rawMessage;
+    const safeError = sanitizeUpstreamError(error, "Failed to create category.");
+    const rawMessage = String(error.response?.data?.message || "");
     if (
       rawMessage.toLowerCase().includes("already exists") ||
       error.response?.data?.code === "term_exists"
     ) {
-      userMessage = "A category with this name already exists.";
+      safeError.payload.message = "A category with this name already exists.";
     }
-
-    res.status(statusCode).json({
-      success: false,
-      message: userMessage,
-    });
+    res.status(safeError.status).json(safeError.payload);
   }
 };
 
@@ -433,16 +455,18 @@ export const updateCategory = async (req, res) => {
     // Invalidate catalog cache so public categories immediately update
     serverCache.invalidatePrefix("catalog:");
     serverCache.invalidatePrefix("category:");
+    serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("admin:categories");
+    serverCache.delete("admin:categories:hierarchy");
     serverCache.delete("seo:sitemap_xml");
 
 
     res.json({
       success: true,
-      message: `Category "${cat.name}" updated successfully.`,
+      message: `Category "${decodeHtmlEntities(cat.name)}" updated successfully.`,
       category: {
         id: cat.id,
-        name: cat.name,
+        name: decodeHtmlEntities(cat.name),
         slug: cat.slug,
         parent: typeof cat.parent === "number" ? cat.parent : (payload.parent !== undefined ? payload.parent : (cat.parent || 0)),
         count: cat.count || 0,
@@ -458,21 +482,15 @@ export const updateCategory = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Update category error");
-    const statusCode = error.response?.status || 500;
-    const rawMessage = error.response?.data?.message || error.message || "Failed to update category.";
-
-    let userMessage = rawMessage;
+    const safeError = sanitizeUpstreamError(error, "Failed to update category.");
+    const rawMessage = String(error.response?.data?.message || "");
     if (
       rawMessage.toLowerCase().includes("already exists") ||
       error.response?.data?.code === "term_exists"
     ) {
-      userMessage = "A category with this name already exists.";
+      safeError.payload.message = "A category with this name already exists.";
     }
-
-    res.status(statusCode).json({
-      success: false,
-      message: userMessage,
-    });
+    res.status(safeError.status).json(safeError.payload);
   }
 };
 
@@ -480,6 +498,30 @@ export const updateCategory = async (req, res) => {
  * Reorder Product Categories in WooCommerce
  */
 export const reorderCategories = async (req, res) => {
+  const redis = getRedisClient();
+  const lockKey = "lock:category:reorder";
+  const lockOwner = randomUUID();
+  let acquiredRedisLock = false;
+
+  if (redis) {
+    try {
+      const acquired = await redis.set(lockKey, lockOwner, "PX", 30000, "NX");
+      if (!acquired) {
+        return res.status(409).json({
+          success: false,
+          code: "REORDER_IN_PROGRESS",
+          message: "A category reordering operation is currently in progress. Please wait a moment and retry.",
+        });
+      }
+      acquiredRedisLock = true;
+    } catch (_) {}
+  }
+
+  const previousQueue = localReorderMutex;
+  let releaseLocal;
+  localReorderMutex = new Promise((resolve) => { releaseLocal = resolve; });
+  await previousQueue;
+
   try {
     const { category_ids } = req.body;
 
@@ -622,10 +664,15 @@ export const reorderCategories = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Reorder categories error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to reorder categories.",
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to reorder categories.");
+    res.status(safeError.status).json(safeError.payload);
+  } finally {
+    releaseLocal();
+    if (acquiredRedisLock && redis) {
+      try {
+        const script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+        await redis.eval(script, 1, lockKey, lockOwner);
+      } catch (_) {}
+    }
   }
 };

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import CategoryCard from "./CategoryCard";
+import { ChevronRight } from "lucide-react";
 
-const HOME_CATEGORY_PREVIEW_LIMIT = 8;
+const HOME_CATEGORY_PREVIEW_LIMIT = 12;
 const EMPTY_CATEGORIES = [];
 
 function CategoryGrid({ categories: propCategories = EMPTY_CATEGORIES }) {
@@ -11,7 +12,7 @@ function CategoryGrid({ categories: propCategories = EMPTY_CATEGORIES }) {
     [propCategories]
   );
 
-  // Filter out system "Uncategorized", subcategories, and empty categories (count === 0) from customer category browsing
+  // Filter out system "Uncategorized", subcategories, and empty categories (count === 0)
   const displayCategories = useMemo(() => {
     const hasCountData = categories.some((category) => category?.count !== undefined && category?.count !== null);
     const populatedRootIds = new Set();
@@ -41,7 +42,7 @@ function CategoryGrid({ categories: propCategories = EMPTY_CATEGORIES }) {
         (!c.parent || Number(c.parent) === 0) &&
         c.slug?.toLowerCase() !== "uncategorized" &&
         c.name?.toLowerCase() !== "uncategorized" &&
-        (!hasCountData || populatedRootIds.has(Number(c.id)))
+        (c.has_products === true || !hasCountData || populatedRootIds.has(Number(c.id)))
     );
   }, [categories]);
 
@@ -51,29 +52,31 @@ function CategoryGrid({ categories: propCategories = EMPTY_CATEGORIES }) {
 
   return (
     <section className="hidden md:block">
-      <div className="mb-3 sm:mb-4 flex items-center gap-2 sm:gap-2.5">
-        <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
-        <div className="flex w-full items-center justify-between gap-3">
-          <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
+      <div className="mb-2.5 sm:mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
+          <h2 className="text-base sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
             Shop by Category
           </h2>
-          {displayCategories.length > HOME_CATEGORY_PREVIEW_LIMIT && (
-            <Link
-              to="/categories"
-              className="shrink-0 text-xs sm:text-sm font-bold text-[#42D6E8] hover:text-[#67E8F9]"
-            >
-              All categories
-            </Link>
-          )}
         </div>
+        <Link
+          to="/categories"
+          className="group flex items-center gap-0.5 sm:gap-1 shrink-0 text-xs sm:text-sm font-bold text-[#42D6E8] hover:text-[#67E8F9] transition"
+        >
+          <span>All categories</span>
+          <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+        </Link>
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3.5 md:gap-4">
-        {visibleCategories.map((category) => (
-          <CategoryCard
+      {/* Responsive Grid: 4 columns on mobile (showing top 8), 6 columns on desktop (showing 12) */}
+      <div className="grid grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3.5 md:gap-4">
+        {visibleCategories.map((category, index) => (
+          <div
             key={category.id}
-            category={category}
-          />
+            className={index >= 8 ? "hidden md:block" : ""}
+          >
+            <CategoryCard category={category} />
+          </div>
         ))}
       </div>
     </section>

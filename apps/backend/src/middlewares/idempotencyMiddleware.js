@@ -128,22 +128,34 @@ export const requireIdempotency = async (req, res, next) => {
           logger.warn({ rzpOrderId: cachedRzpOrderId, err: intentErr.message }, "[Idempotency] Failed to load intent for cache hit");
         }
 
-        // If intent is missing or status is anything but 'created' (paid, order_created, refund_pending, refunded, failed),
-        // discard the cached entry so a fresh Razorpay order is created.
-        if (!intent || intent.status !== "created") {
+        // If intent reached terminal fulfillment (order_created or paid), return cached response to prevent duplicate orders
+        if (intent && (intent.status === "order_created" || intent.status === "paid" || intent.wc_order_id)) {
           logger.info(
-            { rzpOrderId: cachedRzpOrderId, intentStatus: intent?.status },
-            "[Idempotency] Discarding stale create-order cache: intent is missing or no longer in 'created' status"
+            { rzpOrderId: cachedRzpOrderId, intentStatus: intent.status },
+            "[Idempotency] Returning completed idempotent response for already finalized order"
           );
-          idempotencyStore.delete(key);
-          // Fall through to proceed with a fresh order creation!
-        } else {
+          return res.status(cached.statusCode).json({
+            ...cached.body,
+            order_id: intent.wc_order_id ? Number(intent.wc_order_id) : (cached.body?.order_id || null),
+            _idempotent: true,
+          });
+        }
+
+        // If intent is active and unpaid (created), return active cached response
+        if (intent && intent.status === "created") {
           logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning active cached idempotent response");
           return res.status(cached.statusCode).json({
             ...cached.body,
             _idempotent: true,
           });
         }
+
+        // Only discard cache if intent explicitly failed, cancelled, or was abandoned so user can retry with fresh checkout
+        logger.info(
+          { rzpOrderId: cachedRzpOrderId, intentStatus: intent?.status },
+          "[Idempotency] Discarding inactive create-order cache: intent failed, cancelled, or missing"
+        );
+        idempotencyStore.delete(key);
       } else {
         logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning cached idempotent response");
         return res.status(cached.statusCode).json({

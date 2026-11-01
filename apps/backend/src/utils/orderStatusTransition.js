@@ -54,21 +54,8 @@ export const getOrderDeliveredTimestamp = (order) => {
     if (!isNaN(t) && t > 0) return t;
   }
 
-  // 4. date_created_gmt
-  if (order.date_created_gmt) {
-    const gmtStr = order.date_created_gmt.endsWith("Z")
-      ? order.date_created_gmt
-      : `${order.date_created_gmt}Z`;
-    const t = new Date(gmtStr).getTime();
-    if (!isNaN(t) && t > 0) return t;
-  }
-
-  // 5. date_created
-  if (order.date_created) {
-    const t = new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(order.date_created) ? order.date_created : order.date_created + "+05:30").getTime();
-    if (!isNaN(t) && t > 0) return t;
-  }
-
+  // Do not fall back to date_created/date_created_gmt.
+  // An order creation timestamp must never be mistaken for a delivery timestamp.
   return null;
 };
 
@@ -176,7 +163,11 @@ export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs 
   const fulfillmentStatuses = ["processing", "packed", "out-for-delivery", "dispatched", "completed"];
   const currentStatus = String(currentOrder?.status || "").toLowerCase();
   const effectiveStatus = currentOrder?.meta_data?.find((m) => m.key === "_delivery_status")?.value || currentStatus;
-  const terminal = ["cancelled", "refunded", "failed", "completed"];
+
+  // Terminal statuses that can never be reopened: cancelled, refunded, failed.
+  // Note: completed/delivered orders are NOT permanently locked immediately;
+  // they remain editable/correctable within the 72-hour delivery window (enforced by isOrderStatusLocked above).
+  const terminal = ["cancelled", "refunded", "failed"];
   if (terminal.includes(currentStatus) || terminal.includes(effectiveStatus)) {
     return targetStatus === currentStatus || targetStatus === effectiveStatus
       ? { valid: true }
@@ -187,8 +178,9 @@ export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs 
     "on-hold": ["cancelled", "failed"],
     processing: ["packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
     packed: ["out-for-delivery", "dispatched", "cancelled"],
-    "out-for-delivery": ["completed"],
-    dispatched: ["completed"],
+    "out-for-delivery": ["completed", "dispatched", "cancelled", "failed"],
+    dispatched: ["completed", "out-for-delivery", "cancelled", "failed"],
+    completed: ["processing", "packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
   };
   if (targetStatus !== effectiveStatus && !(allowed[effectiveStatus] || []).includes(targetStatus)) {
     return { valid: false, message: `Cannot transition ${effectiveStatus} to ${targetStatus}.` };

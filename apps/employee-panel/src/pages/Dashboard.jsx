@@ -25,9 +25,11 @@ import {
   requestNotificationPermission,
 } from "../utils/orderNotification.js";
 
+let cachedOverviewData = null;
+
 function Dashboard() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(() => cachedOverviewData);
+  const [loading, setLoading] = useState(() => !cachedOverviewData);
   const [error, setError] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -39,55 +41,61 @@ function Dashboard() {
     }, 3500);
   };
 
-  const isFetchingRef = useRef(false);
   const pollTimerRef = useRef(null);
   const prevToPackCountRef = useRef(null);
-  const abortControllerRef = useRef(null);
+  const activeRequestRef = useRef(null);
 
   // Authenticated Overview Fetcher
   const fetchOverview = async (isBackground = false) => {
-    if (isFetchingRef.current) return;
-
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-      isFetchingRef.current = true;
-      if (!isBackground) {
-        setLoading(true);
-        setError(null);
-      }
-      const res = await getOverview({ signal: controller.signal });
-      if (res && res.success) {
-        const payload = res.data || res;
-        const currentToPack = payload.summary?.ordersToPack ?? payload.ordersToPack;
-        if (typeof currentToPack === "number" && prevToPackCountRef.current !== null) {
-          if (currentToPack > prevToPackCountRef.current) {
-            triggerNewOrderNotification({ count: currentToPack - prevToPackCountRef.current });
-          }
-        }
-        if (typeof currentToPack === "number") {
-          prevToPackCountRef.current = currentToPack;
-        }
-        setData(payload);
-        setError(null);
-      } else if (!isBackground) {
-        setError(res?.message || "Failed to load operations dashboard.");
-      }
-    } catch (err) {
-      if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
-        return;
-      }
-      if (!isBackground) {
-        setError(err.response?.data?.message || err.message || "Network error loading operations dashboard.");
-      }
-    } finally {
-      isFetchingRef.current = false;
-      if (!isBackground && !controller.signal.aborted) {
-        setLoading(false);
-      }
+    const activeRequest = activeRequestRef.current;
+    if (activeRequest && !activeRequest.controller.signal.aborted) {
+      return activeRequest.promise;
     }
+
+    const controller = new AbortController();
+    const requestPromise = (async () => {
+      try {
+        if (!isBackground) {
+          setLoading(true);
+          setError(null);
+        }
+        const res = await getOverview({ signal: controller.signal });
+        if (res && res.success) {
+          const payload = res.data || res;
+          const currentToPack = payload.summary?.ordersToPack ?? payload.ordersToPack;
+          if (typeof currentToPack === "number" && prevToPackCountRef.current !== null) {
+            if (currentToPack > prevToPackCountRef.current) {
+              triggerNewOrderNotification({ count: currentToPack - prevToPackCountRef.current });
+            }
+          }
+          if (typeof currentToPack === "number") {
+            prevToPackCountRef.current = currentToPack;
+          }
+          cachedOverviewData = payload;
+          setData(payload);
+          setError(null);
+        } else if (!isBackground) {
+          setError(res?.message || "Failed to load operations dashboard.");
+        }
+      } catch (err) {
+        if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
+          return;
+        }
+        if (!isBackground) {
+          setError(err.response?.data?.message || err.message || "Network error loading operations dashboard.");
+        }
+      } finally {
+        if (activeRequestRef.current?.controller === controller) {
+          activeRequestRef.current = null;
+        }
+        if (!isBackground && !controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    activeRequestRef.current = { controller, promise: requestPromise };
+    return requestPromise;
   };
 
   // Request browser notification permissions on mount
@@ -97,10 +105,10 @@ function Dashboard() {
 
   // Initial load + 30s background polling
   useEffect(() => {
-    fetchOverview(false);
+    fetchOverview(Boolean(cachedOverviewData));
 
     const startPolling = () => {
-      if (!pollTimerRef.current) {
+      if (!document.hidden && !pollTimerRef.current) {
         pollTimerRef.current = setInterval(() => {
           fetchOverview(true);
         }, 30000);
@@ -115,9 +123,12 @@ function Dashboard() {
     };
 
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        fetchOverview(true);
+      if (document.hidden) {
+        stopPolling();
+        return;
       }
+      fetchOverview(true);
+      startPolling();
     };
 
     startPolling();
@@ -126,7 +137,8 @@ function Dashboard() {
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      abortControllerRef.current?.abort();
+      activeRequestRef.current?.controller.abort();
+      activeRequestRef.current = null;
     };
   }, []);
 

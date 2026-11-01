@@ -26,11 +26,21 @@ import {
   SlidersHorizontal,
   ArrowRight,
   MoreVertical,
+  BellRing,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
-import { getOrders, bulkDispatchOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl } from "../services/employeeApi.js";
+import { getOrders, bulkDispatchOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl, acknowledgeOrder } from "../services/employeeApi.js";
 import {
   triggerNewOrderNotification,
   requestNotificationPermission,
+  armOrderAlarm,
+  isAudioArmed,
+  subscribeToAlarmState,
+  acknowledgeOrderAlarm,
+  restoreOrderAlarm,
+  restoreOrderAlarms,
+  muteAllOrderAlarms,
 } from "../utils/orderNotification.js";
 import {
   resolveTabFromStatusParam,
@@ -307,15 +317,6 @@ function Orders() {
       if (res.success) {
         if (requestId !== requestIdRef.current) return;
         const incomingOrders = res.orders || [];
-        if (knownOrderIdsRef.current !== null) {
-          const hasNewIncoming = incomingOrders.some(
-            (o) => !knownOrderIdsRef.current.has(o.id)
-          );
-          if (hasNewIncoming) {
-            const newest = incomingOrders.find((o) => !knownOrderIdsRef.current.has(o.id));
-            triggerNewOrderNotification({ orderId: newest?.id });
-          }
-        }
         knownOrderIdsRef.current = new Set(incomingOrders.map((o) => o.id));
         setOrders(incomingOrders);
         setOrdersQueryKey(currentOrdersQueryKey);
@@ -344,19 +345,78 @@ function Orders() {
     }
   };
 
-  // Request browser notification permissions on mount
+  // Alarm state subscription
+  const [alarmState, setAlarmState] = useState({
+    unacknowledgedOrders: [],
+    isAlarming: false,
+    isArmed: isAudioArmed(),
+  });
+  const [ackError, setAckError] = useState(null);
+
   useEffect(() => {
-    requestNotificationPermission();
+    return subscribeToAlarmState(setAlarmState);
   }, []);
 
+  const handleMuteAllAlarms = async () => {
+    const orderIds = [...alarmState.unacknowledgedOrders];
+    if (orderIds.length === 0) return;
+    muteAllOrderAlarms();
+    setAckError(null);
+    const results = await Promise.allSettled(orderIds.map((id) => acknowledgeOrder(id)));
+    const failedIds = [];
+    results.forEach((res, index) => {
+      if (res.status === "rejected" || !res.value?.success) {
+        failedIds.push(orderIds[index]);
+      }
+    });
+    if (failedIds.length > 0) {
+      restoreOrderAlarms(failedIds);
+      setAckError({
+        failedIds,
+        message: `Failed to confirm acknowledgement with store network for order(s) ${failedIds.map((id) => `#${id}`).join(", ")}. Alarm restored.`,
+      });
+    }
+  };
+
+  const handleAcknowledgeSingleOrder = async (orderId) => {
+    acknowledgeOrderAlarm(orderId);
+    setAckError(null);
+    try {
+      await acknowledgeOrder(orderId);
+    } catch (_) {
+      restoreOrderAlarm(orderId);
+      setAckError({
+        failedIds: [orderId],
+        message: `Failed to acknowledge Order #${orderId} with server. Alarm restored.`,
+      });
+    }
+  };
+
+  // 1. Fetch order list whenever user modifies filters, search, or pagination
   useEffect(() => {
     fetchOrderList(false);
+  }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
 
+  // 2. Persistent SSE connection with 45s heartbeat watchdog & direct event notifications
+  useEffect(() => {
     let eventSource = null;
     let isReconnecting = false;
+    let watchdogTimer = null;
+    let reconnectTimer = null;
+    let reconnectAttempts = 0;
+    let isDisposed = false;
+
+    const resetWatchdog = () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      // 45 seconds watchdog: if neither heartbeat nor event arrives within 45s, reconnect
+      watchdogTimer = setTimeout(() => {
+        if (!isDisposed) {
+          reconnectStream(true);
+        }
+      }, 45000);
+    };
+
     const scheduleEventRefresh = () => {
-      // Coalesce bursts of order events into one list request instead of
-      // asking WooCommerce for the full list once per rapid status change.
       if (eventRefreshTimerRef.current) {
         clearTimeout(eventRefreshTimerRef.current);
       }
@@ -366,24 +426,77 @@ function Orders() {
       }, 700);
     };
 
-    // Connect to real-time Server-Sent Events stream for instantaneous order notifications
+    const cleanupCurrentStream = () => {
+      if (watchdogTimer) {
+        clearTimeout(watchdogTimer);
+        watchdogTimer = null;
+      }
+      if (eventSource) {
+        try {
+          eventSource.close();
+        } catch (_) {}
+        eventSource = null;
+      }
+    };
+
+    const reconnectStream = (immediate = false) => {
+      if (isDisposed) return;
+      cleanupCurrentStream();
+
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+
+      isReconnecting = true;
+      const delay = immediate ? 0 : Math.min(1000 * Math.pow(1.5, reconnectAttempts), 15000) + Math.random() * 500;
+      reconnectAttempts = immediate ? 0 : reconnectAttempts + 1;
+
+      reconnectTimer = setTimeout(() => {
+        if (!isDisposed) setupEventSource();
+      }, delay);
+    };
+
     const setupEventSource = () => {
+      if (isDisposed) return;
+      cleanupCurrentStream();
+
       try {
         const streamUrl = getEmployeeOrderStreamUrl();
         eventSource = new EventSource(streamUrl, { withCredentials: true });
 
         eventSource.onopen = () => {
-          // If reconnected after network blip or server restart, immediately refetch to catch missed events
+          reconnectAttempts = 0;
+          resetWatchdog();
           if (isReconnecting) {
             fetchOrderList(true);
             isReconnecting = false;
           }
         };
 
+        // Server heartbeat event (emitted every 15s by backend)
+        eventSource.addEventListener("heartbeat", () => {
+          resetWatchdog();
+        });
+
+        // Connected event
+        eventSource.addEventListener("connected", () => {
+          resetWatchdog();
+        });
+
+        // Order event: direct notification from payload
         eventSource.addEventListener("order_event", (event) => {
+          resetWatchdog();
           try {
             const data = JSON.parse(event.data);
-            if (data?.event === "ORDER_CREATED" || data?.event === "ORDER_STATUS_UPDATED") {
+            if (data?.event === "ORDER_CREATED") {
+              // Direct notification from event payload, deduplicated session-wide
+              triggerNewOrderNotification({ orderId: data.orderId });
+              scheduleEventRefresh();
+            } else if (data?.event === "ORDER_ACKNOWLEDGED") {
+              // Cross-device sync: staff acknowledged on another phone
+              acknowledgeOrderAlarm(data.orderId);
+            } else if (data?.event === "ORDER_STATUS_UPDATED") {
               scheduleEventRefresh();
             }
           } catch (_) {
@@ -392,57 +505,49 @@ function Orders() {
         });
 
         eventSource.onerror = () => {
-          // Flag reconnection so that upon next onopen, we pull fresh state
-          isReconnecting = true;
+          reconnectStream(false);
         };
-      } catch (err) {
-        // Fallback to polling if EventSource initialization is unsupported or blocked
-        isReconnecting = true;
+      } catch (_) {
+        reconnectStream(false);
       }
     };
 
     setupEventSource();
 
-    // Slower safety-net polling fallback (45 seconds) to handle sleeping tabs or missed events
-    const startPolling = () => {
-      if (!pollTimerRef.current) {
-        pollTimerRef.current = setInterval(() => {
-          if (!document.hidden) fetchOrderList(true);
-        }, 45000);
-      }
-    };
-
-    const stopPolling = () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-    };
-
+    // Foreground resume & network recovery listeners
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        // Tab brought to foreground: immediately sync latest diff
+        // Catch-up refresh immediately when returning to foreground
         fetchOrderList(true);
+        if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+          reconnectStream(true);
+        }
       }
     };
 
-    startPolling();
+    const handleOnline = () => {
+      fetchOrderList(true);
+      reconnectStream(true);
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+
+    // 45-second fallback polling
+    const pollInterval = setInterval(() => {
+      if (!document.hidden) fetchOrderList(true);
+    }, 45000);
 
     return () => {
-      abortControllerRef.current?.abort();
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-      if (eventRefreshTimerRef.current) {
-        clearTimeout(eventRefreshTimerRef.current);
-        eventRefreshTimerRef.current = null;
-      }
-      stopPolling();
+      isDisposed = true;
+      cleanupCurrentStream();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (eventRefreshTimerRef.current) clearTimeout(eventRefreshTimerRef.current);
+      clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
     };
-  }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
+  }, []);
 
   const eligibleForDispatch = (order) => order.status === "packed" && !order.is_unpaid && !order.is_status_locked;
   useEffect(() => { setSelectedIds(new Set()); setBulkConfirm(false); }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
@@ -918,6 +1023,91 @@ function Orders() {
         >
           {toast.type === "error" ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
           <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Audio Alert Arming Banner (Mobile Autoplay Requirement) */}
+      {!alarmState.isArmed && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-3.5 text-amber-950 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white font-bold shadow-xs">
+              <BellRing size={18} />
+            </div>
+            <div>
+              <p className="font-bold text-xs sm:text-sm text-amber-950">Counter Audio Alerts Not Armed</p>
+              <p className="text-[11px] text-amber-800">
+                Tap to enable sound alerts for new counter orders (required by mobile browsers).
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              await armOrderAlarm();
+            }}
+            className="rounded-xl bg-amber-500 hover:bg-amber-600 px-3.5 py-2 text-xs font-black text-white shadow-xs transition cursor-pointer"
+          >
+            Enable Order Sound
+          </button>
+        </div>
+      )}
+
+      {/* Acknowledgement Failure Alert with Retry */}
+      {ackError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-rose-950 border border-rose-700/60 p-3.5 text-rose-100 shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-600 text-white font-bold shadow-xs">
+              <AlertCircle size={18} />
+            </div>
+            <div>
+              <p className="font-bold text-xs sm:text-sm text-white">Acknowledgement Network Sync Failed</p>
+              <p className="text-[11px] text-rose-200">{ackError.message}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (ackError.failedIds?.length === 1) {
+                  handleAcknowledgeSingleOrder(ackError.failedIds[0]);
+                } else {
+                  handleMuteAllAlarms();
+                }
+              }}
+              className="rounded-xl bg-rose-600 hover:bg-rose-500 px-3 py-1.5 text-xs font-black text-white shadow-xs transition cursor-pointer"
+            >
+              Retry Sync
+            </button>
+            <button
+              onClick={() => setAckError(null)}
+              className="rounded-xl bg-rose-900/80 hover:bg-rose-800 px-2.5 py-1.5 text-xs font-medium text-rose-300 transition cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Active Alarm Siren Banner */}
+      {alarmState.isAlarming && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-rose-600 p-4 text-white shadow-lg animate-pulse">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl animate-bounce">🚨</span>
+            <div>
+              <p className="text-sm sm:text-base font-black tracking-tight text-white">
+                {alarmState.unacknowledgedOrders.length === 1
+                  ? `NEW ORDER #${alarmState.unacknowledgedOrders[0]} RECEIVED!`
+                  : `${alarmState.unacknowledgedOrders.length} NEW ORDERS (${alarmState.unacknowledgedOrders.map((id) => `#${id}`).join(", ")})!`}
+              </p>
+              <p className="text-xs text-rose-100 font-semibold">
+                Immediate packing required. Repeating alarm will sound until acknowledged.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleMuteAllAlarms}
+            className="rounded-xl bg-white hover:bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 shadow-md transition cursor-pointer"
+          >
+            Acknowledge & Silence Siren
+          </button>
         </div>
       )}
 

@@ -21,10 +21,6 @@ function Footer() {
               <Link to="/contact" className="hover:text-[#42D6E8] transition-colors">
                 Contact Us
               </Link>
-
-              <Link to="/login" className="hover:text-white transition">
-                Login
-              </Link>
             </div>
           </div>
 

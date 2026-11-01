@@ -14,6 +14,16 @@ const wp = axios.create({
 
 // Automatically attach internal API key for server-to-server trust boundary
 wp.interceptors.request.use((config) => {
+  // Origin-lock: ensure the request is only sent to the configured WORDPRESS_URL origin
+  if (config.url && /^https?:\/\//i.test(config.url)) {
+    const configuredOrigin = new URL(process.env.WORDPRESS_URL || "http://localhost").origin;
+    const requestOrigin = new URL(config.url).origin;
+    if (configuredOrigin !== requestOrigin) {
+      throw new Error(
+        `[WordPress Service] Outbound request origin ${requestOrigin} does not match configured WORDPRESS_URL origin ${configuredOrigin}`
+      );
+    }
+  }
   if (process.env.MUMBAI_INTERNAL_API_KEY) {
     config.headers = config.headers || {};
     if (!config.headers["X-Mumbai-Internal-Key"]) {

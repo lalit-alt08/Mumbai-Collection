@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -14,9 +14,12 @@ import {
   UserCheck,
   Sliders,
   FolderTree,
+  Smartphone,
+  Sun,
 } from "lucide-react";
 
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
+import { useWakeLock } from "../hooks/useWakeLock.js";
 
 function EmployeeLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -24,6 +27,7 @@ function EmployeeLayout() {
   const navigate = useNavigate();
 
   const { logout, user } = useEmployeeAuth();
+  const { isLocked, isEnabled, isSupported, toggleCounterMode, releaseLock } = useWakeLock();
 
   const navigation = [
     { name: "Dashboard", href: "/", exact: true, icon: LayoutDashboard },
@@ -35,7 +39,19 @@ function EmployeeLayout() {
     { name: "Subcategories", href: "/subcategories", exact: true, icon: FolderTree },
   ];
 
+  // Resynchronize locked-screen push subscription automatically if permission is already granted
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      import("../utils/pushSubscription.js")
+        .then(({ registerPushNotificationService }) => {
+          registerPushNotificationService().catch(() => {});
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const handleLogout = async () => {
+    await releaseLock();
     await logout();
     navigate("/login", { replace: true });
   };
@@ -129,6 +145,35 @@ function EmployeeLayout() {
           })}
         </nav>
 
+        {/* Counter Mode Switch in Sidebar */}
+        <div className="px-4 py-2">
+          <button
+            onClick={toggleCounterMode}
+            className={`w-full flex items-center justify-between rounded-xl p-3 text-xs font-bold transition cursor-pointer border ${
+              isLocked
+                ? "bg-emerald-950/60 border-emerald-500/50 text-emerald-300"
+                : isEnabled
+                ? "bg-amber-950/60 border-amber-500/40 text-amber-300"
+                : "bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Sun size={15} className={isLocked ? "text-emerald-400 animate-spin" : "text-slate-400"} />
+              <div className="text-left">
+                <p className="font-bold">Counter Mode</p>
+                <p className="text-[10px] opacity-75">
+                  {isLocked ? "Screen Awake & Armed" : isEnabled ? "Alerts Armed" : "Keep Screen Awake"}
+                </p>
+              </div>
+            </div>
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                isLocked ? "bg-emerald-400 animate-pulse" : isEnabled ? "bg-amber-400" : "bg-slate-600"
+              }`}
+            />
+          </button>
+        </div>
+
         {/* User Info & Logout Footer */}
         <div className="border-t border-slate-800 p-4 space-y-3">
           <div className="flex items-center gap-3 px-2 py-1.5">
@@ -177,8 +222,33 @@ function EmployeeLayout() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+          <div className="flex items-center gap-2.5">
+            {/* Counter Mode Keep-Awake Switch in Header */}
+            <button
+              onClick={toggleCounterMode}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition cursor-pointer border ${
+                isLocked
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 shadow-sm"
+                  : isEnabled
+                  ? "bg-amber-50 text-amber-800 border-amber-300"
+                  : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+              }`}
+              title="Keep screen awake and arm audio order alerts for shop phone"
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isLocked ? "bg-emerald-500 animate-pulse" : isEnabled ? "bg-amber-500" : "bg-gray-400"
+                }`}
+              />
+              <span className="hidden sm:inline">
+                {isLocked ? "🟢 Counter Mode (Screen Awake)" : isEnabled ? "⚡ Counter Mode (Armed)" : "⚪ Counter Mode Off"}
+              </span>
+              <span className="sm:hidden">
+                {isLocked ? "Awake" : "Counter Mode"}
+              </span>
+            </button>
+
+            <div className="hidden sm:flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 border border-emerald-200">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
               Store Active
             </div>

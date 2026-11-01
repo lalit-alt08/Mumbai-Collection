@@ -8,7 +8,7 @@ const { default: api } = await import("../src/config/woocommerce.js");
 const { _setWpClientForTesting } = await import("../src/services/paymentIntentService.js");
 const { sendOrderRefundEmail } = await import("../src/controllers/employeeController.js");
 
-test("employee refund email is an explicit, one-time action", async () => {
+test("employee refund email requires a verified refund and is a one-time action", async () => {
   const originalGet = api.get;
   const originalPut = api.put;
   const order = {
@@ -16,6 +16,8 @@ test("employee refund email is an explicit, one-time action", async () => {
     number: "439",
     total: "836.00",
     status: "completed",
+    payment_method: "cod",
+    refunds: [{ id: 901, total: "-836.00" }],
     billing: { email: "customer@example.com", first_name: "Test", last_name: "Customer" },
     meta_data: [],
   };
@@ -51,6 +53,51 @@ test("employee refund email is an explicit, one-time action", async () => {
     await sendOrderRefundEmail({ params: { id: "439" }, user: { id: 1 } }, second);
     assert.equal(second.code, 409);
     assert.equal(wpCalls.filter(({ path }) => path.endsWith("/payment-intent/lock")).length, 2);
+  } finally {
+    api.get = originalGet;
+    api.put = originalPut;
+    _setWpClientForTesting(null);
+  }
+});
+
+test("employee refund email refuses an unverified refund", async () => {
+  const originalGet = api.get;
+  const originalPut = api.put;
+  let mutationCalls = 0;
+  _setWpClientForTesting({
+    post: async (path) => {
+      if (path.endsWith("/payment-intent/lock")) return { data: { acquired: true } };
+      return { data: { success: true } };
+    },
+  });
+  api.get = async () => ({
+    data: {
+      id: 440,
+      number: "440",
+      total: "500.00",
+      payment_method: "cod",
+      refunds: [],
+      billing: { email: "customer@example.com" },
+      meta_data: [],
+    },
+  });
+  api.put = async () => {
+    mutationCalls += 1;
+    return { data: {} };
+  };
+
+  const res = {
+    code: 200,
+    body: null,
+    status(code) { this.code = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+
+  try {
+    await sendOrderRefundEmail({ params: { id: "440" }, user: { id: 1 } }, res);
+    assert.equal(res.code, 409);
+    assert.match(res.body.message, /No WooCommerce refund/i);
+    assert.equal(mutationCalls, 0, "must not claim or email an unverified refund");
   } finally {
     api.get = originalGet;
     api.put = originalPut;

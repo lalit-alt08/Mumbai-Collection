@@ -12,7 +12,87 @@ import { logError, logger } from "../utils/logger.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 
-const MAX_HOME_SHELVES = 8;
+const HOME_SHELF_COUNT = 6;
+const HOME_PRODUCTS_PER_SHELF = 6;
+const HOME_SHELF_BACKFILL = 4;
+const HOME_CACHE_TTL_MS = 300_000;
+const CATEGORY_CACHE_KEY = "catalog:categories:all";
+const CATEGORY_LAST_KNOWN_KEY = "resilience:catalog_categories:last_known";
+const CATEGORY_CACHE_TTL_MS = 300_000;
+const CATEGORY_LAST_KNOWN_TTL_MS = 24 * 60 * 60 * 1000;
+const CATEGORY_REFRESH_ERROR_BACKOFF_MS = 30_000;
+let categoryRefreshRetryAfter = 0;
+
+const refreshCategoryCache = () => serverCache.getOrFetch(
+  CATEGORY_CACHE_KEY,
+  async () => {
+    const freshCategories = await fetchCategories();
+    if (Array.isArray(freshCategories) && freshCategories.length > 0) {
+      serverCache.set(CATEGORY_LAST_KNOWN_KEY, freshCategories, CATEGORY_LAST_KNOWN_TTL_MS);
+    }
+    return freshCategories;
+  },
+  CATEGORY_CACHE_TTL_MS
+);
+
+const getCategoriesWithStaleFallback = async () => {
+  const freshCategories = serverCache.get(CATEGORY_CACHE_KEY);
+  if (Array.isArray(freshCategories) && freshCategories.length > 0) {
+    if (serverCache.get(CATEGORY_LAST_KNOWN_KEY) === null) {
+      serverCache.set(CATEGORY_LAST_KNOWN_KEY, freshCategories, CATEGORY_LAST_KNOWN_TTL_MS);
+    }
+    return freshCategories;
+  }
+
+  // Once a last-known tree exists, never make a storefront request wait for
+  // WooCommerce. Refresh in the background; getOrFetch keeps that refresh
+  // single-flight inside this process and Redis serves the shared hot value.
+  const staleCategories = serverCache.get(CATEGORY_LAST_KNOWN_KEY);
+  if (Array.isArray(staleCategories) && staleCategories.length > 0) {
+    const now = Date.now();
+    if (now >= categoryRefreshRetryAfter) {
+      // Reserve the retry window before starting so sequential storefront
+      // requests cannot create a retry storm after an upstream failure.
+      categoryRefreshRetryAfter = now + CATEGORY_REFRESH_ERROR_BACKOFF_MS;
+      void refreshCategoryCache()
+        .then(() => {
+          categoryRefreshRetryAfter = 0;
+        })
+        .catch((error) => {
+          categoryRefreshRetryAfter = Date.now() + CATEGORY_REFRESH_ERROR_BACKOFF_MS;
+          logger.warn(
+            { status: error?.response?.status, code: error?.code },
+            "WooCommerce category background refresh failed; serving last-known category taxonomy"
+          );
+        });
+    }
+    return staleCategories;
+  }
+
+  try {
+    const categories = await refreshCategoryCache();
+    // Seed the fallback once when the fresh value came from an older Redis
+    // entry created before the last-known cache was introduced.
+    if (Array.isArray(categories) && categories.length > 0 && serverCache.get(CATEGORY_LAST_KNOWN_KEY) === null) {
+      serverCache.set(CATEGORY_LAST_KNOWN_KEY, categories, CATEGORY_LAST_KNOWN_TTL_MS);
+    }
+    return categories;
+  } catch (error) {
+    const staleCategories = await serverCache.getOrFetch(
+      CATEGORY_LAST_KNOWN_KEY,
+      async () => null,
+      CATEGORY_LAST_KNOWN_TTL_MS
+    );
+    if (Array.isArray(staleCategories) && staleCategories.length > 0) {
+      logger.warn(
+        { status: error?.response?.status, code: error?.code },
+        "WooCommerce category refresh failed; serving last-known category taxonomy"
+      );
+      return staleCategories;
+    }
+    throw error;
+  }
+};
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -262,14 +342,51 @@ export const getProductsByCategory = async (req, res) => {
 
 export const getAllCategories = async (req, res) => {
   try {
-    const cacheKey = "catalog:categories:all";
-    const categories = await serverCache.getOrFetch(
-      cacheKey,
-      () => fetchCategories(),
-      120000
-    );
+    const categories = await getCategoriesWithStaleFallback();
 
-    res.json(transformMediaUrls(categories, req));
+    const allCategories = Array.isArray(categories) ? categories : [];
+    const total = allCategories.length;
+
+    // Check if client explicitly requested paginated results
+    const isPaginated =
+      Boolean(req.query.page) ||
+      Boolean(req.query.per_page) ||
+      Boolean(req.query.limit) ||
+      req.query.format === "paginated" ||
+      req.query.paginated === "true";
+
+    if (isPaginated) {
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const perPage = Math.min(100, Math.max(1, Number(req.query.per_page || req.query.limit) || 20));
+      const totalPages = total > 0 ? Math.ceil(total / perPage) : 0;
+      const startIndex = (page - 1) * perPage;
+      const paginatedSlice = allCategories.slice(startIndex, startIndex + perPage);
+
+      res.setHeader("X-Total-Count", String(total));
+      res.setHeader("X-Total-Pages", String(totalPages));
+      res.setHeader("X-Current-Page", String(page));
+      res.setHeader("X-Per-Page", String(perPage));
+
+      if (req.query.format === "paginated" || req.query.paginated === "true") {
+        return res.json({
+          success: true,
+          page,
+          per_page: perPage,
+          total,
+          totalPages,
+          categories: transformMediaUrls(paginatedSlice, req),
+        });
+      }
+
+      return res.json(transformMediaUrls(paginatedSlice, req));
+    }
+
+    // Default: return complete list for navbar menus and category drawers
+    res.setHeader("X-Total-Count", String(total));
+    res.setHeader("X-Total-Pages", "1");
+    res.setHeader("X-Current-Page", "1");
+    res.setHeader("X-Per-Page", String(total));
+    return res.json(transformMediaUrls(allCategories, req));
   } catch (error) {
     logError(req, error, "Get all categories error");
     res.status(500).json({
@@ -288,17 +405,16 @@ export const getAllCategories = async (req, res) => {
 export const getHomeShelves = async (req, res) => {
   try {
     const page = Number(req.query.page) || 1;
-    const offset = (page - 1) * MAX_HOME_SHELVES;
+    const requestedOffset = Number(req.query.offset);
+    const offset = Number.isInteger(requestedOffset) && requestedOffset >= 0
+      ? requestedOffset
+      : (page - 1) * HOME_SHELF_COUNT;
+    const currentPage = Math.floor(offset / HOME_SHELF_COUNT) + 1;
     const result = await serverCache.getOrFetch(
-      // Version and page the cache key so an older Redis payload cannot keep
-      // serving unbounded shelves, and later pages are fetched independently.
-      `catalog:home_shelves:v3:page:${page}`,
+      // Cache with 6-shelf / 6-product boundaries
+      `catalog:home_shelves:v5:offset:${offset}:c${HOME_SHELF_COUNT}:p${HOME_PRODUCTS_PER_SHELF}`,
       async () => {
-        const categories = await serverCache.getOrFetch(
-          "catalog:categories:all",
-          () => fetchCategories(),
-          120000
-        );
+        const categories = await getCategoriesWithStaleFallback();
         const categoryList = Array.isArray(categories) ? categories : [];
         const categoryById = new Map(
           categoryList.filter((category) => category?.id).map((category) => [Number(category.id), category])
@@ -326,6 +442,10 @@ export const getHomeShelves = async (req, res) => {
             category.name?.toLowerCase() !== "uncategorized" &&
             (!countsAvailable || populatedDepartmentIds.has(Number(category.id)))
           )
+          .map((category) => ({
+            ...category,
+            has_products: countsAvailable ? populatedDepartmentIds.has(Number(category.id)) : true,
+          }))
           .sort((a, b) => {
             const orderA = Number(a.menu_order) > 0 ? Number(a.menu_order) : 9999;
             const orderB = Number(b.menu_order) > 0 ? Number(b.menu_order) : 9999;
@@ -335,7 +455,13 @@ export const getHomeShelves = async (req, res) => {
         // The full department list remains available on /categories. Keep the
         // homepage feed bounded so a large catalog cannot mount hundreds of
         // shelves and trigger stock checks for every product at once.
-        const homeDepartments = departments.slice(offset, offset + MAX_HOME_SHELVES);
+        // Inspect a small bounded overflow window so an empty or temporarily
+        // unavailable shelf does not leave a visible hole on the homepage.
+        // The limit keeps the cold-cache WooCommerce fan-out predictable.
+        const homeDepartments = departments.slice(
+          offset,
+          offset + HOME_SHELF_COUNT + HOME_SHELF_BACKFILL
+        );
 
         const shelves = new Array(homeDepartments.length);
         let nextIndex = 0;
@@ -345,13 +471,13 @@ export const getHomeShelves = async (req, res) => {
             const department = homeDepartments[index];
             try {
               const shelf = await serverCache.getOrFetch(
-                `catalog:home_shelf:${department.id}`,
-                () => fetchProductsByCategory(department.id, { page: 1, per_page: 10 }),
-                300000
+                `catalog:home_shelf:p${HOME_PRODUCTS_PER_SHELF}:${department.id}`,
+                () => fetchProductsByCategory(department.id, { page: 1, per_page: HOME_PRODUCTS_PER_SHELF }),
+                HOME_CACHE_TTL_MS
               );
               shelves[index] = {
                 ...department,
-                products: Array.isArray(shelf?.products) ? shelf.products.slice(0, 10) : [],
+                products: Array.isArray(shelf?.products) ? shelf.products.slice(0, HOME_PRODUCTS_PER_SHELF) : [],
               };
             } catch (error) {
               logger.warn(
@@ -366,14 +492,24 @@ export const getHomeShelves = async (req, res) => {
         await Promise.all(
           Array.from({ length: Math.min(4, homeDepartments.length) }, () => worker())
         );
+        const populatedShelves = shelves.filter((shelf) => shelf?.products?.length > 0);
+        const visibleShelves = populatedShelves.slice(0, HOME_SHELF_COUNT);
+        const lastVisibleShelfId = visibleShelves.at(-1)?.id;
+        const lastConsumedIndex = lastVisibleShelfId
+          ? shelves.findIndex((shelf) => Number(shelf?.id) === Number(lastVisibleShelfId))
+          : homeDepartments.length - 1;
+        const consumedDepartments = Math.max(0, lastConsumedIndex + 1);
+        const nextOffset = offset + consumedDepartments;
+
         return {
-          categories: page === 1 && Array.isArray(categories) ? categories : [],
-          shelves: shelves.filter((shelf) => shelf?.products?.length > 0),
+          categories: offset === 0 ? departments.slice(0, 12) : [],
+          shelves: visibleShelves,
           pagination: {
-            page,
-            per_page: MAX_HOME_SHELVES,
+            page: currentPage,
+            per_page: HOME_SHELF_COUNT,
             total_departments: departments.length,
-            has_more: offset + homeDepartments.length < departments.length,
+            next_offset: nextOffset,
+            has_more: nextOffset < departments.length,
           },
         };
       },
@@ -384,7 +520,13 @@ export const getHomeShelves = async (req, res) => {
       success: true,
       categories: transformMediaUrls(result.categories || [], req),
       shelves: transformMediaUrls(result.shelves || [], req),
-      pagination: result.pagination || { page, per_page: MAX_HOME_SHELVES, total_departments: 0, has_more: false },
+      pagination: result.pagination || {
+        page: currentPage,
+        per_page: HOME_SHELF_COUNT,
+        total_departments: 0,
+        next_offset: offset,
+        has_more: false,
+      },
     });
   } catch (error) {
     logError(req, error, "Get homepage shelves error");

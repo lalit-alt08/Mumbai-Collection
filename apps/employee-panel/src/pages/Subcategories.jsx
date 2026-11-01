@@ -11,6 +11,8 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Edit3,
   Check,
   X,
@@ -33,12 +35,27 @@ import {
 } from "../utils/imageCompressor.js";
 import { getCategoryImageUrl } from "../utils/categoryImage.js";
 
+const formatSubcategoryName = (name, parentName = "") => {
+  if (!name || typeof name !== "string") return "";
+  const subName = name.trim();
+  const parent = (parentName || "").trim();
+  if (parent) {
+    const escaped = parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const prefix = new RegExp("^" + escaped + "\\s*[-–—/:]\\s*", "i");
+    if (prefix.test(subName)) {
+      return subName.replace(prefix, "").trim();
+    }
+  }
+  return subName;
+};
+
 function Subcategories() {
   const fileInputRef = useRef(null);
   const updateFileInputRef = useRef(null);
   const addDropdownRef = useRef(null);
   const updateDropdownRef = useRef(null);
   const filterDropdownRef = useRef(null);
+  const perPageDropdownRef = useRef(null);
   const categoryListRequestIdRef = useRef(0);
   const createIdempotencyRef = useRef(null);
   const updateIdempotencyRef = useRef(null);
@@ -91,9 +108,10 @@ function Subcategories() {
   const [updateDropdownOpen, setUpdateDropdownOpen] = useState(false);
   const [updateSearchQuery, setUpdateSearchQuery] = useState("");
 
-  // Department filter dropdown state (NO "All Departments" option)
+  // Department filter dropdown state (defaults to 0 / None so subcategories load on-demand)
   const [departmentFilter, setDepartmentFilter] = useState(0);
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const [perPageDropdownOpen, setPerPageDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const isUncategorized = (category) => {
@@ -144,20 +162,17 @@ function Subcategories() {
     );
   }, [categoriesList]);
 
-  // Set default parentId and default departmentFilter to the first department with subcategories
+  // Set default parentId for Add modal and validate departmentFilter
   useEffect(() => {
     if (rootDepartments.length > 0) {
       if (!parentId || Number(parentId) === 0) {
         setParentId(Number(rootDepartments[0].id));
       }
-      if (!departmentFilter || departmentFilter === 0) {
-        const firstWithSubs = rootDepartments.find((d) =>
-          allSubcategories.some((s) => Number(s.parent) === Number(d.id))
-        );
-        setDepartmentFilter(Number(firstWithSubs ? firstWithSubs.id : rootDepartments[0].id));
+      if (departmentFilter && !rootDepartments.some((d) => Number(d.id) === Number(departmentFilter))) {
+        setDepartmentFilter(0);
       }
     }
-  }, [rootDepartments, allSubcategories, parentId, departmentFilter]);
+  }, [rootDepartments, parentId, departmentFilter]);
 
   // Outside click listener for all floating dropdowns
   useEffect(() => {
@@ -171,6 +186,9 @@ function Subcategories() {
       if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target)) {
         setFilterDropdownOpen(false);
       }
+      if (perPageDropdownRef.current && !perPageDropdownRef.current.contains(e.target)) {
+        setPerPageDropdownOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("touchstart", handleClickOutside);
@@ -182,7 +200,8 @@ function Subcategories() {
 
   // Currently selected department in filter
   const currentFilterDept = useMemo(() => {
-    return rootDepartments.find((d) => Number(d.id) === Number(departmentFilter)) || rootDepartments[0] || null;
+    if (!departmentFilter) return null;
+    return rootDepartments.find((d) => Number(d.id) === Number(departmentFilter)) || null;
   }, [rootDepartments, departmentFilter]);
 
   // Subcategories belonging to the currently selected department
@@ -200,6 +219,25 @@ function Subcategories() {
       return catName.includes(q) || String(c.id).includes(q);
     });
   }, [departmentSubcategories, searchQuery]);
+
+  // Pagination state (10 / 20 / 50 / 100 per page)
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+
+  // Reset to page 1 whenever departmentFilter or searchQuery changes, and adapt if total <= 10
+  useEffect(() => {
+    setPage(1);
+    if (filteredSubcategories.length <= 10 && filteredSubcategories.length > 0) {
+      setPerPage(10);
+    }
+  }, [departmentFilter, searchQuery, filteredSubcategories.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSubcategories.length / perPage));
+
+  const paginatedSubcategories = useMemo(() => {
+    const startIndex = (page - 1) * perPage;
+    return filteredSubcategories.slice(startIndex, startIndex + perPage);
+  }, [filteredSubcategories, page, perPage]);
 
   // Filtered eligible parents for Add Subcategory dropdown
   const filteredAddParents = useMemo(() => {
@@ -582,7 +620,10 @@ function Subcategories() {
           onClick={() => {
             setShowAddForm((prev) => !prev);
             if (!showAddForm && rootDepartments.length > 0) {
-              setParentId(Number(departmentFilter || rootDepartments[0].id));
+              const selectedDepartment = rootDepartments.find(
+                (department) => Number(department.id) === Number(departmentFilter)
+              );
+              setParentId(Number(selectedDepartment?.id ?? rootDepartments[0].id));
             }
           }}
           className={`flex-1 flex items-center justify-center gap-2 h-11 rounded-2xl text-xs font-black shadow-xs transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -957,8 +998,13 @@ function Subcategories() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search subcategories..."
-            className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2.5 pl-10 pr-4 text-xs font-medium text-gray-900 outline-none focus:border-purple-500 focus:bg-white focus:ring-2 focus:ring-purple-500/20 transition"
+            disabled={!departmentFilter}
+            placeholder={currentFilterDept ? `Search subcategories in ${currentFilterDept.name}...` : "Select a department to view subcategories..."}
+            className={`w-full rounded-xl border border-gray-200 py-2.5 pl-10 pr-4 text-xs font-medium outline-none transition ${
+              !departmentFilter
+                ? "bg-gray-100/70 text-gray-400 cursor-not-allowed placeholder-gray-400"
+                : "bg-gray-50/50 text-gray-900 focus:border-purple-500 focus:bg-white focus:ring-2 focus:ring-purple-500/20"
+            }`}
           />
         </div>
 
@@ -989,7 +1035,7 @@ function Subcategories() {
                     {currentFilterDept?.name || "Choose Department"}
                   </p>
                   <p className="text-[10px] text-purple-700 font-semibold truncate">
-                    {departmentSubcategories.length} {departmentSubcategories.length === 1 ? "subcategory" : "subcategories"}
+                    {currentFilterDept ? `${departmentSubcategories.length} ${departmentSubcategories.length === 1 ? "subcategory" : "subcategories"}` : "None selected"}
                   </p>
                 </div>
               </div>
@@ -1006,11 +1052,52 @@ function Subcategories() {
             {/* Floating Dropdown Listbox */}
             {filterDropdownOpen && (
               <div className="absolute top-full left-0 right-0 sm:right-0 sm:left-auto sm:w-72 mt-2 z-40 rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150">
-                <div className="p-2 border-b border-gray-100 bg-gray-50/70 text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3">
-                  Switch Department
+                <div className="p-2 border-b border-gray-100 bg-gray-50/70 text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 flex items-center justify-between">
+                  <span>Switch Department</span>
+                  {departmentFilter !== 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDepartmentFilter(0);
+                        setFilterDropdownOpen(false);
+                      }}
+                      className="text-purple-700 hover:text-purple-900 text-[10px] font-bold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
 
                 <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 overscroll-contain">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDepartmentFilter(0);
+                      setFilterDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between gap-3 p-3 text-left transition cursor-pointer active:scale-[0.99] ${
+                      !departmentFilter ? "bg-purple-50/90 hover:bg-purple-50" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center p-0.5 shadow-2xs">
+                        <Folder size={15} className="text-gray-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`text-xs font-bold truncate ${!departmentFilter ? "text-purple-950 font-black" : "text-gray-900"}`}>
+                          None (No Department)
+                        </p>
+                        <p className="text-[10px] text-gray-500 truncate">
+                          Select a department to view
+                        </p>
+                      </div>
+                    </div>
+                    {!departmentFilter && (
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white shadow-xs">
+                        <Check size={12} strokeWidth={3} />
+                      </div>
+                    )}
+                  </button>
                   {rootDepartments.map((dept) => {
                     const isSelected = Number(dept.id) === Number(departmentFilter);
                     const imgUrl = getCategoryImageUrl(dept);
@@ -1104,6 +1191,27 @@ function Subcategories() {
             </button>
           )}
         </div>
+      ) : !departmentFilter ? (
+        <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center space-y-3 shadow-xs">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-50 text-purple-600">
+            <FolderTree size={26} />
+          </div>
+          <div className="max-w-sm mx-auto">
+            <h4 className="text-sm font-black text-gray-900">
+              No Department Selected
+            </h4>
+            <p className="text-xs text-gray-500 mt-1">
+              Select a department from the dropdown above to view and manage its subcategories on demand.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterDropdownOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-xs font-black text-purple-700 hover:bg-purple-600 hover:text-white transition shadow-xs cursor-pointer active:scale-95"
+          >
+            <Folder size={14} /> Choose Department
+          </button>
+        </div>
       ) : departmentSubcategories.length === 0 ? (
         <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center space-y-3 shadow-xs">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600">
@@ -1134,9 +1242,11 @@ function Subcategories() {
           <p className="text-[11px] text-gray-400">Try adjusting your search query.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {filteredSubcategories.map((sub) => {
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {paginatedSubcategories.map((sub) => {
             const imgUrl = getCategoryImageUrl(sub);
+            const parentDept = rootDepartments.find((d) => Number(d.id) === Number(sub.parent));
             return (
               <div
                 key={sub.id}
@@ -1158,12 +1268,19 @@ function Subcategories() {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <h4 className="text-sm font-black text-gray-900 truncate">
-                      {sub.name}
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-black text-gray-900 truncate">
+                        {formatSubcategoryName(sub.name, parentDept?.name || currentFilterDept?.name)}
+                      </h4>
+                      {parentDept && (
+                        <span className="rounded-md border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 shrink-0">
+                          {parentDept.name}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
-                        {sub.count ?? 0} products
+                        {sub.direct_count ?? sub.count ?? 0} products
                       </span>
                       <span className="font-mono text-[10px] text-gray-400">
                         #{sub.id}
@@ -1183,6 +1300,106 @@ function Subcategories() {
               </div>
             );
           })}
+        </div>
+
+        {/* Pagination Controls */}
+        {filteredSubcategories.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-gray-100">
+            <div className="flex items-center gap-3">
+              {/* Custom Designed Rows Per Page Dropdown */}
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="hidden sm:inline">Rows:</span>
+                <div className="relative shrink-0" ref={perPageDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setPerPageDropdownOpen((prev) => !prev)}
+                    className={`inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-1.5 text-xs font-bold transition shadow-2xs cursor-pointer select-none active:scale-[0.98] ${
+                      perPageDropdownOpen
+                        ? "border-purple-500 ring-2 ring-purple-500/15 text-purple-950 bg-purple-50/50"
+                        : "border-gray-200 text-gray-800 hover:border-gray-300 hover:bg-gray-50/80"
+                    }`}
+                    aria-haspopup="listbox"
+                    aria-expanded={perPageDropdownOpen}
+                  >
+                    <span>{perPage} / page</span>
+                    <ChevronDown
+                      size={13}
+                      className={`text-gray-400 transition-transform duration-200 ${
+                        perPageDropdownOpen ? "rotate-180 text-purple-600" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {/* Floating Popover (opens upward above footer) */}
+                  {perPageDropdownOpen && (
+                    <div
+                      role="listbox"
+                      className="absolute bottom-full left-0 mb-2 z-40 w-36 rounded-2xl border border-gray-200 bg-white p-1.5 shadow-2xl ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150"
+                    >
+                      <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-gray-400 border-b border-gray-100 mb-1">
+                        Rows per page
+                      </div>
+                      {[10, 20, 50, 100].map((count) => {
+                        const isSelected = perPage === count;
+                        return (
+                          <button
+                            key={count}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setPerPage(count);
+                              setPage(1);
+                              setPerPageDropdownOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-bold transition cursor-pointer text-left ${
+                              isSelected
+                                ? "bg-purple-50 text-purple-900 font-extrabold"
+                                : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                            }`}
+                          >
+                            <span>{count} / page</span>
+                            {isSelected && <Check size={13} className="text-purple-600 shrink-0" strokeWidth={3} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPage((p) => Math.max(p - 1, 1));
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  disabled={page <= 1}
+                  className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
+                >
+                  <ChevronLeft size={14} /> Prev
+                </button>
+                <span className="text-xs font-bold text-gray-700 px-2">
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPage((p) => Math.min(p + 1, totalPages));
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  disabled={page >= totalPages}
+                  className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
+                >
+                  Next <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         </div>
       )}
 

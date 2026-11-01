@@ -29,10 +29,6 @@ export const isOriginAllowed = (origin, allowedOrigins = []) => {
       process.env.FRONTEND_URL,
       ...envAllowed,
       ...(Array.isArray(allowedOrigins) ? allowedOrigins : []),
-      // Verified exact Vercel production deployments
-      "https://mumbai-collection-web.vercel.app",
-      "https://mumbai-collection-admin.vercel.app",
-      "https://mumbai-collection.vercel.app",
     ].filter(Boolean);
 
     if (isProduction) {

@@ -23,11 +23,10 @@ export const _resetStoreRoutesHoursFallbackForTesting = () => {
   lastKnownStoreStatus = null;
 };
 
-// Strict allow-list of WooCommerce Store API v1 endpoints
+// Strict allow-list of WooCommerce Store API v1 endpoints (batch proxy omitted to prevent amplification)
 const ALLOWED_STORE_PATTERNS = [
   /^\/cart(\/.*)?$/,
   /^\/checkout(\/.*)?$/,
-  /^\/batch$/,
   /^\/products(\/.*)?$/,
 ];
 
@@ -82,67 +81,12 @@ async function proxyStoreApi(req, res) {
     }
 
     // 1. Authoritative Store Hours Guard (Asia/Kolkata)
-    try {
-      const storeStatus = await storeHoursService.getStoreStatus();
-      if (!storeStatus || typeof storeStatus.is_open !== "boolean") {
-        throw new Error("Invalid store status payload");
-      }
-
-      // Fail closed if store status configuration is stale (> 5 minutes without fresh WP read)
-      if (storeStatus.is_stale) {
-        throw new Error("Store status configuration is stale (> 5 minutes)");
-      }
-
-      // Record last known valid store status ONLY on live/fresh reads, never on stale fallbacks
-      if (!storeStatus.is_fallback) {
-        lastKnownStoreStatus = {
-          status: storeStatus,
-          timestamp: Date.now(),
-        };
-      }
-
-      if (!storeStatus.is_open) {
-        return res.status(403).json({
-          success: false,
-          code: "STORE_CLOSED",
-          message: storeStatus.message || "Our store is currently closed for new orders.",
-          next_opening: storeStatus.next_opening,
-          current_day: storeStatus.current_day,
-          current_time_ist: storeStatus.current_time_ist,
-          schedule_today: storeStatus.schedule_today,
-          timezone: storeStatus.timezone || "Asia/Kolkata",
-        });
-      }
-    } catch (statusErr) {
-      logger.warn({ err: statusErr.message }, "[StoreGateway] Store hours evaluation warning, checking fallback cache");
-
-      const hasValidFallback =
-        lastKnownStoreStatus &&
-        Date.now() - lastKnownStoreStatus.timestamp <= STORE_HOURS_FALLBACK_MAX_AGE_MS;
-
-      if (hasValidFallback) {
-        const fallback = lastKnownStoreStatus.status;
-        if (!fallback || !fallback.is_open) {
-          return res.status(403).json({
-            success: false,
-            code: "STORE_CLOSED",
-            message: fallback?.message || "Our store is currently closed for new orders.",
-            next_opening: fallback?.next_opening || null,
-            current_day: fallback?.current_day,
-            current_time_ist: fallback?.current_time_ist,
-            schedule_today: fallback?.schedule_today,
-            timezone: fallback?.timezone || "Asia/Kolkata",
-          });
-        }
-        // Fallback state is valid within 5 minutes and store was open: allow checkout
-      } else {
-        // Fail closed: no valid cached state exists within 5 minutes
-        return res.status(503).json({
-          success: false,
-          code: "STORE_HOURS_UNAVAILABLE",
-          message: "Unable to verify store operating hours. Please try again in a few moments.",
-        });
-      }
+    const storeGuard = await storeHoursService.checkCheckoutStoreGuard(
+      lastKnownStoreStatus,
+      (val) => { lastKnownStoreStatus = val; }
+    );
+    if (!storeGuard.allowed) {
+      return res.status(storeGuard.statusCode).json(storeGuard.payload);
     }
 
     // 2. Authoritative Unified Session Validation (Suspension & Phone Verification)

@@ -5,13 +5,13 @@ import { httpsAgent } from "../config/httpAgent.js";
 import {
   uploadMedia,
   markMediaAttached,
-  deleteMediaIfUnreferenced,
   cleanupPendingOrphanMedia,
 } from "../services/wordpressMediaService.js";
 import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
+import { sanitizeUpstreamError } from "../utils/upstreamError.js";
 
 const isProtectedUncategorized = (category) =>
   String(category?.slug || "").toLowerCase() === "uncategorized" ||
@@ -274,7 +274,24 @@ export const getAdminProducts = async (req, res) => {
     };
 
     if (cleanCategory !== "all") {
-      queryParams.category = cleanCategory;
+      const catId = Number(cleanCategory);
+      if (Number.isInteger(catId) && catId > 0) {
+        try {
+          const allCats = await serverCache.getOrFetch(
+            "admin:categories:hierarchy",
+            () => fetchAllProductCategories({ fields: "id,parent" }),
+            300000
+          );
+          const childIds = (allCats || [])
+            .filter((c) => Number(c.parent) === catId)
+            .map((c) => c.id);
+          queryParams.category = [catId, ...childIds].join(",");
+        } catch {
+          queryParams.category = String(catId);
+        }
+      } else {
+        queryParams.category = cleanCategory;
+      }
     }
 
     if (cleanStockStatus !== "all") {
@@ -339,12 +356,8 @@ export const getAdminProducts = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Get admin products error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to load products.",
-      products: [],
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to load products.");
+    res.status(safeError.status).json({ ...safeError.payload, products: [] });
   }
 };
 
@@ -422,24 +435,13 @@ export const updateProduct = async (req, res) => {
       ? await wp.post("/wp-json/mumbai-auth/v1/staff/products/" + id + "/adjust", { ...updatePayload, expected_stock_quantity: req.body.expected_stock_quantity })
       : await api.put("products/" + encodeURIComponent(id), updatePayload);
 
-    // Invalidate product list, stock counts, and public catalog caches
+    // Invalidate product list, stock counts, public catalog, and category counts
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
-
-    // If images were updated, mark them as attached
-    if (req.body.images || req.body.image_url) {
-      const updatedMediaIds = (response.data?.images || []).map((img) => img.id).filter(Boolean);
-      if (updatedMediaIds.length > 0) {
-        try {
-          await markMediaAttached(updatedMediaIds, Number(id));
-        } catch (attachErr) {
-          logger.warn({ id, err: attachErr.message }, "[adminProductController] Failed to mark media attached for updated product");
-        }
-      }
-    }
 
     res.json({
       success: true,
@@ -448,16 +450,13 @@ export const updateProduct = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Update product error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to update product.",
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to update product.");
+    res.status(safeError.status).json(safeError.payload);
   }
 };
 
 /**
- * Permanently Delete Product from WooCommerce Catalog
+ * Move a product to WooCommerce Trash so accidental deletion can be recovered.
  */
 export const deleteProduct = async (req, res) => {
   try {
@@ -472,38 +471,25 @@ export const deleteProduct = async (req, res) => {
     }
 
     const response = await api.delete(`products/${encodeURIComponent(numericId)}`, {
-      force: true,
+      force: false,
     });
 
-    // Invalidate product list, stock counts, and public catalog caches
+    // Invalidate product list, stock counts, public catalog, and category counts
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
-
-
-    // Safely cleanup product media that is completely unreferenced elsewhere
-    const deletedImages = (response.data?.images || []).map((img) => img.id).filter(Boolean);
-    if (deletedImages.length > 0) {
-      try {
-        await deleteMediaIfUnreferenced(deletedImages, { context: "product_deletion" });
-      } catch (cleanErr) {
-        logger.warn({ numericId, err: cleanErr.message }, "[adminProductController] Media cleanup after deleting product failed");
-      }
-    }
 
     res.json({
       success: true,
-      message: `Product #${id} permanently deleted from store catalog.`,
+      message: `Product #${id} moved to WooCommerce Trash.`,
       product: response.data,
     });
   } catch (error) {
     logError(req, error, "Delete product error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to delete product.",
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to move product to Trash.");
+    res.status(safeError.status).json(safeError.payload);
   }
 };
 
@@ -528,14 +514,13 @@ export const uploadProductImage = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Admin media upload error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message:
-        error.response?.data?.message ||
-        error.message ||
-        "Failed to upload image to WordPress Media Library.",
-      code: error.response?.data?.code || "media_upload_error",
+    const safeError = sanitizeUpstreamError(
+      error,
+      "Failed to upload image to WordPress Media Library."
+    );
+    res.status(safeError.status).json({
+      ...safeError.payload,
+      code: safeError.payload.code || "media_upload_error",
     });
   }
 };
@@ -657,10 +642,11 @@ export const createProduct = async (req, res) => {
 
     const response = await api.post("products", payload);
 
-    // Invalidate product list, stock counts, and public catalog caches
+    // Invalidate product list, stock counts, public catalog, and category counts
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
     const createdProduct = response.data;
@@ -684,11 +670,8 @@ export const createProduct = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Create product error");
-    const statusCode = error.response?.status || 500;
-    res.status(statusCode).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to create product.",
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to create product.");
+    res.status(safeError.status).json(safeError.payload);
   }
 };
 
@@ -705,9 +688,7 @@ export const triggerOrphanCleanup = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Trigger orphan cleanup error");
-    res.status(500).json({
-      success: false,
-      message: error.response?.data?.message || error.message || "Failed to run orphan media cleanup.",
-    });
+    const safeError = sanitizeUpstreamError(error, "Failed to run orphan media cleanup.");
+    res.status(safeError.status).json(safeError.payload);
   }
 };

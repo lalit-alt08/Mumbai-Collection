@@ -22,7 +22,7 @@ function CategoryCard({ category }) {
         />
       </div>
 
-      <h3 className="mt-2 text-center text-xs sm:text-sm font-semibold tracking-normal text-slate-100 group-hover:text-[#42D6E8] transition-colors">
+      <h3 className="mt-1.5 sm:mt-2 text-center text-[11px] sm:text-sm font-semibold tracking-tight text-slate-100 group-hover:text-[#42D6E8] transition-colors line-clamp-1">
         {category.name}
       </h3>
     </Link>

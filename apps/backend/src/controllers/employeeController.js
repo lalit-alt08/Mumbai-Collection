@@ -10,8 +10,10 @@ import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
 import { logError, logger } from "../utils/logger.js";
 import { acquireLock, releaseLock } from "../services/paymentIntentService.js";
 import { sendRefundEmail } from "../services/brevoService.js";
+import { fetchRazorpayPayment } from "../services/razorpayService.js";
 import { fetchStockCounts } from "./adminProductController.js";
-import { publishOrderEvent } from "../services/orderNotificationService.js";
+import { publishOrderEvent, acknowledgeOrderNotification } from "../services/orderNotificationService.js";
+import { getVapidPublicKey, registerPushSubscription, unregisterPushSubscription } from "../services/pushNotificationService.js";
 import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
 import {
   getOrderDeliveredTimestamp,
@@ -534,7 +536,72 @@ export const updateOrderStatus = async (req, res) => {
   }
 };
 
-/** Explicit employee action: send a refund notification only when requested. */
+const getOrderMetaValue = (order, key) =>
+  (order?.meta_data || []).find((meta) => meta?.key === key)?.value;
+
+const getWooRefundedAmountPaise = (order) =>
+  Math.round(
+    (order?.refunds || []).reduce(
+      (sum, refund) => sum + Math.abs(Number(refund?.total || 0)),
+      0
+    ) * 100
+  );
+
+const verifyRefundForNotification = async (order) => {
+  const orderTotalPaise = Math.round(Number(order?.total || 0) * 100);
+  if (!Number.isFinite(orderTotalPaise) || orderTotalPaise <= 0) {
+    return { error: "This order does not have a valid refundable total." };
+  }
+
+  if (isCodOrder(order)) {
+    const refundedPaise = getWooRefundedAmountPaise(order);
+    if (refundedPaise <= 0) {
+      return { error: "No WooCommerce refund has been recorded for this cash-on-delivery order." };
+    }
+    return {
+      refundedPaise,
+      isPartial: refundedPaise + 1 < orderTotalPaise,
+      source: "woocommerce",
+    };
+  }
+
+  const paymentId = String(
+    getOrderMetaValue(order, "_razorpay_payment_id") || order?.transaction_id || ""
+  ).trim();
+  if (!/^pay_[A-Za-z0-9]+$/.test(paymentId)) {
+    return { error: "This online order has no valid Razorpay payment reference to verify." };
+  }
+
+  let payment;
+  try {
+    payment = await fetchRazorpayPayment(paymentId);
+  } catch (error) {
+    logger.warn(
+      { orderId: order?.id, paymentId, err: error?.message },
+      "[RefundEmail] Razorpay refund verification failed"
+    );
+    return { error: "Razorpay could not confirm the refund. Please retry after checking the payment." };
+  }
+
+  if (String(payment?.currency || "INR").toUpperCase() !== "INR") {
+    return { error: "The payment currency could not be verified as INR." };
+  }
+
+  const refundedPaise = Number(payment?.amount_refunded || 0);
+  const paymentAmountPaise = Number(payment?.amount || orderTotalPaise);
+  if (!Number.isFinite(refundedPaise) || refundedPaise <= 0) {
+    return { error: "Razorpay has not confirmed any refunded amount for this payment." };
+  }
+
+  return {
+    refundedPaise,
+    isPartial:
+      payment?.refund_status !== "full" && refundedPaise + 1 < paymentAmountPaise,
+    source: "razorpay",
+  };
+};
+
+/** Explicit employee action: verify the refund, then notify the customer. */
 export const sendOrderRefundEmail = async (req, res) => {
   const { id } = req.params;
   const lockKey = `employee_refund_email_${id}`;
@@ -542,7 +609,7 @@ export const sendOrderRefundEmail = async (req, res) => {
   let locked = false;
 
   try {
-    locked = await acquireLock(lockKey, workerId, 1500);
+    locked = await acquireLock(lockKey, workerId, 10000);
     if (!locked) {
       return res.status(409).json({ success: false, message: "A refund email request for this order is already being processed." });
     }
@@ -554,6 +621,11 @@ export const sendOrderRefundEmail = async (req, res) => {
     const emailMeta = (order.meta_data || []).find((meta) => meta.key === "_manual_refund_email_sent_at");
     if (emailMeta?.value) {
       return res.status(409).json({ success: false, message: "A refund email has already been sent for this order." });
+    }
+
+    const verifiedRefund = await verifyRefundForNotification(order);
+    if (verifiedRefund.error) {
+      return res.status(409).json({ success: false, message: verifiedRefund.error });
     }
 
     const toEmail = String(order.billing?.email || "").trim();
@@ -579,7 +651,8 @@ export const sendOrderRefundEmail = async (req, res) => {
         toEmail,
         toName: `${order.billing?.first_name || ""} ${order.billing?.last_name || ""}`.trim(),
         orderNumber: order.number || id,
-        amountInInr: Number(order.total || 0).toFixed(2),
+        amountInInr: (verifiedRefund.refundedPaise / 100).toFixed(2),
+        isPartial: verifiedRefund.isPartial,
       });
     } catch (emailError) {
       // Permit a deliberate retry when delivery failed. If cleanup fails, the
@@ -603,7 +676,13 @@ export const sendOrderRefundEmail = async (req, res) => {
     });
 
 
-    return res.json({ success: true, message: `Refund email sent to ${toEmail}.`, sent_at: sentAt });
+    return res.json({
+      success: true,
+      message: `${verifiedRefund.isPartial ? "Partial refund" : "Refund"} email sent to ${toEmail}.`,
+      refunded_amount: (verifiedRefund.refundedPaise / 100).toFixed(2),
+      refund_source: verifiedRefund.source,
+      sent_at: sentAt,
+    });
   } catch (error) {
     logError(req, error, "Send employee-triggered refund email error");
     return res.status(error.response?.status || error.status || 502).json({
@@ -660,22 +739,16 @@ const formatOverviewOrderItem = (order, effectiveStatus) => ({
  */
 export const getEmployeeOverview = async (req, res) => {
   try {
-    const cachedData = serverCache.get("employee:overview");
-    if (cachedData) {
-      if (typeof res.set === "function") {
-        res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-      }
-      return res.json(cachedData);
-    }
-
-    const todayBounds = getISTDateBoundaries("today");
-    const todayDateString = todayBounds?.startDate || new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Kolkata",
-    }).format(new Date());
+    const responsePayload = await serverCache.getOrFetch("employee:overview", async () => {
+      const todayBounds = getISTDateBoundaries("today");
+      const todayDateString = todayBounds?.startDate || new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+      }).format(new Date());
 
     // Scalable parallel queries: count today's metrics and fetch active action items
     const [
       activeOrdersRes,
+      operationalSummaryRes,
       receivedTodayRes,
       completedTodayRes,
       recentOrdersRes,
@@ -688,8 +761,12 @@ export const getEmployeeOverview = async (req, res) => {
         per_page: 100,
         orderby: "date",
         order: "desc",
-        _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+        _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
       }).catch(() => ({ data: [] })),
+
+      // Exact HPOS-backed counts are independent of the capped action-item page.
+      wp.get("/wp-json/mumbai-auth/v1/employee/orders/summary")
+        .catch(() => ({ data: null })),
 
       // Exact count of all orders received today in store timezone (Asia/Kolkata)
       api.get("orders", {
@@ -715,7 +792,7 @@ export const getEmployeeOverview = async (req, res) => {
         per_page: 10,
         orderby: "date",
         order: "desc",
-        _fields: "id,number,status,total,shipping_total,discount_total,total_tax,customer_note,fee_lines,date_created,date_created_gmt,date_completed,date_completed_gmt,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+        _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
       }).catch(() => ({ data: [] })),
 
       // Accurate live stock counts (cached for 60s)
@@ -757,6 +834,15 @@ export const getEmployeeOverview = async (req, res) => {
         actionOrders.push(formatOverviewOrderItem(order, effectiveStatus));
       }
     });
+
+    const operationalCounts = operationalSummaryRes?.data?.counts;
+    if (operationalCounts && typeof operationalCounts === "object") {
+      ordersToPackCount = Number(operationalCounts.processing) || 0;
+      ordersPackedCount = Number(operationalCounts.packed) || 0;
+      ordersOutForDeliveryCount =
+        (Number(operationalCounts["out-for-delivery"]) || 0) +
+        (Number(operationalCounts.dispatched) || 0);
+    }
 
     // Priority sorting for Task Force:
     // 1. processing (Pack now)
@@ -814,21 +900,16 @@ export const getEmployeeOverview = async (req, res) => {
       todayDate: todayDateString,
     };
 
-    const responsePayload = {
-      success: true,
-      summary,
-      ordersNeedingAction: actionOrders,
-      lowStockProducts: lowStockProductsFormatted,
-      recentOrders: recentOrdersFormatted,
-      data: {
-        summary,
-        ordersNeedingAction: actionOrders,
-        lowStockProducts: lowStockProductsFormatted,
-        recentOrders: recentOrdersFormatted,
-      },
-    };
-
-    serverCache.set("employee:overview", responsePayload, 90000);
+      return {
+        success: true,
+        data: {
+          summary,
+          ordersNeedingAction: actionOrders,
+          lowStockProducts: lowStockProductsFormatted,
+          recentOrders: recentOrdersFormatted,
+        },
+      };
+    }, 90000);
 
     if (typeof res.set === "function") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -842,3 +923,114 @@ export const getEmployeeOverview = async (req, res) => {
     });
   }
 };
+
+/**
+ * Acknowledges an incoming order alert across the counter / employee panel.
+ */
+export const acknowledgeEmployeeOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const cleanId = Number(id);
+    if (!cleanId) {
+      return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+
+    // Authoritatively verify order exists and is actionable in WooCommerce
+    let order;
+    try {
+      const response = await api.get(`orders/${encodeURIComponent(cleanId)}`);
+      order = response?.data;
+    } catch (orderErr) {
+      if (orderErr.response?.status === 404) {
+        return res.status(404).json({ success: false, message: `Order #${cleanId} not found.` });
+      }
+      logger.error({ err: orderErr.message, orderId: cleanId }, "[Employee] Upstream check before ack encountered warning");
+      return res.status(503).json({
+        success: false,
+        message: "Authoritative order verification unavailable. Please retry.",
+      });
+    }
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: `Order #${cleanId} not found.` });
+    }
+
+    if (order && ["cancelled", "failed", "trash"].includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Order #${cleanId} is marked as '${order.status}' and cannot be acknowledged.`,
+      });
+    }
+
+    const result = await acknowledgeOrderNotification({
+      orderId: cleanId,
+      employeeId: req.user?.id,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error({ err: err.message, orderId: req.params.id }, "[Employee] Failed to acknowledge order");
+    return res.status(500).json({ success: false, message: "Failed to acknowledge order" });
+  }
+};
+
+/**
+ * Returns VAPID public key for Web Push subscriptions.
+ */
+export const getEmployeePushPublicKey = (req, res) => {
+  try {
+    const publicKey = getVapidPublicKey();
+    return res.json({ success: true, publicKey });
+  } catch (err) {
+    logger.error({ err: err.message }, "[Employee] Failed getting VAPID public key");
+    return res.status(500).json({ success: false, message: "Failed to get push key" });
+  }
+};
+
+/**
+ * Registers an employee push subscription for background order alerts.
+ */
+export const subscribeEmployeePush = async (req, res) => {
+  try {
+    const subscription = req.body?.subscription || req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ success: false, message: "Invalid push subscription object" });
+    }
+    const result = await registerPushSubscription({
+      subscription,
+      employeeId: req.user?.id,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error({ err: err.message }, "[Employee] Failed subscribing to push");
+    return res.status(500).json({ success: false, message: "Failed to save push subscription" });
+  }
+};
+
+/**
+ * Unregisters an employee push subscription.
+ * Scoped to the authenticated employee unless caller is administrator.
+ */
+export const unsubscribeEmployeePush = async (req, res) => {
+  try {
+    const endpoint = req.body?.endpoint;
+    if (!endpoint) {
+      return res.status(400).json({ success: false, message: "Endpoint required to unsubscribe" });
+    }
+    const result = await unregisterPushSubscription({
+      endpoint,
+      employeeId: req.user?.id,
+      userRoles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+    });
+    if (result && !result.success && result.reason === "forbidden") {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot unsubscribe a device registered to another employee",
+      });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error({ err: err.message }, "[Employee] Failed unsubscribing from push");
+    return res.status(500).json({ success: false, message: "Failed to unsubscribe" });
+  }
+};
+

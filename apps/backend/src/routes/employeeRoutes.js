@@ -9,6 +9,10 @@ import {
   getEmployeeOverview,
   uploadEmployeeMedia,
   deleteEmployeeMedia,
+  acknowledgeEmployeeOrder,
+  getEmployeePushPublicKey,
+  subscribeEmployeePush,
+  unsubscribeEmployeePush,
 } from "../controllers/employeeController.js";
 import { handleEmployeeOrderStream } from "../services/orderNotificationService.js";
 
@@ -122,6 +126,35 @@ router.post(
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   bulkDispatchOrders
+);
+
+router.post(
+  "/orders/:id/acknowledge",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam }),
+  acknowledgeEmployeeOrder
+);
+
+router.get(
+  "/push/vapid-public-key",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  getEmployeePushPublicKey
+);
+
+router.post(
+  "/push/subscribe",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  subscribeEmployeePush
+);
+
+router.post(
+  "/push/unsubscribe",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  unsubscribeEmployeePush
 );
 
 router.patch(

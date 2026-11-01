@@ -2,14 +2,21 @@ import EventEmitter from "events";
 import { getRedisClient, getRedisSubscriber, isRedisActive, isRedisSubscriberActive } from "../config/redis.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { sendOrderCreatedPush, enqueuePushOutboxJob } from "./pushNotificationService.js";
 
 export const ORDER_EVENTS_CHANNEL = "orders:events";
 
 const localBus = new EventEmitter();
 localBus.setMaxListeners(200);
 
-// Active employee SSE response streams
+// Active employee SSE response streams and user tracking
 const employeeClients = new Set();
+const userClientCounts = new Map();
+const localAcknowledgedOrders = new Map();
+
+export const MAX_GLOBAL_SSE_CLIENTS = 100;
+export const MAX_PER_USER_SSE_CLIENTS = 3;
+const ACK_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 let isSubscriberInitialized = false;
 let isSubscriberInitializing = false;
@@ -66,7 +73,7 @@ export const initRedisOrderSubscriber = () => {
 
 /**
  * Broadcasts an order event to all connected employee SSE client streams.
- * @param {Object} payload - { event: string, orderId: number, status?: string, timestamp: number }
+ * @param {Object} payload - { event: string, orderId: number, status?: string, timestamp: number, employeeId?: number }
  */
 export const broadcastToEmployeeClients = (payload) => {
   if (!payload || !payload.event || !payload.orderId) return;
@@ -76,19 +83,21 @@ export const broadcastToEmployeeClients = (payload) => {
 
   const dataString = `event: order_event\ndata: ${JSON.stringify(payload)}\n\n`;
 
-  for (const client of employeeClients) {
+  for (const client of Array.from(employeeClients)) {
     try {
       client.write(dataString);
     } catch (_) {
-      employeeClients.delete(client);
+      if (typeof client._cleanupSSE === "function") {
+        client._cleanupSSE();
+      } else {
+        employeeClients.delete(client);
+      }
     }
   }
 };
 
 // Wire up local bus listener for in-memory / test / fallback scenarios
 localBus.on("order_event", (payload) => {
-  // If Redis subscriber is active, Redis will handle message distribution to avoid local duplicate
-  // A failed Redis publish must always remain deliverable locally.
   broadcastToEmployeeClients(payload);
 });
 
@@ -97,11 +106,13 @@ localBus.on("order_event", (payload) => {
  * Never throws — guaranteed safe for checkout and order mutation flows.
  *
  * @param {Object} params
- * @param {'ORDER_CREATED' | 'ORDER_STATUS_UPDATED'} params.event
+ * @param {'ORDER_CREATED' | 'ORDER_STATUS_UPDATED' | 'ORDER_ACKNOWLEDGED'} params.event
  * @param {number|string} params.orderId
  * @param {string} [params.status]
+ * @param {number|string} [params.total]
+ * @param {number|string} [params.employeeId]
  */
-export const publishOrderEvent = async ({ event, orderId, status } = {}) => {
+export const publishOrderEvent = async ({ event, orderId, status, total, employeeId } = {}) => {
   const cleanOrderId = Number(orderId);
   if (!cleanOrderId || isNaN(cleanOrderId) || !event) {
     logger.debug({ event, orderId }, "[OrderNotification] Ignored invalid order event parameters");
@@ -112,8 +123,19 @@ export const publishOrderEvent = async ({ event, orderId, status } = {}) => {
     event: String(event),
     orderId: cleanOrderId,
     ...(status ? { status: String(status) } : {}),
+    ...(employeeId ? { employeeId: Number(employeeId) || employeeId } : {}),
     timestamp: Date.now(),
   };
+
+  // Dispatch high-priority Web Push strictly for ORDER_CREATED (never for packing/status updates)
+  // Await durable outbox persistence before acknowledging event publication
+  if (payload.event === "ORDER_CREATED") {
+    try {
+      await enqueuePushOutboxJob({ orderId: cleanOrderId, total: total || null });
+    } catch (pushErr) {
+      logger.warn({ err: pushErr?.message, orderId: cleanOrderId }, "[OrderNotification] Push outbox enqueue failed");
+    }
+  }
 
   const redis = getRedisClient();
   if (redis && isRedisActive()) {
@@ -134,10 +156,98 @@ export const publishOrderEvent = async ({ event, orderId, status } = {}) => {
 };
 
 /**
+ * Acknowledges an incoming order alert across the counter / employee panel.
+ * Stores acknowledgement record and broadcasts ORDER_ACKNOWLEDGED to silence alarms.
+ *
+ * @param {Object} params
+ * @param {number|string} params.orderId
+ * @param {number|string} [params.employeeId]
+ */
+export const acknowledgeOrderNotification = async ({ orderId, employeeId } = {}) => {
+  const cleanOrderId = Number(orderId);
+  if (!cleanOrderId || isNaN(cleanOrderId)) {
+    return { success: false, reason: "invalid_order_id" };
+  }
+
+  const cleanEmployeeId = employeeId ? Number(employeeId) || employeeId : null;
+  const ackRecord = {
+    orderId: cleanOrderId,
+    employeeId: cleanEmployeeId,
+    acknowledgedAt: Date.now(),
+  };
+
+  // Cache in Redis with 24-hour TTL if active
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      await redis.set(`mumbai:order:ack:${cleanOrderId}`, JSON.stringify(ackRecord), "EX", 86400);
+    } catch (err) {
+      logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Redis ack set failed, fallback to local");
+      localAcknowledgedOrders.set(cleanOrderId, { ...ackRecord, expiresAt: Date.now() + ACK_TTL_MS });
+    }
+  } else {
+    localAcknowledgedOrders.set(cleanOrderId, { ...ackRecord, expiresAt: Date.now() + ACK_TTL_MS });
+  }
+
+  // Broadcast to all connected panels so other phones stop ringing immediately
+  await publishOrderEvent({
+    event: "ORDER_ACKNOWLEDGED",
+    orderId: cleanOrderId,
+    employeeId: cleanEmployeeId,
+  });
+
+  return { success: true, orderId: cleanOrderId, employeeId: cleanEmployeeId };
+};
+
+/**
+ * Checks if an order was acknowledged.
+ */
+export const isOrderAcknowledged = async (orderId) => {
+  const cleanOrderId = Number(orderId);
+  if (!cleanOrderId) return false;
+
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      const raw = await redis.get(`mumbai:order:ack:${cleanOrderId}`);
+      return Boolean(raw);
+    } catch (_) {
+      // Fall through to memory check
+    }
+  }
+
+  const local = localAcknowledgedOrders.get(cleanOrderId);
+  if (local) {
+    if (local.expiresAt > Date.now()) return true;
+    localAcknowledgedOrders.delete(cleanOrderId);
+  }
+  return false;
+};
+
+/**
  * HTTP Handler for Employee Server-Sent Events (SSE) Stream.
  * Mounted at GET /api/employee/orders/stream
  */
 export const handleEmployeeOrderStream = (req, res) => {
+  // Connection limit checks
+  if (employeeClients.size >= MAX_GLOBAL_SSE_CLIENTS) {
+    logger.warn({ current: employeeClients.size }, "[OrderNotification] Global SSE connection limit reached");
+    res.writeHead(429, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Too many active stream connections" }));
+    return;
+  }
+
+  const userId = req.user?.id ? String(req.user.id) : null;
+  if (userId) {
+    const currentCount = userClientCounts.get(userId) || 0;
+    if (currentCount >= MAX_PER_USER_SSE_CLIENTS) {
+      logger.warn({ userId, currentCount }, "[OrderNotification] Per-user SSE connection limit reached");
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Too many active stream connections for this user" }));
+      return;
+    }
+  }
+
   // 1. Establish SSE headers
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -149,8 +259,11 @@ export const handleEmployeeOrderStream = (req, res) => {
   // 2. Ensure subscriber is initialized
   initRedisOrderSubscriber();
 
-  // 3. Register client stream
+  // 3. Register client stream and track user connections
   employeeClients.add(res);
+  if (userId) {
+    userClientCounts.set(userId, (userClientCounts.get(userId) || 0) + 1);
+  }
 
   // 4. Send initial connected event
   res.write(
@@ -161,25 +274,48 @@ export const handleEmployeeOrderStream = (req, res) => {
     })}\n\n`
   );
 
-  // 5. 15-second heartbeat ping to prevent proxy/tunnel idle timeouts
-  const pingInterval = setInterval(() => {
-    try {
-      res.write(": ping\n\n");
-    } catch (_) {
-      clearInterval(pingInterval);
-      employeeClients.delete(res);
-    }
-  }, 15000);
-
-  // 6. Cleanup on client disconnect
-  req.on("close", () => {
+  // 5. 15-second heartbeat:
+  // - Sends comment ': ping\n\n' for proxy keep-alive
+  // - Sends observable 'event: heartbeat\ndata: <timestamp>\n\n' for client watchdog
+  let isCleanedUp = false;
+  const cleanupClient = () => {
+    if (isCleanedUp) return;
+    isCleanedUp = true;
     clearInterval(pingInterval);
     employeeClients.delete(res);
-  });
+    if (userId) {
+      const current = userClientCounts.get(userId) || 1;
+      if (current <= 1) {
+        userClientCounts.delete(userId);
+      } else {
+        userClientCounts.set(userId, current - 1);
+      }
+    }
+  };
+  res._cleanupSSE = cleanupClient;
+
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(`: ping\n\nevent: heartbeat\ndata: ${Date.now()}\n\n`);
+    } catch (_) {
+      cleanupClient();
+    }
+  }, 15000);
+  if (typeof pingInterval.unref === "function") {
+    pingInterval.unref();
+  }
+
+  // 6. Cleanup on client disconnect / errors
+  req.on("close", cleanupClient);
+  if (typeof res.on === "function") {
+    res.on("close", cleanupClient);
+    res.on("error", cleanupClient);
+  }
 };
 
 /** Testing inspection helpers */
 export const _getConnectedClientCount = () => employeeClients.size;
+export const _getUserClientCount = (userId) => userClientCounts.get(String(userId)) || 0;
 export const closeEmployeeOrderStreams = () => {
   for (const client of employeeClients) {
     try {
@@ -189,9 +325,12 @@ export const closeEmployeeOrderStreams = () => {
     }
   }
   employeeClients.clear();
+  userClientCounts.clear();
 };
 export const _resetNotificationServiceForTesting = () => {
   employeeClients.clear();
+  userClientCounts.clear();
+  localAcknowledgedOrders.clear();
   isSubscriberInitialized = false;
   localBus.removeAllListeners("order_event");
   localBus.on("order_event", (payload) => {

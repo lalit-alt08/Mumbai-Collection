@@ -1,14 +1,44 @@
 import axios from "axios";
 import API_URL from "../config/api.js";
 import { attachStaleConnectionRetry } from "../utils/resilientAxios.js";
+import safeStorage from "../utils/safeStorage.js";
 
 const catalogClient = axios.create({
   baseURL: API_URL,
-  timeout: 12000,
+  timeout: 20000,
 });
 attachStaleConnectionRetry(catalogClient);
 
-let cachedCategories = null;
+const CATEGORY_CACHE_STORAGE_KEY = "catalog_categories_v1";
+const CATEGORY_CACHE_STORAGE_TTL_MS = 6 * 60 * 60 * 1000;
+
+const readPersistedCategories = () => {
+  const cached = safeStorage.getJSON(CATEGORY_CACHE_STORAGE_KEY, null);
+  if (
+    !cached ||
+    cached.version !== 1 ||
+    !Array.isArray(cached.categories) ||
+    cached.categories.length === 0 ||
+    !Number.isFinite(Number(cached.cachedAt)) ||
+    Date.now() - Number(cached.cachedAt) > CATEGORY_CACHE_STORAGE_TTL_MS
+  ) {
+    safeStorage.removeItem(CATEGORY_CACHE_STORAGE_KEY);
+    return null;
+  }
+  return cached.categories;
+};
+
+const storeCategories = (categories) => {
+  if (!Array.isArray(categories) || categories.length === 0) return;
+  cachedCategories = categories;
+  safeStorage.setJSON(CATEGORY_CACHE_STORAGE_KEY, {
+    version: 1,
+    cachedAt: Date.now(),
+    categories,
+  });
+};
+
+let cachedCategories = readPersistedCategories();
 let categoriesRequest = null;
 
 export const getCachedCategories = () => cachedCategories;
@@ -132,9 +162,9 @@ export const getProductsByCategory = async (categoryId, params = {}, options = {
 export const getCategories = async (options = {}) => {
   if (!options.signal && categoriesRequest) return categoriesRequest;
 
-  const request = catalogClient.get("/products/categories", options)
+  const request = catalogClient.get("/products/categories", { timeout: 25000, ...options })
     .then((response) => {
-      if (Array.isArray(response.data)) cachedCategories = response.data;
+      if (Array.isArray(response.data) && response.data.length > 0) storeCategories(response.data);
       return response.data;
     });
 
@@ -147,18 +177,24 @@ export const getCategories = async (options = {}) => {
   return trackedRequest;
 };
 
-export const getHomeShelves = async ({ page = 1, ...options } = {}) => {
+export const getHomeShelves = async ({ page = 1, offset, ...options } = {}) => {
+  const hasOffset = Number.isInteger(Number(offset)) && Number(offset) >= 0;
   const response = await catalogClient.get("/products/home-shelves", {
     timeout: 25000,
     skipTimeoutRetry: true,
     ...options,
     // Keep page 1 backward-compatible with older deployed API versions that
     // accepted no query parameters on this endpoint.
-    ...(page > 1 ? { params: { ...(options.params || {}), page } } : {}),
+    ...(page > 1 || hasOffset
+      ? {
+          params: {
+            ...(options.params || {}),
+            ...(page > 1 ? { page } : {}),
+            ...(hasOffset ? { offset: Number(offset) } : {}),
+          },
+        }
+      : {}),
   });
-  if (Array.isArray(response.data?.categories) && response.data.categories.length > 0) {
-    cachedCategories = response.data.categories;
-  }
   return response.data;
 };
 

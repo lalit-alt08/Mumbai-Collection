@@ -750,7 +750,6 @@ function Cart() {
             itemsTotal={itemsTotal}
             discount={discount}
             delivery={delivery}
-            tax={tax}
             total={total}
             shortfall={Math.max(0, MIN_ORDER_VALUE - itemsTotal)}
             minOrderValue={MIN_ORDER_VALUE}

@@ -10,26 +10,53 @@ let lastRun = null;
 let lastSuccess = null;
 const healthPath = () => join(getAlertSpoolPath(), "reconciliation-health.json");
 const sharedHealth = async () => {
+  let redisRecord = null;
+  let diskRecord = null;
   const redis = getRedisClient();
+
+  if (redis) {
+    try {
+      const stored = await redis.get("mumbai:ops:reconciliation:v1");
+      if (stored) redisRecord = JSON.parse(stored);
+    } catch { /* Use private disk state on a single VPS during a Redis outage. */ }
+  }
+
   try {
-    const stored = redis && await redis.get("mumbai:ops:reconciliation:v1");
-    if (stored) return JSON.parse(stored);
-  } catch { /* Use private disk state on a single VPS during a Redis outage. */ }
-  try { return JSON.parse(await readFile(healthPath(), "utf8")); } catch { return { lastRun, lastSuccess }; }
+    diskRecord = JSON.parse(await readFile(healthPath(), "utf8"));
+  } catch { /* Ignore missing or unreadable disk state */ }
+
+  if (redisRecord && diskRecord) {
+    const redisLastRun = Number(redisRecord.lastRun) || 0;
+    const diskLastRun = Number(diskRecord.lastRun) || 0;
+    return redisLastRun >= diskLastRun ? redisRecord : diskRecord;
+  }
+
+  return redisRecord || diskRecord || { lastRun, lastSuccess };
 };
 export const recordReconciliationHealth = async (success) => {
   const previous = await sharedHealth();
   lastRun = Date.now();
   lastSuccess = success ? lastRun : previous.lastSuccess;
   const data = JSON.stringify({ lastRun, lastSuccess });
+
+  // 1. Write to local disk independently
   try {
     await mkdir(getAlertSpoolPath(), { recursive: true, mode: 0o700 });
     const temporary = `${healthPath()}.${randomUUID()}.tmp`;
     await writeFile(temporary, data, { mode: 0o600 });
     await rename(temporary, healthPath());
-    await getRedisClient()?.set("mumbai:ops:reconciliation:v1", data, "EX", 86400);
-  } catch (error) {
-    logger.warn({ code: error.code }, "[Health] Could not persist shared reconciliation heartbeat; local state remains available");
+  } catch (diskErr) {
+    logger.warn({ code: diskErr.code, err: diskErr.message }, "[Health] Could not persist reconciliation heartbeat to disk");
+  }
+
+  // 2. Write to Redis independently
+  try {
+    const redis = getRedisClient();
+    if (redis) {
+      await redis.set("mumbai:ops:reconciliation:v1", data, "EX", 86400);
+    }
+  } catch (redisErr) {
+    logger.warn({ err: redisErr.message }, "[Health] Could not persist reconciliation heartbeat to Redis");
   }
 };
 

@@ -9,7 +9,6 @@ import {
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
 import { triggerHaptic } from "../../utils/haptics";
-import HapticTapTarget from "../common/HapticTapTarget";
 import { useFavorites } from "../../context/FavoritesContext";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import {
@@ -170,7 +169,7 @@ function ProductCard({ product }) {
               ₹{currentPrice}
             </span>
             {isOnSale && (
-              <span className="text-[10px] text-[#6E84A3] line-through font-medium truncate">
+              <span className="text-[10px] text-[#8FA4BE] line-through font-medium truncate">
                 ₹{regularPrice}
               </span>
             )}
@@ -179,7 +178,6 @@ function ProductCard({ product }) {
           <div className="flex items-center justify-end flex-shrink-0">
             {isOutOfStock ? (
               cartItem ? (
-                <HapticTapTarget radius="9999px">
                   <button
                     type="button"
                     disabled={updatingCart}
@@ -206,7 +204,6 @@ function ProductCard({ product }) {
                   >
                     Sold Out <span className="text-[11px] font-black leading-none">✕</span>
                   </button>
-                </HapticTapTarget>
               ) : (
                 <button
                   type="button"
@@ -217,7 +214,6 @@ function ProductCard({ product }) {
                 </button>
               )
             ) : !cartItem ? (
-              <HapticTapTarget radius="9999px">
                 <button
                   disabled={updatingCart}
                   onClick={async () => {
@@ -258,14 +254,12 @@ function ProductCard({ product }) {
                       setUpdatingCart(false);
                     }
                   }}
-                  className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#42D6E8] bg-[#111F36] px-2.5 sm:px-3 text-xs font-bold text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.3)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-[30px] sm:h-[32px] min-w-[62px] sm:min-w-[68px] rounded-full border border-[#42D6E8]/70 bg-[#10243C] px-2.5 sm:px-3 text-[11px] sm:text-xs font-black tracking-wide text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.35)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
                 >
                   ADD
                 </button>
-              </HapticTapTarget>
             ) : (
               <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#42D6E8] text-[#061220] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
-                <HapticTapTarget className="h-full" radius="9999px">
                   <button
                     onClick={async () => {
                       if (updatingCart) return;
@@ -290,17 +284,15 @@ function ProductCard({ product }) {
                       }
                     }}
                     disabled={updatingCart}
-                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-xs font-bold text-[#061220]"
+                    className="flex h-full w-7 sm:w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-xs font-bold text-[#061220]"
                   >
                     −
                   </button>
-                </HapticTapTarget>
 
                 <span className="flex w-4 sm:w-5 items-center justify-center text-xs font-extrabold text-[#061220]">
                   {cartItem.quantity}
                 </span>
 
-                <HapticTapTarget className="h-full" radius="9999px">
                   <button
                     onClick={async () => {
                       if (updatingCart || isMaxReached) return;
@@ -335,7 +327,6 @@ function ProductCard({ product }) {
                   >
                     +
                   </button>
-                </HapticTapTarget>
               </div>
             )}
           </div>

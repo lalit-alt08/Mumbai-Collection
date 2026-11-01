@@ -125,7 +125,7 @@ export const saveProfile = async (req, res) => {
     }
 
     const cleanFullName = `${firstName} ${lastName}`;
-    const { password } = req.body;
+    const { password, current_password } = req.body;
 
     const response = await axios.put(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
@@ -135,11 +135,13 @@ export const saveProfile = async (req, res) => {
         full_name: cleanFullName,
         phone,
         ...(password ? { password } : {}),
+        ...(current_password ? { current_password } : {}),
       },
       {
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
+          Cookie: req.cookies?.[COOKIE_NAMES.customer.auth] || req.cookies?.mumbai_wp_auth || "",
         },
         httpsAgent,
         timeout: 8000,
@@ -255,7 +257,8 @@ export const deleteAccount = async (req, res) => {
     }
 
     const password = typeof req.body?.password === "string" ? req.body.password : "";
-    if (!password) {
+    const reset_token = typeof req.body?.reset_token === "string" ? req.body.reset_token : "";
+    if (!password && !reset_token) {
       return res.status(400).json({
         success: false,
         message: "Your current password is required to delete your account.",
@@ -272,7 +275,7 @@ export const deleteAccount = async (req, res) => {
     const wpDeleteRes = await axios.delete(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
       {
-        data: { password },
+        data: { password, reset_token },
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(userId),

@@ -1,7 +1,6 @@
 import { Minus, Plus } from "lucide-react";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import { cleanProductTitle } from "../../utils/productUtils";
-import HapticTapTarget from "../common/HapticTapTarget";
 
 function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
   const price = Number(item.prices?.price) / 100;
@@ -82,7 +81,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               ₹{price}
             </span>
             {regularPrice > price && (
-              <span className="text-[12px] font-medium text-[#6E84A3] line-through">
+              <span className="text-[12px] font-medium text-[#8FA4BE] line-through">
                 ₹{regularPrice}
               </span>
             )}
@@ -90,20 +89,19 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
           {/* Quantity Controls */}
           <div
-            className={`flex h-[32px] w-[78px] items-center justify-between rounded-full px-1 shadow-sm flex-shrink-0 select-none transition-colors ${
+            className={`flex h-[34px] w-[84px] items-center justify-between rounded-full px-1.5 shadow-sm flex-shrink-0 select-none transition-colors ${
               isOutOfStock
                 ? "bg-rose-700 text-white"
                 : "bg-[#42D6E8] text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)]"
             }`}
           >
-            <HapticTapTarget radius="9999px">
               <button
                 type="button"
                 disabled={isUpdating}
                 onClick={() => onDecrease(item)}
                 aria-label="Decrease quantity"
                 title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
-                className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                className={`relative flex h-7 w-7 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isOutOfStock
                     ? "text-white/90 hover:text-white hover:bg-white/15"
                     : "text-[#061220] hover:bg-black/15"
@@ -111,13 +109,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               >
                 <Minus size={15} strokeWidth={2.5} />
               </button>
-            </HapticTapTarget>
 
             <span className="flex-1 text-center text-[13px] font-black leading-none tabular-nums">
               {item.quantity}
             </span>
 
-            <HapticTapTarget radius="9999px">
               <button
                 type="button"
                 disabled={isUpdating || isMaxReached || isOutOfStock}
@@ -130,7 +126,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
                     ? `Only ${maxLimit} available in stock`
                     : "Increase quantity"
                 }
-                className={`flex h-6 w-6 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                className={`relative flex h-7 w-7 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isOutOfStock
                     ? "text-white/90 hover:text-white hover:bg-white/15"
                     : "text-[#061220] hover:bg-black/15"
@@ -138,7 +134,6 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
               >
                 <Plus size={15} strokeWidth={2.5} />
               </button>
-            </HapticTapTarget>
           </div>
         </div>
       </div>

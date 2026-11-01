@@ -51,13 +51,18 @@ export const schemas = {
   register: z
     .object({
       email,
-      otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
+      otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits.").optional(),
+      registration_token: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      password: strongPassword,
       first_name: personName(100).optional(),
       last_name: personName(100).optional(),
       firstName: personName(100).optional(),
       lastName: personName(100).optional(),
       name: personName(200).optional(),
       context,
+    }).refine((data) => Boolean(data.otp) !== Boolean(data.registration_token), {
+      message: "Provide the email verification code or registration token.",
+      path: ["otp"],
     }),
   forgotPassword: z.object({ email }),
   resetPassword: z.object({ token: z.string().trim().min(1).max(512), password: strongPassword }),
@@ -123,17 +128,11 @@ export const schemas = {
     sale_price: z.union([z.literal(""), numericString(), z.number().finite().nonnegative()]).optional(),
     stock_quantity: z.union([integerString(), z.number().int().nonnegative()]).optional(),
     stock_status: z.enum(["instock", "outofstock", "onbackorder"]).optional(),
-    sku: boundedString(100).optional(),
-    description: boundedString(10000).optional(),
-    short_description: boundedString(5000).optional(),
     category_ids: z.array(positiveId).optional(),
     categories: z.array(z.union([positiveId, z.object({ id: positiveId })])).optional(),
     department_id: positiveId.optional(),
     subcategory_id: positiveId.optional(),
-    image_id: z.union([z.literal(""), positiveId]).optional(),
-    image_url: z.string().trim().max(2000).optional(),
-    images: z.array(z.union([positiveId, z.string().trim().max(2000), z.record(z.string(), z.any())])).optional(),
-  }),
+  }).strict(),
   categoryCreate: z.object({
     name: boundedString(200).min(1),
     image_id: z.union([z.literal(""), positiveId]).optional().nullable(),
@@ -258,6 +257,7 @@ export const schemas = {
     full_name: personName(200).optional(),
     phone: indianMobile.optional(),
     password: strongPassword.optional(),
+    current_password: loginPassword.optional(),
   }),
   idParam: z.object({ id: positiveId }),
   addressIdParam: z.object({
@@ -276,7 +276,7 @@ export const schemas = {
     refresh: z.enum(["0", "1", "true", "false"]).optional(),
   }),
   pagination: z.object({
-    page: z.coerce.number().int().positive().max(10000).optional(),
+    page: z.coerce.number().int().positive().max(500).optional(),
     per_page: z.coerce.number().int().positive().max(100).optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
     format: boundedString(32).optional(),
@@ -303,12 +303,13 @@ export const schemas = {
   }),
   productSearch: z.object({
     q: boundedString(100).min(2),
-    page: z.coerce.number().int().positive().max(10000).optional(),
+    page: z.coerce.number().int().positive().max(500).optional(),
     per_page: z.coerce.number().int().positive().max(100).optional(),
   }),
   productDetailQuery: z.object({}).strict(),
   homeShelvesQuery: z.object({
     page: z.coerce.number().int().positive().max(1000).optional(),
+    offset: z.coerce.number().int().nonnegative().max(100000).optional(),
   }).strict(),
   productsByIds: z.object({
     ids: z.string().trim().min(1).max(131).regex(/^\d+(,\d+){0,11}$/),

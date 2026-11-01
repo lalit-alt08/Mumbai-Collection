@@ -7,6 +7,9 @@ test("Real-time Order Notification & SSE Stream Test Suite", async (t) => {
     handleEmployeeOrderStream,
     broadcastToEmployeeClients,
     _getConnectedClientCount,
+    _getUserClientCount,
+    acknowledgeOrderNotification,
+    isOrderAcknowledged,
     _resetNotificationServiceForTesting,
   } = await import("../src/services/orderNotificationService.js");
 
@@ -276,5 +279,71 @@ test("Real-time Order Notification & SSE Stream Test Suite", async (t) => {
 
     assert.equal(roleStatusCode, 403, "Customer role accessing employee stream must receive 403 Forbidden");
     assert.equal(roleNextCalled, false, "Must not proceed to stream handler");
+  });
+  await t.test("10. Connection Capping: rejects connections exceeding per-user or global limits", async () => {
+    const clients = [];
+    const userId = 888;
+
+    // Create 3 streams for userId (max allowed is 3)
+    for (let i = 0; i < 3; i++) {
+      let closeCb = null;
+      const req = {
+        user: { id: userId },
+        on: (event, cb) => { if (event === "close") closeCb = cb; },
+      };
+      const res = {
+        writeHead: (code) => {},
+        write: () => {},
+        end: () => {},
+      };
+      handleEmployeeOrderStream(req, res);
+      clients.push(closeCb);
+    }
+
+    assert.equal(_getUserClientCount(userId), 3, "Should have 3 active streams for user");
+
+    // 4th connection attempt should be rejected with 429
+    let rejectedCode = null;
+    let rejectedBody = null;
+    const req4 = {
+      user: { id: userId },
+      on: () => {},
+    };
+    const res4 = {
+      writeHead: (code) => { rejectedCode = code; },
+      end: (data) => { rejectedBody = JSON.parse(data); },
+    };
+
+    handleEmployeeOrderStream(req4, res4);
+    assert.equal(rejectedCode, 429, "4th connection for same user must be rejected with HTTP 429");
+    assert.ok(rejectedBody.error.includes("user"), "Error message should mention user limit");
+
+    // Disconnect one client
+    clients[0]();
+    assert.equal(_getUserClientCount(userId), 2, "Closing client decrements active count");
+  });
+
+  await t.test("11. Order Acknowledgement: records ack and broadcasts ORDER_ACKNOWLEDGED event", async () => {
+    const receivedEvents = [];
+    const mockRes = {
+      write: (data) => receivedEvents.push(data),
+    };
+
+    const req = { user: { id: 701 }, on: () => {} };
+    const res = { writeHead: () => {}, write: (data) => mockRes.write(data) };
+    handleEmployeeOrderStream(req, res);
+
+    const ackResult = await acknowledgeOrderNotification({ orderId: 555, employeeId: 701 });
+    assert.equal(ackResult.success, true);
+    assert.equal(ackResult.orderId, 555);
+
+    const isAcked = await isOrderAcknowledged(555);
+    assert.equal(isAcked, true, "Order 555 must be marked as acknowledged");
+
+    // Verify broadcast occurred
+    assert.ok(
+      receivedEvents.some((chunk) => chunk.includes("ORDER_ACKNOWLEDGED") && chunk.includes('"orderId":555')),
+      "SSE clients must receive ORDER_ACKNOWLEDGED event"
+    );
   });
 });

@@ -5,7 +5,6 @@ function CartSummary({
   itemsTotal,
   discount,
   delivery,
-  tax,
   total,
   shortfall = 0,
   minOrderValue = 500,
@@ -110,7 +109,10 @@ function CartSummary({
 
         <div className="space-y-3.5 text-[14px] text-[#8FA4BE]">
           <div className="flex justify-between items-center">
-            <span>Items Total</span>
+            <div>
+              <span className="block text-[#F1F5F9]">Items Total</span>
+              <span className="block text-[11px] font-medium text-[#6E84A3]">Inclusive of all taxes</span>
+            </div>
             <span className="font-medium text-[#F1F5F9]">₹{itemsTotal}</span>
           </div>
 
@@ -130,18 +132,14 @@ function CartSummary({
             )}
           </div>
 
-          {tax > 0 && (
-            <div className="flex justify-between items-center">
-              <span>Tax</span>
-              <span className="font-medium text-[#F1F5F9]">₹{tax}</span>
-            </div>
-          )}
-
           <hr className="my-4 border-[#1E3252]/70" />
 
           <div className="flex justify-between items-center text-[16px] font-black text-white">
-            <span>Grand Total</span>
-            <span>₹{total}</span>
+            <div>
+              <span>Grand Total</span>
+              <span className="block text-[11px] font-medium text-[#6E84A3]">Inclusive of all taxes (GST)</span>
+            </div>
+            <span className="text-[18px] text-[#42D6E8]">₹{total}</span>
           </div>
         </div>
       </div>

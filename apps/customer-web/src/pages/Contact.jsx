@@ -58,22 +58,22 @@ function Contact() {
               href="https://wa.me/918793601567?text=Hi%20Mumbai%20Collection,%20I%20need%20help%20with%20my%20order"
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center justify-between rounded-xl border border-[#1E3252] bg-[#132B45] p-3.5 transition-all hover:border-[#42D6E8]/50 hover:bg-[#162744] shadow-xs active:scale-[0.99]"
+              className="group flex items-center justify-between rounded-xl border border-[#25D366]/35 bg-[#0B2518]/70 p-3.5 transition-all hover:border-[#25D366]/70 hover:bg-[#0D2E1E] shadow-[0_4px_20px_rgba(37,211,102,0.06)] active:scale-[0.99]"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#42D6E8] text-[#061220] font-bold shadow-xs">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-[#061220] font-bold shadow-xs shadow-[#25D366]/20">
                   <MessageCircle size={19} />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <h3 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9]">
+                    <h3 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] group-hover:text-white transition-colors">
                       WhatsApp Quick Help
                     </h3>
-                    <span className="rounded bg-[#080F1C] border border-[#1E3252] px-1.5 py-0.2 text-[9px] font-bold text-[#67E8F9] uppercase">
+                    <span className="rounded bg-[#051C10] border border-[#25D366]/40 px-1.5 py-0.2 text-[9px] font-extrabold text-[#25D366] uppercase tracking-wide">
                       Fastest
                     </span>
                   </div>
-                  <p className="text-xs font-bold text-[#67E8F9] mt-0.5">
+                  <p className="text-xs font-bold text-[#25D366] mt-0.5">
                     +91 87936 01567
                   </p>
                   <p className="text-[11px] font-medium text-[#8FA4BE] mt-0.5">
@@ -83,7 +83,7 @@ function Contact() {
               </div>
               <ExternalLink
                 size={16}
-                className="text-[#42D6E8] transition-transform group-hover:translate-x-0.5 shrink-0"
+                className="text-[#25D366] transition-transform group-hover:translate-x-0.5 group-hover:text-[#4ADE80] shrink-0"
               />
             </a>
 

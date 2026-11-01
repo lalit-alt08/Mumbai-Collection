@@ -71,10 +71,10 @@ export const resetPassword = async (token, password) => {
   return data;
 };
 
-export const deleteAccount = async (password) => {
+export const deleteAccount = async (confirmation) => {
   const { data } = await axios.delete(`${API_URL}/profile`, {
     withCredentials: true,
-    data: { password },
+    data: typeof confirmation === "string" ? { password: confirmation } : confirmation,
   });
   return data;
 };

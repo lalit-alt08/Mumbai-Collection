@@ -1,10 +1,11 @@
 import { User, Mail, ArrowRight, ArrowLeft, ShieldCheck, RefreshCw } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { register, sendOtp } from "../services/authService";
+import { register, sendOtp, verifyOtp } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
+import { validatePassword } from "../utils/passwordValidator.js";
 
 function Register() {
   const navigate = useNavigate();
@@ -17,6 +18,10 @@ function Register() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
+  const [registrationToken, setRegistrationToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const submittingRef = useRef(false);
 
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -154,18 +159,37 @@ function Register() {
 
   const handleVerifyAndRegister = async (e) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     setOtpError("");
     setError("");
 
     const cleanOtp = otp.trim().replace(/\D/g, "");
-    if (!cleanOtp || cleanOtp.length !== 6) {
+    if (step === "otp" && (!cleanOtp || cleanOtp.length !== 6)) {
       setOtpError("Please enter the 6-digit verification code.");
       return;
     }
+    if (step === "password") {
+      const validation = validatePassword(password);
+      if (!validation.isValid || password !== confirmPassword) {
+        setError(validation.isValid ? "Passwords do not match." : validation.message);
+        return;
+      }
+    }
 
     try {
+      submittingRef.current = true;
       setLoading(true);
+
+      if (step === "otp") {
+        const verification = await verifyOtp(email.trim().toLowerCase(), cleanOtp, "register");
+        if (!verification?.registration_token) throw new Error("Email verification could not be confirmed.");
+        setRegistrationToken(verification.registration_token);
+        setOtp("");
+        setInfoMessage("");
+        setStep("password");
+        return;
+      }
 
       const cleanFirst = normalizePersonName(firstName);
       const cleanLast = normalizePersonName(lastName);
@@ -177,12 +201,16 @@ function Register() {
         last_name: cleanLast,
         name: cleanFullName,
         email: cleanEmail,
-        otp: cleanOtp,
+        registration_token: registrationToken,
+        password,
       });
 
       if (regResponse?.user) {
         loginUser(regResponse.user);
       }
+      setPassword("");
+      setConfirmPassword("");
+      setRegistrationToken("");
 
       navigate("/profile-setup", {
         state: {
@@ -202,11 +230,13 @@ function Register() {
         backendMessage.toLowerCase().includes("otp") ||
         backendMessage.toLowerCase().includes("expired")
       ) {
-        setOtpError(backendMessage);
+        if (step === "password") setError(backendMessage);
+        else setOtpError(backendMessage);
       } else {
         setError(backendMessage);
       }
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
@@ -382,6 +412,29 @@ function Register() {
                 </button>
               </p>
             </>
+          ) : step === "password" ? (
+            <form onSubmit={handleVerifyAndRegister} className="flex flex-col gap-4">
+              <h1 className="text-2xl font-extrabold text-[#F1F5F9]">Create your password</h1>
+              <p className="text-sm text-[#8FA4BE]">Email verified. Set a password to sign in with {email} next time.</p>
+              <p id="password-help" className="text-xs text-[#8FA4BE]">Use 8–256 characters, including uppercase and lowercase letters, a number, and a symbol.</p>
+              <label className="text-sm font-bold text-[#8FA4BE]">Password
+                <input type="password" autoComplete="new-password" autoFocus required maxLength={256}
+                  aria-describedby="password-help" value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="mt-2 h-12 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-[#F1F5F9]" />
+              </label>
+              <label className="text-sm font-bold text-[#8FA4BE]">Confirm password
+                <input type="password" autoComplete="new-password" required maxLength={256}
+                  value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-2 h-12 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-[#F1F5F9]" />
+              </label>
+              {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+              <button type="submit" disabled={loading} className="h-12 rounded-xl bg-[#42D6E8] font-bold text-[#061220] disabled:opacity-60">
+                {loading ? "Creating account..." : "Continue to delivery setup"}
+              </button>
+              <button type="button" disabled={loading} onClick={() => {
+                setStep("details"); setRegistrationToken(""); setPassword(""); setConfirmPassword(""); setError("");
+              }} className="text-sm text-[#8FA4BE]">Change email or request a new code</button>
+            </form>
           ) : (
             <>
               {/* Step 2: OTP Verification */}

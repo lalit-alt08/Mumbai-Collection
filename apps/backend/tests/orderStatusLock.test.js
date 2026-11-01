@@ -79,26 +79,26 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
       "date_completed must be third priority"
     );
 
-    // 4. date_created_gmt fallback when no completed timestamp
+    // 4. date_created must not be mistaken for delivery timestamp (fail closed null)
     const orderWithCreatedGmt = {
       status: "completed",
       date_created_gmt: "2026-09-04T12:00:00Z",
     };
     assert.equal(
       getOrderDeliveredTimestamp(orderWithCreatedGmt),
-      new Date("2026-09-04T12:00:00Z").getTime(),
-      "date_created_gmt must be fourth priority"
+      null,
+      "date_created_gmt must not be used as delivery timestamp"
     );
 
-    // 5. date_created fallback when no gmt created timestamp
+    // 5. date_created must not be used as delivery timestamp (fail closed null)
     const orderWithCreated = {
       status: "completed",
       date_created: "2026-09-04T12:00:00",
     };
     assert.equal(
       getOrderDeliveredTimestamp(orderWithCreated),
-      new Date("2026-09-04T12:00:00").getTime(),
-      "date_created must be fifth priority"
+      null,
+      "date_created must not be used as delivery timestamp"
     );
 
     // 6. Must NOT use date_modified
