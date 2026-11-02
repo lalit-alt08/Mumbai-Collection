@@ -234,16 +234,30 @@ export function AuthProvider({ children }) {
           name: userData.name || "",
           roles: userData.roles || [],
         });
-        return userData;
+        return { ok: true, user: userData };
       } else {
         handleSessionExpired();
+        return {
+          ok: false,
+          reason: "unauthorized",
+          status: 401,
+        };
       }
     } catch (error) {
       if (error.response?.status === 401) {
         handleSessionExpired();
+        return {
+          ok: false,
+          reason: "unauthorized",
+          status: 401,
+        };
       }
+      return {
+        ok: false,
+        reason: "unavailable",
+        status: error.response?.status || 0,
+      };
     }
-    return null;
   };
 
   useEffect(() => {

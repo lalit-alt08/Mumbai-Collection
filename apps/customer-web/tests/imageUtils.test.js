@@ -158,3 +158,30 @@ test("resolveMediaUrl: preserves localhost:5000 during local development", () =>
 
   delete globalThis.window;
 });
+
+test("resolveMediaUrl: defensively converts legacy /wp-content/uploads/ URLs to /api/media/uploads/ with query strings", () => {
+  const legacyWpUrl = "https://mumbai-collection.local/wp-content/uploads/2026/09/watch.jpg?v=2.1&w=300";
+  assert.equal(
+    resolveMediaUrl(legacyWpUrl),
+    "/api/media/uploads/2026/09/watch.jpg?v=2.1&w=300",
+    "Must defensively rewrite legacy WordPress upload URLs to proxy path while preserving query string"
+  );
+});
+
+test("resolveMediaUrl: preserves non-WordPress CDN, external, placeholder, and data/blob URLs", () => {
+  const externalCdn = "https://cdn.shopify.com/s/files/1/products/mug.jpg?v=123";
+  assert.equal(resolveMediaUrl(externalCdn), externalCdn);
+
+  // External WordPress-style CDN URLs must NOT be hijacked into local media proxy
+  const externalWpCdn = "https://cdn.example.com/wp-content/uploads/2026/04/product.webp";
+  assert.equal(resolveMediaUrl(externalWpCdn), externalWpCdn);
+
+  const placeholder = "/product-placeholder.svg";
+  assert.equal(resolveMediaUrl(placeholder), placeholder);
+
+  const dataUri = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=";
+  assert.equal(resolveMediaUrl(dataUri), dataUri);
+
+  const blobUri = "blob:http://localhost:5173/1234-5678";
+  assert.equal(resolveMediaUrl(blobUri), blobUri);
+});

@@ -87,7 +87,10 @@ let subscriberClient = null;
 let isSubscriberReady = false;
 
 export const getRedisClient = () => (isReady ? redisClient : null);
-export const isRedisConfigured = () => Boolean(REDIS_URL);
+let redisConfiguredOverride = null;
+
+export const isRedisConfigured = () => (redisConfiguredOverride !== null ? redisConfiguredOverride : Boolean(process.env.REDIS_URL || process.env.REDIS_HOST || REDIS_URL));
+export const _setRedisConfiguredForTesting = (override) => { redisConfiguredOverride = override; };
 export const isRedisActive = () => isReady;
 
 /**

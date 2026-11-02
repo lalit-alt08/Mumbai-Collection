@@ -141,6 +141,8 @@ function ProfileSetup() {
   const [isEditingAddress, setIsEditingAddress] = useState(true);
   const [editingAddressId, setEditingAddressId] = useState(null);
 
+  const requiresAddress = addresses.length === 0 || isEditingAddress;
+
   // Initial loading state
   const [loading, setLoading] = useState(!Boolean(defaultFirst || user?.id));
   const [saving, setSaving] = useState(false);
@@ -203,15 +205,14 @@ function ProfileSetup() {
           }
         }
 
-        // Only redirect to login if session was explicitly invalidated and user did not just register
-        const isFromRegister = Boolean(location.state?.fromRegister || passedFirst);
-        if (
-          !isFromRegister &&
+        // Only redirect to login if session was explicitly invalidated (both initial requests return 401)
+        const bothUnauthorized =
           profileResult.status === "rejected" &&
           profileResult.reason?.response?.status === 401 &&
           addressResult.status === "rejected" &&
-          addressResult.reason?.response?.status === 401
-        ) {
+          addressResult.reason?.response?.status === 401;
+
+        if (bothUnauthorized) {
           if (handleSessionExpired) {
             handleSessionExpired();
           }
@@ -395,22 +396,30 @@ function ProfileSetup() {
     }
 
     // 3. Validate Address Details
-    const mustSaveAddress = addresses.length === 0 || isEditingAddress;
-
-    if (mustSaveAddress) {
-      if (!addressForm.address_line1.trim()) {
-        newErrors.address_line1 = "Please enter your street address / flat number.";
+    let hasAddressError = false;
+    if (requiresAddress) {
+      if (!addressForm.address_line1.trim() || addressForm.address_line1.trim().length < 3) {
+        newErrors.address_line1 = "Please enter your street address / flat number (minimum 3 characters).";
+        hasAddressError = true;
       }
 
       if (!addressForm.city.trim() || !isValidDeliveryRegion(addressForm.city)) {
         newErrors.city =
           "Please select your delivery region (Vasai West, Vasai East, Nallasopara West, or Nallasopara East).";
+        hasAddressError = true;
       }
     }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      setMessage({ type: "", text: "" });
+      if (hasAddressError) {
+        setMessage({
+          type: "error",
+          text: "Add your delivery address to finish account setup.",
+        });
+      } else {
+        setMessage({ type: "", text: "" });
+      }
       const errorKeys = ["password", "confirm_password", "phone", "confirm_phone", "address_line1", "city"];
       const firstKey = errorKeys.find((k) => newErrors[k]);
       if (firstKey) {
@@ -471,7 +480,7 @@ function ProfileSetup() {
       );
 
       // Save Address using personal name & phone automatically (no duplicate fields required)
-      if (mustSaveAddress) {
+      if (requiresAddress) {
         const addressPayload = {
           type: addressForm.type || "home",
           first_name: cleanFirst,
@@ -490,28 +499,100 @@ function ProfileSetup() {
             headers: { "X-Mumbai-Panel": "customer" },
           });
         } else {
-          await axios.post(`${API_URL}/addresses`, addressPayload, {
-            withCredentials: true,
-            headers: { "X-Mumbai-Panel": "customer" },
-          });
+          try {
+            await axios.post(`${API_URL}/addresses`, addressPayload, {
+              withCredentials: true,
+              headers: { "X-Mumbai-Panel": "customer" },
+            });
+          } catch (addrErr) {
+            const isDuplicateType =
+              addrErr.response?.status === 400 &&
+              (addrErr.response?.data?.code === "ADDRESS_TYPE_EXISTS" ||
+                String(addrErr.response?.data?.message || "").toLowerCase().includes("already have a saved"));
+            if (isDuplicateType) {
+              const fetchRes = await axios.get(`${API_URL}/addresses`, {
+                withCredentials: true,
+                headers: { "X-Mumbai-Panel": "customer" },
+              });
+              const currentAddrs = fetchRes.data?.addresses || [];
+              const match = currentAddrs.find(
+                (a) => (a.type || "").toLowerCase() === (addressPayload.type || "").toLowerCase()
+              );
+              if (!match?.id) {
+                throw addrErr;
+              }
+              await axios.put(`${API_URL}/addresses/${match.id}`, addressPayload, {
+                withCredentials: true,
+                headers: { "X-Mumbai-Panel": "customer" },
+              });
+            } else {
+              throw addrErr;
+            }
+          }
         }
       }
 
-      if (refreshUser) {
-        await refreshUser();
+      // 3. Authoritative Completion Check Before Success
+      let completeRes;
+      try {
+        completeRes = await axios.get(`${API_URL}/profile/complete`, {
+          withCredentials: true,
+          headers: { "X-Mumbai-Panel": "customer" },
+          timeout: 8000,
+        });
+      } catch (checkErr) {
+        if (checkErr.response?.status === 401) {
+          if (handleSessionExpired) {
+            handleSessionExpired();
+          }
+          navigate("/login", {
+            replace: true,
+            state: { from: location.pathname + location.search },
+          });
+          return;
+        }
+
+        // Timeout, network error, 502, 503
+        setMessage({
+          type: "error",
+          text: "Your details were saved, but we could not confirm completion. Please retry.",
+        });
+        return;
       }
 
-      setMessage({
-        type: "success",
-        text: "Account setup completed successfully!",
-      });
-
-      setTimeout(() => {
-        navigate("/", {
-          replace: true,
-          state: { message: "Account setup completed successfully" },
+      if (!completeRes?.data || completeRes.data.complete !== true) {
+        const missing = [];
+        if (completeRes?.data?.profile_complete === false) {
+          missing.push("profile details");
+        }
+        if (completeRes?.data?.address_complete === false) {
+          missing.push("delivery address");
+        }
+        const missingText = missing.length > 0 ? ` (${missing.join(" and ")})` : "";
+        setMessage({
+          type: "error",
+          text: `Account setup is not complete yet${missingText}. Please review your details and retry.`,
         });
-      }, 300);
+        return;
+      }
+
+      // 4. Session refresh
+      if (refreshUser) {
+        const refreshResult = await refreshUser();
+        if (refreshResult && refreshResult.ok === false && refreshResult.reason === "unauthorized") {
+          navigate("/login", {
+            replace: true,
+            state: { from: location.pathname + location.search },
+          });
+          return;
+        }
+      }
+
+      // 5. Navigate immediately without race condition
+      navigate("/", {
+        replace: true,
+        state: { message: "Account setup completed successfully" },
+      });
     } catch (error) {
       if (error.response?.status === 401) {
         if (handleSessionExpired) {
@@ -950,7 +1031,7 @@ function ProfileSetup() {
               </div>
 
               <span className="rounded-full bg-[#132B45] text-[#42D6E8] border border-[#1E3E63] px-2.5 py-0.5 text-[10px] font-bold">
-                Step 2 of 2
+                Step 2 of 2 {requiresAddress ? "• Required" : ""}
               </span>
             </div>
 

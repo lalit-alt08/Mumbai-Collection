@@ -182,6 +182,7 @@ export const saveAddress = async (req, res) => {
     if (alreadyExists) {
       return res.status(400).json({
         success: false,
+        code: "ADDRESS_TYPE_EXISTS",
         message: `You already have a saved ${normalizedType === "home" ? "Home" : "Office"} address. Each customer can have at most one Home and one Office address.`,
       });
     }
@@ -319,6 +320,7 @@ export const updateAddress = async (req, res) => {
     if (duplicateOccupied) {
       return res.status(400).json({
         success: false,
+        code: "ADDRESS_TYPE_EXISTS",
         message: `Another ${normalizedType === "home" ? "Home" : "Office"} address already exists. Each customer can have at most one Home and one Office address.`,
       });
     }

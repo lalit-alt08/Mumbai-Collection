@@ -1,19 +1,81 @@
+const WP_BASE_URL = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+let configuredWpHost = "";
+try {
+  configuredWpHost = new URL(WP_BASE_URL).hostname.toLowerCase();
+} catch (_) {}
+
+const APPROVED_WP_HOSTS = new Set([
+  "mumbai-collection.local",
+  "mumbaicollection.local",
+  "localhost",
+  "127.0.0.1",
+  ...(configuredWpHost ? [configuredWpHost] : []),
+]);
+
+const isWordPressTarget = (trimmed) => {
+  // If it's a relative path starting with /wp-content/uploads/ or /api/media/uploads/
+  if (
+    trimmed.startsWith("/wp-content/uploads/") ||
+    trimmed.startsWith("wp-content/uploads/") ||
+    trimmed.startsWith("/api/media/uploads/") ||
+    trimmed.startsWith("api/media/uploads/")
+  ) {
+    return true;
+  }
+
+  // If it's an absolute URL, parse it and check if hostname is in APPROVED_WP_HOSTS
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.toLowerCase();
+    const wpBase = process.env.WORDPRESS_URL;
+    let runtimeHost = "";
+    if (wpBase) {
+      try {
+        runtimeHost = new URL(wpBase).hostname.toLowerCase();
+      } catch (_) {}
+    }
+    return (
+      APPROVED_WP_HOSTS.has(hostname) ||
+      Boolean(runtimeHost && hostname === runtimeHost)
+    );
+  } catch (_) {
+    return false;
+  }
+};
+
 export const transformMediaUrl = (url, req) => {
   if (!url || typeof url !== "string") return url;
+  const trimmed = url.trim();
+  if (!trimmed) return url;
+
+  // Never rewrite data URIs, blob URLs, or local placeholders
+  if (
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("/product-placeholder.svg")
+  ) {
+    return url;
+  }
+
+  // Only rewrite if it's confirmed to be a WordPress target (relative or matching WordPress host)
+  if (!isWordPressTarget(trimmed)) {
+    return url;
+  }
 
   let relativePath = null;
   const wpMarker = "/wp-content/uploads/";
   const apiMarker = "/api/media/uploads/";
 
-  const wpIndex = url.indexOf(wpMarker);
-  const apiIndex = url.indexOf(apiMarker);
+  const wpIndex = trimmed.indexOf(wpMarker);
+  const apiIndex = trimmed.indexOf(apiMarker);
 
   if (wpIndex !== -1) {
-    relativePath = url.substring(wpIndex + wpMarker.length);
+    relativePath = trimmed.substring(wpIndex + wpMarker.length);
   } else if (apiIndex !== -1) {
-    relativePath = url.substring(apiIndex + apiMarker.length);
+    relativePath = trimmed.substring(apiIndex + apiMarker.length);
   }
 
+  // Preserve non-WordPress CDN/external image URLs unchanged
   if (!relativePath) {
     return url;
   }
@@ -37,15 +99,29 @@ export const transformMediaUrl = (url, req) => {
 /**
  * Transforms responsive image srcset strings containing comma-separated candidate URLs:
  * "http://host/img-679.jpg 679w, http://host/img-300.jpg 300w"
+ * Preserves width/density descriptors (e.g. 679w, 2x) and query strings.
+ * Safely handles data-URIs containing commas without corrupting candidate boundaries.
  */
 export const transformSrcset = (srcset, req) => {
   if (!srcset || typeof srcset !== "string") return srcset;
 
-  return srcset
-    .split(",")
+  // Split candidates on commas followed by whitespace and candidate start,
+  // preventing data-URIs with internal commas (e.g. data:image/png;base64,...) from being corrupted.
+  const candidates = srcset.split(/,\s+(?=(?:https?:\/\/|\/|data:|[a-zA-Z0-9_\-\.]+\/))/i);
+
+  return candidates
     .map((candidate) => {
       const trimmed = candidate.trim();
       if (!trimmed) return trimmed;
+      if (trimmed.startsWith("data:")) {
+        const match = trimmed.match(/^(data:[^\s]+)(?:\s+(.+))?$/);
+        if (match) {
+          const url = match[1];
+          const descriptor = match[2];
+          return descriptor ? `${url} ${descriptor}` : url;
+        }
+        return trimmed;
+      }
       const parts = trimmed.split(/\s+/);
       const url = parts[0];
       const descriptor = parts.slice(1).join(" ");

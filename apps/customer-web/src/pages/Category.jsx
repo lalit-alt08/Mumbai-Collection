@@ -9,10 +9,12 @@ import { getCategoryImageUrl } from "../utils/categoryImage";
 import { safeStorage } from "../utils/safeStorage";
 import API_URL from "../config/api.js";
 import axios from "axios";
+import { useAuth } from "../context/AuthContext";
 
 const PER_PAGE = 20;
 
 function Category() {
+  const { user, isAuthenticated } = useAuth();
   const { categoryId } = useParams();
   const navigate = useNavigate();
 
@@ -372,8 +374,13 @@ function Category() {
     }
   });
 
-  // Fetch saved addresses in background to keep data fresh
+  // Fetch saved addresses in background to keep data fresh (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated && !user) {
+      setSavedAddresses([]);
+      return;
+    }
+
     let isMounted = true;
     axios
       .get(`${API_URL}/addresses`, { withCredentials: true })
@@ -384,12 +391,12 @@ function Category() {
         }
       })
       .catch(() => {
-        // Guests or offline: use cached
+        // Fallback to cached on network failure
       });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAuthenticated, user]);
 
   // Close address modal on Escape & signal modal state to layout (hiding floating cart bar)
   useEffect(() => {

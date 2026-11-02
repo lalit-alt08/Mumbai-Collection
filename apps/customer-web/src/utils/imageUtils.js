@@ -72,17 +72,77 @@ export const getFullImageUrl = (image, fallback = PRODUCT_PLACEHOLDER_URL) => {
 
 /**
  * Resolves an image or banner URL across local and hosted environments.
- * If an image points to localhost:5000 in a hosted/production browser environment (e.g. Vercel),
- * it converts it to a relative /api/media/... path so Vercel's rewrite rule proxies it cleanly over HTTPS.
+ * If an image points to a WordPress /wp-content/uploads/ location, it defensively rewrites it
+ * to the proxy path /api/media/uploads/... while preserving query parameters.
+ * Preserves non-WordPress CDN/external URLs, data URIs, and local placeholders unchanged.
  *
  * @param {string} url
  * @returns {string}
  */
+const VITE_WP_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_WORDPRESS_URL) || "";
+let configuredFrontHost = "";
+try {
+  if (VITE_WP_URL) configuredFrontHost = new URL(VITE_WP_URL).hostname.toLowerCase();
+} catch (_) {}
+
+const APPROVED_WP_HOSTS = new Set([
+  "mumbai-collection.local",
+  "mumbaicollection.local",
+  "localhost",
+  "127.0.0.1",
+  ...(configuredFrontHost ? [configuredFrontHost] : []),
+]);
+
+const isWordPressTarget = (trimmed) => {
+  if (
+    trimmed.startsWith("/wp-content/uploads/") ||
+    trimmed.startsWith("wp-content/uploads/") ||
+    trimmed.startsWith("/api/media/uploads/") ||
+    trimmed.startsWith("api/media/uploads/")
+  ) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.toLowerCase();
+    return APPROVED_WP_HOSTS.has(hostname);
+  } catch (_) {
+    return false;
+  }
+};
+
 export const resolveMediaUrl = (url) => {
   if (!url || typeof url !== "string") return "";
   const trimmed = url.trim();
   if (!trimmed) return "";
 
+  // Never alter data URIs, blob URLs, or local placeholders
+  if (
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("/product-placeholder.svg") ||
+    trimmed === PRODUCT_PLACEHOLDER_URL
+  ) {
+    return trimmed;
+  }
+
+  // Defensive frontend conversion: only rewrite if confirmed WordPress target (relative or matching WordPress host)
+  // Preserves external CDNs (e.g. https://cdn.example.com/wp-content/uploads/...) unchanged
+  if (isWordPressTarget(trimmed)) {
+    const wpMarker = "/wp-content/uploads/";
+    const wpIndex = trimmed.indexOf(wpMarker);
+    if (wpIndex !== -1) {
+      const relativePath = trimmed.substring(wpIndex + wpMarker.length);
+      if (relativePath) {
+        return `/api/media/uploads/${relativePath}`;
+      }
+    }
+  }
+
+  // If pointing to localhost:5000 in a hosted/production browser environment (e.g. Vercel),
+  // convert to relative /api/media/... path so reverse proxy routes it cleanly
   if (typeof window !== "undefined" && window.location) {
     const hostname = window.location.hostname;
     const isLocal = hostname === "localhost" || hostname === "127.0.0.1";

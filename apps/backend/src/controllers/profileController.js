@@ -11,8 +11,8 @@ import { serverCache } from "../utils/memoryCache.js";
 
 const getProfileCookieOptions = (req) => {
   const isHttps =
-    req.secure ||
-    req.headers["x-forwarded-proto"] === "https" ||
+    Boolean(req?.secure) ||
+    req?.headers?.["x-forwarded-proto"] === "https" ||
     process.env.NODE_ENV === "production";
 
   return {
@@ -125,7 +125,10 @@ export const saveProfile = async (req, res) => {
     }
 
     const cleanFullName = `${firstName} ${lastName}`;
-    const { password, current_password } = req.body;
+    const isGoogleUser = req.isGoogleUser === true || req.user?.is_google_user === true;
+    const { password, current_password } = isGoogleUser ? {} : req.body;
+    const rawPhone = String(phone || "").trim();
+    const cleanPhone = rawPhone ? rawPhone.replace(/\D/g, "").slice(-10) : "";
 
     const response = await axios.put(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
@@ -133,9 +136,9 @@ export const saveProfile = async (req, res) => {
         first_name: firstName,
         last_name: lastName,
         full_name: cleanFullName,
-        phone,
-        ...(password ? { password } : {}),
-        ...(current_password ? { current_password } : {}),
+        phone: cleanPhone || phone,
+        ...(!isGoogleUser && password ? { password } : {}),
+        ...(!isGoogleUser && current_password ? { current_password } : {}),
       },
       {
         headers: {
@@ -204,6 +207,11 @@ export const saveProfile = async (req, res) => {
 };
 
 export const checkProfileComplete = async (req, res) => {
+  if (typeof res.set === "function") {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.set("Pragma", "no-cache");
+  }
+
   try {
     const response = await axios.get(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile/complete`,
@@ -217,11 +225,6 @@ export const checkProfileComplete = async (req, res) => {
       },
     );
 
-    if (typeof res.set === "function") {
-      res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-      res.set("Pragma", "no-cache");
-    }
-
     const payload = response.data || {};
     if (payload.profile && typeof payload.profile === "object") {
       delete payload.profile.age;
@@ -233,12 +236,32 @@ export const checkProfileComplete = async (req, res) => {
   } catch (error) {
     logError(req, error, "Check profile complete error");
 
-    res.status(error.response?.status || 500).json(
-      error.response?.data || {
+    const upstreamStatus = error.response?.status;
+    const isTimeout = error.code === "ECONNABORTED" || error.code === "ETIMEDOUT";
+    const isUnavailable =
+      isTimeout || !error.response || upstreamStatus === 502 || upstreamStatus === 503 || upstreamStatus === 504;
+
+    if (upstreamStatus === 401) {
+      return res.status(401).json({
         success: false,
-        message: "Unable to check profile completion.",
-      },
-    );
+        complete: false,
+        message: "Session expired or invalid.",
+      });
+    }
+
+    if (isUnavailable) {
+      return res.status(503).json({
+        success: false,
+        complete: false,
+        message: "Profile completion service is temporarily unavailable. Please retry.",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      complete: false,
+      message: "Unable to check profile completion.",
+    });
   }
 };
 

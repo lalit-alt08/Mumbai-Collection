@@ -3,11 +3,15 @@ import API_URL from "../config/api.js";
 import { attachStaleConnectionRetry } from "../utils/resilientAxios.js";
 import safeStorage from "../utils/safeStorage.js";
 
-const catalogClient = axios.create({
+let catalogClient = axios.create({
   baseURL: API_URL,
   timeout: 20000,
 });
 attachStaleConnectionRetry(catalogClient);
+
+export const _setCatalogClientForTesting = (mock) => {
+  catalogClient = mock;
+};
 
 const CATEGORY_CACHE_STORAGE_KEY = "catalog_categories_v1";
 const CATEGORY_CACHE_STORAGE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -28,20 +32,37 @@ const readPersistedCategories = () => {
   return cached.categories;
 };
 
-const storeCategories = (categories) => {
-  if (!Array.isArray(categories) || categories.length === 0) return;
+let latestCategoryRequestId = 0;
+let latestCommittedCategoryRequestId = 0;
+
+const storeCategories = (categories, requestId) => {
+  if (!Array.isArray(categories) || categories.length === 0) return false;
+  if (!Number.isFinite(requestId) || requestId < latestCommittedCategoryRequestId) return false;
+  latestCommittedCategoryRequestId = requestId;
   cachedCategories = categories;
   safeStorage.setJSON(CATEGORY_CACHE_STORAGE_KEY, {
     version: 1,
     cachedAt: Date.now(),
     categories,
   });
+  return true;
 };
 
 let cachedCategories = readPersistedCategories();
 let categoriesRequest = null;
 
 export const getCachedCategories = () => cachedCategories;
+
+export const _setCachedCategoriesForTesting = (cats) => {
+  cachedCategories = cats;
+};
+
+export const _resetCategoryCacheForTesting = () => {
+  cachedCategories = readPersistedCategories();
+  categoriesRequest = null;
+  latestCategoryRequestId = 0;
+  latestCommittedCategoryRequestId = 0;
+};
 
 export const getProducts = async (params = {}, options = {}) => {
   const response = await catalogClient.get("/products", { ...options, params });
@@ -160,21 +181,57 @@ export const getProductsByCategory = async (categoryId, params = {}, options = {
 };
 
 export const getCategories = async (options = {}) => {
-  if (!options.signal && categoriesRequest) return categoriesRequest;
+  const { bypassDedup = false, forceFresh = false, ...clientOptions } = options;
+  const shouldBypass = Boolean(bypassDedup || forceFresh);
+  if (!shouldBypass && !clientOptions.signal && categoriesRequest) return categoriesRequest;
 
-  const request = catalogClient.get("/products/categories", { timeout: 25000, ...options })
+  const requestId = ++latestCategoryRequestId;
+
+  const request = catalogClient.get("/products/categories", { timeout: 25000, ...clientOptions })
     .then((response) => {
-      if (Array.isArray(response.data) && response.data.length > 0) storeCategories(response.data);
+      storeCategories(response.data, requestId);
       return response.data;
     });
 
-  if (options.signal) return request;
+  if (clientOptions.signal) return request;
 
   const trackedRequest = request.finally(() => {
     if (categoriesRequest === trackedRequest) categoriesRequest = null;
   });
   categoriesRequest = trackedRequest;
   return trackedRequest;
+};
+
+/**
+ * Explicit Stale-While-Revalidate (SWR) category accessor.
+ * 1. Synchronously returns cached categories from in-memory cache / localStorage.
+ * 2. Asynchronously launches a background revalidation network request via getCategories().
+ * 3. Invokes onFreshData(freshCategories) if provided once background network request succeeds,
+ *    guarded against out-of-order race conditions so only committed data is passed to UI.
+ *
+ * @param {Function} [onFreshData] - Optional callback invoked when background revalidation succeeds
+ * @param {Object} [options] - Options passed to getCategories() (e.g. { signal, bypassDedup, forceFresh })
+ * @returns {Array|null} Immediately available cached categories or null
+ */
+export const getCategoriesSWR = (onFreshData, options = {}) => {
+  const cached = getCachedCategories();
+  void getCategories(options)
+    .then((fresh) => {
+      if (
+        typeof onFreshData === "function" &&
+        Array.isArray(fresh) &&
+        fresh.length > 0 &&
+        cachedCategories === fresh
+      ) {
+        onFreshData(fresh);
+      }
+    })
+    .catch((err) => {
+      if (typeof console !== "undefined" && typeof console.warn === "function") {
+        console.warn("[productService] Background category SWR revalidation failed:", err?.message);
+      }
+    });
+  return cached;
 };
 
 export const getHomeShelves = async ({ page = 1, offset, ...options } = {}) => {

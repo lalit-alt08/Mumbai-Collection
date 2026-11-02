@@ -7,7 +7,7 @@
  *    (e.g. invalidatePrefix("catalog:")) so catalog updates do not touch unrelated
  *    caches (orders, employee, reviews, admin, etc.).
  */
-import { getRedisClient, getRedisSubscriber } from "../config/redis.js";
+import { getRedisClient, getRedisSubscriber, isRedisConfigured, isRedisActive } from "../config/redis.js";
 import { logger } from "./logger.js";
 import { randomUUID } from "node:crypto";
 
@@ -29,7 +29,61 @@ const getRedisGenerations = async (redis, ns) => {
 };
 
 const makeRedisKey = (globalGen, ns, nsGen, key) =>
-  `cache:v3:${globalGen}:${ns}:${nsGen}:${key}`;
+  `mumbai:cache:v3:g${globalGen}:${ns}:n${nsGen}:${key}`;
+
+export class InvalidationBatch {
+  constructor(cache) {
+    this.cache = cache;
+    this.operations = [];
+    this.errors = [];
+    this.settled = false;
+  }
+
+  delete(key) {
+    this.cache._invalidate("key", key, this);
+    return this;
+  }
+
+  invalidatePrefix(prefix) {
+    this.cache._invalidate("prefix", prefix, this);
+    return this;
+  }
+
+  clear() {
+    this.cache._invalidate("clear", "", this);
+    return this;
+  }
+
+  async flush() {
+    if (this.settled) {
+      throw new Error("InvalidationBatch has already been flushed");
+    }
+    this.settled = true;
+    await Promise.all(this.operations.map((p) => p.catch(() => {})));
+
+    const redisConfigured = isRedisConfigured();
+    const redisActive = isRedisActive();
+
+    if (this.errors.length > 0) {
+      const firstError = this.errors[0];
+      const count = this.errors.length;
+      const err = new Error(
+        `Distributed cache invalidation failed for ${count} operation(s): ${firstError.message}`
+      );
+      err.cause = firstError;
+      err.localInvalidated = true;
+      err.distributedInvalidated = false;
+      err.degraded = true;
+      throw err;
+    }
+
+    return {
+      localInvalidated: true,
+      distributedInvalidated: redisConfigured && redisActive,
+      degraded: false,
+    };
+  }
+}
 
 export class MemoryCache {
   constructor({ defaultTtlMs = 60000, maxSize = 1000 } = {}) {
@@ -37,31 +91,29 @@ export class MemoryCache {
     this.maxSize = maxSize;
     this.store = new Map();
     this.inFlight = new Map();
-    this.revision = 0;
     this.source = randomUUID();
+    this.revision = 0;
     this.pendingInvalidations = Promise.resolve();
     this.pendingInvalidationErrors = [];
+
     const sub = getRedisSubscriber();
     if (sub) {
-      sub.on("message", (channel, raw) => {
-        if (channel !== CHANNEL) return;
-        try {
-          const event = JSON.parse(raw);
-          if (event.source !== this.source) this._invalidateLocal(event.type, event.value);
-        } catch { /* Ignore malformed messages. */ }
-      });
       const subscribe = async () => {
-        this._invalidateLocal("clear");
         try {
           await sub.subscribe(CHANNEL);
-          const redis = getRedisClient();
-          if (redis) {
-            // Advancing the single global generation cleanly invalidates ALL Redis
-            // namespaces after an outage/reconnect without hardcoding namespace names.
-            await redis.incr(GLOBAL_GEN_KEY).catch(() => {});
-          }
+          sub.on("message", (channel, message) => {
+            if (channel !== CHANNEL) return;
+            try {
+              const { source, type, value } = JSON.parse(message);
+              if (source === this.source) return;
+              this._invalidateLocal(type, value);
+            } catch (err) {
+              logger.warn({ err: err.message }, "Error processing cache invalidation message");
+            }
+          });
+        } catch (err) {
+          logger.warn({ err: err.message }, "Cache subscription unavailable");
         }
-        catch (err) { logger.warn({ err: err.message }, "Cache subscription unavailable"); }
       };
       sub.on("ready", subscribe);
       if (sub.status === "ready") void subscribe();
@@ -82,60 +134,118 @@ export class MemoryCache {
     }
   }
 
-  _putLocal(key, data, ttlMs) {
-    if (!this.store.has(key) && this.store.size >= this.maxSize) this.store.delete(this.store.keys().next().value);
-    this.store.set(key, { data, expiresAt: Date.now() + ttlMs });
+  _putLocal(key, value, ttlMs) {
+    if (this.store.size >= this.maxSize) {
+      const oldestKey = this.store.keys().next().value;
+      if (oldestKey) this.store.delete(oldestKey);
+    }
+    this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
 
   get(key) {
     const entry = this.store.get(key);
     if (!entry) return null;
-    if (entry.expiresAt <= Date.now()) { this.store.delete(key); return null; }
-    return entry.data;
+    if (entry.expiresAt <= Date.now()) {
+      this.store.delete(key);
+      return null;
+    }
+    return entry.value;
   }
 
-  set(key, data, ttlMs = this.defaultTtlMs) {
-    this._putLocal(key, data, ttlMs);
+  set(key, value, ttlMs = this.defaultTtlMs) {
+    const capturedRevision = this.revision;
+    this._putLocal(key, value, ttlMs);
+    const redis = getRedisClient();
+    if (redis && value !== undefined) {
+      const ns = getNamespace(key);
+      void (async () => {
+        try {
+          const [globalGen, nsGen] = await getRedisGenerations(redis, ns);
+          if (this.revision !== capturedRevision) return;
+          const [checkGlobal, checkNs] = await getRedisGenerations(redis, ns);
+          if (checkGlobal !== globalGen || checkNs !== nsGen || this.revision !== capturedRevision) {
+            return;
+          }
+          await redis.psetex(makeRedisKey(globalGen, ns, nsGen, key), ttlMs, JSON.stringify(value));
+        } catch (_) {}
+      })();
+    }
+  }
+
+  async createFence(key) {
     const revision = this.revision;
     const redis = getRedisClient();
-    if (redis && data !== undefined) void (async () => {
-      await this.pendingInvalidations;
-      const ns = getNamespace(key);
-      const [globalGen, nsGen] = await getRedisGenerations(redis, ns);
-      if (revision === this.revision) {
-        await redis.psetex(makeRedisKey(globalGen, ns, nsGen, key), ttlMs, JSON.stringify(data));
+    let globalGen = null;
+    let nsGen = null;
+    if (redis) {
+      try {
+        const ns = getNamespace(key);
+        [globalGen, nsGen] = await getRedisGenerations(redis, ns);
+      } catch (_) {}
+    }
+    return { revision, globalGen, nsGen, key };
+  }
+
+  async setFenced(key, value, ttlMs = this.defaultTtlMs, fence) {
+    if (!fence || fence.revision !== this.revision) {
+      return false;
+    }
+    const redis = getRedisClient();
+    if (redis && value !== undefined) {
+      try {
+        const ns = getNamespace(key);
+        const [currentGlobal, currentNs] = await getRedisGenerations(redis, ns);
+        // Reject if Redis generations advanced or local revision changed while fetching
+        if (
+          fence.globalGen !== null &&
+          (currentGlobal !== fence.globalGen || currentNs !== fence.nsGen)
+        ) {
+          return false;
+        }
+        if (fence.revision !== this.revision) {
+          return false;
+        }
+        this._putLocal(key, value, ttlMs);
+        await redis.psetex(
+          makeRedisKey(currentGlobal, ns, currentNs, key),
+          ttlMs,
+          JSON.stringify(value)
+        );
+        return true;
+      } catch (err) {
+        logger.debug({ err: err.message }, "setFenced Redis write unavailable");
       }
-    })().catch((err) => logger.debug({ err: err.message }, "Cache write unavailable"));
+    }
+    if (fence.revision === this.revision) {
+      this._putLocal(key, value, ttlMs);
+      return true;
+    }
+    return false;
   }
 
   async getOrFetch(key, fetchFn, ttlMs = this.defaultTtlMs) {
-    const cached = this.get(key);
-    if (cached !== null && cached !== undefined) return cached;
+    const local = this.get(key);
+    if (local !== null) return local;
+
     if (this.inFlight.has(key)) return this.inFlight.get(key);
-    const revision = this.revision;
+
     const ns = getNamespace(key);
+    const redis = getRedisClient();
+    const revision = this.revision;
+    let capturedGlobal = null;
+    let capturedNs = null;
 
     const promise = (async () => {
-      const redis = getRedisClient();
-      let capturedGlobal = null;
-      let capturedNs = null;
       if (redis) {
         try {
-          await this.pendingInvalidations;
           const [globalGen, nsGen] = await getRedisGenerations(redis, ns);
           capturedGlobal = globalGen;
           capturedNs = nsGen;
-          const redisKey = makeRedisKey(globalGen, ns, nsGen, key);
-          const value = await redis.get(redisKey);
-          if (value !== null) {
-            const data = JSON.parse(value);
-            const [currentGlobal, currentNs] = await getRedisGenerations(redis, ns);
-            if (revision === this.revision && currentGlobal === capturedGlobal && currentNs === capturedNs) {
-              this._putLocal(key, data, Math.min(ttlMs, 5000));
-            } else {
-              return fetchFn();
-            }
-            return data;
+          const cached = await redis.get(makeRedisKey(globalGen, ns, nsGen, key));
+          if (cached !== null) {
+            const parsed = JSON.parse(cached);
+            this._putLocal(key, parsed, ttlMs);
+            return parsed;
           }
         } catch (err) { logger.debug({ err: err.message }, "Cache read unavailable"); }
       }
@@ -156,11 +266,37 @@ export class MemoryCache {
     finally { if (this.inFlight.get(key) === promise) this.inFlight.delete(key); }
   }
 
-  _invalidate(type, value = "") {
-    this._invalidateLocal(type, value);
-    const redis = getRedisClient();
-    if (!redis) return;
+  createInvalidationBatch() {
+    return new InvalidationBatch(this);
+  }
 
+  _invalidate(type, value = "", batch = null) {
+    this._invalidateLocal(type, value);
+
+    const redisConfigured = isRedisConfigured();
+    const redis = getRedisClient();
+
+    // 1. Single-process local development without Redis configured:
+    // Local invalidation is sufficient; no cluster propagation expected.
+    if (!redisConfigured) {
+      return;
+    }
+
+    // 2. Redis is configured in environment, but disconnected or unavailable:
+    // Record degradation so flushPendingInvalidations() reflects that cluster propagation failed.
+    if (!redis || !isRedisActive()) {
+      const degradedError = new Error("Redis is configured but unavailable; distributed cache invalidation degraded");
+      degradedError.code = "REDIS_UNAVAILABLE";
+      degradedError.degraded = true;
+      if (batch) {
+        batch.errors.push(degradedError);
+      } else {
+        this.pendingInvalidationErrors.push(degradedError);
+      }
+      return;
+    }
+
+    // 3. Redis is configured and active: perform generation bump and pub/sub broadcast.
     const task = (async () => {
       try {
         if (type === "clear") {
@@ -173,28 +309,50 @@ export class MemoryCache {
         }
         await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
       } catch (err) {
-        this.pendingInvalidationErrors.push(err);
+        if (batch) {
+          batch.errors.push(err);
+        } else {
+          this.pendingInvalidationErrors.push(err);
+        }
         logger.warn({ err: err.message }, "Shared cache invalidation unavailable; TTL fallback active");
         throw err;
       }
     })();
 
-    this.pendingInvalidations = this.pendingInvalidations
-      .catch(() => {})
-      .then(() => task)
-      .catch(() => {});
+    if (batch) {
+      batch.operations.push(task);
+    } else {
+      this.pendingInvalidations = this.pendingInvalidations
+        .catch(() => {})
+        .then(() => task)
+        .catch(() => {});
+    }
   }
 
-  delete(key) { const existed = this.store.has(key); this._invalidate("key", key); return existed; }
-  invalidatePrefix(prefix) { this._invalidate("prefix", prefix); }
-  clear() {
+  delete(key, batch = null) {
+    const existed = this.store.has(key);
+    this._invalidate("key", key, batch);
+    return existed;
+  }
+
+  invalidatePrefix(prefix, batch = null) {
+    this._invalidate("prefix", prefix, batch);
+  }
+
+  clear(batch = null) {
     this.inFlight.clear();
     this.store.clear();
-    this.pendingInvalidationErrors = [];
-    this._invalidate("clear");
+    if (!batch) {
+      this.pendingInvalidationErrors = [];
+    }
+    this._invalidate("clear", "", batch);
   }
+
   async flushPendingInvalidations() {
     await this.pendingInvalidations;
+    const redisConfigured = isRedisConfigured();
+    const redisActive = isRedisActive();
+
     if (this.pendingInvalidationErrors.length > 0) {
       const firstError = this.pendingInvalidationErrors[0];
       const count = this.pendingInvalidationErrors.length;
@@ -203,8 +361,17 @@ export class MemoryCache {
         `Distributed cache invalidation failed for ${count} operation(s): ${firstError.message}`
       );
       err.cause = firstError;
+      err.localInvalidated = true;
+      err.distributedInvalidated = false;
+      err.degraded = true;
       throw err;
     }
+
+    return {
+      localInvalidated: true,
+      distributedInvalidated: redisConfigured && redisActive,
+      degraded: false,
+    };
   }
 }
 

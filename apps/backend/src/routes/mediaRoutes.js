@@ -34,10 +34,53 @@ router.use(async (req, res) => {
     return res.status(400).json({ success: false, message: "Media path is required." });
   }
 
-  // Security 1: Prevent directory traversal
-  const normalized = path.normalize(mediaPath).replace(/^(\.\.[/\\])+/, "");
-  if (normalized.includes("..") || /[\0\r\n]/.test(normalized)) {
+  // Security 1: Prevent directory traversal, CRLF, and null byte injection
+  // Strip query parameters or hashes from path checks so query strings cannot bypass validation
+  const cleanPath = mediaPath.split("?")[0].split("#")[0];
+
+  // Decode repeatedly until stable with strict iteration limit to reject double-encoding
+  let decoded = cleanPath;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch (_) {
+      return res.status(400).json({ success: false, message: "Invalid media path encoding." });
+    }
+  }
+
+  if (
+    cleanPath.includes("..") ||
+    decoded.includes("..") ||
+    /[\0\r\n\x00-\x1f]/.test(mediaPath) ||
+    /%00|%0d|%0a/i.test(mediaPath) ||
+    /%25|%2e|%2f|%5c/i.test(cleanPath)
+  ) {
     return res.status(400).json({ success: false, message: "Invalid media path." });
+  }
+
+  const normalized = path.normalize(decoded).replace(/\\/g, "/");
+  if (normalized.includes("..") || normalized.startsWith("/") || path.isAbsolute(decoded)) {
+    return res.status(400).json({ success: false, message: "Invalid media path." });
+  }
+
+  const wpBaseUrl = process.env.WORDPRESS_URL || WP_BASE_URL;
+  let baseUploadsUrl;
+  let targetUrlObj;
+  try {
+    baseUploadsUrl = new URL("/wp-content/uploads/", wpBaseUrl);
+    targetUrlObj = new URL(normalized.replace(/^\/+/, ""), baseUploadsUrl);
+  } catch (_) {
+    return res.status(400).json({ success: false, message: "Invalid media URL." });
+  }
+
+  // Strictly verify the target URL stays beneath /wp-content/uploads/
+  if (
+    !targetUrlObj.pathname.startsWith(baseUploadsUrl.pathname) ||
+    targetUrlObj.origin !== baseUploadsUrl.origin
+  ) {
+    return res.status(400).json({ success: false, message: "Invalid media path traversal." });
   }
 
   // Security 2: Whitelist allowed media extensions
@@ -46,8 +89,7 @@ router.use(async (req, res) => {
     return res.status(403).json({ success: false, message: "Unsupported file type." });
   }
 
-  const wpBaseUrl = process.env.WORDPRESS_URL || WP_BASE_URL;
-  const targetUrl = `${wpBaseUrl}/wp-content/uploads/${normalized.replace(/\\/g, "/")}`;
+  const targetUrl = targetUrlObj.href;
 
   try {
     let response;
@@ -64,7 +106,7 @@ router.use(async (req, res) => {
     } catch (err) {
       if (err.response?.status === 404 && normalized.includes(".SY522.")) {
         const altPath = normalized.replace(".SY522.", "._SY522_.");
-        const altUrl = `${WP_BASE_URL}/wp-content/uploads/${altPath.replace(/\\/g, "/")}`;
+        const altUrl = `${wpBaseUrl}/wp-content/uploads/${altPath.replace(/\\/g, "/")}`;
         response = await axios({
           method: "GET",
           url: altUrl,

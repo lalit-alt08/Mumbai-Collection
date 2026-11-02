@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://jenny-sub-minimal-characteristic.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://sterling-returns-canberra-enquiries.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://jenny-sub-minimal-characteristic.trycloudflare.com/sitemap.xml"
+      "destination": "https://sterling-returns-canberra-enquiries.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://jenny-sub-minimal-characteristic.trycloudflare.com/api/:path*"
+      "destination": "https://sterling-returns-canberra-enquiries.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

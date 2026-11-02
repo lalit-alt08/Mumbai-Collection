@@ -48,17 +48,54 @@ end
  * Awaits Redis generation bumps to guarantee immediate freshness across cluster instances.
  */
 export const invalidateAllCategoryCaches = async () => {
-  serverCache.invalidatePrefix("catalog:");
-  serverCache.invalidatePrefix("category:");
-  serverCache.invalidatePrefix("admin_products:");
-  serverCache.delete("admin:categories");
-  serverCache.delete("admin:categories:hierarchy");
-  serverCache.delete("resilience:catalog_categories:last_known");
-  serverCache.delete("seo:sitemap_xml");
-  if (typeof serverCache.flushPendingInvalidations === "function") {
-    await serverCache.flushPendingInvalidations();
-  } else if (serverCache.pendingInvalidations) {
-    await serverCache.pendingInvalidations.catch(() => {});
+  const batch = typeof serverCache.createInvalidationBatch === "function"
+    ? serverCache.createInvalidationBatch()
+    : null;
+
+  if (batch) {
+    batch.invalidatePrefix("catalog:");
+    batch.invalidatePrefix("category:");
+    batch.invalidatePrefix("admin_products:");
+    batch.delete("admin:categories");
+    batch.delete("admin:categories:hierarchy");
+    batch.delete("resilience:catalog_categories:last_known");
+    batch.delete("seo:sitemap_xml");
+  } else {
+    serverCache.invalidatePrefix("catalog:");
+    serverCache.invalidatePrefix("category:");
+    serverCache.invalidatePrefix("admin_products:");
+    serverCache.delete("admin:categories");
+    serverCache.delete("admin:categories:hierarchy");
+    serverCache.delete("resilience:catalog_categories:last_known");
+    serverCache.delete("seo:sitemap_xml");
+  }
+
+  try {
+    if (batch) {
+      const syncResult = await batch.flush();
+      return syncResult;
+    } else if (typeof serverCache.flushPendingInvalidations === "function") {
+      const syncResult = await serverCache.flushPendingInvalidations();
+      return syncResult;
+    } else if (serverCache.pendingInvalidations) {
+      await serverCache.pendingInvalidations;
+    }
+    return {
+      localInvalidated: true,
+      distributedInvalidated: isRedisConfigured() && isRedisActive(),
+      degraded: false,
+    };
+  } catch (err) {
+    logger.warn(
+      { err: err.message },
+      "[adminCategoryController] Distributed cache invalidation degraded; cluster sync fallback active"
+    );
+    return {
+      localInvalidated: true,
+      distributedInvalidated: false,
+      degraded: true,
+      error: err.message,
+    };
   }
 };
 
@@ -292,10 +329,10 @@ export const createCategory = async (req, res) => {
     }
 
     // Invalidate catalog and resilience cache so public categories immediately update
-    await invalidateAllCategoryCaches();
-
+    const cacheSync = await invalidateAllCategoryCaches();
 
     res.status(201).json({
+      cache_sync: cacheSync,
       success: true,
       message: `Category "${decodeHtmlEntities(cat.name)}" created successfully.`,
       category: {
@@ -498,10 +535,10 @@ export const updateCategory = async (req, res) => {
     }
 
     // Invalidate catalog and resilience cache so public categories immediately update
-    await invalidateAllCategoryCaches();
-
+    const cacheSync = await invalidateAllCategoryCaches();
 
     res.json({
+      cache_sync: cacheSync,
       success: true,
       message: `Category "${decodeHtmlEntities(cat.name)}" updated successfully.`,
       category: {
@@ -854,13 +891,16 @@ export const reorderCategories = async (req, res) => {
 
     // Invalidate catalog and resilience cache so public categories immediately reflect new merchandising order
     await assertLockHeld();
-    await invalidateAllCategoryCaches();
+    const cacheSync = await invalidateAllCategoryCaches();
     await assertLockHeld();
 
     res.json({
       success: true,
-      message: "Category merchandising order updated and verified successfully.",
+      message: cacheSync?.degraded
+        ? "Category merchandising order updated and verified. Note: Distributed cache invalidation was degraded; local instances will refresh shortly."
+        : "Category merchandising order updated and verified successfully.",
       ordered_ids: parsedIds,
+      cache_sync: cacheSync,
     });
   } catch (error) {
     if (error.code === "LOCK_LOST" || error.statusCode === 409) {

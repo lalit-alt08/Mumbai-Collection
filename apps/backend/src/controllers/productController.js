@@ -23,24 +23,36 @@ const CATEGORY_LAST_KNOWN_TTL_MS = 24 * 60 * 60 * 1000;
 const CATEGORY_REFRESH_ERROR_BACKOFF_MS = 30_000;
 let categoryRefreshRetryAfter = 0;
 
-const refreshCategoryCache = () => serverCache.getOrFetch(
-  CATEGORY_CACHE_KEY,
-  async () => {
-    const freshCategories = await fetchCategories();
-    if (Array.isArray(freshCategories) && freshCategories.length > 0) {
-      serverCache.set(CATEGORY_LAST_KNOWN_KEY, freshCategories, CATEGORY_LAST_KNOWN_TTL_MS);
-    }
-    return freshCategories;
-  },
-  CATEGORY_CACHE_TTL_MS
-);
+let fetchCategoriesOverride = null;
+export const _setFetchCategoriesForTesting = (fn) => {
+  fetchCategoriesOverride = fn;
+};
+
+export const refreshCategoryCache = async () => {
+  const fence = await serverCache.createFence(CATEGORY_LAST_KNOWN_KEY);
+  return serverCache.getOrFetch(
+    CATEGORY_CACHE_KEY,
+    async () => {
+      const fetchFn = fetchCategoriesOverride || fetchCategories;
+      const freshCategories = await fetchFn();
+      // Generation fence: only populate last-known resilience cache if no invalidation occurred during fetch
+      if (Array.isArray(freshCategories) && freshCategories.length > 0) {
+        await serverCache.setFenced(
+          CATEGORY_LAST_KNOWN_KEY,
+          freshCategories,
+          CATEGORY_LAST_KNOWN_TTL_MS,
+          fence
+        );
+      }
+      return freshCategories;
+    },
+    CATEGORY_CACHE_TTL_MS
+  );
+};
 
 const getCategoriesWithStaleFallback = async () => {
   const freshCategories = serverCache.get(CATEGORY_CACHE_KEY);
   if (Array.isArray(freshCategories) && freshCategories.length > 0) {
-    if (serverCache.get(CATEGORY_LAST_KNOWN_KEY) === null) {
-      serverCache.set(CATEGORY_LAST_KNOWN_KEY, freshCategories, CATEGORY_LAST_KNOWN_TTL_MS);
-    }
     return freshCategories;
   }
 
@@ -69,12 +81,22 @@ const getCategoriesWithStaleFallback = async () => {
     return staleCategories;
   }
 
+  const fence = await serverCache.createFence(CATEGORY_LAST_KNOWN_KEY);
   try {
     const categories = await refreshCategoryCache();
     // Seed the fallback once when the fresh value came from an older Redis
-    // entry created before the last-known cache was introduced.
-    if (Array.isArray(categories) && categories.length > 0 && serverCache.get(CATEGORY_LAST_KNOWN_KEY) === null) {
-      serverCache.set(CATEGORY_LAST_KNOWN_KEY, categories, CATEGORY_LAST_KNOWN_TTL_MS);
+    // entry created before the last-known cache was introduced, guarded by generation fence.
+    if (
+      Array.isArray(categories) &&
+      categories.length > 0 &&
+      serverCache.get(CATEGORY_LAST_KNOWN_KEY) === null
+    ) {
+      await serverCache.setFenced(
+        CATEGORY_LAST_KNOWN_KEY,
+        categories,
+        CATEGORY_LAST_KNOWN_TTL_MS,
+        fence
+      );
     }
     return categories;
   } catch (error) {
@@ -649,3 +671,5 @@ export const getProductSocialPreview = async (req, res) => {
     return res.status(404).send("Product not found");
   }
 };
+
+export { getCategoriesWithStaleFallback as _getCategoriesWithStaleFallbackForTesting };
