@@ -40,6 +40,7 @@ export class MemoryCache {
     this.revision = 0;
     this.source = randomUUID();
     this.pendingInvalidations = Promise.resolve();
+    this.pendingInvalidationErrors = [];
     const sub = getRedisSubscriber();
     if (sub) {
       sub.on("message", (channel, raw) => {
@@ -159,22 +160,52 @@ export class MemoryCache {
     this._invalidateLocal(type, value);
     const redis = getRedisClient();
     if (!redis) return;
-    this.pendingInvalidations = this.pendingInvalidations.then(async () => {
-      if (type === "clear") {
-        // Bump the single global generation to invalidate all Redis entries across all namespaces
-        await redis.incr(GLOBAL_GEN_KEY).catch(() => {});
-      } else {
-        // Targeted invalidation bumps only this specific namespace generation
-        const ns = getNamespace(value);
-        await redis.incr(getNsGenKey(ns)).catch(() => {});
+
+    const task = (async () => {
+      try {
+        if (type === "clear") {
+          // Bump the single global generation to invalidate all Redis entries across all namespaces
+          await redis.incr(GLOBAL_GEN_KEY);
+        } else {
+          // Targeted invalidation bumps only this specific namespace generation
+          const ns = getNamespace(value);
+          await redis.incr(getNsGenKey(ns));
+        }
+        await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
+      } catch (err) {
+        this.pendingInvalidationErrors.push(err);
+        logger.warn({ err: err.message }, "Shared cache invalidation unavailable; TTL fallback active");
+        throw err;
       }
-      await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
-    }).catch((err) => logger.warn({ err: err.message }, "Shared cache invalidation unavailable; TTL fallback active"));
+    })();
+
+    this.pendingInvalidations = this.pendingInvalidations
+      .catch(() => {})
+      .then(() => task)
+      .catch(() => {});
   }
 
   delete(key) { const existed = this.store.has(key); this._invalidate("key", key); return existed; }
   invalidatePrefix(prefix) { this._invalidate("prefix", prefix); }
-  clear() { this._invalidate("clear"); }
+  clear() {
+    this.inFlight.clear();
+    this.store.clear();
+    this.pendingInvalidationErrors = [];
+    this._invalidate("clear");
+  }
+  async flushPendingInvalidations() {
+    await this.pendingInvalidations;
+    if (this.pendingInvalidationErrors.length > 0) {
+      const firstError = this.pendingInvalidationErrors[0];
+      const count = this.pendingInvalidationErrors.length;
+      this.pendingInvalidationErrors = [];
+      const err = new Error(
+        `Distributed cache invalidation failed for ${count} operation(s): ${firstError.message}`
+      );
+      err.cause = firstError;
+      throw err;
+    }
+  }
 }
 
 export const serverCache = new MemoryCache({ defaultTtlMs: 60000, maxSize: 500 });

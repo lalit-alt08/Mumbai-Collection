@@ -40,6 +40,12 @@ function AddCategory() {
   const isSubmittingRef = useRef(false);
   const isUpdatingRef = useRef(false);
   const isReorderingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const latestCategoriesRef = useRef([]);
+  const queuedOrderRef = useRef(null);
+  const debounceTimerRef = useRef(null);
+  const retryTimerRef = useRef(null);
+  const toastTimerRef = useRef(null);
 
   // Drag and Drop refs & state
   const draggedIndexRef = useRef(null);
@@ -75,9 +81,16 @@ function AddCategory() {
   const [toast, setToast] = useState(null);
 
   const showToast = (message, type = "success") => {
+    if (!isMountedRef.current) return;
     setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      if (isMountedRef.current) {
+        setToast(null);
+      }
     }, 3500);
   };
 
@@ -112,20 +125,40 @@ function AddCategory() {
       setLoadingList(true);
       setListError("");
       const res = await getCategories();
+      if (!isMountedRef.current) return;
+      let list = [];
       if (res.success && Array.isArray(res.categories)) {
-        setCategoriesList(res.categories);
+        list = res.categories;
       } else if (Array.isArray(res)) {
-        setCategoriesList(res);
+        list = res;
       }
+      latestCategoriesRef.current = list;
+      setCategoriesList(list);
     } catch (err) {
+      if (!isMountedRef.current) return;
       setListError(err.response?.data?.message || err.message || "Failed to load store categories.");
     } finally {
-      setLoadingList(false);
+      if (isMountedRef.current) {
+        setLoadingList(false);
+      }
     }
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchCategoryList();
+    return () => {
+      isMountedRef.current = false;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+      }
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -150,24 +183,35 @@ function AddCategory() {
     setDragOverIndex(null);
     draggedIndexRef.current = null;
 
+    const currentList = latestCategoriesRef.current.length > 0 ? latestCategoriesRef.current : categoriesList;
+    const currentStorefront = currentList.filter(
+      (c) => !isUncategorized(c) && (!c.parent || Number(c.parent) === 0)
+    );
+
     if (
       sourceStorefrontIndex === null ||
       sourceStorefrontIndex === undefined ||
       sourceStorefrontIndex === targetStorefrontIndex ||
-      targetStorefrontIndex >= storefrontCategories.length
+      targetStorefrontIndex >= currentStorefront.length
     ) {
       return;
     }
 
     // Reorder storefront array
-    const updatedStorefront = [...storefrontCategories];
+    const updatedStorefront = [...currentStorefront];
     const [movedItem] = updatedStorefront.splice(sourceStorefrontIndex, 1);
     updatedStorefront.splice(targetStorefrontIndex, 0, movedItem);
 
-    // Recombine with system categories
-    const fullUpdatedList = [...updatedStorefront, ...subcategoryCategories, ...systemCategories];
+    // Recombine with subcategories and system categories
+    const subcategories = currentList.filter(
+      (c) => !isUncategorized(c) && Number(c.parent) > 0
+    );
+    const system = currentList.filter((c) => isUncategorized(c));
+    const fullUpdatedList = [...updatedStorefront, ...subcategories, ...system];
+
+    latestCategoriesRef.current = fullUpdatedList;
     setCategoriesList(fullUpdatedList);
-    await persistCategoryOrder(fullUpdatedList);
+    scheduleCategoryOrderPersist(fullUpdatedList);
   };
 
   const handleDragEnd = () => {
@@ -178,26 +222,58 @@ function AddCategory() {
   // Move up/down handler for mobile touch controls
   const handleMoveCategory = async (storefrontIndex, direction) => {
     const newIndex = direction === "up" ? storefrontIndex - 1 : storefrontIndex + 1;
-    if (newIndex < 0 || newIndex >= storefrontCategories.length) return;
+    const currentList = latestCategoriesRef.current.length > 0 ? latestCategoriesRef.current : categoriesList;
+    const currentStorefront = currentList.filter(
+      (c) => !isUncategorized(c) && (!c.parent || Number(c.parent) === 0)
+    );
 
-    const updatedStorefront = [...storefrontCategories];
+    if (newIndex < 0 || newIndex >= currentStorefront.length) return;
+
+    const updatedStorefront = [...currentStorefront];
     const [movedItem] = updatedStorefront.splice(storefrontIndex, 1);
     updatedStorefront.splice(newIndex, 0, movedItem);
 
-    const fullUpdatedList = [...updatedStorefront, ...subcategoryCategories, ...systemCategories];
+    const subcategories = currentList.filter(
+      (c) => !isUncategorized(c) && Number(c.parent) > 0
+    );
+    const system = currentList.filter((c) => isUncategorized(c));
+    const fullUpdatedList = [...updatedStorefront, ...subcategories, ...system];
+
+    latestCategoriesRef.current = fullUpdatedList;
     setCategoriesList(fullUpdatedList);
-    await persistCategoryOrder(fullUpdatedList);
+    scheduleCategoryOrderPersist(fullUpdatedList);
   };
 
-  // Persist order array to WooCommerce
-  const persistCategoryOrder = async (orderedList) => {
-    if (isReorderingRef.current) return;
+  // Debounced category order persistence with queued in-flight state and 409 retry
+  const scheduleCategoryOrderPersist = (orderedList) => {
+    queuedOrderRef.current = orderedList;
+    setIsSavingOrder(true);
 
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      flushCategoryOrderQueue();
+    }, 800);
+  };
+
+  const flushCategoryOrderQueue = async () => {
+    if (isReorderingRef.current) return;
+    if (!queuedOrderRef.current) return;
+
+    const listToPersist = queuedOrderRef.current;
+    queuedOrderRef.current = null;
+    await executePersist(listToPersist);
+  };
+
+  const executePersist = async (listToPersist, retryCount = 0) => {
     try {
       isReorderingRef.current = true;
       setIsSavingOrder(true);
 
-      const validIds = orderedList
+      const validIds = listToPersist
         .filter((category) => !isUncategorized(category) && (!category.parent || Number(category.parent) === 0))
         .map((c) => c.id);
 
@@ -210,13 +286,58 @@ function AddCategory() {
         "X-Idempotency-Key": idempotencyKey,
       });
 
-      showToast("Merchandising order saved & published!");
-    } catch {
-      showToast("Failed to save category order. Refreshing list...", "error");
-      fetchCategoryList();
-    } finally {
+      // If component unmounted while HTTP request was in flight, abort cleanly
+      if (!isMountedRef.current) {
+        queuedOrderRef.current = null;
+        isReorderingRef.current = false;
+        return;
+      }
+
+      // If another order modification was queued while this request was in flight, execute it immediately
+      if (queuedOrderRef.current) {
+        const nextList = queuedOrderRef.current;
+        queuedOrderRef.current = null;
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
+        }
+        await executePersist(nextList, 0);
+        return;
+      }
+
       isReorderingRef.current = false;
+      if (!isMountedRef.current) return;
       setIsSavingOrder(false);
+      showToast("Merchandising order saved & published!");
+    } catch (err) {
+      const status = err?.response?.status;
+      const errorCode = err?.response?.data?.code;
+      // Retry only HTTP 409 (REORDER_IN_PROGRESS) with bounded exponential backoff (1s, 2s, 4s).
+      // Never retry LOCK_LOST (requires immediate abort & reload) or 400/401/403/500/503.
+      if (status === 409 && errorCode === "REORDER_IN_PROGRESS" && retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 1000;
+        retryTimerRef.current = setTimeout(async () => {
+          retryTimerRef.current = null;
+          if (!isMountedRef.current) return;
+          const hasNewQueuedOrder = Boolean(queuedOrderRef.current);
+          const targetList = queuedOrderRef.current || listToPersist;
+          queuedOrderRef.current = null;
+          // A fresh user-queued order restarts with a fresh retry budget (retryCount = 0)
+          await executePersist(targetList, hasNewQueuedOrder ? 0 : retryCount + 1);
+        }, delay);
+        return;
+      }
+
+      // Non-retryable error (e.g. LOCK_LOST, 400, 401, 403, 500) or retries exhausted
+      isReorderingRef.current = false;
+      queuedOrderRef.current = null;
+      if (!isMountedRef.current) return;
+      setIsSavingOrder(false);
+      showToast(
+        err?.response?.data?.message || "Failed to save category order. Refreshing list...",
+        "error"
+      );
+      fetchCategoryList();
     }
   };
 

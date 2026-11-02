@@ -1,6 +1,8 @@
 import Redis from "ioredis";
 import { logger, sanitizeError, getErrorMessage } from "../utils/logger.js";
 
+let realRedisClient = null;
+let realSubscriberClient = null;
 let redisClient = null;
 let isReady = false;
 let redisWasUnavailable = false;
@@ -39,6 +41,7 @@ if (REDIS_URL) {
           ...options,
         });
 
+    realRedisClient = redisClient;
     redisClient.on("connect", () => {
       logger.info("[Redis] Connected successfully to Redis server");
       unrefClientStream(redisClient);
@@ -96,6 +99,7 @@ export const getRedisSubscriber = () => {
   if (!subscriberClient && redisClient) {
     try {
       subscriberClient = redisClient.duplicate();
+      realSubscriberClient = subscriberClient;
       subscriberClient.on("connect", () => {
         logger.info("[Redis Sub] Connected dedicated subscriber to Redis server");
       });
@@ -124,8 +128,13 @@ export const getRedisSubscriber = () => {
 export const isRedisSubscriberActive = () => isSubscriberReady;
 
 export const _setRedisClientForTesting = (mock) => {
-  redisClient = mock;
-  isReady = Boolean(mock);
+  if (mock === undefined) {
+    redisClient = realRedisClient;
+    isReady = Boolean(realRedisClient && realRedisClient.status === "ready");
+  } else {
+    redisClient = mock;
+    isReady = Boolean(mock);
+  }
 };
 
 export const _setRedisSubscriberForTesting = (mock) => {
@@ -134,29 +143,34 @@ export const _setRedisSubscriberForTesting = (mock) => {
 };
 
 export const closeRedis = async () => {
-  if (subscriberClient) {
+  const sub = subscriberClient || realSubscriberClient;
+  if (sub) {
     try {
-      subscriberClient.removeAllListeners("error");
-      subscriberClient.on("error", () => {});
-      if (typeof subscriberClient.disconnect === "function") {
-        subscriberClient.disconnect(false);
-      } else if (typeof subscriberClient.quit === "function") {
-        await subscriberClient.quit();
+      sub.removeAllListeners("error");
+      sub.on("error", () => {});
+      if (typeof sub.disconnect === "function") {
+        sub.disconnect(false);
+      } else if (typeof sub.quit === "function") {
+        await sub.quit();
       }
     } catch (_) {}
     subscriberClient = null;
+    realSubscriberClient = null;
     isSubscriberReady = false;
   }
-  if (redisClient) {
+  const client = redisClient || realRedisClient;
+  if (client) {
     try {
-      redisClient.removeAllListeners("error");
-      redisClient.on("error", () => {});
-      if (typeof redisClient.disconnect === "function") {
-        redisClient.disconnect(false);
-      } else if (typeof redisClient.quit === "function") {
-        await redisClient.quit();
+      client.removeAllListeners("error");
+      client.on("error", () => {});
+      if (typeof client.disconnect === "function") {
+        client.disconnect(false);
+      } else if (typeof client.quit === "function") {
+        await client.quit();
       }
     } catch (_) {}
+    redisClient = null;
+    realRedisClient = null;
     isReady = false;
   }
 };

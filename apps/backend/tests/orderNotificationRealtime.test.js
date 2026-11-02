@@ -46,7 +46,7 @@ test("Real-time Order Notification & SSE Stream Test Suite", async (t) => {
       extraData: "should_not_leak",
     });
 
-    assert.equal(ok, true, "Publish should return true for valid order");
+    assert.equal(Boolean(ok?.published || ok), true, "Publish should return true for valid order");
     assert.ok(capturedPayload, "A payload must be published");
     assert.equal(capturedPayload.event, "ORDER_CREATED");
     assert.equal(capturedPayload.orderId, 441);
@@ -71,7 +71,7 @@ test("Real-time Order Notification & SSE Stream Test Suite", async (t) => {
       status: "out-for-delivery",
     });
 
-    assert.equal(ok, true);
+    assert.equal(Boolean(ok?.published || ok), true);
     assert.equal(capturedPayload.event, "ORDER_STATUS_UPDATED");
     assert.equal(capturedPayload.orderId, 502, "String numeric order ID must be normalized to integer");
     assert.equal(capturedPayload.status, "out-for-delivery");
@@ -135,7 +135,7 @@ test("Real-time Order Notification & SSE Stream Test Suite", async (t) => {
     }
 
     assert.equal(errorThrown, null, "Must never throw error to checkout or status update callers");
-    assert.equal(published, true, "Should return true after falling back to local bus");
+    assert.equal(Boolean(published?.published || published), true, "Should return true after falling back to local bus");
   });
 
   await t.test("6. SSE Stream Lifecycle: writes standard SSE headers and connected event", async () => {

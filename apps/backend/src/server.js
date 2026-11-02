@@ -1,4 +1,5 @@
 import "./config/env.js";
+import http from "node:http";
 import app from "./app.js";
 import { logger, sanitizeError, getErrorMessage } from "./utils/logger.js";
 import { checkAlertChannelsConfigured, sendDailyHealthAlert, alertStaffAnomaly } from "./services/alertService.js";
@@ -7,6 +8,7 @@ import { runPaymentReconciliation } from "./services/reconciliationService.js";
 import { closeRedis } from "./config/redis.js";
 import { startAlertWorker, stopAlertWorker, flushAlertQueue } from "./services/alertOutbox.js";
 import { recordReconciliationHealth } from "./services/operationalHealth.js";
+import { initVapidKeys, processPushOutbox, startOutboxWatchdog } from "./services/pushNotificationService.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -33,6 +35,9 @@ if (process.env.NODE_ENV === "production") {
   }
   if (!process.env.ADMIN_ORIGIN || !process.env.EMPLOYEE_ORIGIN) {
     configErrors.push("ADMIN_ORIGIN or EMPLOYEE_ORIGIN is missing");
+  }
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    configErrors.push("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are missing. Static VAPID keys are mandatory in production.");
   }
 
   if (configErrors.length > 0) {
@@ -61,9 +66,7 @@ process.on("uncaughtException", (err) => {
 
 // Listen on 0.0.0.0 to support both IPv4 (127.0.0.1) and IPv6 (::1/localhost) on Windows
 const HOST = process.env.HOST || "0.0.0.0";
-const server = app.listen(PORT, HOST, () => {
-  logger.info({ port: PORT, host: HOST }, "Server is running");
-});
+export const server = http.createServer(app);
 
 // Keep the origin socket open slightly longer than Cloudflare Tunnel's default
 // 90s origin idle pool. Override when the deployed proxy has a different timeout.
@@ -73,6 +76,34 @@ server.keepAliveTimeout =
     ? configuredKeepAliveTimeout
     : 95000;
 server.headersTimeout = 66000;
+
+export const bootstrap = async () => {
+  // 1. Await VAPID initialization & validation before binding HTTP port
+  try {
+    await initVapidKeys();
+    logger.info("[WebPush] VAPID keys synchronized and validated across cluster");
+  } catch (err) {
+    logger.fatal({ err: err.message }, "Server startup aborted: VAPID initialization failed");
+    throw err;
+  }
+
+  // 2. Bind HTTP server only after VAPID is confirmed ready
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(PORT, HOST, () => {
+      logger.info({ port: PORT, host: HOST }, "Server is running");
+      resolve();
+    });
+  });
+
+  // 3. Start background outbox watchdog & initial drain (gated strictly behind VAPID readiness)
+  startOutboxWatchdog();
+  void processPushOutbox().catch((err) => {
+    logger.warn({ err: err.message }, "[WebPush] Initial outbox drain warning");
+  });
+
+  return server;
+};
 
 // Reconciler Background Worker (Runs every 10 minutes, plus initial run on boot)
 const RECONCILIATION_INTERVAL_MS = 10 * 60 * 1000;
@@ -188,6 +219,10 @@ const isTestEnv =
 
 if (!isTestEnv) {
   startBackgroundWorkers();
+  bootstrap().catch((err) => {
+    logger.fatal({ err: err?.message || err }, "Server bootstrap failed. Process aborting.");
+    process.exit(1);
+  });
 }
 
 // Graceful shutdown

@@ -4239,21 +4239,49 @@ function mumbai_is_valid_employee_role($role) {
 function mumbai_admin_get_employees(WP_REST_Request $request) {
     $search = sanitize_text_field($request->get_param('search') ?? '');
     $status_filter = sanitize_text_field($request->get_param('status') ?? '');
+    $user_id_param = $request->get_param('user_id');
+
+    // Direct single employee lookup by ID (immune to list query caps)
+    if (!empty($user_id_param) && is_numeric($user_id_param)) {
+        $single_user = get_user_by('id', (int)$user_id_param);
+        if ($single_user) {
+            $roles = (array) $single_user->roles;
+            $status = (string) get_user_meta($single_user->ID, '_mumbai_employee_status', true);
+            $is_employee_role = in_array('employee', $roles, true);
+            if (empty($status) && $is_employee_role) {
+                $status = 'approved';
+            }
+            if (!empty($status) || $is_employee_role) {
+                return rest_ensure_response([
+                    'success' => true,
+                    'employees' => [[
+                        'id' => $single_user->ID,
+                        'email' => strtolower(trim($single_user->user_email)),
+                        'name' => trim($single_user->display_name) ?: $single_user->user_login,
+                        'roles' => $roles,
+                        'role' => $is_employee_role ? 'employee' : 'customer',
+                        'status' => $status,
+                    ]],
+                ]);
+            }
+        }
+        return rest_ensure_response(['success' => true, 'employees' => []]);
+    }
 
     $result_list = [];
     $processed_emails = [];
 
-    // 1. Fetch users with employee role or with _mumbai_employee_status meta
+    // 1. Fetch users with employee role or with _mumbai_employee_status meta (uncapped list query)
     $employee_role_users = get_users([
         'role'   => 'employee',
-        'number' => 200,
+        'number' => -1,
         'fields' => 'all',
     ]);
 
     $meta_users = get_users([
         'meta_key'     => '_mumbai_employee_status',
         'meta_compare' => 'EXISTS',
-        'number'       => 200,
+        'number'       => -1,
         'fields'       => 'all',
     ]);
 

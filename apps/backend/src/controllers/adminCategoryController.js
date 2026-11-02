@@ -7,10 +7,60 @@ import { fetchAllProductCategories } from "../services/productService.js";
 import { decodeHtmlEntities } from "../utils/textUtils.js";
 import { markMediaAttached, deleteMediaIfUnreferenced } from "../services/wordpressMediaService.js";
 import { sanitizeUpstreamError } from "../utils/upstreamError.js";
-import { getRedisClient } from "../config/redis.js";
+import { getRedisClient, isRedisActive, isRedisConfigured, _setRedisClientForTesting as _setRedisInConfig } from "../config/redis.js";
 import { randomUUID } from "node:crypto";
 
 let localReorderMutex = Promise.resolve();
+
+let _testRedisClient = undefined;
+export const _setRedisClientForTesting = (client) => {
+  _testRedisClient = client;
+  if (typeof _setRedisInConfig === "function") _setRedisInConfig(client);
+};
+
+let _testRenewIntervalMs = undefined;
+export const _setRenewIntervalForTesting = (intervalMs) => {
+  _testRenewIntervalMs = intervalMs;
+};
+
+const LOCK_TTL_MS = 30000;
+const RENEW_INTERVAL_MS = 10000;
+
+const LUA_RENEW_LOCK = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('pexpire', KEYS[1], tonumber(ARGV[2]))
+else
+  return 0
+end
+`;
+
+const LUA_RELEASE_LOCK = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('del', KEYS[1])
+else
+  return 0
+end
+`;
+
+/**
+ * Shared category cache invalidator for category create, update, and reorder.
+ * Clears catalog, category, admin products, hierarchy, and last-known resilience caches.
+ * Awaits Redis generation bumps to guarantee immediate freshness across cluster instances.
+ */
+export const invalidateAllCategoryCaches = async () => {
+  serverCache.invalidatePrefix("catalog:");
+  serverCache.invalidatePrefix("category:");
+  serverCache.invalidatePrefix("admin_products:");
+  serverCache.delete("admin:categories");
+  serverCache.delete("admin:categories:hierarchy");
+  serverCache.delete("resilience:catalog_categories:last_known");
+  serverCache.delete("seo:sitemap_xml");
+  if (typeof serverCache.flushPendingInvalidations === "function") {
+    await serverCache.flushPendingInvalidations();
+  } else if (serverCache.pendingInvalidations) {
+    await serverCache.pendingInvalidations.catch(() => {});
+  }
+};
 
 const isUncategorizedCategory = (category) =>
   String(category?.slug || "").toLowerCase() === "uncategorized" ||
@@ -241,13 +291,8 @@ export const createCategory = async (req, res) => {
       }
     }
 
-    // Invalidate catalog cache so public categories immediately update
-    serverCache.invalidatePrefix("catalog:");
-    serverCache.invalidatePrefix("category:");
-    serverCache.invalidatePrefix("admin_products:");
-    serverCache.delete("admin:categories");
-    serverCache.delete("admin:categories:hierarchy");
-    serverCache.delete("seo:sitemap_xml");
+    // Invalidate catalog and resilience cache so public categories immediately update
+    await invalidateAllCategoryCaches();
 
 
     res.status(201).json({
@@ -452,13 +497,8 @@ export const updateCategory = async (req, res) => {
       }
     }
 
-    // Invalidate catalog cache so public categories immediately update
-    serverCache.invalidatePrefix("catalog:");
-    serverCache.invalidatePrefix("category:");
-    serverCache.invalidatePrefix("admin_products:");
-    serverCache.delete("admin:categories");
-    serverCache.delete("admin:categories:hierarchy");
-    serverCache.delete("seo:sitemap_xml");
+    // Invalidate catalog and resilience cache so public categories immediately update
+    await invalidateAllCategoryCaches();
 
 
     res.json({
@@ -498,14 +538,95 @@ export const updateCategory = async (req, res) => {
  * Reorder Product Categories in WooCommerce
  */
 export const reorderCategories = async (req, res) => {
-  const redis = getRedisClient();
+  const { category_ids } = req.body || {};
+
+  if (!Array.isArray(category_ids) || category_ids.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "An array of category IDs in the desired order is required.",
+    });
+  }
+
+  const parsedIds = [];
+  for (const id of category_ids) {
+    const parsed = Number(id);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid category ID: ${id}. All elements must be positive integers.`,
+      });
+    }
+    parsedIds.push(parsed);
+  }
+
+  const uniqueSet = new Set(parsedIds);
+  if (uniqueSet.size !== parsedIds.length) {
+    return res.status(400).json({
+      success: false,
+      message: "Duplicate category IDs are not allowed in reorder list.",
+    });
+  }
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const effectiveRedis = _testRedisClient !== undefined ? _testRedisClient : getRedisClient();
+  const redisConfigured = isRedisConfigured();
+  const redisActive = isRedisActive();
+
+  // Fail-closed on Redis outage in production or when explicitly simulating an outage in tests.
+  // In development, remote Upstash Redis is used when available, but a process-local mutex
+  // fallback is permitted if Upstash is temporarily unreachable.
+  const requireDistributedLock = isProduction || _testRedisClient === null;
+
+  if (requireDistributedLock && (_testRedisClient === null || !redisConfigured || !redisActive || !effectiveRedis)) {
+    return res.status(503).json({
+      success: false,
+      code: "REORDER_LOCK_UNAVAILABLE",
+      message: "Category reordering requires distributed lock coordination and is temporarily unavailable.",
+    });
+  }
+
+  const redis = effectiveRedis;
   const lockKey = "lock:category:reorder";
   const lockOwner = randomUUID();
   let acquiredRedisLock = false;
+  let lockLost = false;
+  let renewTimer = null;
+
+  const isLockHeldByUs = async () => {
+    if (!acquiredRedisLock || !redis) return true;
+    if (lockLost) return false;
+    try {
+      if (typeof redis.get === "function") {
+        const currentOwner = await redis.get(lockKey);
+        if (currentOwner !== lockOwner) {
+          lockLost = true;
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      if (requireDistributedLock) {
+        lockLost = true;
+        return false;
+      }
+      return true;
+    }
+  };
+
+  const assertLockHeld = async () => {
+    if (acquiredRedisLock && redis) {
+      if (lockLost || !(await isLockHeldByUs())) {
+        const err = new Error("Distributed reorder lock lost during operation; aborting to prevent split-brain writes");
+        err.statusCode = 409;
+        err.code = "LOCK_LOST";
+        throw err;
+      }
+    }
+  };
 
   if (redis) {
     try {
-      const acquired = await redis.set(lockKey, lockOwner, "PX", 30000, "NX");
+      const acquired = await redis.set(lockKey, lockOwner, "PX", LOCK_TTL_MS, "NX");
       if (!acquired) {
         return res.status(409).json({
           success: false,
@@ -514,49 +635,70 @@ export const reorderCategories = async (req, res) => {
         });
       }
       acquiredRedisLock = true;
-    } catch (_) {}
+
+      // Heartbeat renewal: renew lock every 10 seconds via owner-checked Lua script so reorders >30s maintain ownership
+      renewTimer = setInterval(async () => {
+        try {
+          let renewed = 0;
+          if (typeof redis.eval === "function") {
+            renewed = await redis.eval(LUA_RENEW_LOCK, 1, lockKey, lockOwner, LOCK_TTL_MS);
+          } else if (typeof redis.pexpire === "function") {
+            const current = await redis.get?.(lockKey);
+            if (current === lockOwner) {
+              await redis.pexpire(lockKey, LOCK_TTL_MS);
+              renewed = 1;
+            }
+          }
+          if (Number(renewed) !== 1) {
+            lockLost = true;
+            logger.error(
+              { lockKey, lockOwner, renewed },
+              "[adminCategoryController] Distributed reorder lock renewal returned 0; lock lease was lost"
+            );
+          }
+        } catch (err) {
+          lockLost = true;
+          logger.error(
+            { err: err.message, lockKey, lockOwner },
+            "[adminCategoryController] Exception during distributed reorder lock renewal; marking lock as lost"
+          );
+        }
+      }, _testRenewIntervalMs !== undefined ? _testRenewIntervalMs : RENEW_INTERVAL_MS);
+      if (typeof renewTimer.unref === "function") renewTimer.unref();
+    } catch (err) {
+      if (requireDistributedLock) {
+        logError(req, err, "Distributed category reorder lock acquisition failed in production");
+        return res.status(503).json({
+          success: false,
+          code: "REORDER_LOCK_UNAVAILABLE",
+          message: "Category reordering requires distributed lock coordination and is temporarily unavailable.",
+        });
+      }
+      logger.warn(
+        { err: err?.message },
+        "[adminCategoryController] Upstash Redis lock acquisition failed, falling back to process-local mutex in development"
+      );
+    }
+  } else if (!isProduction) {
+    logger.warn(
+      "[adminCategoryController] Redis is not active; using process-local mutex fallback for category reorder in development"
+    );
   }
 
   const previousQueue = localReorderMutex;
   let releaseLocal;
   localReorderMutex = new Promise((resolve) => { releaseLocal = resolve; });
-  await previousQueue;
 
   try {
-    const { category_ids } = req.body;
-
-    if (!Array.isArray(category_ids) || category_ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "An array of category IDs in the desired order is required.",
-      });
-    }
-
-    const parsedIds = [];
-    for (const id of category_ids) {
-      const parsed = Number(id);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid category ID: ${id}. All elements must be positive integers.`,
-        });
-      }
-      parsedIds.push(parsed);
-    }
-
-    const uniqueSet = new Set(parsedIds);
-    if (uniqueSet.size !== parsedIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: "Duplicate category IDs are not allowed in reorder list.",
-      });
-    }
+    await previousQueue;
+    await assertLockHeld();
 
     // Reordering is only for top-level storefront departments. Do not trust
     // the employee UI to keep child terms or the protected fallback category
     // out of a crafted request.
     const categoriesById = new Map();
     for (let offset = 0; offset < parsedIds.length; offset += 100) {
+      await assertLockHeld();
       const chunk = parsedIds.slice(offset, offset + 100);
       const response = await api.get("products/categories", {
         include: chunk.join(","),
@@ -595,46 +737,66 @@ export const reorderCategories = async (req, res) => {
     }));
 
     let batchSucceeded = false;
-    let failedIds = [];
+    let idsToRetry = [];
 
     try {
+      await assertLockHeld();
       const batchRes = await api.post("products/categories/batch", {
         update: updateBatch,
       });
 
       const updates = Array.isArray(batchRes.data?.update) ? batchRes.data.update : [];
-      const failedItems = updates.filter((item) => item.error || !item.id);
-      if (failedItems.length > 0) {
-        failedIds = failedItems.map((item) => item.id || "unknown");
-        logger.error({ failedIds }, "[reorderCategories] WooCommerce batch returned per-category errors");
-      } else if (updates.length < updateBatch.length) {
-        const returnedIds = new Set(updates.map((item) => item.id));
-        failedIds = parsedIds.filter((id) => !returnedIds.has(id));
-      } else {
+      const successfulIds = new Set();
+
+      for (const item of updates) {
+        const numId = Number(item?.id);
+        if (Number.isInteger(numId) && numId > 0 && !item.error) {
+          successfulIds.add(numId);
+        }
+      }
+
+      // Complete union of explicit errors, omitted IDs, and malformed responses
+      idsToRetry = parsedIds.filter((id) => !successfulIds.has(id));
+
+      if (idsToRetry.length === 0 && updates.length >= parsedIds.length) {
         batchSucceeded = true;
+      } else {
+        logger.warn(
+          { totalRequested: parsedIds.length, missingOrFailedCount: idsToRetry.length, idsToRetry },
+          "[reorderCategories] Batch update had missing or failed categories; falling back to parallel updates"
+        );
       }
     } catch (batchErr) {
       logger.warn({ err: batchErr.message }, "Batch reorder API failed, falling back to parallel updates");
+      idsToRetry = parsedIds;
     }
 
-    // If batch update failed or had item-level errors, execute fallback with strict per-item verification
+    // If batch update failed or had item-level errors/omissions, retry with bounded concurrency (<= 5)
     if (!batchSucceeded) {
-      const results = await Promise.allSettled(
-        parsedIds.map((id, index) =>
-          api.put(`products/categories/${id}`, {
-            menu_order: index + 1,
-          })
-        )
-      );
-
+      const CONCURRENCY_LIMIT = 5;
+      const orderMap = new Map(parsedIds.map((id, index) => [id, index + 1]));
       const rejected = [];
-      results.forEach((r, idx) => {
-        if (r.status === "rejected" || r.value?.data?.error) {
-          rejected.push(parsedIds[idx]);
-          const errMsg = r.status === "rejected" ? r.reason?.message : r.value?.data?.error?.message;
-          logger.error({ id: parsedIds[idx], err: errMsg }, "Failed to update menu_order for category");
-        }
-      });
+
+      for (let i = 0; i < idsToRetry.length; i += CONCURRENCY_LIMIT) {
+        await assertLockHeld();
+        const chunk = idsToRetry.slice(i, i + CONCURRENCY_LIMIT);
+        const chunkResults = await Promise.allSettled(
+          chunk.map((id) =>
+            api.put(`products/categories/${id}`, {
+              menu_order: orderMap.get(id),
+            })
+          )
+        );
+
+        chunkResults.forEach((r, idx) => {
+          const catId = chunk[idx];
+          if (r.status === "rejected" || r.value?.data?.error) {
+            rejected.push(catId);
+            const errMsg = r.status === "rejected" ? r.reason?.message : r.value?.data?.error?.message;
+            logger.error({ id: catId, err: errMsg }, "Failed to update menu_order for category");
+          }
+        });
+      }
 
       if (rejected.length > 0) {
         return res.status(400).json({
@@ -643,36 +805,91 @@ export const reorderCategories = async (req, res) => {
           failed_ids: rejected,
         });
       }
-    } else if (failedIds.length > 0) {
-      return res.status(400).json({
+    }
+
+    // Authoritative Final Verification: Re-fetch WooCommerce categories to confirm final menu_order
+    await assertLockHeld();
+    const verifiedOrderMap = new Map();
+    for (let offset = 0; offset < parsedIds.length; offset += 100) {
+      await assertLockHeld();
+      const chunk = parsedIds.slice(offset, offset + 100);
+      const verifyRes = await api.get("products/categories", {
+        include: chunk.join(","),
+        per_page: chunk.length,
+        hide_empty: false,
+        _fields: "id,menu_order",
+      });
+      for (const cat of Array.isArray(verifyRes.data) ? verifyRes.data : []) {
+        if (cat && cat.id) {
+          verifiedOrderMap.set(Number(cat.id), Number(cat.menu_order));
+        }
+      }
+    }
+
+    const verificationMismatches = [];
+    parsedIds.forEach((id, index) => {
+      const expectedOrder = index + 1;
+      const actualOrder = verifiedOrderMap.get(id);
+      if (actualOrder !== expectedOrder) {
+        verificationMismatches.push({
+          id,
+          expected: expectedOrder,
+          actual: actualOrder ?? null,
+        });
+      }
+    });
+
+    if (verificationMismatches.length > 0) {
+      logger.error(
+        { mismatchCount: verificationMismatches.length, verificationMismatches },
+        "[reorderCategories] Authoritative verification failed: WooCommerce menu_order mismatch"
+      );
+      return res.status(500).json({
         success: false,
-        message: `Failed to update category order for ${failedIds.length} category(ies): ${failedIds.join(", ")}.`,
-        failed_ids: failedIds,
+        code: "REORDER_VERIFICATION_FAILED",
+        message: `Authoritative verification failed for ${verificationMismatches.length} category(ies). WooCommerce menu_order did not persist correctly.`,
+        mismatches: verificationMismatches,
       });
     }
 
-    // Invalidate catalog cache so public categories immediately reflect new merchandising order
-    serverCache.invalidatePrefix("catalog:");
-    serverCache.delete("admin:categories");
-    serverCache.delete("seo:sitemap_xml");
-
+    // Invalidate catalog and resilience cache so public categories immediately reflect new merchandising order
+    await assertLockHeld();
+    await invalidateAllCategoryCaches();
+    await assertLockHeld();
 
     res.json({
       success: true,
-      message: "Category merchandising order updated successfully.",
+      message: "Category merchandising order updated and verified successfully.",
       ordered_ids: parsedIds,
     });
   } catch (error) {
+    if (error.code === "LOCK_LOST" || error.statusCode === 409) {
+      logger.error({ err: error.message }, "[reorderCategories] Operation aborted because distributed lock was lost");
+      return res.status(409).json({
+        success: false,
+        code: "LOCK_LOST",
+        message: "Category reordering was aborted because the distributed lock was lost to another process.",
+      });
+    }
     logError(req, error, "Reorder categories error");
     const safeError = sanitizeUpstreamError(error, "Failed to reorder categories.");
     res.status(safeError.status).json(safeError.payload);
   } finally {
-    releaseLocal();
+    if (renewTimer) clearInterval(renewTimer);
+    if (typeof releaseLocal === "function") releaseLocal();
     if (acquiredRedisLock && redis) {
       try {
-        const script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
-        await redis.eval(script, 1, lockKey, lockOwner);
-      } catch (_) {}
+        if (typeof redis.eval === "function") {
+          await redis.eval(LUA_RELEASE_LOCK, 1, lockKey, lockOwner);
+        } else {
+          const current = await redis.get?.(lockKey);
+          if (current === lockOwner) {
+            await redis.del?.(lockKey);
+          }
+        }
+      } catch (err) {
+        logger.warn({ err: err?.message }, "[adminCategoryController] Failed to release reorder lock");
+      }
     }
   }
 };

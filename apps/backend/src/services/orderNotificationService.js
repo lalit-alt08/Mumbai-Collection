@@ -3,6 +3,7 @@ import { getRedisClient, getRedisSubscriber, isRedisActive, isRedisSubscriberAct
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { sendOrderCreatedPush, enqueuePushOutboxJob } from "./pushNotificationService.js";
+import { alertStaffAnomaly } from "./alertService.js";
 
 export const ORDER_EVENTS_CHANNEL = "orders:events";
 
@@ -129,30 +130,51 @@ export const publishOrderEvent = async ({ event, orderId, status, total, employe
 
   // Dispatch high-priority Web Push strictly for ORDER_CREATED (never for packing/status updates)
   // Await durable outbox persistence before acknowledging event publication
+  let pushEnqueued = true;
+  let pushError = null;
+
   if (payload.event === "ORDER_CREATED") {
     try {
       await enqueuePushOutboxJob({ orderId: cleanOrderId, total: total || null });
     } catch (pushErr) {
-      logger.warn({ err: pushErr?.message, orderId: cleanOrderId }, "[OrderNotification] Push outbox enqueue failed");
+      pushEnqueued = false;
+      pushError = pushErr?.message || String(pushErr);
+      logger.error({ err: pushErr?.message, orderId: cleanOrderId }, "[OrderNotification] Push outbox persistence failed");
+
+      // Send critical operational alert: notify staff immediately of push failure while order succeeds
+      void alertStaffAnomaly({
+        type: "PUSH_OUTBOX_PERSISTENCE_FAILED",
+        severity: "critical",
+        message: `Durable push notification job could not be enqueued for order #${cleanOrderId}. Locked-screen push delivery may be delayed or missed.`,
+        details: { orderId: cleanOrderId, total: total || null, error: pushError },
+      }).catch(() => {});
     }
   }
+
+  const buildResult = (published) => ({
+    success: published,
+    published,
+    pushEnqueued,
+    degraded: !pushEnqueued,
+    ...(pushError ? { pushError } : {}),
+  });
 
   const redis = getRedisClient();
   if (redis && isRedisActive()) {
     try {
       await redis.publish(ORDER_EVENTS_CHANNEL, JSON.stringify(payload));
       if (!isRedisSubscriberActive() || !isSubscriberInitialized) broadcastToEmployeeClients(payload);
-      return true;
+      return buildResult(true);
     } catch (err) {
       logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Redis publish failed, falling back to local bus");
       broadcastToEmployeeClients(payload);
-      return true;
+      return buildResult(true);
     }
   }
 
   // In-memory bus fallback when Redis is inactive or not configured
   localBus.emit("order_event", payload);
-  return true;
+  return buildResult(true);
 };
 
 /**

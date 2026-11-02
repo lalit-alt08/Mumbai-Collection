@@ -34,10 +34,34 @@ export const transformMediaUrl = (url, req) => {
   return `${baseUrl}/api/media/uploads/${relativePath}`;
 };
 
+/**
+ * Transforms responsive image srcset strings containing comma-separated candidate URLs:
+ * "http://host/img-679.jpg 679w, http://host/img-300.jpg 300w"
+ */
+export const transformSrcset = (srcset, req) => {
+  if (!srcset || typeof srcset !== "string") return srcset;
+
+  return srcset
+    .split(",")
+    .map((candidate) => {
+      const trimmed = candidate.trim();
+      if (!trimmed) return trimmed;
+      const parts = trimmed.split(/\s+/);
+      const url = parts[0];
+      const descriptor = parts.slice(1).join(" ");
+      const transformedUrl = transformMediaUrl(url, req);
+      return descriptor ? `${transformedUrl} ${descriptor}` : transformedUrl;
+    })
+    .join(", ");
+};
+
 export const transformMediaUrls = (data, req) => {
   if (!data) return data;
 
   if (typeof data === "string") {
+    if (data.includes(",") && /\s+\d+[wx]/i.test(data)) {
+      return transformSrcset(data, req);
+    }
     return transformMediaUrl(data, req);
   }
 
@@ -48,7 +72,11 @@ export const transformMediaUrls = (data, req) => {
   if (typeof data === "object") {
     const result = {};
     for (const [key, value] of Object.entries(data)) {
-      result[key] = transformMediaUrls(value, req);
+      if ((key === "srcset" || key.endsWith("_srcset")) && typeof value === "string") {
+        result[key] = transformSrcset(value, req);
+      } else {
+        result[key] = transformMediaUrls(value, req);
+      }
     }
     return result;
   }

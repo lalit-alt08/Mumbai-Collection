@@ -96,7 +96,7 @@ test("MemoryCache Invalidation & Bounds: generations map never grows unboundedly
   for (let i = 0; i < 5000; i++) {
     cache.delete(`cart_intent_temp_${i}`);
   }
-  assert.ok(cache.generations.size <= cache.maxSize, `generations size (${cache.generations.size}) must never exceed maxSize (${cache.maxSize})`);
+  assert.ok(cache.store.size <= cache.maxSize, `store size (${cache.store.size}) must never exceed maxSize (${cache.maxSize})`);
 
   // 2. In-flight race condition test: delete during fetchFn must prevent stale write
   let fetchFnResolve;
@@ -114,7 +114,7 @@ test("MemoryCache Invalidation & Bounds: generations map never grows unboundedly
 
   // Cache must NOT contain the stale result
   assert.equal(cache.get("concurrent_key"), null, "Stale in-flight write must be discarded upon invalidation");
-  assert.equal(cache.generations.has("concurrent_key"), false, "Settled in-flight key must be pruned from generations map");
+  assert.equal(cache.inFlight.has("concurrent_key"), false, "Settled in-flight key must be pruned from inFlight map");
 });
 
 test("Category Reordering: Rejects duplicates, invalid IDs, and inspects WooCommerce batch/fallback failures", async () => {
@@ -158,7 +158,7 @@ test("Category Reordering: Rejects duplicates, invalid IDs, and inspects WooComm
   try {
     api.get = async (p) => {
       if (typeof p === "string" && p.includes("categories")) {
-        return { data: [{ id: 10, parent: 0 }, { id: 20, parent: 0 }] };
+        return { data: [{ id: 10, parent: 0, menu_order: 1 }, { id: 20, parent: 0, menu_order: 2 }] };
       }
       return { data: [] };
     };
