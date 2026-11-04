@@ -203,51 +203,27 @@ function EmployeeLayout() {
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-x-hidden min-h-screen">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-gray-200 bg-white/95 px-6 backdrop-blur-md">
-          <div className="flex items-center gap-4">
+        <header className="sticky top-0 z-30 flex min-h-16 h-auto sm:h-18 items-center justify-between border-b border-gray-200 bg-white/95 px-3.5 sm:px-6 py-2.5 sm:py-0 backdrop-blur-md">
+          <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="rounded-xl border border-gray-200 p-2 text-gray-600 hover:bg-gray-50 lg:hidden cursor-pointer"
+              className="rounded-xl border border-gray-200 p-2 text-gray-600 hover:bg-gray-50 lg:hidden cursor-pointer shrink-0"
+              aria-label="Open Sidebar Menu"
             >
               <Menu size={20} />
             </button>
 
-            <div>
-              <h2 className="text-lg font-black tracking-tight text-gray-900">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-lg font-black tracking-tight text-gray-900 truncate leading-snug">
                 {getPageTitle()}
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-[11px] text-gray-500 truncate hidden sm:block">
                 Vasai Quick-Commerce Fulfillment Center
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5">
-            {/* Counter Mode Keep-Awake Switch in Header */}
-            <button
-              onClick={toggleCounterMode}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition cursor-pointer border ${
-                isLocked
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 shadow-sm"
-                  : isEnabled
-                  ? "bg-amber-50 text-amber-800 border-amber-300"
-                  : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-              }`}
-              title="Keep screen awake and arm audio order alerts for shop phone"
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  isLocked ? "bg-emerald-500 animate-pulse" : isEnabled ? "bg-amber-500" : "bg-gray-400"
-                }`}
-              />
-              <span className="hidden sm:inline">
-                {isLocked ? "🟢 Counter Mode (Screen Awake)" : isEnabled ? "⚡ Counter Mode (Armed)" : "⚪ Counter Mode Off"}
-              </span>
-              <span className="sm:hidden">
-                {isLocked ? "Awake" : "Counter Mode"}
-              </span>
-            </button>
-
             <div className="hidden sm:flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 border border-emerald-200">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
               Store Active

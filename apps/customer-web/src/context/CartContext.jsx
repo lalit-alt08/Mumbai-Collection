@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { getCart, clearCartSession } from "../services/storeApi";
+import { getCart, addToCart, updateCartItem, clearCartSession } from "../services/storeApi";
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
+import { orchestrateCartMerge } from "../utils/cartMerge";
 
 const CartContext = createContext();
 
@@ -9,11 +10,22 @@ export function CartProvider({ children }) {
   const { user } = useAuth();
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [cartMergeNotice, setCartMergeNotice] = useState(null);
 
   // Monotonically increasing epoch counter: discards stale in-flight responses across session switches
   const sessionEpochRef = useRef(0);
   const prevUserIdRef = useRef(user?.id ?? null);
   const isInitialMountRef = useRef(true);
+  const retryMergeRef = useRef(null);
+  const mergingEpochRef = useRef(null);
+
+  const retryCartMerge = useCallback(() => {
+    void retryMergeRef.current?.();
+  }, []);
+
+  const clearCartMergeNotice = useCallback(() => {
+    setCartMergeNotice(null);
+  }, []);
 
   const refreshCart = useCallback(async () => {
     const requestEpoch = sessionEpochRef.current;
@@ -51,36 +63,97 @@ export function CartProvider({ children }) {
     setLoading(false);
   }, []);
 
-  // Account Isolation: Clear stale cart on logout or Account A -> Account B switch
+  // Account Isolation & Guest-to-Customer Cart Merge:
   useEffect(() => {
     const currentUserId = user?.id ?? null;
+    const prevUserId = prevUserIdRef.current;
 
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
       return;
     }
 
-    if (prevUserIdRef.current !== currentUserId) {
+    if (prevUserId !== currentUserId) {
       prevUserIdRef.current = currentUserId;
-
-      // Invalidate any in-flight requests from the previous session
       sessionEpochRef.current += 1;
+      const currentEpoch = sessionEpochRef.current;
 
-      // 1. Purge stale WooCommerce session and tokens
-      clearCartSession();
-
-      // 2. Clear React memory state immediately
-      setCart(null);
-
-      // 3. If transitioning to an authenticated user, fetch their isolated cart
-      if (currentUserId) {
-        setLoading(true);
-        refreshCart().catch(() => {});
-      } else {
+      // Scenario 1: Logout (User -> null) - full purge
+      if (!currentUserId) {
+        retryMergeRef.current = null;
+        clearCartSession();
+        setCart(null);
         setLoading(false);
+        setCartMergeNotice(null);
+        return;
       }
+
+      // Scenario 2: Account Switch (User A -> User B) - full purge for account isolation
+      if (prevUserId && currentUserId && prevUserId !== currentUserId) {
+        retryMergeRef.current = null;
+        clearCartSession();
+        setCart(null);
+        setLoading(true);
+        setCartMergeNotice(null);
+        refreshCart().catch(() => {});
+        return;
+      }
+
+      // Scenario 3: Guest -> Logged-In Customer (null -> User A)
+      // Preserve guest cart items by capturing them and merging into the authenticated account
+      const guestItems = cart?.items || [];
+
+      const mergeAndRefresh = async () => {
+        if (mergingEpochRef.current === currentEpoch) return;
+        mergingEpochRef.current = currentEpoch;
+        setLoading(true);
+        const isSessionValid = () =>
+          sessionEpochRef.current === currentEpoch &&
+          prevUserIdRef.current === currentUserId;
+
+        try {
+          const result = await orchestrateCartMerge({
+            guestItems,
+            api: {
+              refreshCart,
+              addToCart,
+              updateCartItem,
+            },
+            isSessionValid,
+          });
+
+          if (result.cancelled || !isSessionValid()) {
+            return;
+          }
+
+          if (result.serverCart) {
+            setCart(result.serverCart);
+          }
+
+          if (result.failedItems && result.failedItems.length > 0) {
+            setCartMergeNotice({
+              failedItems: result.failedItems,
+              retryable: true,
+              timestamp: Date.now(),
+            });
+          } else {
+            retryMergeRef.current = null;
+            setCartMergeNotice(null);
+          }
+        } catch (_) {
+          if (isSessionValid()) setCartMergeNotice({ failedItems: guestItems.map((item) => ({ name: item.name || `Product #${item.id}` })), retryable: true });
+        } finally {
+          if (mergingEpochRef.current === currentEpoch) mergingEpochRef.current = null;
+          if (isSessionValid()) {
+            setLoading(false);
+          }
+        }
+      };
+
+      retryMergeRef.current = mergeAndRefresh;
+      mergeAndRefresh();
     }
-  }, [user?.id, refreshCart]);
+  }, [user?.id, refreshCart, cart?.items]);
 
   return (
     <CartContext.Provider
@@ -92,6 +165,9 @@ export function CartProvider({ children }) {
         loading,
         refreshCart,
         setLoading, // expose setLoading so CartRouteManager can stop loading on auth pages
+        cartMergeNotice,
+        clearCartMergeNotice,
+        retryCartMerge,
       }}
     >
       {children}

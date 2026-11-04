@@ -12,11 +12,13 @@ import {
   HelpCircle,
   ChevronRight,
   ArrowLeft,
+  ChevronLeft,
   LogOut,
   Pencil,
   Package,
 } from "lucide-react";
 import { useNoIndex } from "../hooks/useNoIndex";
+import { triggerHaptic } from "../utils/haptics";
 
 function Account() {
   useNoIndex();
@@ -102,17 +104,29 @@ function Account() {
         {/* ────────────────────────────────────────────────────────── */}
         {/* TOP BAR / NAVIGATION                                       */}
         {/* ────────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Left: Circular Back Button */}
           <button
-            onClick={() => navigate("/")}
-            aria-label="Back to Home"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8]/50 hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
+            onClick={() => {
+              triggerHaptic("light");
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate("/");
+              }
+            }}
+            aria-label="Back"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
           >
-            <ArrowLeft size={17} strokeWidth={2.4} />
+            <ChevronLeft size={23} strokeWidth={2.5} />
           </button>
-          <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl">
-            My Account
-          </h1>
+
+          {/* Center: Capsule utilizing available space with clear typography and no inner pill */}
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+            <h1 className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
+              My Account
+            </h1>
+          </div>
         </div>
 
         {/* ────────────────────────────────────────────────────────── */}

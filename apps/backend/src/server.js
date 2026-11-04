@@ -9,6 +9,7 @@ import { closeRedis } from "./config/redis.js";
 import { startAlertWorker, stopAlertWorker, flushAlertQueue } from "./services/alertOutbox.js";
 import { recordReconciliationHealth } from "./services/operationalHealth.js";
 import { initVapidKeys, processPushOutbox, startOutboxWatchdog } from "./services/pushNotificationService.js";
+import { searchIndexService } from "./services/searchIndexService.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -101,6 +102,9 @@ export const bootstrap = async () => {
   void processPushOutbox().catch((err) => {
     logger.warn({ err: err.message }, "[WebPush] Initial outbox drain warning");
   });
+
+  // 4. Initialize search index non-blockingly
+  searchIndexService.init();
 
   return server;
 };
@@ -196,6 +200,7 @@ export const startBackgroundWorkers = () => {
 };
 
 export const stopBackgroundWorkers = () => {
+  searchIndexService.stop();
   clearTimeout(initialHealthTimer);
   initialHealthTimer = null;
   if (initialBootTimer) {

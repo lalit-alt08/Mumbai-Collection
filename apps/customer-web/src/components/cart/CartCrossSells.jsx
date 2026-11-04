@@ -49,7 +49,7 @@ function CartCrossSells({ items = [] }) {
       </div>
       <div className="flex snap-x gap-3 overflow-x-auto pb-2 pt-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible lg:grid-cols-4">
         {products.map((product) => (
-          <div key={product.id} className="flex h-full w-[160px] shrink-0 snap-start flex-col sm:w-auto">
+          <div key={product.id} className="flex h-full w-[178px] shrink-0 snap-start flex-col sm:w-auto">
             <ProductCard product={product} />
           </div>
         ))}

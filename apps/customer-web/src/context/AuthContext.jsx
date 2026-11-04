@@ -11,7 +11,7 @@ import {
   deleteAccount as deleteAccountApi,
 } from "../services/authService";
 
-import { clearCartSession } from "../services/storeApi";
+import { clearCartSession, invalidateCartRequests } from "../services/storeApi";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 
 const AuthContext = createContext();
@@ -133,11 +133,16 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const login = (userData) => {
+    invalidateCartRequests();
     setIsReconnecting(false);
-    // Purge any leftover cart tokens from prior session/guest to prevent cross-account leakage
-    clearCartSession();
+    // Address and user caches are purged on login to prevent cross-account leakage;
+    // Cart session token is preserved so CartContext can perform safe guest-to-customer cart merge
     safeStorage.removeItem("user");
     safeStorage.removeItem("user_profile");
+    safeStorage.removeItem("saved_addresses_cache");
+    safeStorage.removeItem("selected_address_id");
+    safeSessionStorage.removeItem("saved_addresses_cache");
+    safeSessionStorage.removeItem("selected_address_id");
     setUser(userData);
     safeSessionStorage.setJSON("user", {
       id: userData?.id,
@@ -173,6 +178,10 @@ export function AuthProvider({ children }) {
     safeSessionStorage.removeItem("user_profile");
     safeStorage.removeItem("user");
     safeStorage.removeItem("user_profile");
+    safeStorage.removeItem("saved_addresses_cache");
+    safeStorage.removeItem("selected_address_id");
+    safeSessionStorage.removeItem("saved_addresses_cache");
+    safeSessionStorage.removeItem("selected_address_id");
     clearCartSession();
   };
 

@@ -62,6 +62,7 @@ import { getRedisClient, isRedisActive } from "../config/redis.js";
 import { alertStaffAnomaly } from "../services/alertService.js";
 import { publishOrderEvent } from "../services/orderNotificationService.js";
 import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
+import { validateDeliveryAddress } from "./addressController.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 const MIN_ORDER_VALUE_INR = 500;
@@ -241,6 +242,24 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Billing and shipping addresses are required.",
+      });
+    }
+
+    const shippingValidation = validateDeliveryAddress(shipping_address);
+    if (!shippingValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_DELIVERY_ADDRESS",
+        message: shippingValidation.message,
+      });
+    }
+
+    const billingValidation = validateDeliveryAddress(billing_address);
+    if (!billingValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_BILLING_ADDRESS",
+        message: billingValidation.message,
       });
     }
 
@@ -504,27 +523,11 @@ export const createOrder = async (req, res) => {
           stock_reservation_id: stockReservationId,
           customer_id: Number(userId),
           billing: {
-            first_name: billing_address.first_name || "",
-            last_name: billing_address.last_name || "",
+            ...billingValidation.normalized,
             email: billing_address.email || req.wpUserEmail || "",
-            phone: billing_address.phone || "",
-            address_1: billing_address.address_1 || "",
-            address_2: billing_address.address_2 || "",
-            city: billing_address.city || "",
-            state: billing_address.state || "",
-            postcode: billing_address.postcode || "",
-            country: billing_address.country || "IN",
           },
           shipping: {
-            first_name: shipping_address.first_name || "",
-            last_name: shipping_address.last_name || "",
-            phone: shipping_address.phone || "",
-            address_1: shipping_address.address_1 || "",
-            address_2: shipping_address.address_2 || "",
-            city: shipping_address.city || "",
-            state: shipping_address.state || "",
-            postcode: shipping_address.postcode || "",
-            country: shipping_address.country || "IN",
+            ...shippingValidation.normalized,
           },
           line_items: lineItems,
           coupon_lines: couponLines,

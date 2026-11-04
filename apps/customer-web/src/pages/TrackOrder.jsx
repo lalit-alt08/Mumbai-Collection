@@ -224,12 +224,15 @@ function TrackOrder() {
     if (!dateString) return "";
     try {
       const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) return "";
       return date.toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
         day: "numeric",
         month: "short",
         year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        hour12: true,
       });
     } catch {
       return dateString;
@@ -294,13 +297,18 @@ function TrackOrder() {
     {
       stage: 4,
       title: "Delivered",
-      subtitle: order?.date_completed ? `Delivered on ${formatDateTime(order.date_completed)}` : "Handed over to recipient",
+      subtitle: order?.delivered_at && formatDateTime(order.delivered_at) ? `Delivered on ${formatDateTime(order.delivered_at)}` : "Handed over to recipient",
       icon: MapPin,
     },
   ];
 
   const isCancelled = order?.status === "cancelled" || order?.status === "failed" || order?.status === "refunded";
   const isDelivered = order?.status === "completed";
+  const itemsSubtotal = (
+    Number(order?.total || 0) -
+    Number(order?.shipping_total || 0) +
+    Number(order?.discount_total || 0)
+  ).toFixed(2);
 
   return (
     <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-3 pt-4 sm:px-6 sm:pt-6 pb-20 sm:pb-24">
@@ -422,11 +430,17 @@ function TrackOrder() {
                   </p>
                 </div>
 
-                {/* Quick ETA pill */}
+                {/* Quick ETA or Delivery Confirmation Pill */}
                 {!isCancelled && !isDelivered && (
                   <div className="flex items-center gap-2 rounded-xl bg-[#42D6E8]/10 px-3.5 py-2 text-xs font-bold text-[#42D6E8] border border-[#42D6E8]/30 shadow-xs">
                     <Truck size={16} className="animate-pulse shrink-0" />
                     <span>Est. Delivery: 60–90 Mins</span>
+                  </div>
+                )}
+                {isDelivered && (
+                  <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 text-xs font-bold text-emerald-400 border border-emerald-500/30 shadow-xs">
+                    <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+                    <span>Delivered Successfully</span>
                   </div>
                 )}
               </div>
@@ -467,8 +481,12 @@ function TrackOrder() {
                                 }}
                               >
                                 <div
-                                  className={`h-full bg-[#42D6E8] transition-all duration-500 ${
-                                    isSegmentCompleted ? "w-full" : "w-0"
+                                  className={`h-full transition-all duration-500 ${
+                                    isSegmentCompleted
+                                      ? isDelivered
+                                        ? "w-full bg-emerald-500"
+                                        : "w-full bg-[#42D6E8]"
+                                      : "w-0 bg-[#42D6E8]"
                                   }`}
                                 />
                               </div>
@@ -570,9 +588,9 @@ function TrackOrder() {
               )}
             </div>
 
-            {/* 2. TWO-COLUMN SPLIT (LEFT: FULFILLMENT & ITEMS, RIGHT: DELIVERY & BILL) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
-              {/* LEFT COLUMN: LIVE STAGE DETAILS & ORDER ITEMS */}
+            {/* 2. TWO-COLUMN BALANCED SPLIT (LEFT: ITEMS & DELIVERY, RIGHT: BILL & SUPPORT) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start">
+              {/* LEFT COLUMN: ORDER ITEMS & DELIVERY DESTINATION */}
               <div className="lg:col-span-7 space-y-4">
                 {/* Ordered Items Preview */}
                 <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-lg">
@@ -583,13 +601,13 @@ function TrackOrder() {
                         Items in this Order ({order.line_items?.length || 0})
                       </h3>
                     </div>
-                    <span className="text-xs font-bold text-[#42D6E8]">₹{order.total}</span>
+                    <span className="text-xs font-bold text-[#42D6E8]">₹{itemsSubtotal}</span>
                   </div>
 
                   <div className="divide-y divide-[#1E3252]/50">
                     {order.line_items?.map((item, i) => (
                       <div key={i} className="flex items-center justify-between py-2.5 gap-3">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#1E3252] bg-[#0B1425] p-1">
                             {item.image ? (
                               <img
@@ -601,7 +619,7 @@ function TrackOrder() {
                               <Package size={20} className="text-[#475569]" />
                             )}
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <p className="line-clamp-1 text-xs font-bold text-[#F1F5F9]">{item.name}</p>
                             <p className="text-[11px] text-[#8FA4BE] font-medium">
                               Qty: <span className="font-bold text-[#F1F5F9]">{item.quantity}</span> × ₹{item.price || (Number(item.total) / (item.quantity || 1)).toFixed(0)}
@@ -615,17 +633,19 @@ function TrackOrder() {
                     ))}
                   </div>
                 </div>
-              </div>
 
-              {/* RIGHT COLUMN: DESTINATION ADDRESS, BILL & SUPPORT */}
-              <div className="lg:col-span-5 space-y-4">
-                {/* Destination Address */}
+                {/* Destination Address (Moved to Left Column for visual balance) */}
                 <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-lg">
-                  <div className="flex items-center gap-2 border-b border-[#1E3252]/60 pb-2.5 mb-2.5">
-                    <MapPin size={15} className="text-[#42D6E8]" />
-                    <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#8FA4BE]">
-                      Delivery Destination
-                    </h3>
+                  <div className="flex items-center justify-between border-b border-[#1E3252]/60 pb-2.5 mb-2.5">
+                    <div className="flex items-center gap-2">
+                      <MapPin size={15} className="text-[#42D6E8]" />
+                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#8FA4BE]">
+                        Delivery Destination
+                      </h3>
+                    </div>
+                    <span className="rounded-full bg-[#132B45] border border-[#1E3252] px-2.5 py-0.5 text-[10px] font-bold text-[#42D6E8]">
+                      Shipping Address
+                    </span>
                   </div>
                   <div className="text-xs text-[#8FA4BE] leading-relaxed font-medium space-y-1">
                     <p className="font-bold text-[#F1F5F9] text-sm">
@@ -639,13 +659,16 @@ function TrackOrder() {
                       {order.shipping?.city || order.billing?.city}, {order.shipping?.state || order.billing?.state} {order.shipping?.postcode || order.billing?.postcode ? `- ${order.shipping?.postcode || order.billing?.postcode}` : ""}
                     </p>
                     {(order.shipping?.phone || order.billing?.phone) && (
-                      <p className="flex items-center gap-1 text-[#42D6E8] font-bold pt-1">
+                      <p className="flex items-center gap-1.5 text-[#42D6E8] font-bold pt-1">
                         <Phone size={12} /> {order.shipping?.phone || order.billing?.phone}
                       </p>
                     )}
                   </div>
                 </div>
+              </div>
 
+              {/* RIGHT COLUMN: BILL & SUPPORT (STICKY ON DESKTOP) */}
+              <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-6">
                 {/* Bill Summary */}
                 <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-lg">
                   <div className="flex items-center gap-2 border-b border-[#1E3252]/60 pb-2.5 mb-2.5">
@@ -666,7 +689,7 @@ function TrackOrder() {
                         <span className="block text-[10px] text-[#6E84A3]">(Incl. of all taxes)</span>
                       </div>
                       <span className="font-bold text-[#F1F5F9]">
-                        ₹{(Number(order.total || 0) - Number(order.shipping_total || 0) + Number(order.discount_total || 0)).toFixed(2)}
+                        ₹{itemsSubtotal}
                       </span>
                     </div>
                     {Number(order.discount_total) > 0 && (

@@ -82,13 +82,13 @@ function ProductCard({ product }) {
   };
 
   return (
-    <div className="flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-2.5 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#42D6E8]/60 hover:shadow-[0_10px_30px_rgba(66,214,232,0.15)]">
+    <div className="flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-3 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#42D6E8]/60 hover:shadow-[0_10px_30px_rgba(66,214,232,0.15)]">
       <div
         onClick={() => navigate(`/product/${product.id}`)}
         className="cursor-pointer flex flex-col"
       >
         {/* Fixed Aspect Image Viewport */}
-        <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[12px] sm:rounded-[14px] p-1.5 bg-[#080F1C] border border-[#1E3252]">
+        <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[14px] sm:rounded-[16px] p-2 bg-[#080F1C] border border-[#1E3252]">
           <img
             src={cardImageUrl}
             alt={cardImageAlt}
@@ -107,7 +107,7 @@ function ProductCard({ product }) {
 
           {/* Discount Badge */}
           {isOnSale && discountPercent > 0 && (
-            <div className="absolute top-1.5 left-1.5 z-10 rounded-md bg-[#42D6E8] px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-black text-[#061220] shadow-xs">
+            <div className="absolute top-1.5 left-1.5 z-10 rounded-md bg-[#42D6E8] px-1.5 sm:px-2 py-0.5 text-[10.5px] sm:text-[11.5px] font-black text-[#061220] shadow-xs">
               {discountPercent}% OFF
             </div>
           )}
@@ -116,10 +116,10 @@ function ProductCard({ product }) {
           <button
             onClick={handleToggleFav}
             aria-label={favorited ? "Remove from wishlist" : "Add to wishlist"}
-            className="absolute top-1.5 right-1.5 z-10 flex h-7 w-7 sm:h-7.5 sm:w-7.5 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-xs border border-[#1E3252] backdrop-blur-xs transition-all hover:scale-110 active:scale-125 cursor-pointer"
+            className="absolute top-1.5 right-1.5 z-10 flex h-7.5 w-7.5 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-xs border border-[#1E3252] backdrop-blur-xs transition-all hover:scale-110 active:scale-125 cursor-pointer"
           >
             <Heart
-              size={14}
+              size={15}
               className={`transition-colors ${
                 favorited
                   ? "fill-[#42D6E8] text-[#42D6E8]"
@@ -129,8 +129,8 @@ function ProductCard({ product }) {
           </button>
 
           {isOutOfStock && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-[12px] sm:rounded-[14px]">
-              <span className="rounded-full bg-red-600 px-2 py-0.5 text-[9px] sm:text-[10px] font-bold text-white shadow-sm">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-[14px] sm:rounded-[16px]">
+              <span className="rounded-full bg-red-600 px-2.5 py-0.5 text-[11px] sm:text-xs font-bold text-white shadow-sm">
                 Out of Stock
               </span>
             </div>
@@ -138,7 +138,7 @@ function ProductCard({ product }) {
         </div>
 
         {/* Product Title with Locked 2-Line Height */}
-        <h2 className="mt-2 line-clamp-2 h-[34px] sm:h-[38px] text-[12px] sm:text-[13px] font-bold leading-tight text-white group-hover:text-[#42D6E8] transition-colors">
+        <h2 className="mt-2.5 line-clamp-2 min-h-[40px] sm:min-h-[44px] h-[40px] sm:h-[44px] text-[14px] sm:text-[15px] font-semibold leading-snug text-white group-hover:text-[#42D6E8] transition-colors">
           {cleanProductTitle(product.name)}
         </h2>
       </div>
@@ -146,30 +146,30 @@ function ProductCard({ product }) {
       {/* Bottom Sticky Action Area */}
       <div className="mt-auto pt-1.5 flex flex-col gap-1">
         {/* Low Stock Indicator with Locked Height */}
-        <div className="min-h-[14px] flex items-center">
+        <div className="min-h-[18px] flex items-center">
           {cartError ? (
-            <span role="alert" className="line-clamp-2 text-[10px] font-semibold text-rose-400 leading-tight">
+            <span role="alert" className="line-clamp-2 text-[11px] sm:text-xs font-medium text-rose-400 leading-tight">
               {cartError}
             </span>
           ) : isOutOfStock || isMaxReached ? (
-            <span className="text-[9px] sm:text-[10px] font-bold text-amber-400 leading-none">
+            <span className="text-[11px] sm:text-xs font-semibold text-amber-400 leading-none">
               Out of stock
             </span>
           ) : remainingStock <= 5 && remainingStock > 0 ? (
-            <span className="text-[9px] sm:text-[10px] font-bold text-orange-400 leading-none">
+            <span className="text-[11px] sm:text-xs font-semibold text-orange-400 leading-none">
               ⚡ Only {remainingStock} left
             </span>
           ) : null}
         </div>
 
         {/* Pricing & Add to Cart Action Row */}
-        <div className="flex items-center justify-between gap-1 h-[34px]">
-          <div className="flex items-baseline gap-1 min-w-0">
-            <span className="text-[15px] sm:text-[17px] font-extrabold text-white">
+        <div className="flex items-center justify-between gap-1 h-[36px] sm:h-[38px]">
+          <div className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-[16px] sm:text-[18px] font-extrabold text-white">
               ₹{currentPrice}
             </span>
             {isOnSale && (
-              <span className="text-[10px] text-[#8FA4BE] line-through font-medium truncate">
+              <span className="text-[11.5px] sm:text-xs text-[#8FA4BE] line-through font-medium truncate">
                 ₹{regularPrice}
               </span>
             )}
@@ -200,15 +200,15 @@ function ProductCard({ product }) {
                       }
                     }}
                     title="Item is sold out. Tap to remove from cart."
-                    className="h-[30px] sm:h-[32px] rounded-full border border-rose-400/40 bg-rose-950/40 px-2 sm:px-2.5 text-[11px] font-bold text-rose-400 transition-all hover:bg-rose-900/60 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
+                    className="h-[32px] sm:h-[34px] rounded-full border border-rose-400/40 bg-rose-950/40 px-2 sm:px-2.5 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-900/60 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
                   >
-                    Sold Out <span className="text-[11px] font-black leading-none">✕</span>
+                    Sold Out <span className="text-xs font-black leading-none">✕</span>
                   </button>
               ) : (
                 <button
                   type="button"
                   disabled
-                  className="h-[30px] sm:h-[32px] min-w-[58px] sm:min-w-[64px] rounded-full border border-[#1E3252] bg-[#0E1A2E] px-2.5 sm:px-3 text-xs font-bold text-[#6E84A3] cursor-not-allowed select-none"
+                  className="h-[32px] sm:h-[34px] min-w-[60px] sm:min-w-[66px] rounded-full border border-[#1E3252] bg-[#0E1A2E] px-2.5 sm:px-3 text-xs sm:text-[13px] font-semibold text-[#8FA4BE] cursor-not-allowed select-none"
                 >
                   Sold Out
                 </button>
@@ -254,12 +254,12 @@ function ProductCard({ product }) {
                       setUpdatingCart(false);
                     }
                   }}
-                  className="h-[30px] sm:h-[32px] min-w-[62px] sm:min-w-[68px] rounded-full border border-[#42D6E8]/70 bg-[#10243C] px-2.5 sm:px-3 text-[11px] sm:text-xs font-black tracking-wide text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.35)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                  className="h-[32px] sm:h-[34px] min-w-[64px] sm:min-w-[70px] rounded-full border border-[#42D6E8]/70 bg-[#10243C] px-2.5 sm:px-3 text-xs sm:text-[13px] font-extrabold tracking-wide text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.35)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
                 >
                   ADD
                 </button>
             ) : (
-              <div className="flex h-[30px] sm:h-[32px] items-center rounded-full bg-[#42D6E8] text-[#061220] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
+              <div className="flex h-[32px] sm:h-[34px] items-center rounded-full bg-[#42D6E8] text-[#061220] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
                   <button
                     onClick={async () => {
                       if (updatingCart) return;
@@ -284,12 +284,12 @@ function ProductCard({ product }) {
                       }
                     }}
                     disabled={updatingCart}
-                    className="flex h-full w-7 sm:w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-xs font-bold text-[#061220]"
+                    className="flex h-full w-7 sm:w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-sm font-black text-[#061220]"
                   >
                     −
                   </button>
 
-                <span className="flex w-4 sm:w-5 items-center justify-center text-xs font-extrabold text-[#061220]">
+                <span className="flex w-4 sm:w-5 items-center justify-center text-[13px] sm:text-sm font-extrabold text-[#061220]">
                   {cartItem.quantity}
                 </span>
 
@@ -323,7 +323,7 @@ function ProductCard({ product }) {
                     }}
                     disabled={updatingCart || isMaxReached || isOutOfStock}
                     title={isOutOfStock || isMaxReached ? "Out of stock" : `Only ${remainingStock} more available`}
-                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs font-bold text-[#061220]"
+                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm font-black text-[#061220]"
                   >
                     +
                   </button>

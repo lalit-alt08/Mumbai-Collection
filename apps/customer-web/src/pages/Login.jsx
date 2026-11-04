@@ -6,6 +6,7 @@ import API_URL from "../config/api.js";
 import { login } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
+import { getSafeInternalPath } from "../utils/navigation.js";
 
 
 function Login() {
@@ -80,15 +81,8 @@ function Login() {
        *
        * Otherwise, normal login goes to Home.
        */
-      const from = location.state?.from;
-
-      if (from) {
-        navigate(from, { replace: true });
-      } else {
-        navigate("/", {
-          replace: true,
-        });
-      }
+      const safeReturn = getSafeInternalPath(location.state?.from, "/");
+      navigate(safeReturn, { replace: true });
     } catch (err) {
       if (err.response?.status === 401) {
         setError(err.response.data?.message || "Invalid email or password.");
@@ -247,7 +241,7 @@ function Login() {
             Don't have an account?
             <button
               type="button"
-              onClick={() => navigate("/register")}
+              onClick={() => navigate("/register", { state: { from: location.state?.from } })}
               className="ml-1.5 font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] cursor-pointer"
             >
               Create one now

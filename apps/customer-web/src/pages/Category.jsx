@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getProductsByCategory, getCategories, getCachedCategories } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
-import { ChevronLeft, ChevronDown, ChevronRight, Share, Search, ShoppingBag, Loader2, MapPin, Home, Building2, Phone, X, CheckCircle2 } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronRight, Share, Search, ShoppingBag, Loader2, MapPin, Home, Building2, Phone, X } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession, formatSubcategoryName } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 import { getCategoryImageUrl } from "../utils/categoryImage";
@@ -360,7 +360,8 @@ function Category() {
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState(() => {
     try {
-      const cached = safeStorage.getJSON("saved_addresses_cache", []);
+      if (!user?.id) return [];
+      const cached = safeStorage.getJSON(`saved_addresses_cache_${user.id}`, []);
       return Array.isArray(cached) ? cached : [];
     } catch {
       return [];
@@ -368,7 +369,8 @@ function Category() {
   });
   const [selectedAddressId, setSelectedAddressId] = useState(() => {
     try {
-      return safeStorage.getItem("selected_address_id") || null;
+      if (!user?.id) return null;
+      return safeStorage.getItem(`selected_address_id_${user.id}`) || null;
     } catch {
       return null;
     }
@@ -387,7 +389,9 @@ function Category() {
       .then((res) => {
         if (isMounted && res.data?.addresses && Array.isArray(res.data.addresses)) {
           setSavedAddresses(res.data.addresses);
-          safeStorage.setJSON("saved_addresses_cache", res.data.addresses);
+          if (user?.id) {
+            safeStorage.setJSON(`saved_addresses_cache_${user.id}`, res.data.addresses);
+          }
         }
       })
       .catch(() => {
@@ -465,7 +469,7 @@ function Category() {
   };
 
   const productContent = loading ? (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3.5 md:grid-cols-3 lg:grid-cols-4">
       {[1, 2, 3, 4, 5, 6].map((n) => (
         <div
           key={n}
@@ -507,7 +511,7 @@ function Category() {
     </div>
   ) : (
     <>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3.5 md:grid-cols-3 lg:grid-cols-4">
         {products.map((product) => (
           <ProductCard key={product.id} product={product} />
         ))}
@@ -550,25 +554,25 @@ function Category() {
           <button
             onClick={handleBack}
             aria-label="Back"
-            className="flex h-10 w-10 sm:h-10.5 sm:w-10.5 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+            className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
           >
-            <ChevronLeft size={21} strokeWidth={2.4} />
+            <ChevronLeft size={22} strokeWidth={2.5} />
           </button>
 
           {/* Center: Elongated Capsule with Title + Delivery Address (Shows in-place address info on click) */}
           <button
             onClick={() => setShowAddressModal(true)}
             aria-label="View complete delivery address"
-            className="flex-1 min-w-0 flex flex-col justify-center rounded-full bg-[#122038]/90 backdrop-blur-md border border-white/10 px-3.5 sm:px-4 py-1.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-[0.99] text-left cursor-pointer"
+            className="flex-1 min-w-0 flex flex-col justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-4 sm:px-5 py-1.5 sm:py-2 min-h-[46px] sm:min-h-[48px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-[0.99] text-left cursor-pointer"
           >
-            <span className="text-[13px] sm:text-[14px] font-bold text-white truncate leading-tight tracking-tight">
+            <span className="text-[17px] sm:text-[18px] font-bold text-white truncate leading-tight tracking-[0.01em] antialiased">
               {departmentName}
             </span>
-            <div className="flex items-center gap-1 min-w-0 mt-0.5">
-              <span className="text-[10px] sm:text-[11px] font-semibold text-[#8FE3D9] truncate leading-tight">
+            <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
+              <span className="text-[12px] sm:text-[12.5px] font-semibold text-[#42D6E8] truncate leading-tight">
                 {deliveryLocationText}
               </span>
-              <ChevronDown size={11} strokeWidth={2.8} className="text-[#8FE3D9] shrink-0" />
+              <ChevronDown size={13} strokeWidth={2.6} className="text-[#42D6E8] shrink-0" />
             </div>
           </button>
 
@@ -578,9 +582,9 @@ function Category() {
               onClick={handleShare}
               aria-label="Share category"
               title={copiedShare ? "Link copied!" : "Share"}
-              className="relative flex h-10 w-10 sm:h-10.5 sm:w-10.5 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+              className="relative flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
             >
-              <Share size={17} strokeWidth={2.2} />
+              <Share size={18} strokeWidth={2.2} />
               {copiedShare && (
                 <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 shadow-md">
                   Copied!
@@ -591,9 +595,9 @@ function Category() {
             <Link
               to="/search"
               aria-label="Search"
-              className="flex h-10 w-10 sm:h-10.5 sm:w-10.5 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95"
+              className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95"
             >
-              <Search size={18} strokeWidth={2.2} />
+              <Search size={19} strokeWidth={2.2} />
             </Link>
           </div>
         </div>
@@ -716,7 +720,7 @@ function Category() {
                           type="button"
                           onClick={() => {
                             setSelectedAddressId(addr.id);
-                            safeStorage.setItem("selected_address_id", addr.id);
+                            if (user?.id) safeStorage.setItem(`selected_address_id_${user.id}`, String(addr.id));
                           }}
                           className={`flex items-center gap-2 rounded-xl p-2.5 text-left border text-xs transition cursor-pointer ${
                             isSelected
@@ -738,21 +742,6 @@ function Category() {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="mt-5 flex items-center justify-between pt-3 border-t border-[#1A2E4C] text-[11px] text-[#8FA4BE]">
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
-                Verified delivery zone
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowAddressModal(false)}
-                className="rounded-full bg-[#1A3154] hover:bg-[#22406D] text-[#42D6E8] font-bold px-4 py-1.5 text-xs transition active:scale-95 cursor-pointer"
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
@@ -780,7 +769,7 @@ function Category() {
           <aside
             ref={subcategoryRailRef}
             aria-label={`${departmentName} subcategories`}
-            className="w-[80px] sm:w-[88px] md:w-[100px] shrink-0 h-full overflow-y-auto overscroll-contain border-r border-[#162744]/70 bg-[#0B1425] py-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] touch-pan-y select-none"
+            className="w-[72px] sm:w-[84px] md:w-[100px] shrink-0 h-full overflow-y-auto overscroll-contain border-r border-[#162744]/70 bg-[#0B1425] py-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] touch-pan-y select-none"
           >
             <nav className="flex flex-col gap-1 pb-44 sm:pb-48 lg:pb-16" aria-label="Subcategories">
               {/* "All" button */}
@@ -811,8 +800,8 @@ function Category() {
                   />
                 </span>
 
-                <span className={`w-full line-clamp-2 text-[10.5px] sm:text-[11px] leading-tight tracking-tight mt-1.5 ${
-                  activeSubcategoryId === null ? "font-black text-[#42D6E8]" : "font-medium text-[#8FA4BE] group-hover:text-white"
+                <span className={`w-full line-clamp-2 text-[11.5px] sm:text-[12px] leading-tight mt-1.5 ${
+                  activeSubcategoryId === null ? "font-black text-[#42D6E8]" : "font-semibold text-[#8FA4BE] group-hover:text-white"
                 }`}>
                   All
                 </span>
@@ -861,8 +850,8 @@ function Category() {
                       />
                     </span>
 
-                    <span className={`w-full line-clamp-2 text-[10.5px] sm:text-[11px] leading-tight tracking-tight mt-1.5 ${
-                      isSelected ? "font-black text-[#42D6E8]" : "font-medium text-[#8FA4BE] group-hover:text-white"
+                    <span className={`w-full line-clamp-2 text-[11.5px] sm:text-[12px] leading-tight mt-1.5 ${
+                      isSelected ? "font-black text-[#42D6E8]" : "font-semibold text-[#8FA4BE] group-hover:text-white"
                     }`}>
                       {subName}
                     </span>
@@ -876,7 +865,7 @@ function Category() {
           <section
             ref={productsContainerRef}
             aria-label={`${activeSubcategoryTitle} products`}
-            className="flex-1 min-w-0 h-full overflow-y-auto overscroll-contain px-2.5 pt-3 pb-44 sm:px-4 sm:pt-3.5 sm:pb-48 lg:pb-16 touch-pan-y"
+            className="flex-1 min-w-0 h-full overflow-y-auto overscroll-contain px-2 pt-2.5 pb-44 sm:px-4 sm:pt-3.5 sm:pb-48 lg:pb-16 touch-pan-y"
           >
             {/* Blinkit-style Subcategory Hero Banner */}
             <div className="mb-3 relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0E2038] via-[#0B182B] to-[#071220] border border-[#182F4E] p-3 sm:p-3.5 shadow-xs flex items-center justify-between gap-3">

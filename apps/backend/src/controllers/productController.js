@@ -11,6 +11,7 @@ import {
 import { logError, logger } from "../utils/logger.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { searchIndexService } from "../services/searchIndexService.js";
 
 const HOME_SHELF_COUNT = 6;
 const HOME_PRODUCTS_PER_SHELF = 6;
@@ -290,10 +291,23 @@ export const searchAllProducts = async (req, res) => {
     const page = Math.max(1, Number(req.query.page) || 1);
     const perPage = Math.min(100, Math.max(1, Number(req.query.per_page) || 20));
     const normalizedQuery = String(q || "").trim().toLowerCase();
-    const cacheKey = `catalog:search:${normalizedQuery}:${page}:${perPage}`;
+    const cacheKey = `catalog:search:r${searchIndexService.revision}:${normalizedQuery}:${page}:${perPage}`;
+    // Use shared-cache + single-flight path so all instances share Redis responses
+    // and concurrent identical misses don't each spawn independent searches.
+    // Throw inside the fetch callback to prevent caching reconciling empty pages.
     const result = await serverCache.getOrFetch(
       cacheKey,
-      () => searchProducts(normalizedQuery, { page, per_page: perPage }),
+      async () => {
+        const r = await searchProducts(normalizedQuery, { page, per_page: perPage });
+        // Reject caching: non-empty total with zero products means index is reconciling
+        if (r && Array.isArray(r.products) && r.products.length === 0 && r.total > 0) {
+          const reconcileErr = new Error("Search index reconciling — not caching empty result");
+          reconcileErr.code = "SEARCH_PAGE_RECONCILING";
+          reconcileErr.status = 503;
+          throw reconcileErr;
+        }
+        return r;
+      },
       120000 // 2 minutes TTL
     );
 
@@ -305,9 +319,15 @@ export const searchAllProducts = async (req, res) => {
   } catch (error) {
     logError(req, error, "Search products error");
 
-    res.status(500).json({
+    const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 500;
+    if (status === 503) {
+      res.setHeader("Retry-After", "2");
+    }
+
+    res.status(status).json({
       success: false,
-      message: "Failed to search products",
+      code: error.code || "SEARCH_ERROR",
+      message: error.message || "Failed to search products",
     });
   }
 };

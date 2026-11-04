@@ -6,6 +6,7 @@ import { logError, logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { sendResult } from "../utils/responseHelper.js";
 import { getOrderDetail } from "../services/orderDetailCache.js";
+import { customerDeliveryTime } from "../utils/customerDeliveryTime.js";
 
 /**
  * Fetch authenticated customer's orders from WooCommerce
@@ -82,6 +83,7 @@ const formatCustomerOrder = (order) => {
     tracking_stage: trackingStage,
     date_created: order.date_created,
     date_completed: order.date_completed || null,
+    delivered_at: customerDeliveryTime(order),
     date_modified: order.date_modified || null,
     total: order.total,
     currency_symbol: order.currency_symbol || "₹",
@@ -127,7 +129,7 @@ const formatCustomerOrder = (order) => {
 /**
  * Fetch authenticated customer's orders from WooCommerce
  */
-const CUSTOMER_ORDER_FIELDS = "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax";
+const CUSTOMER_ORDER_FIELDS = "id,customer_id,number,status,total,currency_symbol,payment_method,payment_method_title,date_created,date_completed,date_completed_gmt,date_modified,billing,shipping,line_items,meta_data,shipping_total,discount_total,total_tax";
 
 const fetchCustomerOrderPage = async ({ userId, page, limit, after, before }) => {
   let rawOrders = [];

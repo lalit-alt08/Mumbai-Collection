@@ -3,6 +3,7 @@ import wp from "./wordpress.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { decodeHtmlEntities } from "../utils/textUtils.js";
+import { searchIndexService } from "./searchIndexService.js";
 
 const CATALOG_PRODUCT_FIELDS =
   "id,name,slug,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count";
@@ -271,127 +272,75 @@ export const fetchRelatedProducts = async (
 export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) => {
   const pageNum = Math.max(1, Number(page) || 1);
   const perPageNum = Math.min(100, Math.max(1, Number(per_page) || 20));
-  const terms = getSearchTerms(search);
-  const candidateTerms = getCandidateSearchTerms(search);
+
   try {
-    const rankedResponse = await wp.get("/wp-json/mumbai-auth/v1/catalog/search", {
-      params: { q: search, page: pageNum, per_page: perPageNum },
+    const result = await searchIndexService.search(search, {
+      page: pageNum,
+      per_page: perPageNum,
     });
-    const rankedData = rankedResponse?.data || {};
-    const rankedIds = Array.isArray(rankedData.ids)
-      ? rankedData.ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
-      : [];
-    if (rankedData.success === true) {
-      if (rankedIds.length === 0) {
+    return {
+      products: result.products.map(withoutSearchOnlyFields),
+      total: result.total,
+      totalPages: result.totalPages,
+      page: result.page,
+      per_page: result.per_page,
+    };
+  } catch (indexError) {
+    // SEARCH_PAGE_RECONCILING is a structured 503: do not swallow it into the PHP fallback
+    if (indexError?.code === "SEARCH_PAGE_RECONCILING") {
+      throw indexError;
+    }
+
+    logger.warn(
+      { err: indexError?.message, search },
+      "[productService] Authoritative searchIndexService unavailable; using fallback"
+    );
+
+    try {
+      const rankedResponse = await wp.get("/wp-json/mumbai-auth/v1/catalog/search", {
+        params: { q: search, page: pageNum, per_page: perPageNum },
+      });
+      const rankedData = rankedResponse?.data || {};
+      const rankedIds = Array.isArray(rankedData.ids)
+        ? rankedData.ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
+        : [];
+      if (rankedData.success === true) {
+        if (rankedIds.length === 0) {
+          return {
+            products: [],
+            total: Number(rankedData.total) || 0,
+            totalPages: Number(rankedData.totalPages) || 0,
+            page: pageNum,
+            per_page: perPageNum,
+          };
+        }
+        const hydrated = await api.get("products", {
+          status: "publish",
+          include: rankedIds.join(","),
+          orderby: "include",
+          per_page: rankedIds.length,
+          _fields: CATALOG_PRODUCT_FIELDS,
+        });
+        const products = Array.isArray(hydrated.data) ? hydrated.data : [];
+        const order = new Map(rankedIds.map((id, index) => [id, index]));
+        products.sort((a, b) =>
+          (order.get(Number(a.id)) ?? Number.MAX_SAFE_INTEGER) -
+          (order.get(Number(b.id)) ?? Number.MAX_SAFE_INTEGER)
+        );
         return {
-          products: [],
-          total: Number(rankedData.total) || 0,
-          totalPages: Number(rankedData.totalPages) || 0,
+          products: products.map(withoutSearchOnlyFields),
+          total: Number(rankedData.total) || products.length,
+          totalPages: Number(rankedData.totalPages) || (products.length > 0 ? 1 : 0),
           page: pageNum,
           per_page: perPageNum,
         };
       }
-      const hydrated = await api.get("products", {
-        status: "publish",
-        include: rankedIds.join(","),
-        orderby: "include",
-        per_page: rankedIds.length,
-        _fields: CATALOG_PRODUCT_FIELDS,
-      });
-      const products = Array.isArray(hydrated.data) ? hydrated.data : [];
-      const order = new Map(rankedIds.map((id, index) => [id, index]));
-      products.sort((a, b) =>
-        (order.get(Number(a.id)) ?? Number.MAX_SAFE_INTEGER) -
-        (order.get(Number(b.id)) ?? Number.MAX_SAFE_INTEGER)
-      );
-      return {
-        products,
-        total: Number(rankedData.total) || products.length,
-        totalPages: Number(rankedData.totalPages) || (products.length > 0 ? 1 : 0),
-        page: pageNum,
-        per_page: perPageNum,
-      };
+    } catch (wpError) {
+      logger.warn({ err: wpError?.message }, "Fallback catalog search also failed");
     }
-  } catch (error) {
-    logger.warn(
-      { err: error?.message },
-      "Ranked catalog search unavailable; using WooCommerce compatibility fallback"
-    );
+
+    throw indexError;
   }
-  const response = await api.get("products", {
-    status: "publish",
-    search,
-    page: pageNum,
-    per_page: perPageNum,
-    // Search a compact, useful set of product data. Short descriptions help
-    // customers find products by their existing copy, without sending the
-    // potentially large full description through every autocomplete request.
-    _fields: `${CATALOG_PRODUCT_FIELDS},sku,attributes,short_description`,
-  });
-
-  if (!Array.isArray(response.data)) {
-    throw new Error("Invalid WooCommerce search response");
-  }
-  const ranked = response.data
-    .map((product) => ({ product, ...scoreSearchProduct(product, search, terms) }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || Number(a.product.id) - Number(b.product.id));
-
-  // WooCommerce searches titles, descriptions and other fields without a useful
-  // storefront relevance order. If it found no strong name/SKU match, expand
-  // only over the query's meaningful words and discard unrelated matches.
-  let relevant = ranked;
-  if (terms.length > 1 && candidateTerms.length > 1 && !ranked.some((item) => item.strong)) {
-    const normalizedQuery = normalizeSearchField(search);
-    const fallbackCandidates = await serverCache.getOrFetch(
-      `catalog:search:fallback:${normalizedQuery}`,
-      async () => {
-        const tokenResponses = await Promise.allSettled(candidateTerms.map((term) => api.get("products", {
-          status: "publish",
-          search: term,
-          page: 1,
-          per_page: 100,
-          _fields: `${CATALOG_PRODUCT_FIELDS},sku,attributes`,
-        })));
-        const candidates = new Map(ranked.map((item) => [Number(item.product.id), item.product]));
-        for (const tokenResponse of tokenResponses) {
-          if (tokenResponse.status !== "fulfilled" || !Array.isArray(tokenResponse.value.data)) continue;
-          for (const product of tokenResponse.value.data) {
-            if (product?.id) candidates.set(Number(product.id), product);
-          }
-        }
-        return [...candidates.values()];
-      },
-      120000
-    );
-    relevant = fallbackCandidates
-      .map((product) => ({ product, ...scoreSearchProduct(product, search, terms) }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score || Number(a.product.id) - Number(b.product.id));
-  }
-
-  const total = Number.parseInt(response.headers?.["x-wp-total"], 10);
-  const totalPages = Number.parseInt(response.headers?.["x-wp-totalpages"], 10);
-  const usesExpandedCandidates = relevant !== ranked;
-  const products = usesExpandedCandidates
-    ? relevant.slice((pageNum - 1) * perPageNum, pageNum * perPageNum)
-    : relevant.map((item) => item.product);
-  const resultTotal = usesExpandedCandidates
-    ? relevant.length
-    : Number.isFinite(total) ? total : response.data.length;
-  const resultTotalPages = usesExpandedCandidates
-    ? Math.ceil(relevant.length / perPageNum)
-    : Number.isFinite(totalPages)
-      ? totalPages
-      : (response.data.length === perPageNum ? pageNum + 1 : pageNum);
-
-  return {
-    products: products.map(withoutSearchOnlyFields),
-    total: resultTotal,
-    totalPages: resultTotalPages,
-    page: pageNum,
-    per_page: perPageNum,
-  };
 };
 
 export const fetchProductsByCategory = async (

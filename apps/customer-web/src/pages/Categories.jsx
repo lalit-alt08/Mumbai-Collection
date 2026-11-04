@@ -2,13 +2,21 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getCachedCategories, getCategories } from "../services/productService.js";
 import { getCategoryImageUrl } from "../utils/categoryImage.js";
-import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
+import { useCart } from "../context/CartContext";
+import { triggerHaptic } from "../utils/haptics";
+import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, ChevronLeft, ShoppingCart } from "lucide-react";
 
 const CATEGORY_PAGE_SIZE = 24;
 let cachedVisibleCategoryCount = CATEGORY_PAGE_SIZE;
 
 function Categories() {
   const navigate = useNavigate();
+  const { cart } = useCart();
+  const totalCartCount =
+    cart?.items?.reduce(
+      (total, item) => total + Number(item.quantity || 0),
+      0
+    ) || 0;
   const [categories, setCategories] = useState(() => {
     const cachedCategories = getCachedCategories();
     return Array.isArray(cachedCategories) ? cachedCategories : [];
@@ -119,19 +127,42 @@ function Categories() {
     <div className="min-h-screen bg-[#0B1425] text-white px-4 pt-4 pb-28 sm:px-6 md:pt-8 md:pb-16">
       <div className="mx-auto max-w-4xl space-y-4 sm:space-y-5">
         {/* ────────────────────────────────────────────────────────── */}
-        {/* COMPACT TOP BAR                                            */}
+        {/* TOP BAR / NAVIGATION                                       */}
         {/* ────────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-2.5 sm:gap-3">
+          {/* Left: Circular Back Button */}
           <button
-            onClick={() => navigate("/")}
-            aria-label="Back to Home"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-white shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8] hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
+            onClick={() => {
+              triggerHaptic("light");
+              navigate(-1);
+            }}
+            aria-label="Back"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
           >
-            <ArrowLeft size={17} strokeWidth={2.4} />
+            <ChevronLeft size={23} strokeWidth={2.5} />
           </button>
-          <h1 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">
-            Categories
-          </h1>
+
+          {/* Center: Capsule utilizing available space with full descender clearance */}
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+            <span className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
+              Categories
+            </span>
+          </div>
+
+          {/* Right: Circular Cart Button with Live Item Badge */}
+          <Link
+            to="/cart"
+            onClick={() => triggerHaptic("light")}
+            aria-label="Shopping Cart"
+            className="relative flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-[#42D6E8]/40 hover:text-white active:scale-95 cursor-pointer"
+          >
+            <ShoppingCart size={21} strokeWidth={2.2} />
+            {totalCartCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-[#42D6E8] px-1 text-[9px] font-black text-[#061220] shadow-sm ring-2 ring-[#0B1425]">
+                {totalCartCount > 99 ? "99+" : totalCartCount}
+              </span>
+            )}
+          </Link>
         </div>
 
         {/* ────────────────────────────────────────────────────────── */}

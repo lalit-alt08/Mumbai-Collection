@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import API_URL from "../config/api.js";
 import axios from "axios";
 import {
@@ -9,6 +9,8 @@ import {
   isValidIndianPhone,
 } from "../data/indianStates.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
+import safeStorage from "../utils/safeStorage.js";
+import { getSafeInternalPath } from "../utils/navigation.js";
 
 import { useAuth } from "../context/AuthContext";
 
@@ -40,7 +42,8 @@ const emptyForm = {
 
 function Addresses() {
   const navigate = useNavigate();
-  const { handleSessionExpired } = useAuth();
+  const location = useLocation();
+  const { user, handleSessionExpired } = useAuth();
   const [addresses, setAddresses] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -91,7 +94,35 @@ function Addresses() {
         withCredentials: true,
       });
 
-      setAddresses(response.data.addresses || []);
+      const fetchedAddresses = response.data.addresses || [];
+      setAddresses(fetchedAddresses);
+
+      const hasHome = fetchedAddresses.some((a) => a.type?.toLowerCase() === "home");
+      const hasOffice = fetchedAddresses.some((a) => a.type?.toLowerCase() === "office");
+      const canAdd = !hasHome || !hasOffice;
+
+      // Automatically open the form if:
+      // A) The user has 0 addresses and came from checkout, OR
+      // B) The user was routed with selectNew: true and has capacity to add another address
+      const shouldAutoOpen =
+        (location.state?.from === "/cart" && fetchedAddresses.length === 0) ||
+        (location.state?.selectNew && canAdd);
+
+      if (shouldAutoOpen) {
+        const defaultType = !hasHome ? "home" : "office";
+        const nameTokens = (user?.name || user?.full_name || "").trim().split(/\s+/);
+        const prefillFirst = user?.first_name || nameTokens[0] || "";
+        const prefillLast = user?.last_name || (nameTokens.length > 1 ? nameTokens.slice(1).join(" ") : "");
+        const prefillPhone = user?.phone || user?.billing_phone || "";
+        setForm({
+          ...emptyForm,
+          type: defaultType,
+          first_name: prefillFirst,
+          last_name: prefillLast,
+          phone: prefillPhone,
+        });
+        setShowForm(true);
+      }
     } catch (error) {
       if (error.response?.status === 401) {
         if (handleSessionExpired) {
@@ -167,11 +198,18 @@ function Addresses() {
 
     // Automatically default to the remaining available type
     const defaultType = !hasHome ? "home" : "office";
+    const nameTokens = (user?.name || user?.full_name || "").trim().split(/\s+/);
+    const prefillFirst = user?.first_name || nameTokens[0] || "";
+    const prefillLast = user?.last_name || (nameTokens.length > 1 ? nameTokens.slice(1).join(" ") : "");
+    const prefillPhone = user?.phone || user?.billing_phone || "";
 
     setEditingId(null);
     setForm({
       ...emptyForm,
       type: defaultType,
+      first_name: prefillFirst,
+      last_name: prefillLast,
+      phone: prefillPhone,
     });
     setFormError("");
     setFieldErrors({});
@@ -294,23 +332,47 @@ function Addresses() {
             withCredentials: true,
           }
         );
+        const addrIdStr = String(editingId);
+        if (user?.id) safeStorage.setItem(`selected_address_id_${user.id}`, addrIdStr);
         setFeedback({
           type: "success",
           message: `${form.type === "home" ? "Home" : "Office"} address updated successfully!`,
         });
+
+        if (location.state?.from) {
+          const safeTarget = getSafeInternalPath(location.state.from, "/cart");
+          navigate(safeTarget, {
+            replace: true,
+            state: { selectedAddressId: addrIdStr },
+          });
+          return;
+        }
       } else {
         // CREATE
-        await axios.post(
+        const createRes = await axios.post(
           API,
           payload,
           {
             withCredentials: true,
           }
         );
+        const newAddressId = createRes.data?.address?.id ? String(createRes.data.address.id) : null;
+        if (newAddressId) {
+          if (user?.id) safeStorage.setItem(`selected_address_id_${user.id}`, newAddressId);
+        }
         setFeedback({
           type: "success",
           message: `${form.type === "home" ? "Home" : "Office"} address saved successfully!`,
         });
+
+        if (location.state?.from) {
+          const safeTarget = getSafeInternalPath(location.state.from, "/cart");
+          navigate(safeTarget, {
+            replace: true,
+            state: { selectedAddressId: newAddressId },
+          });
+          return;
+        }
       }
 
       // Auto dismiss success toast after 4s
@@ -414,7 +476,9 @@ function Addresses() {
         <div className="mb-6 flex items-center gap-3.5 sm:mb-8">
           <button
             onClick={() => {
-              if (window.history.state && window.history.state.idx > 0) {
+              if (location.state?.from) {
+                navigate(getSafeInternalPath(location.state.from, "/account"));
+              } else if (window.history.state && window.history.state.idx > 0) {
                 navigate(-1);
               } else {
                 navigate("/account", { replace: true });

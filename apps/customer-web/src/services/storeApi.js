@@ -10,6 +10,7 @@ const STORE_API = `${API_URL}/store`;
 
 let nonce = safeStorage.getItem("wc_nonce") || "";
 let cartToken = safeStorage.getItem("wc_cart_token") || "";
+let cartSessionEpoch = 0;
 
 const getHeader = (headers, key) => {
   if (!headers) return null;
@@ -38,7 +39,12 @@ const updateTokens = (response) => {
   }
 };
 
+export const invalidateCartRequests = () => {
+  cartSessionEpoch += 1;
+};
+
 export const clearCartSession = () => {
+  invalidateCartRequests();
   nonce = "";
   cartToken = "";
   safeStorage.removeItem("wc_nonce");
@@ -70,6 +76,8 @@ export const ensureSessionNonce = async () => {
 // Request Interceptor: attach active Nonce & Cart-Token headers
 storeClient.interceptors.request.use(
   async (config) => {
+    if (config._cartSessionEpoch === undefined) config._cartSessionEpoch = cartSessionEpoch;
+    if (config._cartSessionEpoch !== cartSessionEpoch) throw new axios.CanceledError("Cart session changed");
     // Re-sync from safeStorage if memory is empty
     if (!nonce) {
       nonce = safeStorage.getItem("wc_nonce") || "";
@@ -90,6 +98,8 @@ storeClient.interceptors.request.use(
       await ensureSessionNonce();
     }
 
+    if (config._cartSessionEpoch !== cartSessionEpoch) throw new axios.CanceledError("Cart session changed");
+
     if (nonce) {
       config.headers["Nonce"] = nonce;
     }
@@ -105,12 +115,13 @@ storeClient.interceptors.request.use(
 // Response Interceptor: extract tokens, retry network blips, auto-recover from missing/expired nonces
 storeClient.interceptors.response.use(
   (response) => {
-    updateTokens(response);
+    if (response.config?._cartSessionEpoch === cartSessionEpoch) updateTokens(response);
     return response;
   },
   async (error) => {
     const config = error.config;
     if (!config) return Promise.reject(error);
+    if (config._cartSessionEpoch !== cartSessionEpoch) return Promise.reject(error);
 
     // Cart/checkout writes can be applied even if their response is lost; only
     // retry safe reads automatically. Nonce recovery below is a separate explicit 401.
@@ -119,6 +130,7 @@ storeClient.interceptors.response.use(
       if (delayMs === null) return Promise.reject(error);
       config._retry = true;
       await new Promise((r) => setTimeout(r, delayMs));
+      if (config._cartSessionEpoch !== cartSessionEpoch) throw new axios.CanceledError("Cart session changed");
       return storeClient(config);
     }
 
@@ -134,6 +146,7 @@ storeClient.interceptors.response.use(
       config._nonceRetried = true;
       try {
         await getCart();
+        if (config._cartSessionEpoch !== cartSessionEpoch) throw new axios.CanceledError("Cart session changed");
         if (nonce) {
           config.headers = config.headers || {};
           config.headers["Nonce"] = nonce;

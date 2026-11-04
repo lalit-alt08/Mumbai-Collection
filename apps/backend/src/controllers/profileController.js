@@ -2,8 +2,10 @@ import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import {
   COOKIE_NAMES,
+  evictSessionUserCache,
   invalidateSessionCache,
   invalidateUserSessionCache,
+  setSessionCache,
 } from "../middlewares/authMiddleware.js";
 import { parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
@@ -155,12 +157,6 @@ export const saveProfile = async (req, res) => {
 
     const cookieConfig = COOKIE_NAMES.customer;
     const wpAuth = req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
-    if (wpAuth) {
-      invalidateSessionCache(wpAuth);
-    }
-    if (req.wpUserId) {
-      invalidateUserSessionCache(req.wpUserId);
-    }
 
     if (typeof res.set === "function") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -169,19 +165,40 @@ export const saveProfile = async (req, res) => {
 
     const payload = response.data || {};
     const cookieOptions = getProfileCookieOptions(req);
+    const hasNewPasswordSession = Boolean(payload.session && payload.cookie_name);
 
-    // Setting a WordPress password invalidates cookies derived from the old
-    // password hash. WordPress returns a replacement session so profile setup
-    // can continue saving the address and refreshing the signed-in user.
-    if (payload.session && payload.cookie_name && typeof res.cookie === "function") {
-      res.cookie(
-        cookieConfig.auth,
-        `${payload.cookie_name}=${payload.session}`,
-        cookieOptions
-      );
-    }
-    if (payload.rest_nonce && typeof res.cookie === "function") {
-      res.cookie(cookieConfig.nonce, payload.rest_nonce, cookieOptions);
+    if (hasNewPasswordSession) {
+      // Password changed: invalidate previous sessions on other devices
+      if (req.wpUserId) {
+        invalidateUserSessionCache(req.wpUserId);
+      }
+      if (wpAuth) {
+        await invalidateSessionCache(wpAuth, { permanent: true });
+      }
+
+      // Issue replacement session to this client
+      const newFullCookie = `${payload.cookie_name}=${payload.session}`;
+      if (typeof res.cookie === "function") {
+        res.cookie(cookieConfig.auth, newFullCookie, cookieOptions);
+      }
+      if (payload.rest_nonce && typeof res.cookie === "function") {
+        res.cookie(cookieConfig.nonce, payload.rest_nonce, cookieOptions);
+      }
+
+      // Seed replacement session cache with a timestamp strictly after the revocation time
+      setSessionCache(newFullCookie, {
+        userId: req.wpUserId,
+        name: cleanFullName,
+        roles: ["customer"],
+        phone: cleanPhone || phone,
+        timestamp: Date.now() + 1000,
+      });
+    } else {
+      // Ordinary contact details / profile update (no password changed):
+      // Evict cached user details across memory and Redis without revoking the session!
+      if (wpAuth) {
+        await evictSessionUserCache(wpAuth);
+      }
     }
 
     if (payload.profile && typeof payload.profile === "object") {

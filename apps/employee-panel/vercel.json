@@ -17,7 +17,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://sterling-returns-canberra-enquiries.trycloudflare.com/api/:path*"
+      "destination": "https://guys-scene-paper-reputation.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

@@ -29,9 +29,9 @@ test("Google auth accepts one ID credential or authorization code, not access to
 
 test("registration rejects malformed email shapes and profile rejects invalid Indian mobile numbers", () => {
   for (const email of ["name@gmail", "name@gmail..com", ".name@gmail.com", "name@-gmail.com"]) {
-    assert.equal(runValidation(schemas.register, { email, otp: "123456" }).nextCalled, false, email);
+    assert.equal(runValidation(schemas.register, { email, otp: "123456", password: "StrongPassword123!" }).nextCalled, false, email);
   }
-  assert.equal(runValidation(schemas.register, { email: "NAME@gmail.com", otp: "123456" }).nextCalled, true);
+  assert.equal(runValidation(schemas.register, { email: "NAME@gmail.com", otp: "123456", password: "StrongPassword123!" }).nextCalled, true);
   assert.equal(
     runValidation(schemas.register, { email: "name@gmail.com", password: "StrongPassword123!" }).nextCalled,
     false,
@@ -58,9 +58,9 @@ test("profile and reset password enforce strong password requirements (8+ chars,
 });
 
 test("request validation enforces OTP purpose and six-digit code", () => {
-  assert.equal(runValidation(schemas.otpSend, { phone: "+919876543210", purpose: "verify_phone" }).nextCalled, true);
-  assert.equal(runValidation(schemas.otpVerify, { phone: "9876543210", purpose: "other", otp: "123456" }).nextCalled, false);
-  assert.equal(runValidation(schemas.otpVerify, { phone: "9876543210", purpose: "verify_phone", otp: "1234" }).nextCalled, false);
+  assert.equal(runValidation(schemas.otpSend, { email: "user@example.com", purpose: "register" }).nextCalled, true);
+  assert.equal(runValidation(schemas.otpVerify, { email: "user@example.com", purpose: "other", otp: "123456" }).nextCalled, false);
+  assert.equal(runValidation(schemas.otpVerify, { email: "user@example.com", purpose: "register", otp: "1234" }).nextCalled, false);
 });
 
 test("request validation enforces positive IDs, enums, and pagination bounds", () => {

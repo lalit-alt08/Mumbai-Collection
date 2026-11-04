@@ -29,6 +29,7 @@ import {
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import { validatePassword, getPasswordRuleChecks } from "../utils/passwordValidator.js";
 import { useAuth } from "../context/AuthContext";
+import { getSafeInternalPath } from "../utils/navigation.js";
 
 function ProfileSetup() {
   const navigate = useNavigate();
@@ -588,8 +589,9 @@ function ProfileSetup() {
         }
       }
 
-      // 5. Navigate immediately without race condition
-      navigate("/", {
+      // 5. Navigate immediately to safe destination or home
+      const safeReturn = getSafeInternalPath(location.state?.from, "/");
+      navigate(safeReturn, {
         replace: true,
         state: { message: "Account setup completed successfully" },
       });
@@ -677,7 +679,7 @@ function ProfileSetup() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
             aria-label="Back to Home"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#111F36] text-[#F1F5F9] border border-[#1E3252] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer shadow-sm"
           >
@@ -691,6 +693,13 @@ function ProfileSetup() {
               Complete your security & delivery details
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
+            className="shrink-0 text-xs font-semibold text-[#8FA4BE] hover:text-[#42D6E8] px-2.5 py-1.5 rounded-lg border border-[#1E3252]/60 hover:border-[#42D6E8]/40 bg-[#111F36]/50 transition cursor-pointer"
+          >
+            Skip for now
+          </button>
         </div>
 
         {/* Step Progress Pill */}

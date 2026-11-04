@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   CheckCircle2,
   AlertCircle,
   Loader2,
@@ -37,6 +38,8 @@ function Products() {
   // Pagination & Per-Page state (20 / 50 / 100)
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
+  const [perPageDropdownOpen, setPerPageDropdownOpen] = useState(false);
+  const perPageDropdownRef = useRef(null);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
 
@@ -136,6 +139,33 @@ function Products() {
       abortControllerRef.current?.abort();
     };
   }, [page, perPage, debouncedSearch, stockFilter]);
+
+  // Close per-page dropdown on outside click or Escape
+  useEffect(() => {
+    if (!perPageDropdownOpen) return;
+
+    const handleClickOutside = (event) => {
+      if (perPageDropdownRef.current && !perPageDropdownRef.current.contains(event.target)) {
+        setPerPageDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setPerPageDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [perPageDropdownOpen]);
 
   const handleCopySku = (product, e) => {
     e?.stopPropagation?.();
@@ -320,7 +350,7 @@ function Products() {
       </div>
 
       {/* Main Inventory Container */}
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         {loading ? (
           <>
             {/* Mobile Skeletons (<640px) */}
@@ -357,7 +387,7 @@ function Products() {
             </div>
 
             {/* Desktop Table Skeletons (>=640px) */}
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden sm:block overflow-x-auto rounded-t-2xl">
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 text-[11px] font-bold uppercase tracking-wider text-gray-500 backdrop-blur-xs">
                   <tr>
@@ -545,7 +575,7 @@ function Products() {
             </div>
 
             {/* Desktop Inventory Table (>=640px) */}
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden sm:block overflow-x-auto rounded-t-2xl">
               <table className="w-full text-left text-xs">
                 <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50/95 text-[11px] font-bold uppercase tracking-wider text-gray-500 backdrop-blur-xs">
                   <tr>
@@ -692,53 +722,123 @@ function Products() {
 
         {/* Pagination Bar with Per-Page Selector */}
         {!loading && totalProducts > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0 border-t border-gray-100 bg-gray-50/50 px-4 sm:px-6 py-3.5 sm:py-4">
-            <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-center sm:justify-start">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/50 px-4 sm:px-6 py-3.5 sm:py-4 rounded-b-2xl">
+            {/* Left: Product count */}
+            <div className="flex items-center gap-2">
               <p className="text-xs text-gray-500 font-medium">
-                Showing <span className="font-bold text-gray-900">{(page - 1) * perPage + 1}</span> to{" "}
+                Showing{" "}
                 <span className="font-bold text-gray-900">
-                  {Math.min(page * perPage, totalProducts)}
+                  {((page - 1) * perPage + 1).toLocaleString()}
                 </span>{" "}
-                of <span className="font-bold text-gray-900">{totalProducts}</span> products
+                to{" "}
+                <span className="font-bold text-gray-900">
+                  {Math.min(page * perPage, totalProducts).toLocaleString()}
+                </span>{" "}
+                of{" "}
+                <span className="font-bold text-gray-900">
+                  {totalProducts.toLocaleString()}
+                </span>{" "}
+                products
               </p>
-
-              {/* Rows Per Page Selector (20 / 50 / 100) */}
-              <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className="hidden sm:inline">Rows:</span>
-                <select
-                  value={perPage}
-                  onChange={(e) => {
-                    setPerPage(Number(e.target.value));
-                    setPage(1);
-                  }}
-                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-bold text-gray-700 outline-none focus:border-[#FF8A00] cursor-pointer shadow-2xs"
-                  aria-label="Rows per page"
-                >
-                  <option value={20}>20 / page</option>
-                  <option value={50}>50 / page</option>
-                  <option value={100}>100 / page</option>
-                </select>
-              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                disabled={page <= 1}
-                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
-              >
-                <ChevronLeft size={14} /> Prev
-              </button>
-              <span className="text-xs font-bold text-gray-700 px-2">
-                Page {page} of {Math.max(1, totalPages)}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                disabled={page >= totalPages}
-                className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition cursor-pointer shadow-2xs"
-              >
-                Next <ChevronRight size={14} />
-              </button>
+            {/* Right: Controls (Rows selector + Prev / Page indicator / Next) */}
+            <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap justify-center">
+              {/* Rows Per Page Custom Dropdown */}
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="font-medium text-gray-500">Rows:</span>
+                <div className="relative shrink-0" ref={perPageDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setPerPageDropdownOpen((prev) => !prev)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5 text-xs font-bold transition shadow-2xs cursor-pointer select-none active:scale-[0.98] ${
+                      perPageDropdownOpen
+                        ? "border-[#FF8A00] ring-2 ring-[#FF8A00]/15 text-amber-950 bg-amber-50/40"
+                        : "border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                    }`}
+                    aria-haspopup="listbox"
+                    aria-expanded={perPageDropdownOpen}
+                  >
+                    <span>{perPage} / page</span>
+                    <ChevronDown
+                      size={13}
+                      className={`text-gray-400 transition-transform duration-200 ${
+                        perPageDropdownOpen ? "rotate-180 text-[#FF8A00]" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {/* Clean Popover Menu (opens upward above footer) */}
+                  {perPageDropdownOpen && (
+                    <div
+                      role="listbox"
+                      className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-2 z-40 w-36 rounded-2xl border border-gray-100 bg-white p-1.5 shadow-2xl ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150"
+                    >
+                      <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-gray-400 border-b border-gray-100 mb-1">
+                        Rows per page
+                      </div>
+                      {[20, 50, 100].map((count) => {
+                        const isSelected = perPage === count;
+                        return (
+                          <button
+                            key={count}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setPerPage(count);
+                              setPage(1);
+                              setPerPageDropdownOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-bold transition cursor-pointer text-left ${
+                              isSelected
+                                ? "bg-amber-50 text-amber-950 font-extrabold"
+                                : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                            }`}
+                          >
+                            <span>{count} / page</span>
+                            {isSelected && (
+                              <Check
+                                size={13}
+                                className="text-[#FF8A00] shrink-0"
+                                strokeWidth={3}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+
+              {/* Pagination Prev / Page / Next */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                  disabled={page <= 1}
+                  className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer shadow-2xs"
+                >
+                  <ChevronLeft size={14} />
+                  <span>Prev</span>
+                </button>
+                <span className="text-xs font-bold text-gray-700 px-1.5 whitespace-nowrap">
+                  Page {page} of {Math.max(1, totalPages)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={page >= totalPages}
+                  className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer shadow-2xs"
+                >
+                  <span>Next</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -410,7 +410,7 @@ function Dashboard() {
                   >
                     {/* Order Details */}
                     <div className="flex items-start gap-3.5 min-w-0">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 font-black text-sm text-slate-800 border border-slate-200">
+                      <div className="flex h-9 min-w-[44px] px-2 shrink-0 items-center justify-center rounded-lg bg-slate-100 font-extrabold text-xs text-slate-800 border border-slate-200 tracking-tight">
                         #{order.order_number || order.id}
                       </div>
 
@@ -446,14 +446,14 @@ function Dashboard() {
                           </span>
                         </div>
 
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs font-medium text-gray-700 mt-1">
                           {order.items_count || 1} item(s) · <span className="font-bold text-gray-900">₹{order.total || 0}</span>
                           {order.phone ? ` · ${order.phone}` : ""}
                         </p>
 
                         {order.delivery_address && (
-                          <p className="text-[11px] text-gray-400 mt-0.5 truncate flex items-center gap-1">
-                            <MapPin size={11} className="shrink-0 text-gray-400" />
+                          <p className="text-xs font-medium text-gray-700 mt-0.5 truncate flex items-center gap-1">
+                            <MapPin size={12} className="shrink-0 text-gray-600" />
                             {order.delivery_address}
                           </p>
                         )}

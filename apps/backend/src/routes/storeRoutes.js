@@ -9,6 +9,7 @@ import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { logError, logger } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
 import { fetchAllProductCategories } from "../services/productService.js";
+import { validateDeliveryAddress } from "../controllers/addressController.js";
 import api from "../config/woocommerce.js";
 
 const router = express.Router();
@@ -68,8 +69,6 @@ async function proxyStoreApi(req, res) {
   if (req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout") {
     const customerAuth =
       req.cookies?.mumbai_customer_auth ||
-      req.cookies?.mumbai_admin_auth ||
-      req.cookies?.mumbai_employee_auth ||
       req.cookies?.mumbai_wp_auth;
 
     if (!customerAuth) {
@@ -89,14 +88,34 @@ async function proxyStoreApi(req, res) {
       return res.status(storeGuard.statusCode).json(storeGuard.payload);
     }
 
-    // 2. Authoritative Unified Session Validation (Suspension & Phone Verification)
+    // 2. Authoritative Unified Session Validation (Outage & Role & Suspension)
     const sessionData = await getSessionValidation(customerAuth);
 
-    if (!sessionData || !sessionData.valid) {
+    if (sessionData?.error === "AUTH_UNAVAILABLE" || sessionData?.error === "AUTH_TIMEOUT") {
+      return res.status(503).json({
+        success: false,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Store checkout is momentarily synchronizing. Please try again in a few moments.",
+      });
+    }
+
+    if (!sessionData || !sessionData.valid || !sessionData.userId) {
       return res.status(401).json({
         success: false,
         code: "AUTH_REQUIRED",
         message: "Please log in to place an order.",
+      });
+    }
+
+    const roles = Array.isArray(sessionData.roles) ? sessionData.roles : [];
+    const isCustomer = roles.includes("customer");
+    const isStaff = roles.some((r) => ["administrator", "shop_manager", "employee"].includes(r));
+
+    if (!isCustomer || isStaff) {
+      return res.status(403).json({
+        success: false,
+        code: "CUSTOMER_ROLE_REQUIRED",
+        message: "Store purchases are reserved for customer accounts. Staff accounts cannot place retail orders.",
       });
     }
 
@@ -122,6 +141,27 @@ async function proxyStoreApi(req, res) {
         code: "PHONE_NOT_VERIFIED",
         message: "Please verify your mobile number before placing an order.",
       });
+    }
+
+    const deliveryAddress = req.body?.shipping_address || req.body?.billing_address;
+    const deliveryValidation = validateDeliveryAddress(deliveryAddress);
+    if (!deliveryValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_DELIVERY_ADDRESS",
+        message: deliveryValidation.message,
+      });
+    }
+
+    if (req.body?.billing_address) {
+      const billingValidation = validateDeliveryAddress(req.body.billing_address);
+      if (!billingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_BILLING_ADDRESS",
+          message: billingValidation.message,
+        });
+      }
     }
     try {
       const cartHeaders = { Cookie: customerAuth };
@@ -317,8 +357,6 @@ async function proxyStoreApi(req, res) {
 const resolveCheckoutCustomer = async (req, res, next) => {
   const customerAuth =
     req.cookies?.mumbai_customer_auth ||
-    req.cookies?.mumbai_admin_auth ||
-    req.cookies?.mumbai_employee_auth ||
     req.cookies?.mumbai_wp_auth;
 
   if (!customerAuth) {
@@ -331,11 +369,32 @@ const resolveCheckoutCustomer = async (req, res, next) => {
 
   try {
     const sessionData = await getSessionValidation(customerAuth);
+
+    if (sessionData?.error === "AUTH_UNAVAILABLE" || sessionData?.error === "AUTH_TIMEOUT") {
+      return res.status(503).json({
+        success: false,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Store checkout is momentarily synchronizing. Please try again in a few moments.",
+      });
+    }
+
     if (!sessionData?.valid || !sessionData.userId) {
       return res.status(401).json({
         success: false,
         code: "AUTH_REQUIRED",
         message: "Please log in to place an order.",
+      });
+    }
+
+    const roles = Array.isArray(sessionData.roles) ? sessionData.roles : [];
+    const isCustomer = roles.includes("customer");
+    const isStaff = roles.some((r) => ["administrator", "shop_manager", "employee"].includes(r));
+
+    if (!isCustomer || isStaff) {
+      return res.status(403).json({
+        success: false,
+        code: "CUSTOMER_ROLE_REQUIRED",
+        message: "Store purchases are reserved for customer accounts. Staff accounts cannot place retail orders.",
       });
     }
 
@@ -361,6 +420,27 @@ const resolveCheckoutCustomer = async (req, res, next) => {
         code: "PHONE_NOT_VERIFIED",
         message: "Please verify your mobile number before placing an order.",
       });
+    }
+
+    const deliveryAddress = req.body?.shipping_address || req.body?.billing_address;
+    const deliveryValidation = validateDeliveryAddress(deliveryAddress);
+    if (!deliveryValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_DELIVERY_ADDRESS",
+        message: deliveryValidation.message,
+      });
+    }
+
+    if (req.body?.billing_address) {
+      const billingValidation = validateDeliveryAddress(req.body.billing_address);
+      if (!billingValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_BILLING_ADDRESS",
+          message: billingValidation.message,
+        });
+      }
     }
 
     req.wpUserId = sessionData.userId;

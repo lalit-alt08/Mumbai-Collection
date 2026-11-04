@@ -9,6 +9,7 @@ import {
 } from "../services/wordpressMediaService.js";
 import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { searchIndexService } from "../services/searchIndexService.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 import { sanitizeUpstreamError } from "../utils/upstreamError.js";
@@ -439,6 +440,7 @@ export const updateProduct = async (req, res) => {
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    searchIndexService.markDirty();
     serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
@@ -478,6 +480,7 @@ export const deleteProduct = async (req, res) => {
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    searchIndexService.markDirty();
     serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 
@@ -646,6 +649,7 @@ export const createProduct = async (req, res) => {
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("catalog:");
+    searchIndexService.markDirty();
     serverCache.delete("admin:categories");
     serverCache.delete("seo:sitemap_xml");
 

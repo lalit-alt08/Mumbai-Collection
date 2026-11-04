@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  ChevronLeft,
   ShoppingBag,
   Package,
   Truck,
@@ -14,6 +15,7 @@ import {
   Receipt,
   AlertCircle,
 } from "lucide-react";
+import { triggerHaptic } from "../utils/haptics";
 import { getMyOrders } from "../services/orderService";
 import { checkPaymentStatus } from "../services/paymentService";
 import {
@@ -253,28 +255,39 @@ function Orders() {
     <div className="min-h-screen bg-[#0B1425] px-4 pt-6 pb-28 sm:pb-24 md:pt-10 md:pb-16">
       <div className="mx-auto max-w-4xl">
         {/* Top Header Bar */}
-        <div className="mb-4 sm:mb-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/account")}
-              aria-label="Back to Account"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-xs border border-[#1E3252] transition-all hover:border-[#42D6E8]/50 hover:text-[#42D6E8] active:scale-95 cursor-pointer"
-            >
-              <ArrowLeft size={17} strokeWidth={2.4} />
-            </button>
-            <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl">
+        <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2.5 sm:gap-3">
+          {/* Left: Circular Back Button */}
+          <button
+            onClick={() => {
+              triggerHaptic("light");
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate("/account");
+              }
+            }}
+            aria-label="Back"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+          >
+            <ChevronLeft size={23} strokeWidth={2.5} />
+          </button>
+
+          {/* Center: Capsule utilizing available space with clear typography and no inner pill */}
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+            <h1 className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
               My Orders
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              to="/"
-              className="flex h-9 items-center rounded-full bg-[#42D6E8] px-4 py-1.5 text-xs font-black text-[#061220] shadow-xs transition-all hover:bg-[#2CC4D8] active:scale-95 cursor-pointer"
-            >
-              Shop More
-            </Link>
-          </div>
+          {/* Right: Shop More Button moved cleanly to the side */}
+          <Link
+            to="/"
+            onClick={() => triggerHaptic("light")}
+            aria-label="Shop More"
+            className="flex h-12 sm:h-[52px] shrink-0 items-center justify-center rounded-full bg-[#42D6E8] px-4.5 sm:px-5.5 text-xs sm:text-sm font-extrabold text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)] transition-all hover:bg-[#2CC4D8] hover:shadow-[0_4px_16px_rgba(66,214,232,0.45)] active:scale-95 cursor-pointer whitespace-nowrap"
+          >
+            Shop More
+          </Link>
         </div>
 
         {/* Payment-Pending Active Order Banner */}

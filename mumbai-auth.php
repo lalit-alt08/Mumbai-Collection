@@ -561,6 +561,15 @@ add_action('rest_api_init', function () {
             'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
         ],
     ]);
+    register_rest_route('mumbai-auth/v1', '/catalog/index-feed', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_catalog_index_feed',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
+            'per_page' => ['default' => 2000, 'sanitize_callback' => 'absint'],
+        ],
+    ]);
     register_rest_route('mumbai-auth/v1', '/catalog/products/(?P<id>\d+)/review-summary', [
         'methods'             => 'GET',
         'callback'            => 'mumbai_catalog_review_summary',
@@ -4030,6 +4039,221 @@ function mumbai_get_product_stock_counts($request) {
 }
 
 /**
+ * Fast compact product documents feed for search index ingestion.
+ * Returns customer-visible, published products with their taxonomy terms and attributes.
+ */
+function mumbai_catalog_index_feed(WP_REST_Request $request) {
+    global $wpdb;
+
+    $page = max(1, absint($request->get_param('page') ?: 1));
+    $per_page = min(5000, max(1, absint($request->get_param('per_page') ?: 2000)));
+    $offset = ($page - 1) * $per_page;
+
+    // Base query: published products excluding those hidden from search
+    $visibility_subquery = "NOT EXISTS (
+        SELECT 1 FROM {$wpdb->term_relationships} tr_vis
+        INNER JOIN {$wpdb->term_taxonomy} tt_vis ON tt_vis.term_taxonomy_id = tr_vis.term_taxonomy_id
+        INNER JOIN {$wpdb->terms} t_vis ON t_vis.term_id = tt_vis.term_id
+        WHERE tr_vis.object_id = p.ID 
+          AND tt_vis.taxonomy = 'product_visibility' 
+          AND t_vis.name IN ('exclude-from-search')
+    )";
+
+    $total_raw = $wpdb->get_var("
+        SELECT COUNT(*) FROM {$wpdb->posts} p 
+        WHERE p.post_type = 'product' AND p.post_status = 'publish' AND {$visibility_subquery}
+    ");
+
+    if (!empty($wpdb->last_error)) {
+        return new WP_Error(
+            'db_query_error',
+            'Database error counting catalog products: ' . $wpdb->last_error,
+            ['status' => 500]
+        );
+    }
+    $total = (int) $total_raw;
+
+    $products_query = $wpdb->prepare("
+        SELECT p.ID, p.post_title, p.post_excerpt, pm_sku.meta_value AS sku
+        FROM {$wpdb->posts} p
+        LEFT JOIN {$wpdb->postmeta} pm_sku ON pm_sku.post_id = p.ID AND pm_sku.meta_key = '_sku'
+        WHERE p.post_type = 'product' 
+          AND p.post_status = 'publish'
+          AND {$visibility_subquery}
+        ORDER BY p.ID ASC
+        LIMIT %d OFFSET %d
+    ", $per_page, $offset);
+
+    $product_rows = $wpdb->get_results($products_query, ARRAY_A);
+    if (!empty($wpdb->last_error)) {
+        return new WP_Error(
+            'db_query_error',
+            'Database error fetching catalog products: ' . $wpdb->last_error,
+            ['status' => 500]
+        );
+    }
+
+    if (empty($product_rows)) {
+        if ($total > 0 && $offset < $total) {
+            return new WP_Error(
+                'catalog_query_anomaly',
+                'Database returned 0 products while total reported ' . $total,
+                ['status' => 500]
+            );
+        }
+        return rest_ensure_response([
+            'success' => true,
+            'products' => [],
+            'total' => $total,
+            'totalPages' => $total > 0 ? (int) ceil($total / $per_page) : 0,
+            'page' => $page,
+            'per_page' => $per_page,
+        ]);
+    }
+
+    $product_ids = array_map('intval', wp_list_pluck($product_rows, 'ID'));
+    $ids_in = implode(',', $product_ids);
+
+    // Load product_cat taxonomy tree once per batch to walk and index all category ancestors
+    $all_cats = $wpdb->get_results("
+        SELECT tt.term_id, tt.parent, t.name
+        FROM {$wpdb->term_taxonomy} tt
+        INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+        WHERE tt.taxonomy = 'product_cat'
+    ", ARRAY_A);
+
+    if (!empty($wpdb->last_error)) {
+        return new WP_Error(
+            'db_query_error',
+            'Database error fetching category taxonomy: ' . $wpdb->last_error,
+            ['status' => 500]
+        );
+    }
+    $cat_by_id = [];
+    $parent_map = [];
+    foreach ($all_cats as $c) {
+        $tid = (int) $c['term_id'];
+        $cat_by_id[$tid] = html_entity_decode($c['name'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $parent_map[$tid] = (int) $c['parent'];
+    }
+
+    $get_ancestors = function ($term_id) use ($cat_by_id, $parent_map) {
+        $ancestors = [];
+        $curr = (int) $term_id;
+        $visited = [];
+        while (!empty($parent_map[$curr]) && !isset($visited[$curr])) {
+            $visited[$curr] = true;
+            $parent_id = $parent_map[$curr];
+            if (!empty($cat_by_id[$parent_id])) {
+                $ancestors[] = $cat_by_id[$parent_id];
+            }
+            $curr = $parent_id;
+        }
+        return $ancestors;
+    };
+
+    // Fetch categories (with term_id for ancestor lookup), tags and attributes
+    $terms_rows = $wpdb->get_results("
+        SELECT tr.object_id, tt.taxonomy, t.name, tt.term_id
+        FROM {$wpdb->term_relationships} tr
+        INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+        INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+        WHERE tr.object_id IN ({$ids_in})
+          AND (tt.taxonomy IN ('product_cat', 'product_tag') OR tt.taxonomy LIKE 'pa_%')
+    ", ARRAY_A);
+
+    if (!empty($wpdb->last_error)) {
+        return new WP_Error(
+            'db_query_error',
+            'Database error fetching product terms: ' . $wpdb->last_error,
+            ['status' => 500]
+        );
+    }
+
+    $cat_map = [];
+    $tag_map = [];
+    $attr_map = [];
+    foreach ($terms_rows as $row) {
+        $pid = (int) $row['object_id'];
+        $tax = $row['taxonomy'];
+        $name = html_entity_decode($row['name'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($tax === 'product_cat') {
+            $cat_map[$pid][] = $name;
+            // Append all ancestors up to root
+            foreach ($get_ancestors($row['term_id']) as $anc) {
+                $cat_map[$pid][] = $anc;
+            }
+        } elseif ($tax === 'product_tag') {
+            $tag_map[$pid][] = $name;
+        } elseif (str_starts_with($tax, 'pa_')) {
+            $attr_map[$pid][] = $name;
+        }
+    }
+
+    // Fetch custom attributes from _product_attributes
+    $meta_rows = $wpdb->get_results("
+        SELECT post_id, meta_value FROM {$wpdb->postmeta}
+        WHERE post_id IN ({$ids_in}) AND meta_key = '_product_attributes' AND meta_value != ''
+    ", ARRAY_A);
+
+    if (!empty($wpdb->last_error)) {
+        return new WP_Error(
+            'db_query_error',
+            'Database error fetching product attributes meta: ' . $wpdb->last_error,
+            ['status' => 500]
+        );
+    }
+
+    foreach ($meta_rows as $mrow) {
+        $pid = (int) $mrow['post_id'];
+        $attrs = maybe_unserialize($mrow['meta_value']);
+        if (is_array($attrs)) {
+            foreach ($attrs as $attr) {
+                if (!empty($attr['name'])) {
+                    $attr_map[$pid][] = html_entity_decode($attr['name'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                }
+                if (!empty($attr['value'])) {
+                    $values = explode('|', $attr['value']);
+                    foreach ($values as $v) {
+                        $v = trim($v);
+                        if ($v !== '') {
+                            $attr_map[$pid][] = html_entity_decode($v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    $documents = [];
+    foreach ($product_rows as $p) {
+        $pid = (int) $p['ID'];
+        $cats = array_values(array_unique($cat_map[$pid] ?? []));
+        $tags = array_values(array_unique($tag_map[$pid] ?? []));
+        $attrs = array_values(array_unique($attr_map[$pid] ?? []));
+
+        $documents[] = [
+            'id' => $pid,
+            'title' => html_entity_decode($p['post_title'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+            'sku' => (string) ($p['sku'] ?? ''),
+            'categories' => $cats,
+            'tags' => $tags,
+            'attributes' => $attrs,
+            'short_description' => wp_strip_all_tags($p['post_excerpt'] ?? ''),
+        ];
+    }
+
+    return rest_ensure_response([
+        'success' => true,
+        'products' => $documents,
+        'total' => $total,
+        'totalPages' => $total > 0 ? (int) ceil($total / $per_page) : 0,
+        'page' => $page,
+        'per_page' => $per_page,
+    ]);
+}
+
+/**
  * Database-ranked catalog search. Matching and pagination happen before the
  * Node gateway hydrates product cards, so relevant results are not lost by
  * paginating WooCommerce's broader description search first.
@@ -4040,7 +4264,7 @@ function mumbai_catalog_search(WP_REST_Request $request) {
     $query = trim(substr((string) $request->get_param('q'), 0, 80));
     $page = max(1, absint($request->get_param('page') ?: 1));
     $per_page = min(50, max(1, absint($request->get_param('per_page') ?: 20)));
-    if (strlen($query) < 2) {
+    if (mb_strlen($query, 'UTF-8') < 2) {
         return rest_ensure_response([
             'success' => true,
             'ids' => [],
@@ -4051,14 +4275,21 @@ function mumbai_catalog_search(WP_REST_Request $request) {
         ]);
     }
 
-    $normalized = strtolower(remove_accents($query));
-    $normalized = preg_replace('/[^a-z0-9]+/', ' ', $normalized);
-    $normalized = trim(preg_replace('/\s+/', ' ', $normalized));
+    // Preserve Unicode letters and marks (e.g. Devanagari, Marathi)
+    $normalized = mb_strtolower($query, 'UTF-8');
+    // Normalize connector terms
+    $normalized = preg_replace('/\b(?:usb\s+)?type\s*[-_]?\s*c\b/ui', 'typec', $normalized);
+    $normalized = preg_replace('/\busb\s*[-_]?\s*c\b/ui', 'typec', $normalized);
+    $normalized = preg_replace('/\bc\s*[-_]?\s*type\b/ui', 'typec', $normalized);
+    $normalized = preg_replace('/[^\p{L}\p{M}\p{N}]+/u', ' ', $normalized);
+    $normalized = trim(preg_replace('/\s+/u', ' ', $normalized));
+
     $stop_words = ['a', 'an', 'and', 'for', 'in', 'of', 'the', 'to', 'with'];
     $tokens = array_values(array_unique(array_filter(
-        preg_split('/\s+/', $normalized),
+        preg_split('/\s+/u', $normalized),
         static function ($token) use ($stop_words) {
-            return strlen($token) > 1 && !in_array($token, $stop_words, true);
+            // Keep tokens with length > 1 OR numeric/age tokens (e.g. "3", "4", "5")
+            return (mb_strlen($token, 'UTF-8') > 1 || preg_match('/\pN/u', $token)) && !in_array($token, $stop_words, true);
         }
     )));
     $tokens = array_slice($tokens, 0, 5);
@@ -4074,22 +4305,57 @@ function mumbai_catalog_search(WP_REST_Request $request) {
     }
 
     $field_match = static function ($token) use ($wpdb) {
-        $like = '%' . $wpdb->esc_like($token) . '%';
-        $title = $wpdb->prepare('LOWER(p.post_title) LIKE %s', $like);
-        $sku = $wpdb->prepare(
-            "EXISTS (SELECT 1 FROM {$wpdb->postmeta} sku_pm WHERE sku_pm.post_id = p.ID AND sku_pm.meta_key = '_sku' AND LOWER(sku_pm.meta_value) LIKE %s)",
-            $like
-        );
-        $attributes = $wpdb->prepare(
-            "EXISTS (SELECT 1 FROM {$wpdb->postmeta} attr_pm WHERE attr_pm.post_id = p.ID AND attr_pm.meta_key = '_product_attributes' AND LOWER(attr_pm.meta_value) LIKE %s)",
-            $like
-        );
-        $category = $wpdb->prepare(
-            "EXISTS (SELECT 1 FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_cat' INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id WHERE tr.object_id = p.ID AND LOWER(t.name) LIKE %s)",
-            $like
-        );
-        $excerpt = $wpdb->prepare('LOWER(p.post_excerpt) LIKE %s', $like);
-        $content = $wpdb->prepare('LOWER(p.post_content) LIKE %s', $like);
+        $likes = [];
+        if ($token === 'typec') {
+            $likes = [
+                '%' . $wpdb->esc_like('type-c') . '%',
+                '%' . $wpdb->esc_like('type c') . '%',
+                '%' . $wpdb->esc_like('usb-c') . '%',
+                '%' . $wpdb->esc_like('usb c') . '%',
+                '%' . $wpdb->esc_like('c-type') . '%',
+                '%' . $wpdb->esc_like('typec') . '%',
+            ];
+        } else {
+            $likes = ['%' . $wpdb->esc_like($token) . '%'];
+        }
+
+        $title_parts = [];
+        $excerpt_parts = [];
+        $content_parts = [];
+        $sku_parts = [];
+        $attr_parts = [];
+        $cat_parts = [];
+
+        foreach ($likes as $like) {
+            $title_parts[] = $wpdb->prepare('LOWER(p.post_title) LIKE %s', $like);
+            $excerpt_parts[] = $wpdb->prepare('LOWER(p.post_excerpt) LIKE %s', $like);
+            $content_parts[] = $wpdb->prepare('LOWER(p.post_content) LIKE %s', $like);
+            $sku_parts[] = $wpdb->prepare(
+                "EXISTS (SELECT 1 FROM {$wpdb->postmeta} sku_pm WHERE sku_pm.post_id = p.ID AND sku_pm.meta_key = '_sku' AND LOWER(sku_pm.meta_value) LIKE %s)",
+                $like
+            );
+            $attr_parts[] = $wpdb->prepare(
+                "(EXISTS (SELECT 1 FROM {$wpdb->postmeta} attr_pm WHERE attr_pm.post_id = p.ID AND attr_pm.meta_key = '_product_attributes' AND LOWER(attr_pm.meta_value) LIKE %s)
+                  OR EXISTS (SELECT 1 FROM {$wpdb->term_relationships} tr_pa 
+                             INNER JOIN {$wpdb->term_taxonomy} tt_pa ON tt_pa.term_taxonomy_id = tr_pa.term_taxonomy_id AND tt_pa.taxonomy LIKE 'pa_%'
+                             INNER JOIN {$wpdb->terms} t_pa ON t_pa.term_id = tt_pa.term_id 
+                             WHERE tr_pa.object_id = p.ID AND LOWER(t_pa.name) LIKE %s))",
+                $like,
+                $like
+            );
+            $cat_parts[] = $wpdb->prepare(
+                "EXISTS (SELECT 1 FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_cat' INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id WHERE tr.object_id = p.ID AND LOWER(t.name) LIKE %s)",
+                $like
+            );
+        }
+
+        $title = '(' . implode(' OR ', $title_parts) . ')';
+        $excerpt = '(' . implode(' OR ', $excerpt_parts) . ')';
+        $content = '(' . implode(' OR ', $content_parts) . ')';
+        $sku = '(' . implode(' OR ', $sku_parts) . ')';
+        $attributes = '(' . implode(' OR ', $attr_parts) . ')';
+        $category = '(' . implode(' OR ', $cat_parts) . ')';
+
         return compact('title', 'sku', 'attributes', 'category', 'excerpt', 'content');
     };
 
@@ -4112,10 +4378,19 @@ function mumbai_catalog_search(WP_REST_Request $request) {
         $score_parts[] = "(CASE WHEN {$match['content']} THEN 5 ELSE 0 END)";
     }
 
-    $phrase_like = '%' . $wpdb->esc_like($normalized) . '%';
-    $prefix_like = $wpdb->esc_like($normalized) . '%';
-    $score_parts[] = '(CASE WHEN ' . $wpdb->prepare('LOWER(p.post_title) LIKE %s', $phrase_like) . ' THEN 1000 ELSE 0 END)';
-    $score_parts[] = '(CASE WHEN ' . $wpdb->prepare('LOWER(p.post_title) LIKE %s', $prefix_like) . ' THEN 120 ELSE 0 END)';
+    $phrase_clauses = [$wpdb->prepare('LOWER(p.post_title) LIKE %s', '%' . $wpdb->esc_like($normalized) . '%')];
+    $prefix_clauses = [$wpdb->prepare('LOWER(p.post_title) LIKE %s', $wpdb->esc_like($normalized) . '%')];
+    if (strpos($normalized, 'typec') !== false) {
+        foreach (['type-c', 'type c', 'usb-c', 'c-type'] as $cvar) {
+            $vnorm = str_replace('typec', $cvar, $normalized);
+            $phrase_clauses[] = $wpdb->prepare('LOWER(p.post_title) LIKE %s', '%' . $wpdb->esc_like($vnorm) . '%');
+            $prefix_clauses[] = $wpdb->prepare('LOWER(p.post_title) LIKE %s', $wpdb->esc_like($vnorm) . '%');
+        }
+    }
+    $phrase_sql = '(' . implode(' OR ', $phrase_clauses) . ')';
+    $prefix_sql = '(' . implode(' OR ', $prefix_clauses) . ')';
+    $score_parts[] = "(CASE WHEN {$phrase_sql} THEN 1000 ELSE 0 END)";
+    $score_parts[] = "(CASE WHEN {$prefix_sql} THEN 120 ELSE 0 END)";
     $accessory_like = '% with %' . $wpdb->esc_like($normalized) . '%';
     $score_parts[] = '(CASE WHEN ' . $wpdb->prepare('LOWER(p.post_title) LIKE %s', $accessory_like) . ' THEN -300 ELSE 0 END)';
 
@@ -4130,7 +4405,16 @@ function mumbai_catalog_search(WP_REST_Request $request) {
     }
     $match_guard .= ')';
 
-    $base_from = "FROM {$wpdb->posts} p WHERE p.post_type = 'product' AND p.post_status = 'publish' AND {$match_guard}";
+    $visibility_guard = "AND NOT EXISTS (
+        SELECT 1 FROM {$wpdb->term_relationships} tr_vis
+        INNER JOIN {$wpdb->term_taxonomy} tt_vis ON tt_vis.term_taxonomy_id = tr_vis.term_taxonomy_id
+        INNER JOIN {$wpdb->terms} t_vis ON t_vis.term_id = tt_vis.term_id
+        WHERE tr_vis.object_id = p.ID 
+          AND tt_vis.taxonomy = 'product_visibility' 
+          AND t_vis.name IN ('exclude-from-search')
+    )";
+
+    $base_from = "FROM {$wpdb->posts} p WHERE p.post_type = 'product' AND p.post_status = 'publish' {$visibility_guard} AND {$match_guard}";
     $total = (int) $wpdb->get_var("SELECT COUNT(*) {$base_from}");
     $offset = ($page - 1) * $per_page;
     $rows = $wpdb->get_results(

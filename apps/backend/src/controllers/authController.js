@@ -101,22 +101,51 @@ const isAllowedGoogleOrigin = (origin) => {
 
   const normalizeOrigin = (value) => {
     try {
-      return new URL(value).origin;
+      return new URL(value).origin.toLowerCase();
     } catch (_) {
       return "";
     }
   };
 
-  const configured = String(process.env.CUSTOMER_ORIGIN || "")
-    .split(",")
-    .map((value) => normalizeOrigin(value.trim()))
-    .filter(Boolean);
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
 
+  // Dedicated staff origins must never be accepted as customer Google login endpoints
+  const staffOrigins = new Set(
+    [
+      ...String(process.env.ADMIN_ORIGIN || "").split(","),
+      ...String(process.env.EMPLOYEE_ORIGIN || "").split(","),
+    ]
+      .map((value) => normalizeOrigin(value.trim()))
+      .filter(Boolean)
+  );
+
+  // Explicitly configured customer-facing origins under store control
+  const customerOrigins = new Set(
+    [
+      ...String(process.env.CUSTOMER_ORIGIN || "").split(","),
+      ...String(process.env.FRONTEND_URL || "").split(","),
+      ...String(process.env.CLIENT_ORIGIN || "").split(","),
+      ...String(process.env.ALLOWED_ORIGINS || "")
+        .split(",")
+        .filter((val) => !val.includes("admin") && !val.includes("employee")),
+    ]
+      .map((value) => normalizeOrigin(value.trim()))
+      .filter(Boolean)
+  );
+
+  // In non-production development, allow local customer frontend dev servers on port 5173
   if (process.env.NODE_ENV !== "production") {
-    configured.push("http://localhost:5173", "http://127.0.0.1:5173");
+    customerOrigins.add("http://localhost:5173");
+    customerOrigins.add("http://127.0.0.1:5173");
   }
 
-  return configured.includes(normalizeOrigin(origin));
+  // Ensure staff origins are excluded even if accidentally included in ALLOWED_ORIGINS
+  for (const staffOrigin of staffOrigins) {
+    customerOrigins.delete(staffOrigin);
+  }
+
+  return customerOrigins.has(normalized);
 };
 
 const getCookieOptions = (req, role = "customer") => {
@@ -386,7 +415,9 @@ export const register = async (req, res) => {
       Array.isArray(authUser?.roles) ? authUser.roles : ["customer"]
     );
 
-    if (session && cookieName && typeof res.cookie === "function") {
+    const sessionEstablished = Boolean(session && cookieName);
+
+    if (sessionEstablished && typeof res.cookie === "function") {
       const fullCookieVal = `${cookieName}=${session}`;
       res.cookie(cookieConfig.auth, fullCookieVal, cookieOptions);
 
@@ -416,9 +447,12 @@ export const register = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: regData?.message || "Account created successfully.",
+      message: sessionEstablished
+        ? (regData?.message || "Account created successfully.")
+        : "Account created successfully. Please sign in to continue.",
       user: authUser,
       context,
+      session_established: sessionEstablished,
     });
   } catch (error) {
     logError(req, error, "Registration error");

@@ -1,6 +1,7 @@
 import api from "../config/woocommerce.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { searchIndexService } from "../services/searchIndexService.js";
 import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 import { fetchAllProductCategories } from "../services/productService.js";
@@ -62,6 +63,7 @@ export const invalidateAllCategoryCaches = async () => {
     batch.delete("seo:sitemap_xml");
   } else {
     serverCache.invalidatePrefix("catalog:");
+    searchIndexService.markDirty();
     serverCache.invalidatePrefix("category:");
     serverCache.invalidatePrefix("admin_products:");
     serverCache.delete("admin:categories");
@@ -71,20 +73,27 @@ export const invalidateAllCategoryCaches = async () => {
   }
 
   try {
+    let syncResult;
     if (batch) {
-      const syncResult = await batch.flush();
-      return syncResult;
+      syncResult = await batch.flush();
     } else if (typeof serverCache.flushPendingInvalidations === "function") {
-      const syncResult = await serverCache.flushPendingInvalidations();
-      return syncResult;
+      syncResult = await serverCache.flushPendingInvalidations();
     } else if (serverCache.pendingInvalidations) {
       await serverCache.pendingInvalidations;
+      syncResult = {
+        localInvalidated: true,
+        distributedInvalidated: isRedisConfigured() && isRedisActive(),
+        degraded: false,
+      };
+    } else {
+      syncResult = {
+        localInvalidated: true,
+        distributedInvalidated: isRedisConfigured() && isRedisActive(),
+        degraded: false,
+      };
     }
-    return {
-      localInvalidated: true,
-      distributedInvalidated: isRedisConfigured() && isRedisActive(),
-      degraded: false,
-    };
+    searchIndexService.markDirty();
+    return syncResult;
   } catch (err) {
     logger.warn(
       { err: err.message },

@@ -84,7 +84,7 @@ function RelatedProducts({ product }) {
 
       <div className="flex gap-3 overflow-x-auto pb-2 pt-1 snap-x [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:gap-4 sm:overflow-visible">
         {products.map((item) => (
-          <div key={item.id} className="w-[175px] sm:w-auto flex-shrink-0 snap-start h-full flex flex-col">
+          <div key={item.id} className="w-[178px] sm:w-auto flex-shrink-0 snap-start h-full flex flex-col">
             <ProductCard product={item} />
           </div>
         ))}

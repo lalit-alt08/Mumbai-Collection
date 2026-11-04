@@ -104,40 +104,29 @@ test("Customer Web: Onboarding and Profile Setup Contracts", async (suite) => {
     assert.equal(outageResult.status, 504);
   });
 
-  await suite.test("3. ProtectedRoute explicit state model prevents outage redirect to profile-setup", () => {
-    // Contract check for ProtectedRoute state-driven decision logic:
-    // profileStatus: "checking" | "complete" | "incomplete" | "unavailable"
-    const getRouteAction = ({ profileStatus, pathname }) => {
-      if (pathname === "/profile-setup") {
-        return "allow"; // Direct access to profile-setup always permitted
+  await suite.test("3. ProtectedRoute decoupled contract allows authenticated browsing without profile-setup gate", () => {
+    // Contract check for ProtectedRoute decoupled state logic:
+    // Decoupled from /profile/complete so authenticated users can browse, use wishlist, and view account
+    const getRouteAction = ({ loading, isReconnecting, isAuthenticated, pathname }) => {
+      if (loading || isReconnecting) {
+        return "show-loader";
       }
-      if (profileStatus === "complete") {
-        return "allow";
+      if (!isAuthenticated) {
+        return "redirect-to-login";
       }
-      if (profileStatus === "incomplete") {
-        return "redirect-to-profile-setup";
-      }
-      if (profileStatus === "unavailable") {
-        return "show-retry-screen";
-      }
-      return "show-loader"; // "checking"
+      return "allow"; // Renders <Outlet /> directly for all authenticated routes
     };
 
-    // Case A: User on /profile-setup is always allowed without gate
-    assert.equal(getRouteAction({ profileStatus: "incomplete", pathname: "/profile-setup" }), "allow");
-    assert.equal(getRouteAction({ profileStatus: "checking", pathname: "/profile-setup" }), "allow");
+    // Case A: Unauthenticated user is redirected to login
+    assert.equal(getRouteAction({ loading: false, isReconnecting: false, isAuthenticated: false, pathname: "/account" }), "redirect-to-login");
 
-    // Case B: Completeness check in-flight on /account shows loader, does NOT bounce
-    assert.equal(getRouteAction({ profileStatus: "checking", pathname: "/account" }), "show-loader");
+    // Case B: Session reconnecting shows loader, does not bounce
+    assert.equal(getRouteAction({ loading: false, isReconnecting: true, isAuthenticated: true, pathname: "/account" }), "show-loader");
 
-    // Case C: Verified complete allows access to /account
-    assert.equal(getRouteAction({ profileStatus: "complete", pathname: "/account" }), "allow");
-
-    // Case D: Authoritative incomplete redirects to /profile-setup
-    assert.equal(getRouteAction({ profileStatus: "incomplete", pathname: "/account" }), "redirect-to-profile-setup");
-
-    // Case E: Outage / 503 / timeout shows retry screen, does NOT redirect to profile-setup, does NOT allow access
-    assert.equal(getRouteAction({ profileStatus: "unavailable", pathname: "/account" }), "show-retry-screen");
+    // Case C: Authenticated customer with newly created account (no profile or address yet) is allowed into account & orders
+    assert.equal(getRouteAction({ loading: false, isReconnecting: false, isAuthenticated: true, pathname: "/account" }), "allow");
+    assert.equal(getRouteAction({ loading: false, isReconnecting: false, isAuthenticated: true, pathname: "/orders" }), "allow");
+    assert.equal(getRouteAction({ loading: false, isReconnecting: false, isAuthenticated: true, pathname: "/cart" }), "allow");
   });
 
   await suite.test("4. Duplicate address recovery and requiresAddress contract", async () => {

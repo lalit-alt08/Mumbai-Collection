@@ -20,7 +20,15 @@ function Cart() {
   useNoIndex();
   const navigate = useNavigate();
   const location = useLocation();
-  const { cart, loading, refreshCart, updateCart } = useCart();
+  const {
+    cart,
+    loading,
+    refreshCart,
+    updateCart,
+    cartMergeNotice,
+    clearCartMergeNotice,
+    retryCartMerge,
+  } = useCart();
   const { isAuthenticated } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
   const [storeHours, setStoreHours] = useState(null);
@@ -669,6 +677,12 @@ function Cart() {
         </div>
       )}
 
+      {cartMergeNotice?.retryable && (
+        <div role="alert" className="mx-auto mb-4 flex max-w-[700px] items-center justify-between gap-3 rounded-2xl border border-amber-800 bg-amber-950/40 p-4 text-sm text-amber-200">
+          <span>Some cart items could not be restored. {cartMergeNotice.failedItems?.map((item) => item.name).join(", ")}</span>
+          <button type="button" onClick={retryCartMerge} className="shrink-0 font-bold underline">Retry</button>
+        </div>
+      )}
       {isCartEmpty ? (
         <div className="mx-auto flex max-w-[700px] flex-col items-center justify-center px-6 py-20 text-center">
           <h1 className="mb-4 text-[24px] font-bold text-[#F1F5F9]">
@@ -686,6 +700,32 @@ function Cart() {
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Cart Merge Failure Notice Banner */}
+          {!cartMergeNotice?.retryable && cartMergeNotice?.failedItems?.length > 0 && (
+            <div className="rounded-[22px] bg-amber-950/40 border border-amber-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-900/50 text-amber-300 border border-amber-800/60">
+                  <AlertTriangle size={20} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-[13px] font-bold text-amber-200 leading-snug">
+                    Some items from your guest session could not be restored
+                  </p>
+                  <p className="text-[11px] text-amber-400 leading-tight">
+                    {cartMergeNotice.failedItems.map((f) => f.name).join(", ")} (e.g. out of stock or unavailable)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={clearCartMergeNotice}
+                className="rounded-xl bg-amber-900/60 border border-amber-700/60 px-3 py-1.5 text-xs font-bold text-amber-200 shadow-xs hover:bg-amber-800/60 transition active:scale-95 cursor-pointer flex-shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Out of Stock Notice Banner */}
           {hasOutOfStockItems && (
             <div className="rounded-[22px] bg-rose-950/40 border border-rose-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">

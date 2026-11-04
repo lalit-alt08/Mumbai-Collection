@@ -10,12 +10,12 @@ const ALLOWED_DELIVERY_REGIONS = [
   "nallasopara east",
 ];
 
-const normalizeRegion = (input) => {
+export const normalizeRegion = (input) => {
   if (!input || typeof input !== "string") return null;
   const lower = input.trim().toLowerCase();
-  if (lower === "vasai west" || lower === "vasai (west)" || lower === "vasai-west") return "Vasai West";
+  if (lower === "vasai west" || lower === "vasai (west)" || lower === "vasai-west" || lower === "vasai" || lower === "vasai road") return "Vasai West";
   if (lower === "vasai east" || lower === "vasai (east)" || lower === "vasai-east") return "Vasai East";
-  if (lower === "nallasopara west" || lower === "nalasopara west" || lower === "nallasopara (west)") return "Nallasopara West";
+  if (lower === "nallasopara west" || lower === "nalasopara west" || lower === "nallasopara (west)" || lower === "nallasopara" || lower === "nalasopara") return "Nallasopara West";
   if (lower === "nallasopara east" || lower === "nalasopara east" || lower === "nallasopara (east)") return "Nallasopara East";
 
   const match = ALLOWED_DELIVERY_REGIONS.find((r) => r === lower);
@@ -51,6 +51,69 @@ export const validatePincode = (pincode) => {
     return { valid: false, value: clean };
   }
   return { valid: true, value: clean };
+};
+
+/**
+ * Validates delivery address against authoritative store delivery rules:
+ * - Recipient name present
+ * - Valid 10-digit Indian mobile number
+ * - Non-empty street address
+ * - Supported delivery region (Vasai West, Vasai East, Nallasopara West, Nallasopara East)
+ * - Pincode optional, but must be 6 digits if provided
+ */
+export const validateDeliveryAddress = (address) => {
+  if (!address || typeof address !== "object") {
+    return { valid: false, message: "Delivery address is required." };
+  }
+
+  const { firstName, lastName } = parseFirstAndLastName(address);
+  if (!firstName || firstName.length < 2) {
+    return { valid: false, message: "Recipient name is required in delivery address." };
+  }
+
+  const phone = address.phone || address.billing_phone;
+  const cleanPhone = normalizeAndValidateIndianPhone(phone);
+  if (!cleanPhone) {
+    return {
+      valid: false,
+      message: "Please provide a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9 for delivery.",
+    };
+  }
+
+  const street = String(address.address_1 || address.address_line1 || "").trim();
+  if (!street || street.length < 3) {
+    return { valid: false, message: "Street / flat / house address is required for delivery." };
+  }
+
+  const rawCity = address.city || address.delivery_region;
+  const normalizedRegion = normalizeRegion(rawCity);
+  if (!normalizedRegion) {
+    return {
+      valid: false,
+      message: "Delivery is only available in Vasai West, Vasai East, Nallasopara West, and Nallasopara East (Maharashtra). Please select a supported delivery region.",
+    };
+  }
+
+  const rawPincode = address.postcode !== undefined ? address.postcode : address.pincode;
+  const pincodeCheck = validatePincode(rawPincode);
+  if (!pincodeCheck.valid) {
+    return { valid: false, message: "Pincode must be a valid 6-digit Indian postal code." };
+  }
+
+  return {
+    valid: true,
+    normalized: {
+      first_name: firstName,
+      last_name: lastName || "",
+      phone: cleanPhone,
+      address_1: street,
+      address_2: String(address.address_2 || address.address_line2 || "").trim(),
+      city: normalizedRegion,
+      state: "MH",
+      postcode: pincodeCheck.value,
+      country: "IN",
+    },
+  };
 };
 
 /**

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { updateCheckout, updateCartItem, removeCartItem } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment, checkPaymentStatus, cancelPaymentOrder } from "../../services/paymentService.js";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import API_URL from "../../config/api.js";
 import safeStorage from "../../utils/safeStorage.js";
 import StockNotificationModal from "./StockNotificationModal";
@@ -86,12 +86,15 @@ function BillingForm({
   stockChecking = false,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthenticated } = useAuth();
   const { cart, refreshCart } = useCart();
 
   const [addresses, setAddresses] = useState(() => {
     try {
-      const cached = safeStorage.getJSON("saved_addresses_cache", []);
+      if (!user?.id) return [];
+      const key = `saved_addresses_cache_${user.id}`;
+      const cached = safeStorage.getJSON(key, []);
       return Array.isArray(cached) ? cached : [];
     } catch {
       return [];
@@ -99,10 +102,13 @@ function BillingForm({
   });
   const [selectedAddressId, setSelectedAddressId] = useState(() => {
     try {
-      const cachedId = safeStorage.getItem("selected_address_id");
-      if (cachedId) return Number(cachedId);
-      const cached = safeStorage.getJSON("saved_addresses_cache", []);
-      return cached && cached[0] ? cached[0].id : null;
+      if (!user?.id) return null;
+      const idKey = `selected_address_id_${user.id}`;
+      const cachedId = safeStorage.getItem(idKey);
+      if (cachedId) return String(cachedId);
+      const addrKey = `saved_addresses_cache_${user.id}`;
+      const cached = safeStorage.getJSON(addrKey, []);
+      return cached && cached[0] ? String(cached[0].id) : null;
     } catch {
       return null;
     }
@@ -115,6 +121,8 @@ function BillingForm({
 
   const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
+  const [addressLoadFailed, setAddressLoadFailed] = useState(false);
+  const [addressRetry, setAddressRetry] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [stockAlertOpen, setStockAlertOpen] = useState(false);
@@ -278,51 +286,85 @@ function BillingForm({
 
   // Load saved addresses
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !user?.id) {
       setAddresses([]);
       setSelectedAddressId(null);
+      setAddressLoadFailed(false);
       setLoadingAddresses(false);
       return;
     }
 
+    let isMounted = true;
+    const currentUserId = user.id;
+    const addressCacheKey = `saved_addresses_cache_${currentUserId}`;
+    const selectedAddressKey = `selected_address_id_${currentUserId}`;
+
     const loadAddresses = async () => {
       try {
         setLoadingAddresses(true);
+        setAddressLoadFailed(false);
         setError("");
 
         const response = await axios.get(`${API_URL}/addresses`, {
           withCredentials: true,
         });
 
+        if (!isMounted || user?.id !== currentUserId) return;
+
         const savedAddresses = response.data.addresses || [];
 
         setAddresses(savedAddresses);
-        safeStorage.setJSON("saved_addresses_cache", savedAddresses);
+        safeStorage.setJSON(addressCacheKey, savedAddresses);
+        // Clean up any remaining legacy unscoped storage keys
+        safeStorage.removeItem("saved_addresses_cache");
+        safeStorage.removeItem("selected_address_id");
 
-        // Keep current selection if valid, otherwise select first saved address
+        // Keep current selection if valid, or priority from location.state, otherwise select first saved address
         if (savedAddresses.length > 0) {
+          const targetId = location.state?.selectedAddressId;
+          const targetExists = targetId && savedAddresses.some((a) => String(a.id) === String(targetId));
+
           setSelectedAddressId((prev) => {
-            const stillValid = prev && savedAddresses.some((a) => a.id === prev);
-            const nextId = stillValid ? prev : savedAddresses[0].id;
-            safeStorage.setItem("selected_address_id", nextId);
+            if (targetExists) {
+              const targetStr = String(targetId);
+              safeStorage.setItem(selectedAddressKey, targetStr);
+              return targetStr;
+            }
+            const stillValid = prev && savedAddresses.some((a) => String(a.id) === String(prev));
+            const nextId = stillValid ? String(prev) : String(savedAddresses[0].id);
+            safeStorage.setItem(selectedAddressKey, nextId);
             return nextId;
           });
+        } else {
+          setSelectedAddressId(null);
+          safeStorage.removeItem(selectedAddressKey);
         }
       } catch (error) {
+        if (!isMounted || user?.id !== currentUserId) return;
+        // On load failure, clear address list and disable checkout until addresses are verified
+        setAddresses([]);
+        setSelectedAddressId(null);
+        setAddressLoadFailed(true);
         setError(
           error.response?.data?.message ||
-            "Unable to load your saved addresses.",
+            "Unable to load your saved addresses. Please retry.",
         );
       } finally {
-        setLoadingAddresses(false);
+        if (isMounted && user?.id === currentUserId) {
+          setLoadingAddresses(false);
+        }
       }
     };
 
     loadAddresses();
-  }, [isAuthenticated]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, user?.id, location.state?.selectedAddressId, addressRetry]);
 
   const selectedAddress = addresses.find(
-    (address) => address.id === selectedAddressId,
+    (address) => String(address.id) === String(selectedAddressId),
   );
 
   const handlePlaceOrder = async () => {
@@ -333,8 +375,10 @@ function BillingForm({
       return;
     }
 
+    if (loadingAddresses || addressLoadFailed) return;
+
     if (addresses.length === 0) {
-      navigate("/account/addresses");
+      navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
       return;
     }
 
@@ -415,14 +459,19 @@ function BillingForm({
       const cleanPincode =
         (selectedAddress.pincode || "").replace(/\D/g, "") || "";
 
+      if (!selectedAddress.address_line1?.trim() || !selectedAddress.city?.trim()) {
+        setError("Please update your delivery address before placing your order.");
+        return;
+      }
+
       const billingAddress = {
         first_name: firstName,
         last_name: lastName,
         email: userEmail,
         phone: userPhone,
-        address_1: selectedAddress.address_line1 || "Street Address",
+        address_1: selectedAddress.address_line1.trim(),
         address_2: selectedAddress.address_line2 || "",
-        city: selectedAddress.city || "Vasai West",
+        city: selectedAddress.city.trim(),
         state: stateCode,
         postcode: cleanPincode,
         country: "IN",
@@ -432,9 +481,9 @@ function BillingForm({
         first_name: firstName,
         last_name: lastName,
         phone: userPhone,
-        address_1: selectedAddress.address_line1 || "Street Address",
+        address_1: selectedAddress.address_line1.trim(),
         address_2: selectedAddress.address_line2 || "",
-        city: selectedAddress.city || "Vasai West",
+        city: selectedAddress.city.trim(),
         state: stateCode,
         postcode: cleanPincode,
         country: "IN",
@@ -834,6 +883,8 @@ function BillingForm({
   );
   const isDisabled =
     loading ||
+    (isAuthenticated && loadingAddresses) ||
+    (isAuthenticated && addressLoadFailed) ||
     stockChecking ||
     isStoreClosed ||
     hasOutOfStock ||
@@ -939,7 +990,7 @@ function BillingForm({
                 type="button"
                 onClick={() => {
                   if (addresses.length === 0) {
-                    navigate("/account/addresses");
+                    navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                   } else {
                     setShowAddressModal(true);
                   }
@@ -965,7 +1016,7 @@ function BillingForm({
                 <p className="mt-0.5 text-[11px] text-[#8FA4BE] font-medium">Please add a delivery address to proceed.</p>
                 <button
                   type="button"
-                  onClick={() => navigate("/account/addresses")}
+                  onClick={() => navigate("/account/addresses", { state: { from: "/cart", selectNew: true } })}
                   className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-3.5 py-1.5 text-xs font-black text-[#061220] shadow-xs hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 transition cursor-pointer"
                 >
                   <Plus size={13} />
@@ -1101,6 +1152,11 @@ function BillingForm({
       />
 
       {/* Address Selection Modal / Bottom Sheet */}
+      {addressLoadFailed && (
+        <div role="alert" className="mx-auto my-3 max-w-[700px] rounded-xl border border-amber-600 bg-[#111F36] p-3 text-sm text-amber-200">
+          Unable to load delivery addresses. <button type="button" className="font-bold underline" onClick={() => setAddressRetry((count) => count + 1)}>Retry</button>
+        </div>
+      )}
       {showAddressModal && (
         <div
           onClick={() => setShowAddressModal(false)}
@@ -1130,15 +1186,17 @@ function BillingForm({
 
             <div className="mt-3.5 space-y-2.5 overflow-y-auto pr-1 flex-1 max-h-[50vh]">
               {addresses.map((addr) => {
-                const isSelected = selectedAddressId === addr.id;
+                const isSelected = String(selectedAddressId) === String(addr.id);
                 const isHome = addr.type === "home";
 
                 return (
                   <div
                     key={addr.id}
                     onClick={() => {
-                      setSelectedAddressId(addr.id);
-                      safeStorage.setItem("selected_address_id", addr.id);
+                      const addrIdStr = String(addr.id);
+                      setSelectedAddressId(addrIdStr);
+                      if (user?.id) safeStorage.setItem(`selected_address_id_${user.id}`, addrIdStr);
+                      safeStorage.setItem("selected_address_id", addrIdStr);
                       setShowAddressModal(false);
                     }}
                     className={`flex items-start gap-3 rounded-2xl border p-3.5 transition-all cursor-pointer ${
@@ -1202,7 +1260,7 @@ function BillingForm({
                 type="button"
                 onClick={() => {
                   setShowAddressModal(false);
-                  navigate("/account/addresses");
+                  navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                 }}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#42D6E8]/40 bg-[#132B45]/30 py-3 text-xs font-extrabold text-[#42D6E8] hover:bg-[#132B45]/50 active:scale-[0.99] transition cursor-pointer"
               >
@@ -1356,7 +1414,7 @@ function BillingForm({
                     if (!isAuthenticated) {
                       navigate("/login", { state: { from: "/cart" } });
                     } else if (addresses.length === 0) {
-                      navigate("/account/addresses");
+                      navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                     } else {
                       setShowAddressModal(true);
                     }
@@ -1396,7 +1454,7 @@ function BillingForm({
                     if (!isAuthenticated) {
                       navigate("/login", { state: { from: "/cart" } });
                     } else if (addresses.length === 0) {
-                      navigate("/account/addresses");
+                      navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                     } else {
                       setShowAddressModal(true);
                     }

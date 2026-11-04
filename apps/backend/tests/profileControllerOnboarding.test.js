@@ -212,4 +212,102 @@ test("Backend: saveProfile Onboarding Security & Normalization", async (suite) =
     assert.equal(res401.getBody().complete, false);
     assert.equal(res401.getBody().message, "Session expired or invalid.");
   });
+
+  await suite.test("5. saveProfile evicts user cache without setting revocation markers", async () => {
+    axios.put = async (_url, payload) => ({
+      data: {
+        success: true,
+        profile: {
+          first_name: payload.first_name,
+          last_name: payload.last_name,
+          phone: payload.phone,
+        },
+      },
+    });
+
+    let statusCode = 200;
+    let body = null;
+    const res = {
+      status(code) {
+        statusCode = code;
+        return this;
+      },
+      json(payload) {
+        body = payload;
+        return this;
+      },
+      set() {
+        return this;
+      },
+      cookie() {},
+    };
+
+    const dummyCookie = "wordpress_logged_in_test=valid-token-123";
+    await saveProfile(
+      {
+        body: { first_name: "Aarav", last_name: "Shah", phone: "9876543210" },
+        wpUserId: 42,
+        cookies: { mumbai_customer_auth: dummyCookie },
+      },
+      res
+    );
+
+    assert.equal(statusCode, 200);
+    assert.equal(body.success, true);
+    assert.equal(body.profile.first_name, "Aarav");
+    assert.equal(body.profile.phone, "9876543210");
+  });
+
+  await suite.test("6. saveProfile with password change invalidates older sessions and sets replacement session", async () => {
+    let capturedPayload = null;
+    axios.put = async (_url, payload) => {
+      capturedPayload = payload;
+      return {
+        data: {
+          success: true,
+          session: "new-replacement-session-token",
+          cookie_name: "wordpress_logged_in_hash",
+          rest_nonce: "test-nonce",
+          profile: {
+            first_name: payload.first_name,
+            last_name: payload.last_name,
+            phone: payload.phone,
+          },
+        },
+      };
+    };
+
+    let statusCode = 200;
+    let body = null;
+    const cookiesSet = {};
+    const res = {
+      status(code) {
+        statusCode = code;
+        return this;
+      },
+      json(payload) {
+        body = payload;
+        return this;
+      },
+      set() {
+        return this;
+      },
+      cookie(name, val) {
+        cookiesSet[name] = val;
+      },
+    };
+
+    await saveProfile(
+      {
+        body: { first_name: "Pooja", last_name: "Patil", phone: "9876543210", password: "NewStrongPassword123!" },
+        wpUserId: 88,
+        cookies: { mumbai_customer_auth: "old-session-cookie" },
+      },
+      res
+    );
+
+    assert.equal(statusCode, 200);
+    assert.equal(body.success, true);
+    assert.equal(cookiesSet["mumbai_customer_auth"], "wordpress_logged_in_hash=new-replacement-session-token");
+  });
 });

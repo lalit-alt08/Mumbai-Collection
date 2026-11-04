@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { useNavigate, useLocation } from "react-router-dom";
-import axios from "axios";
 import { Loader2, AlertCircle } from "lucide-react";
 import { googleLogin } from "../../services/authService";
 import { useAuth } from "../../context/AuthContext";
-import API_URL from "../../config/api.js";
+import { getSafeInternalPath } from "../../utils/navigation.js";
 
 function GoogleIcon({ className = "h-5 w-5 shrink-0" }) {
   return (
@@ -57,52 +56,8 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
         loginUser(res.user);
       }
 
-      // If user was newly registered via Google SSO
-      if (res?.is_new_user) {
-        const rawName = res.user?.name || "";
-        const parts = rawName.trim().split(/\s+/);
-        const firstName = res.user?.first_name || parts[0] || "";
-        const lastName =
-          res.user?.last_name ||
-          (parts.length > 1 ? parts.slice(1).join(" ") : "");
-
-        navigate("/profile-setup", {
-          replace: true,
-          state: {
-            first_name: firstName,
-            last_name: lastName,
-            fromRegister: true,
-          },
-        });
-        return;
-      }
-
-      // For existing customers, check if profile & delivery address are complete
-      try {
-        const checkRes = await axios.get(`${API_URL}/profile/complete`, {
-          withCredentials: true,
-          headers: { "X-Mumbai-Panel": "customer" },
-          timeout: 6000,
-        });
-
-        if (checkRes.data?.complete === true) {
-          const from = location.state?.from;
-          navigate(from || "/", { replace: true });
-        } else {
-          navigate("/profile-setup", {
-            replace: true,
-            state: {
-              first_name: res.user?.first_name || "",
-              last_name: res.user?.last_name || "",
-              fromRegister: false,
-            },
-          });
-        }
-      } catch {
-        // If checking profile completeness experiences a network error, do not assume profile is incomplete!
-        const from = location.state?.from;
-        navigate(from || "/", { replace: true });
-      }
+      const safeReturn = getSafeInternalPath(location.state?.from, "/");
+      navigate(safeReturn, { replace: true });
     } catch (err) {
       const msg =
         err.response?.data?.message ||

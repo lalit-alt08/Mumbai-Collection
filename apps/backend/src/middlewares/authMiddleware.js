@@ -105,6 +105,29 @@ export const invalidateSessionCache = async (cookie, { permanent = false } = {})
   return false;
 };
 
+/**
+ * Evict cached user profile details from memory and Redis without revoking the session.
+ * Used during non-security profile updates (name, phone) so subsequent requests
+ * refresh user details from the source of truth without being blocked by revocation markers.
+ */
+export const evictSessionUserCache = async (cookie) => {
+  if (cookie) {
+    sessionCache.delete(cookie);
+    const redis = getRedisClient();
+    if (redis) {
+      try {
+        const keyHash = hashCookieKey(cookie);
+        await redis.del(`sess:${keyHash}`);
+        await redis.publish("mumbai:session:invalidate", JSON.stringify({ keyHash }));
+        return true;
+      } catch (error) {
+        logger.warn({ err: error?.message }, "Session cache eviction failed");
+      }
+    }
+  }
+  return false;
+};
+
 export const invalidateUserSessionCache = (userId) => {
   if (!userId) return;
   const redis = getRedisClient();

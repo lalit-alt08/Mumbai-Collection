@@ -186,7 +186,7 @@ function Home() {
                   {[1, 2, 3, 4, 5, 6].map((card) => (
                     <div
                       key={card}
-                      className="w-[160px] sm:w-[175px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-[#111F36] p-2.5 md:p-3.5 border border-[#1E3252]/50 shadow-xs"
+                      className="w-[178px] sm:w-[195px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-[#111F36] p-2.5 md:p-3.5 border border-[#1E3252]/50 shadow-xs"
                     >
                       <div className="aspect-square w-full rounded-[12px] md:rounded-[14px] bg-[#080F1C] mb-2 md:mb-3" />
                       <div className="h-3 md:h-4 w-3/4 bg-[#162744] rounded mb-1.5 md:mb-2" />
@@ -240,7 +240,7 @@ function Home() {
                   {section.products.slice(0, 6).map((product) => (
                     <div
                       key={product.id}
-                      className="w-[155px] sm:w-[170px] shrink-0 snap-start flex flex-col md:w-full md:shrink md:snap-align-none"
+                      className="w-[178px] sm:w-[195px] shrink-0 snap-start flex flex-col md:w-full md:shrink md:snap-align-none"
                     >
                       <ProductCard product={product} />
                     </div>

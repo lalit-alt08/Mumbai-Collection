@@ -1,14 +1,16 @@
 import { User, Mail, ArrowRight, ArrowLeft, ShieldCheck, RefreshCw } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { register, sendOtp, verifyOtp } from "../services/authService";
+import { useNavigate, useLocation } from "react-router-dom";
+import { register, sendOtp, verifyOtp, getCurrentUser } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
 import { validatePassword } from "../utils/passwordValidator.js";
+import { getSafeInternalPath } from "../utils/navigation.js";
 
 function Register() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login: loginUser } = useAuth();
 
   // Step state: "details" (names + email) | "otp" (verification code)
@@ -205,20 +207,56 @@ function Register() {
         password,
       });
 
-      if (regResponse?.user) {
-        loginUser(regResponse.user);
+      if (!regResponse?.user) {
+        throw new Error("Registration succeeded but no active user session was returned. Please sign in.");
       }
+
+      // If registration succeeded but the backend could not establish a session cookie:
+      if (regResponse.session_established === false) {
+        setPassword("");
+        setConfirmPassword("");
+        setRegistrationToken("");
+        navigate("/login", {
+          replace: true,
+          state: {
+            email: cleanEmail,
+            from: location.state?.from,
+            message: "Account created successfully! Please sign in with your password to continue.",
+          },
+        });
+        return;
+      }
+
+      // Explicitly verify browser cookie acceptance via authenticated /auth/me
+      let confirmedUser;
+      try {
+        const sessionCheck = await getCurrentUser();
+        confirmedUser = sessionCheck?.success && sessionCheck?.user;
+      } catch (_) {
+        confirmedUser = null;
+      }
+      if (!confirmedUser || String(confirmedUser.id) !== String(regResponse.user.id)) {
+        setPassword("");
+        setConfirmPassword("");
+        setRegistrationToken("");
+        navigate("/login", {
+          replace: true,
+          state: {
+            email: cleanEmail,
+            from: location.state?.from,
+            message: "Account created successfully! Please sign in with your password to continue.",
+          },
+        });
+        return;
+      }
+
+      loginUser(confirmedUser);
       setPassword("");
       setConfirmPassword("");
       setRegistrationToken("");
 
-      navigate("/profile-setup", {
-        state: {
-          first_name: cleanFirst,
-          last_name: cleanLast,
-          fromRegister: true,
-        },
-      });
+      const safeReturn = getSafeInternalPath(location.state?.from, "/");
+      navigate(safeReturn, { replace: true });
     } catch (err) {
       const backendMessage =
         typeof err.response?.data?.message === "string"
@@ -357,7 +395,7 @@ function Register() {
                       <p className="text-xs text-rose-400">{emailError}</p>
                       <button
                         type="button"
-                        onClick={() => navigate("/login")}
+                        onClick={() => navigate("/login", { state: { from: location.state?.from } })}
                         className="text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
                       >
                         Sign in instead →
@@ -405,7 +443,7 @@ function Register() {
                 Already have an account?
                 <button
                   type="button"
-                  onClick={() => navigate("/login")}
+                  onClick={() => navigate("/login", { state: { from: location.state?.from } })}
                   className="ml-1.5 font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] cursor-pointer"
                 >
                   Sign In

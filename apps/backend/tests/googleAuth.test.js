@@ -146,6 +146,24 @@ test("Google Auth Controller Tests", async (t) => {
     assert.strictEqual(response.data.success, false);
   });
 
+  await t.test("Rejects Google auth-code exchange from untrusted or staff origins", async () => {
+    // Untrusted external origin
+    const resUntrusted = await simulateRequest(
+      { code: "sample-code" },
+      { origin: "https://attacker.vercel.app", "x-requested-with": "XMLHttpRequest" }
+    );
+    assert.strictEqual(resUntrusted.status, 403);
+    assert.strictEqual(resUntrusted.data.success, false);
+
+    // Staff admin origin
+    const resStaff = await simulateRequest(
+      { code: "sample-code" },
+      { origin: "http://localhost:5174", "x-requested-with": "XMLHttpRequest" }
+    );
+    assert.strictEqual(resStaff.status, 403);
+    assert.strictEqual(resStaff.data.success, false);
+  });
+
   await t.test("Does not issue a session if WordPress returns a different email account", async () => {
     OAuth2Client.prototype.verifyIdToken = async () => ({
       getPayload: () => ({
