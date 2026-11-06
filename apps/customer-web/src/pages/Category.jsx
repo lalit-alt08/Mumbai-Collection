@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getProductsByCategory, getCategories, getCachedCategories } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
-import { ChevronLeft, ChevronDown, ChevronRight, Share, Search, ShoppingBag, Loader2, MapPin, Home, Building2, Phone, X } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronRight, Share, ShoppingBag, Loader2, MapPin, Home, Building2, Phone, X } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession, formatSubcategoryName } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 import { getCategoryImageUrl } from "../utils/categoryImage";
@@ -32,6 +32,8 @@ function Category() {
   const [categoryRetryCount, setCategoryRetryCount] = useState(0);
   const productsContainerRef = useRef(null);
   const subcategoryRailRef = useRef(null);
+  const lastScrollTopRef = useRef(0);
+  const [isSubcategoryBarVisible, setIsSubcategoryBarVisible] = useState(true);
   const categoryRequestIdRef = useRef(0);
   const loadMoreControllerRef = useRef(null);
   const [page, setPage] = useState(1);
@@ -198,10 +200,49 @@ function Category() {
     };
   }, []);
 
-  // When switching subcategory or department, reset products scroll to top
+  // When switching subcategory or department, reset products scroll to top and show bar
   useEffect(() => {
     productsContainerRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    lastScrollTopRef.current = 0;
+    setIsSubcategoryBarVisible(true);
   }, [effectiveCategoryId]);
+
+  // Scroll listener on products container: hide subcategory bar when scrolling down, show when scrolling up
+  useEffect(() => {
+    const el = productsContainerRef.current;
+    if (!el) return;
+
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollTop = el.scrollTop;
+          const delta = currentScrollTop - lastScrollTopRef.current;
+
+          if (currentScrollTop <= 30) {
+            // Near top: always keep the subcategory bar visible
+            setIsSubcategoryBarVisible(true);
+          } else if (delta > 8) {
+            // Scrolling down through products: collapse bar to give products full screen
+            setIsSubcategoryBarVisible(false);
+          } else if (delta < -8) {
+            // Scrolling up towards top: smoothly reveal subcategory bar for instant switching
+            setIsSubcategoryBarVisible(true);
+          }
+
+          lastScrollTopRef.current = Math.max(0, currentScrollTop);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
 
   // Auto-scroll the active subcategory into view within the rail if needed
   useEffect(() => {
@@ -576,30 +617,20 @@ function Category() {
             </div>
           </button>
 
-          {/* Right: Two Circular Buttons (Share & Search) */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleShare}
-              aria-label="Share category"
-              title={copiedShare ? "Link copied!" : "Share"}
-              className="relative flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
-            >
-              <Share size={18} strokeWidth={2.2} />
-              {copiedShare && (
-                <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 shadow-md">
-                  Copied!
-                </span>
-              )}
-            </button>
-
-            <Link
-              to="/search"
-              aria-label="Search"
-              className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95"
-            >
-              <Search size={19} strokeWidth={2.2} />
-            </Link>
-          </div>
+          {/* Right: Circular Share Button */}
+          <button
+            onClick={handleShare}
+            aria-label="Share category"
+            title={copiedShare ? "Link copied!" : "Share"}
+            className="relative flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+          >
+            <Share size={18} strokeWidth={2.2} />
+            {copiedShare && (
+              <span className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 shadow-md">
+                Copied!
+              </span>
+            )}
+          </button>
         </div>
       </header>
 
@@ -761,29 +792,28 @@ function Category() {
       )}
 
       {/* ────────────────────────────────────────────────────────── */}
-      {/* MAIN TWO-COLUMN CONTENT AREA (FIXED HEIGHT, INDEPENDENT SCROLL) */}
+      {/* HORIZONTAL TOP SUBCATEGORY RAIL & FULL-WIDTH PRODUCTS AREA */}
       {/* ────────────────────────────────────────────────────────── */}
       {currentCategoryInfo.children.length > 0 ? (
-        <div className="flex-1 min-h-0 flex mx-auto max-w-7xl w-full overflow-hidden">
-          {/* LEFT: Blinkit-style Subcategory Rail */}
-          <aside
+        <div className="flex-1 min-h-0 flex flex-col mx-auto max-w-7xl w-full overflow-hidden">
+          {/* TOP: Horizontally Scrollable Subcategories with Curved End Edges (Collapses on Scroll Down, Reveals on Scroll Up) */}
+          <div
             ref={subcategoryRailRef}
             aria-label={`${departmentName} subcategories`}
-            className="w-[72px] sm:w-[84px] md:w-[100px] shrink-0 h-full overflow-y-auto overscroll-contain border-r border-[#162744]/70 bg-[#0B1425] py-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] touch-pan-y select-none"
+            className={`shrink-0 w-full overflow-x-auto overscroll-contain border-b border-x border-[#162744]/80 bg-[#0B1425] rounded-b-2xl sm:rounded-b-3xl px-3 sm:px-4 shadow-md [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] touch-pan-x select-none transition-all duration-300 ease-in-out ${
+              isSubcategoryBarVisible
+                ? "max-h-28 opacity-100 pt-2 pb-2.5 translate-y-0"
+                : "max-h-0 opacity-0 py-0 -translate-y-2 pointer-events-none border-transparent"
+            }`}
           >
-            <nav className="flex flex-col gap-1 pb-44 sm:pb-48 lg:pb-16" aria-label="Subcategories">
+            <nav className="flex items-start gap-2.5 sm:gap-3.5 w-max" aria-label="Subcategories">
               {/* "All" button */}
               <button
                 type="button"
                 aria-current={activeSubcategoryId === null ? "page" : undefined}
                 onClick={() => navigate(`/category/${currentCategoryInfo.department?.id || categoryId}`)}
-                className="group relative flex flex-col items-center justify-center py-2.5 px-1 text-center transition-all duration-150 active:scale-95 cursor-pointer"
+                className="group shrink-0 flex flex-col items-center justify-start w-[62px] sm:w-[70px] text-center transition-all duration-150 active:scale-95 cursor-pointer"
               >
-                {/* Active Indicator Bar (Blinkit style on right edge) */}
-                {activeSubcategoryId === null && (
-                  <span className="absolute right-0 top-1/2 -translate-y-1/2 w-[3.5px] h-8 rounded-l-full bg-[#42D6E8] shadow-[0_0_8px_rgba(66,214,232,0.6)]" />
-                )}
-
                 <span className={`flex h-12 w-12 sm:h-13 sm:w-13 items-center justify-center overflow-hidden rounded-full border p-1 transition-all ${
                   activeSubcategoryId === null
                     ? "border-2 border-[#42D6E8] bg-[#122238] shadow-[0_0_12px_rgba(66,214,232,0.25)] scale-105"
@@ -800,11 +830,15 @@ function Category() {
                   />
                 </span>
 
-                <span className={`w-full line-clamp-2 text-[11.5px] sm:text-[12px] leading-tight mt-1.5 ${
+                <span className={`w-full line-clamp-2 text-[11px] sm:text-[11.5px] leading-tight mt-1.5 ${
                   activeSubcategoryId === null ? "font-black text-[#42D6E8]" : "font-semibold text-[#8FA4BE] group-hover:text-white"
                 }`}>
                   All
                 </span>
+
+                {activeSubcategoryId === null && (
+                  <span className="w-5 h-[2px] rounded-full bg-[#42D6E8] mt-1 shadow-[0_0_6px_rgba(66,214,232,0.6)]" />
+                )}
               </button>
 
               {/* Subcategory buttons */}
@@ -819,13 +853,8 @@ function Category() {
                     aria-current={isSelected ? "page" : undefined}
                     aria-label={`Show ${subName} products`}
                     onClick={() => navigate(`/category/${sub.id}`)}
-                    className="group relative flex flex-col items-center justify-center py-2.5 px-1 text-center transition-all duration-150 active:scale-95 cursor-pointer"
+                    className="group shrink-0 flex flex-col items-center justify-start w-[62px] sm:w-[70px] text-center transition-all duration-150 active:scale-95 cursor-pointer"
                   >
-                    {/* Active Indicator Bar (Blinkit style on right edge) */}
-                    {isSelected && (
-                      <span className="absolute right-0 top-1/2 -translate-y-1/2 w-[3.5px] h-8 rounded-l-full bg-[#42D6E8] shadow-[0_0_8px_rgba(66,214,232,0.6)]" />
-                    )}
-
                     <span className={`flex h-12 w-12 sm:h-13 sm:w-13 items-center justify-center overflow-hidden rounded-full border p-1 transition-all ${
                       isSelected
                         ? "border-2 border-[#42D6E8] bg-[#122238] shadow-[0_0_12px_rgba(66,214,232,0.25)] scale-105"
@@ -850,42 +879,27 @@ function Category() {
                       />
                     </span>
 
-                    <span className={`w-full line-clamp-2 text-[11.5px] sm:text-[12px] leading-tight mt-1.5 ${
+                    <span className={`w-full line-clamp-2 text-[11px] sm:text-[11.5px] leading-tight mt-1.5 ${
                       isSelected ? "font-black text-[#42D6E8]" : "font-semibold text-[#8FA4BE] group-hover:text-white"
                     }`}>
                       {subName}
                     </span>
+
+                    {isSelected && (
+                      <span className="w-5 h-[2px] rounded-full bg-[#42D6E8] mt-1 shadow-[0_0_6px_rgba(66,214,232,0.6)]" />
+                    )}
                   </button>
                 );
               })}
             </nav>
-          </aside>
+          </div>
 
-          {/* RIGHT: Independent Products Scroll View */}
+          {/* FULL-WIDTH Products Scroll View */}
           <section
             ref={productsContainerRef}
             aria-label={`${activeSubcategoryTitle} products`}
-            className="flex-1 min-w-0 h-full overflow-y-auto overscroll-contain px-2 pt-2.5 pb-44 sm:px-4 sm:pt-3.5 sm:pb-48 lg:pb-16 touch-pan-y"
+            className="flex-1 min-w-0 h-full overflow-y-auto overscroll-contain px-3 pt-3 pb-44 sm:px-6 sm:pt-4 sm:pb-48 lg:pb-16 touch-pan-y"
           >
-            {/* Blinkit-style Subcategory Hero Banner */}
-            <div className="mb-3 relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0E2038] via-[#0B182B] to-[#071220] border border-[#182F4E] p-3 sm:p-3.5 shadow-xs flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1 z-10">
-                <h2 className="text-sm sm:text-base font-extrabold text-white tracking-tight leading-tight truncate">
-                  {activeSubcategoryTitle}
-                </h2>
-              </div>
-              <div className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-xl bg-[#091526] border border-[#1C3559] p-1 flex items-center justify-center overflow-hidden shadow-xs">
-                <img
-                  src={getCategoryImageUrl(activeSubcategoryObj || currentCategoryInfo.department)}
-                  alt=""
-                  className="h-full w-full object-contain"
-                  loading="lazy"
-                  decoding="async"
-                  onError={(e) => { e.currentTarget.style.display = "none"; }}
-                />
-              </div>
-            </div>
-
             {productContent}
           </section>
         </div>

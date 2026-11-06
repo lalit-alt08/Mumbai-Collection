@@ -52,6 +52,27 @@ export const safeStorage = {
     memoryStore.delete(key);
   },
 
+  removeByPrefix(prefix) {
+    if (!prefix || typeof prefix !== "string") return;
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        const keys = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && k.startsWith(prefix)) {
+            keys.push(k);
+          }
+        }
+        keys.forEach((k) => window.localStorage.removeItem(k));
+      }
+    } catch (_) {}
+    for (const key of Array.from(memoryStore.keys())) {
+      if (key && key.startsWith(prefix)) {
+        memoryStore.delete(key);
+      }
+    }
+  },
+
   getJSON(key, defaultValue = null) {
     const raw = this.getItem(key);
     if (raw === null || raw === undefined || raw === "") {
@@ -99,6 +120,27 @@ export const safeSessionStorage = {
       }
     } catch (_) {}
     sessionMemoryStore.delete(key);
+  },
+
+  removeByPrefix(prefix) {
+    if (!prefix || typeof prefix !== "string") return;
+    try {
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        const keys = [];
+        for (let i = 0; i < window.sessionStorage.length; i++) {
+          const k = window.sessionStorage.key(i);
+          if (k && k.startsWith(prefix)) {
+            keys.push(k);
+          }
+        }
+        keys.forEach((k) => window.sessionStorage.removeItem(k));
+      }
+    } catch (_) {}
+    for (const key of Array.from(sessionMemoryStore.keys())) {
+      if (key && key.startsWith(prefix)) {
+        sessionMemoryStore.delete(key);
+      }
+    }
   },
 
   getJSON(key, defaultValue = null) {

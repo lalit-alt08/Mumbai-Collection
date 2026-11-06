@@ -16,6 +16,30 @@ import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 
 const AuthContext = createContext();
 
+const persistUserCache = (userData) => {
+  if (!userData?.id) {
+    safeSessionStorage.removeItem("user");
+    return;
+  }
+  safeSessionStorage.setJSON("user", {
+    id: userData.id,
+    name: userData.name || "",
+    roles: Array.isArray(userData.roles) ? userData.roles : [],
+    is_google_user: userData.is_google_user === true,
+  });
+};
+
+export const clearAllProfileCaches = (userId) => {
+  safeSessionStorage.removeItem("user_profile");
+  safeStorage.removeItem("user_profile");
+  if (userId) {
+    safeSessionStorage.removeItem(`user_profile_${userId}`);
+    safeStorage.removeItem(`user_profile_${userId}`);
+  }
+  safeSessionStorage.removeByPrefix("user_profile");
+  safeStorage.removeByPrefix("user_profile");
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -36,11 +60,15 @@ export function AuthProvider({ children }) {
 
         if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
           setIsReconnecting(false);
+          const currentUserId = response.user?.id || response.current_user_id;
           const cachedUser = safeSessionStorage.getJSON("user", {});
-          const cachedProfile = safeSessionStorage.getJSON("user_profile", {});
+          const isCachedUserValid = Number(cachedUser?.id) === Number(currentUserId);
+          const cachedProfile = currentUserId
+            ? safeSessionStorage.getJSON(`user_profile_${currentUserId}`, {})
+            : {};
 
           const userData = response.user || {
-            id: response.current_user_id,
+            id: currentUserId,
             roles: response.roles || [],
           };
 
@@ -53,14 +81,14 @@ export function AuthProvider({ children }) {
           if (isStoreName(userData.name)) userData.name = "";
           if (isStoreName(userData.username)) userData.username = "";
 
-          // Recover full_name, name, phone, email from profile or cache
+          // Recover full_name, name, phone, email from profile or cache (only if cached user matches)
           if (!isStoreName(cachedProfile.full_name)) {
             userData.name = cachedProfile.full_name;
             userData.full_name = cachedProfile.full_name;
-          } else if (!isStoreName(cachedUser.full_name)) {
+          } else if (isCachedUserValid && !isStoreName(cachedUser.full_name)) {
             userData.name = cachedUser.full_name;
             userData.full_name = cachedUser.full_name;
-          } else if (!isStoreName(cachedUser.name)) {
+          } else if (isCachedUserValid && !isStoreName(cachedUser.name)) {
             userData.name = cachedUser.name;
           }
 
@@ -68,15 +96,15 @@ export function AuthProvider({ children }) {
             userData.phone = response.user?.phone || response.phone;
           } else if (cachedProfile.phone) {
             userData.phone = cachedProfile.phone;
-          } else if (cachedUser.phone) {
+          } else if (isCachedUserValid && cachedUser.phone) {
             userData.phone = cachedUser.phone;
           }
 
-          if (!userData.email && cachedUser.email) {
+          if (!userData.email && isCachedUserValid && cachedUser.email) {
             userData.email = cachedUser.email;
           }
 
-          if (!userData.username && !isStoreName(cachedUser.username)) {
+          if (!userData.username && isCachedUserValid && !isStoreName(cachedUser.username)) {
             userData.username = cachedUser.username;
           }
 
@@ -89,26 +117,31 @@ export function AuthProvider({ children }) {
             response.verified_phone ||
             "";
 
-          setUser(userData);
+          // Prefer explicit server booleans; fall back to cache only when field is omitted and cache matches
+          if (response.user?.is_google_user !== undefined) {
+            userData.is_google_user = response.user.is_google_user === true;
+          } else if (response.is_google_user !== undefined) {
+            userData.is_google_user = response.is_google_user === true;
+          } else if (isCachedUserValid && cachedUser?.is_google_user !== undefined) {
+            userData.is_google_user = cachedUser.is_google_user === true;
+          } else {
+            userData.is_google_user = false;
+          }
 
-          // Store only minimal display fields in sessionStorage (cleared on browser close)
-          safeSessionStorage.setJSON("user", {
-            id: userData.id,
-            name: userData.name || "",
-            roles: userData.roles || [],
-          });
+          setUser(userData);
+          persistUserCache(userData);
         } else {
           setIsReconnecting(false);
           setUser(null);
           safeSessionStorage.removeItem("user");
-          safeSessionStorage.removeItem("user_profile");
+          clearAllProfileCaches();
         }
       } catch (error) {
         if (error.response?.status === 401) {
           setIsReconnecting(false);
           setUser(null);
           safeSessionStorage.removeItem("user");
-          safeSessionStorage.removeItem("user_profile");
+          clearAllProfileCaches();
         } else {
           // Outage / 503 / temporary network failure:
           // Maintain reconnecting state and flag cached display data as unverified
@@ -137,18 +170,14 @@ export function AuthProvider({ children }) {
     setIsReconnecting(false);
     // Address and user caches are purged on login to prevent cross-account leakage;
     // Cart session token is preserved so CartContext can perform safe guest-to-customer cart merge
+    clearAllProfileCaches(user?.id);
     safeStorage.removeItem("user");
-    safeStorage.removeItem("user_profile");
     safeStorage.removeItem("saved_addresses_cache");
     safeStorage.removeItem("selected_address_id");
     safeSessionStorage.removeItem("saved_addresses_cache");
     safeSessionStorage.removeItem("selected_address_id");
     setUser(userData);
-    safeSessionStorage.setJSON("user", {
-      id: userData?.id,
-      name: userData?.name || "",
-      roles: userData?.roles || [],
-    });
+    persistUserCache(userData);
   };
 
   // ==========================================
@@ -158,11 +187,7 @@ export function AuthProvider({ children }) {
   const updateUser = (newData) => {
     setUser((prev) => {
       const updated = { ...(prev || {}), ...newData };
-      safeSessionStorage.setJSON("user", {
-        id: updated.id,
-        name: updated.name || "",
-        roles: updated.roles || [],
-      });
+      persistUserCache(updated);
       return updated;
     });
   };
@@ -172,12 +197,12 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const handleSessionExpired = () => {
+    const outgoingId = user?.id;
     setIsReconnecting(false);
     setUser(null);
     safeSessionStorage.removeItem("user");
-    safeSessionStorage.removeItem("user_profile");
     safeStorage.removeItem("user");
-    safeStorage.removeItem("user_profile");
+    clearAllProfileCaches(outgoingId);
     safeStorage.removeItem("saved_addresses_cache");
     safeStorage.removeItem("selected_address_id");
     safeSessionStorage.removeItem("saved_addresses_cache");
@@ -237,12 +262,16 @@ export function AuthProvider({ children }) {
         if (response.user?.phone || response.phone) {
           userData.phone = response.user?.phone || response.phone;
         }
+
+        // Prefer explicit server booleans
+        if (response.user?.is_google_user !== undefined) {
+          userData.is_google_user = response.user.is_google_user === true;
+        } else if (response.is_google_user !== undefined) {
+          userData.is_google_user = response.is_google_user === true;
+        }
+
         setUser((prev) => ({ ...(prev || {}), ...userData, isUnverified: false }));
-        safeSessionStorage.setJSON("user", {
-          id: userData.id || response.current_user_id,
-          name: userData.name || "",
-          roles: userData.roles || [],
-        });
+        persistUserCache({ ...(user || {}), ...userData });
         return { ok: true, user: userData };
       } else {
         handleSessionExpired();

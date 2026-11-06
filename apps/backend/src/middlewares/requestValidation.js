@@ -70,6 +70,8 @@ export const schemas = {
     .object({
       credential: z.string().trim().min(1).max(10000).optional(),
       code: z.string().trim().min(1).max(4096).optional(),
+      intent: z.enum(["signin", "signup", "link"]).optional(),
+      context: z.string().trim().max(32).optional(),
     })
     .refine((data) => Boolean(data.credential) !== Boolean(data.code), {
       message: "Provide either a Google ID credential or an authorization code, but not both.",

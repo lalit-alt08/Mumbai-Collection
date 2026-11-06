@@ -28,7 +28,7 @@ function HighlightMatch({ text = "", query = "" }) {
         const isMatch = tokens.some((t) => new RegExp(`^${t}$`, "i").test(part));
         if (isMatch) {
           return (
-            <span key={index} className="text-[#42D6E8] font-bold">
+            <span key={index} className="text-[#42D6E8] font-black">
               {part}
             </span>
           );
@@ -247,7 +247,7 @@ function SearchBar() {
   const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
 
   return (
-    <div ref={searchRef} className="relative w-full">
+    <div ref={searchRef} className="static md:relative w-full">
       {/* Search Input Capsule */}
       <div
         className={`w-full rounded-full ${surfaceClasses} shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all duration-200 hover:border-[#385A8A] focus-within:border-[#42D6E8] focus-within:ring-2 focus-within:ring-[#42D6E8]/20`}
@@ -312,9 +312,9 @@ function SearchBar() {
               focus-visible:outline-none
               pl-2.5
               pr-14
-              text-xs
+              text-[13.5px]
               sm:text-sm
-              md:text-[14px]
+              md:text-[14.5px]
               font-semibold
               text-white
               placeholder:text-[#94A3B8]
@@ -356,10 +356,10 @@ function SearchBar() {
           className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(65vh,480px)] overflow-y-auto overflow-x-hidden rounded-[22px] border border-[#1E3252] bg-[#111F36] shadow-[0_16px_50px_rgba(0,0,0,0.6)] animate-[fadeIn_0.15s_ease-out] motion-reduce:animate-none"
         >
           {/* Dropdown Header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1E3252] bg-[#111F36]/95 px-4 py-2.5 text-xs font-bold text-[#8FA4BE] backdrop-blur-sm">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1E3252] bg-[#111F36]/95 px-4 py-2.5 text-[12.5px] sm:text-[13px] font-extrabold text-[#94A3B8] tracking-tight backdrop-blur-sm">
             <span>Product suggestions</span>
             {!isLoading && !hasError && (
-              <span className="text-[#42D6E8]">{totalResults} found</span>
+              <span className="text-[#42D6E8] font-black text-[12.5px] sm:text-[13px]">{totalResults} found</span>
             )}
           </div>
 
@@ -437,8 +437,8 @@ function SearchBar() {
                         {/* Title & Category Info */}
                         <div className="flex flex-col justify-center min-w-0">
                           <h3
-                            className={`line-clamp-2 text-xs sm:text-sm font-bold leading-snug transition-colors ${
-                              isSelected ? "text-[#42D6E8]" : "text-white group-hover:text-[#42D6E8]"
+                            className={`line-clamp-2 text-[13.5px] sm:text-[14.5px] font-extrabold leading-[1.3] tracking-tight transition-colors ${
+                              isSelected ? "text-[#42D6E8]" : "text-[#F1F5F9] group-hover:text-[#42D6E8]"
                             }`}
                           >
                             <HighlightMatch
@@ -448,8 +448,8 @@ function SearchBar() {
                           </h3>
 
                           {categoryName && (
-                            <div className="mt-0.5 flex items-center">
-                              <span className="rounded-md bg-[#132B45] px-1.5 py-0.2 text-[10px] font-bold text-[#67E8F9] border border-[#1E3E63]">
+                            <div className="mt-1 flex items-center">
+                              <span className="rounded-md bg-[#132B45] px-2 py-0.5 text-[11px] font-extrabold text-[#42D6E8] border border-[#1E3E63]/80 tracking-wide">
                                 {categoryName}
                               </span>
                             </div>
@@ -459,18 +459,18 @@ function SearchBar() {
 
                       {/* Price & Navigation Indicator */}
                       <div className="flex flex-col items-end shrink-0 pl-2">
-                        <span className="text-xs sm:text-sm font-extrabold text-white">
+                        <span className="text-[14px] sm:text-[15px] font-black text-white tabular-nums tracking-tight">
                           ₹{product.price}
                         </span>
                         <div
-                          className={`mt-1 flex h-6 w-6 items-center justify-center rounded-full transition-colors ${
+                          className={`mt-1.5 flex h-6.5 w-6.5 items-center justify-center rounded-full transition-colors ${
                             isSelected
                               ? "bg-[#42D6E8] text-[#061220]"
                               : "bg-[#132B45] text-[#42D6E8] group-hover:bg-[#42D6E8] group-hover:text-[#061220]"
                           }`}
                           aria-hidden="true"
                         >
-                          <ChevronRight size={13} strokeWidth={2.5} />
+                          <ChevronRight size={14} strokeWidth={2.5} />
                         </div>
                       </div>
                     </Link>
@@ -482,10 +482,10 @@ function SearchBar() {
               <button
                 type="button"
                 onClick={openFullResults}
-                className="w-full border-t border-[#1E3252] px-4 py-3 text-left text-xs font-bold text-[#42D6E8] hover:bg-[#162744] transition-colors flex items-center justify-between"
+                className="w-full border-t border-[#1E3252] bg-[#0E1A2E] px-4 py-3 text-left text-[13px] sm:text-sm font-extrabold text-[#42D6E8] hover:bg-[#162744] transition-colors flex items-center justify-between cursor-pointer"
               >
                 <span>View all {totalResults} results for “{query.trim()}”</span>
-                <ChevronRight size={14} strokeWidth={2.5} />
+                <ChevronRight size={15} strokeWidth={2.5} className="shrink-0" />
               </button>
             </>
           ) : (

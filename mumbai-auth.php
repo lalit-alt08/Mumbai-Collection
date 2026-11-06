@@ -2203,9 +2203,13 @@ function mumbai_get_profile(WP_REST_Request $request)
     // Strip legacy fields from existing stored user profiles so they never leak in responses
     unset($profile['age'], $profile['secondary_phone']);
 
+    $is_google_user = (bool) get_user_meta($user_id, '_google_sub', true);
+    $profile['is_google_user'] = $is_google_user;
+
     return [
         'success'           => true,
         'profile'           => $profile,
+        'is_google_user'    => $is_google_user,
         'is_phone_verified' => $is_phone_verified,
         'verified_phone'    => $verified_phone,
         'billing_phone'     => $billing_phone,

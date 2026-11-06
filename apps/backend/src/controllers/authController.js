@@ -640,7 +640,7 @@ export const me = async (req, res) => {
 
 export const googleLogin = async (req, res) => {
   try {
-    const { credential, code } = req.body;
+    const { credential, code, intent } = req.body;
     
     if (Boolean(credential) === Boolean(code)) {
       return res.status(400).json({
@@ -712,6 +712,15 @@ export const googleLogin = async (req, res) => {
 
     const authenticated_user_id = req.user?.id || req.wpUserId || null;
 
+    if (intent === "link") {
+      if (!authenticated_user_id) {
+        return res.status(401).json({
+          success: false,
+          message: "You must be signed in to link a Google account. Please refresh and try again.",
+        });
+      }
+    }
+
     // Call the internal SSO endpoint in our WordPress plugin
     const response = await axios.post(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/sso`,
@@ -746,6 +755,17 @@ export const googleLogin = async (req, res) => {
         success: false,
         message: getContextAccessMessage(context),
       });
+    }
+
+    // Explicit linking verification: Ensure returned user ID matches the authenticated customer
+    if (intent === "link") {
+      if (Number(data?.user?.id) !== Number(authenticated_user_id)) {
+        await revokeIssuedWordPressSession(data);
+        return res.status(409).json({
+          success: false,
+          message: "This Google account belongs to a different store account and cannot be linked.",
+        });
+      }
     }
 
     const cookieOptions = getCookieOptions(req, userRoles);

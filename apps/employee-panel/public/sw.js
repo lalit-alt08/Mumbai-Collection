@@ -20,8 +20,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "🚨 New Mumbai Collection Order!";
   const options = {
     body: data.body || "New order received. Tap to view and pack.",
-    icon: data.icon || "/icon-192.png",
-    badge: data.badge || "/icon-192.png",
+    icon: data.icon || "/icon-192-v2.png",
+    badge: data.badge || "/icon-192-v2.png",
     tag: data.tag || "mumbai-order-alert",
     renotify: true,
     requireInteraction: true,

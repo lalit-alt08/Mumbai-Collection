@@ -4,6 +4,7 @@ import {
   loginEmployee,
   logoutEmployee,
 } from "../services/authService";
+import { resetNotificationController } from "../utils/orderNotification.js";
 
 const EmployeeAuthContext = createContext(null);
 
@@ -26,12 +27,15 @@ export const EmployeeAuthProvider = ({ children }) => {
             roles,
           });
         } else {
+          resetNotificationController();
           setUser(null);
         }
       } else {
+        resetNotificationController();
         setUser(null);
       }
     } catch {
+      resetNotificationController();
       setUser(null);
     } finally {
       setLoading(false);
@@ -59,6 +63,7 @@ export const EmployeeAuthProvider = ({ children }) => {
 
     if (!loginUser?.id || !isAllowed) {
       await logoutEmployee().catch(() => {});
+      resetNotificationController();
       setUser(null);
       throw new Error("This account does not have employee access permissions.");
     }
@@ -77,8 +82,10 @@ export const EmployeeAuthProvider = ({ children }) => {
         const { unsubscribeDevicePush } = await import("../utils/pushSubscription.js");
         await unsubscribeDevicePush();
       } catch (_) {}
+      resetNotificationController();
       await logoutEmployee();
     } finally {
+      resetNotificationController();
       setUser(null);
     }
   };

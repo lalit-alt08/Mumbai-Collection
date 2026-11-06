@@ -7,6 +7,7 @@ import {
   LockKeyhole,
   Store,
   UserCheck,
+  Fan,
 } from "lucide-react";
 
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
@@ -23,7 +24,9 @@ function Login() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0F172A]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-emerald-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+          <Fan size={26} className="text-emerald-500 animate-spin" style={{ animationDuration: "1s" }} />
+        </div>
       </div>
     );
   }

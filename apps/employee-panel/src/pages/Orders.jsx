@@ -29,13 +29,16 @@ import {
   BellRing,
   Volume2,
   VolumeX,
+  Fan,
 } from "lucide-react";
 import { getOrders, bulkDispatchOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl, acknowledgeOrder } from "../services/employeeApi.js";
 import {
   triggerNewOrderNotification,
   requestNotificationPermission,
   armOrderAlarm,
+  testOrderAlertSound,
   isAudioArmed,
+  getAudioArmStatus,
   subscribeToAlarmState,
   acknowledgeOrderAlarm,
   restoreOrderAlarm,
@@ -317,6 +320,39 @@ function Orders() {
       if (res.success) {
         if (requestId !== requestIdRef.current) return;
         const incomingOrders = res.orders || [];
+        incomingOrders.forEach((o) => {
+          const s = (o.status || "").toLowerCase();
+          if (["packed", "ready_for_dispatch", "dispatched", "completed", "cancelled", "refunded", "failed"].includes(s)) {
+            acknowledgeOrderAlarm(o.id);
+          }
+        });
+
+        // Auto-detect orders needing packing (status: processing, pending)
+        const pendingOrders = incomingOrders.filter((o) => {
+          const s = (o.status || "").toLowerCase();
+          return s === "processing" || s === "pending";
+        });
+
+        if (knownOrderIdsRef.current === null) {
+          // On initial load: trigger alarm for any unacknowledged to-pack orders
+          pendingOrders.forEach((o) => {
+            const isAck = o.meta_data?.some(
+              (m) => m.key === "_counter_acknowledged" && (m.value === "1" || m.value === "true" || m.value === true)
+            );
+            if (!isAck) {
+              triggerNewOrderNotification({ orderId: o.id });
+            }
+          });
+        } else {
+          // On background polling/refresh/SSE catch-up:
+          // Any new order needing packing automatically sounds the alarm!
+          pendingOrders.forEach((o) => {
+            if (!knownOrderIdsRef.current.has(o.id)) {
+              triggerNewOrderNotification({ orderId: o.id });
+            }
+          });
+        }
+
         knownOrderIdsRef.current = new Set(incomingOrders.map((o) => o.id));
         setOrders(incomingOrders);
         setOrdersQueryKey(currentOrdersQueryKey);
@@ -346,10 +382,15 @@ function Orders() {
   };
 
   // Alarm state subscription
-  const [alarmState, setAlarmState] = useState({
-    unacknowledgedOrders: [],
-    isAlarming: false,
-    isArmed: isAudioArmed(),
+  const [alarmState, setAlarmState] = useState(() => {
+    const status = getAudioArmStatus();
+    return {
+      unacknowledgedOrders: [],
+      isAlarming: false,
+      isArmed: Boolean(status.armed),
+      voiceArmed: Boolean(status.voiceArmed),
+      chimeArmed: Boolean(status.chimeArmed),
+    };
   });
   const [ackError, setAckError] = useState(null);
 
@@ -497,6 +538,10 @@ function Orders() {
               // Cross-device sync: staff acknowledged on another phone
               acknowledgeOrderAlarm(data.orderId);
             } else if (data?.event === "ORDER_STATUS_UPDATED") {
+              const status = (data?.status || "").toLowerCase();
+              if (["packed", "ready_for_dispatch", "dispatched", "completed", "cancelled", "refunded", "failed"].includes(status)) {
+                acknowledgeOrderAlarm(data.orderId);
+              }
               scheduleEventRefresh();
             }
           } catch (_) {
@@ -533,10 +578,10 @@ function Orders() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("online", handleOnline);
 
-    // 45-second fallback polling
+    // 8-second fallback polling for rapid auto-detection of incoming counter orders
     const pollInterval = setInterval(() => {
       if (!document.hidden) fetchOrderList(true);
-    }, 45000);
+    }, 8000);
 
     return () => {
       isDisposed = true;
@@ -690,6 +735,13 @@ function Orders() {
 
     try {
       const res = await updateOrderStatus(orderId, newStatus);
+
+      // Successfully packed/progressed: immediately silence local alarm and sync acknowledgement to other devices
+      const normalizedStatus = String(newStatus).toLowerCase();
+      if (["packed", "ready_for_dispatch", "dispatched", "completed", "cancelled", "refunded", "failed"].includes(normalizedStatus)) {
+        acknowledgeOrderAlarm(orderId);
+        acknowledgeOrder(orderId).catch(() => {});
+      }
 
       // Merge authoritative server response into local orders state without re-fetching entire list
       if (res?.order) {
@@ -1026,27 +1078,37 @@ function Orders() {
         </div>
       )}
 
-      {/* Audio Alert Arming Banner (Mobile Autoplay Requirement) */}
-      {!alarmState.isArmed && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-3.5 text-amber-950 shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white font-bold shadow-xs">
-              <BellRing size={18} />
-            </div>
-            <div>
-              <p className="font-bold text-xs sm:text-sm text-amber-950">Counter Audio Alerts Not Armed</p>
-              <p className="text-[11px] text-amber-800">
-                Tap to enable sound alerts for new counter orders (required by mobile browsers).
-              </p>
-            </div>
+      {/* Audio Alert Status & Controls Banner (Compact Single-Line Strip) */}
+      {!alarmState.isArmed ? (
+        <div className="flex items-center justify-between gap-2 rounded-xl bg-amber-500/10 border border-amber-500/25 px-3 py-1.5 text-amber-950 shadow-2xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <BellRing size={14} className="text-amber-600 shrink-0" />
+            <p className="text-xs font-bold text-amber-950 truncate">
+              Counter Sound Inactive <span className="hidden sm:inline font-normal text-amber-800 text-[11px]">— tap to enable order sirens</span>
+            </p>
           </div>
           <button
             onClick={async () => {
-              await armOrderAlarm();
+              await armOrderAlarm({ playTestSound: true });
             }}
-            className="rounded-xl bg-amber-500 hover:bg-amber-600 px-3.5 py-2 text-xs font-black text-white shadow-xs transition cursor-pointer"
+            className="shrink-0 rounded-lg bg-amber-500 hover:bg-amber-600 active:scale-95 px-2.5 py-1 text-[11px] font-black text-white shadow-2xs transition cursor-pointer"
           >
-            Enable Order Sound
+            Enable Sound 🔊
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-emerald-950 shadow-2xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <Volume2 size={14} className="text-emerald-600 shrink-0" />
+            <p className="text-xs font-semibold text-emerald-950 truncate">
+              Sound Active <span className="hidden sm:inline font-normal text-emerald-800 text-[11px]">({alarmState.voiceArmed ? "Voice Alert" : "Chime"})</span>
+            </p>
+          </div>
+          <button
+            onClick={testOrderAlertSound}
+            className="shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 px-2.5 py-1 text-[11px] font-bold text-white shadow-2xs transition cursor-pointer"
+          >
+            Test Sound 🔊
           </button>
         </div>
       )}
@@ -1391,7 +1453,9 @@ function Orders() {
         ) : !hasCurrentOrders || (loading && orders.length === 0) ? (
           <div className="flex h-64 items-center justify-center">
             <div className="flex flex-col items-center gap-2">
-              <Loader2 size={24} className="animate-spin text-emerald-600" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20 shadow-xs">
+                <Fan size={26} className="text-emerald-500 animate-spin" style={{ animationDuration: "1s" }} />
+              </div>
               <p className="text-xs font-bold text-gray-400">Loading order pipeline...</p>
             </div>
           </div>

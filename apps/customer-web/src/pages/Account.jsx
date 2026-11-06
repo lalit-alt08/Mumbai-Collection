@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import API_URL from "../config/api.js";
-import safeStorage from "../utils/safeStorage.js";
+import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
 import {
   User,
@@ -16,6 +16,7 @@ import {
   LogOut,
   Pencil,
   Package,
+  Home,
 } from "lucide-react";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
@@ -25,38 +26,61 @@ function Account() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
 
-  // Instant synchronous hydration from cache to prevent any flashing
-  const [profile, setProfile] = useState(() => {
-    return safeStorage.getJSON("user_profile", null);
+  // Instant synchronous hydration from scoped session cache
+  const [profileState, setProfileState] = useState(() => {
+    // Purge legacy unscoped localStorage profile if present
+    safeStorage.removeItem("user_profile");
+    if (!user?.id) return { data: null, userId: null };
+    const cached = safeSessionStorage.getJSON(`user_profile_${user.id}`, null);
+    return { data: cached || null, userId: user.id };
   });
 
+  const profile = profileState.userId === user?.id ? profileState.data : null;
+
   useEffect(() => {
+    if (!user?.id) {
+      setProfileState({ data: null, userId: null });
+      return;
+    }
+
+    const currentUserId = user.id;
+    const scopedKey = `user_profile_${currentUserId}`;
+    const cached = safeSessionStorage.getJSON(scopedKey, null);
+    // Unconditionally reset state to current user's cache or null on account switch
+    setProfileState({ data: cached || null, userId: currentUserId });
+
     let isMounted = true;
+    const controller = new AbortController();
+
     const loadProfile = async () => {
       try {
         const res = await axios.get(`${API_URL}/profile`, {
           withCredentials: true,
+          signal: controller.signal,
         });
-        if (isMounted && res.data?.profile) {
-          setProfile(res.data.profile);
-          safeStorage.setJSON("user_profile", res.data.profile);
+        if (isMounted && res.data?.profile && user?.id === currentUserId) {
+          setProfileState({ data: res.data.profile, userId: currentUserId });
+          safeSessionStorage.setJSON(scopedKey, res.data.profile);
           if (updateUser && res.data.profile.full_name) {
             updateUser({
               name: res.data.profile.full_name,
               full_name: res.data.profile.full_name,
               phone: res.data.profile.phone,
+              is_google_user: res.data.profile.is_google_user ?? res.data.is_google_user ?? user?.is_google_user,
             });
           }
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         // Fallback to user context
       }
     };
     loadProfile();
     return () => {
       isMounted = false;
+      controller.abort();
     };
-  }, []);
+  }, [user?.id]);
 
   const isStoreName = (str) => {
     if (!str || typeof str !== "string") return true;
@@ -77,6 +101,12 @@ function Account() {
     profile?.email?.trim() ||
     user?.email?.trim() ||
     "";
+
+  const isGoogleLinked =
+    user?.is_google_user === true ||
+    profile?.is_google_user === true ||
+    Boolean(user?.google_id) ||
+    Boolean(profile?.google_id);
 
   const avatarInitials =
     displayName
@@ -104,7 +134,7 @@ function Account() {
         {/* ────────────────────────────────────────────────────────── */}
         {/* TOP BAR / NAVIGATION                                       */}
         {/* ────────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="flex items-center justify-between gap-2.5 sm:gap-3">
           {/* Left: Circular Back Button */}
           <button
             onClick={() => {
@@ -127,6 +157,16 @@ function Account() {
               My Account
             </h1>
           </div>
+
+          {/* Right: Circular Home Button */}
+          <Link
+            to="/"
+            onClick={() => triggerHaptic("light")}
+            aria-label="Home"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-[#42D6E8]/40 hover:text-white active:scale-95 cursor-pointer"
+          >
+            <Home size={21} strokeWidth={2.2} />
+          </Link>
         </div>
 
         {/* ────────────────────────────────────────────────────────── */}
@@ -145,11 +185,11 @@ function Account() {
 
               {/* Name & Contact Details */}
               <div className="min-w-0 flex-1">
-                <h2 className="text-lg sm:text-xl font-extrabold text-[#F1F5F9] tracking-tight truncate capitalize">
+                <h2 className="text-[20px] sm:text-[22px] font-black text-white tracking-[-0.015em] leading-snug truncate capitalize antialiased">
                   {displayName}
                 </h2>
                 {displayContact && (
-                  <p className="text-xs sm:text-sm font-semibold text-[#8FA4BE] truncate mt-0.5">
+                  <p className="text-[13.5px] sm:text-[14.5px] font-medium text-[#94A3B8] tracking-[0.01em] truncate mt-0.5 leading-normal antialiased">
                     {displayContact}
                   </p>
                 )}
@@ -307,7 +347,11 @@ function Account() {
         {/* LOGOUT ACTION CARD                                         */}
         {/* ────────────────────────────────────────────────────────── */}
         <div className="pt-1">
-          <div className="mb-3"><GoogleAuthButton mode="link" /></div>
+          {!isGoogleLinked && (
+            <div className="mb-3">
+              <GoogleAuthButton mode="link" />
+            </div>
+          )}
           <button
             onClick={handleLogout}
             className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-900/60 bg-[#111F36] px-5 py-3.5 text-sm font-bold text-rose-400 shadow-xs transition-all hover:bg-rose-950/40 hover:border-rose-800 active:scale-[0.99] cursor-pointer"

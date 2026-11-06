@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
@@ -19,7 +19,7 @@ import {
   Shield,
 } from "lucide-react";
 import axios from "axios";
-import safeStorage from "../utils/safeStorage.js";
+import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import { sendPasswordResetOtp, verifyPasswordResetOtp } from "../services/authService.js";
@@ -27,10 +27,16 @@ import { sendPasswordResetOtp, verifyPasswordResetOtp } from "../services/authSe
 function Profile() {
   const navigate = useNavigate();
   const { user, deleteAccount, updateUser, handleSessionExpired } = useAuth();
-  const [profile, setProfile] = useState(() => {
-    return safeStorage.getJSON("user_profile", null);
+  const [profileState, setProfileState] = useState(() => {
+    safeStorage.removeItem("user_profile");
+    if (!user?.id) return { data: null, userId: null };
+    const cached = safeSessionStorage.getJSON(`user_profile_${user.id}`, null);
+    return { data: cached || null, userId: user.id };
   });
+
+  const profile = profileState.userId === user?.id ? profileState.data : null;
   const [loading, setLoading] = useState(!profile);
+  const requestGenRef = useRef(0);
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -108,79 +114,123 @@ function Profile() {
   };
 
   // ==============================
-  // LOAD PROFILE
+  // LOAD PROFILE & IDENTITY LIFECYCLE
   // ==============================
 
-  const loadProfile = async () => {
-    try {
-      setLoading(true);
-      setError("");
+  useEffect(() => {
+    // Increment generation token so stale in-flight responses are strictly dropped
+    const currentGen = ++requestGenRef.current;
+    const controller = new AbortController();
 
-      const response = await axios.get(
-       `${API_URL}/profile`,
-        {
-          withCredentials: true,
+    // Reset editing and error states on identity switch
+    setEditing(false);
+    setSaving(false);
+    setError("");
+    setDeleteError("");
+
+    if (!user?.id) {
+      setProfileState({ data: null, userId: null });
+      setForm({ first_name: "", last_name: "", phone: "" });
+      setLoading(false);
+      return;
+    }
+
+    const currentUserId = user.id;
+    const scopedKey = `user_profile_${currentUserId}`;
+    const cached = safeSessionStorage.getJSON(scopedKey, null);
+    setProfileState({ data: cached || null, userId: currentUserId });
+
+    const rawFullName = cached?.full_name || user?.name || user?.full_name || "";
+    const nameParts = rawFullName.trim().split(/\s+/);
+    const initialFirst = cached?.first_name || user?.first_name || nameParts[0] || "";
+    const initialLast = cached?.last_name || user?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+    const initialPhone = cached?.phone || user?.phone || "";
+    setForm({
+      first_name: initialFirst,
+      last_name: initialLast,
+      phone: initialPhone,
+    });
+    setLoading(!cached);
+
+    const isActive = () => currentGen === requestGenRef.current && !controller.signal.aborted;
+
+    const loadProfile = async () => {
+      try {
+        const response = await axios.get(
+          `${API_URL}/profile`,
+          {
+            withCredentials: true,
+            signal: controller.signal,
+          }
+        );
+
+        if (!isActive()) return;
+
+        const profileData = response.data.profile || {};
+        const isVerified = response.data.is_phone_verified === true;
+        const verifiedPhone = response.data.verified_phone || user?.verified_phone || "";
+        const currentPhone = profileData.phone || response.data.billing_phone || user?.phone || "";
+
+        const mergedProfile = {
+          ...profileData,
+          phone: currentPhone,
+        };
+
+        setProfileState({ data: mergedProfile, userId: currentUserId });
+        safeSessionStorage.setJSON(`user_profile_${currentUserId}`, mergedProfile);
+
+        const fullName = profileData.full_name || user?.name || user?.full_name || "";
+        const parts = fullName.trim().split(/\s+/);
+        const loadedFirst = profileData.first_name || user?.first_name || parts[0] || "";
+        const loadedLast = profileData.last_name || user?.last_name || (parts.length > 1 ? parts.slice(1).join(" ") : "");
+
+        if (updateUser && (fullName || loadedFirst)) {
+          updateUser({
+            first_name: loadedFirst,
+            last_name: loadedLast,
+            name: fullName || `${loadedFirst} ${loadedLast}`.trim(),
+            full_name: fullName || `${loadedFirst} ${loadedLast}`.trim(),
+            phone: currentPhone,
+            verified_phone: verifiedPhone,
+            is_phone_verified: isVerified && !!verifiedPhone && currentPhone === verifiedPhone,
+          });
         }
-      );
 
-      const profileData = response.data.profile || {};
-      const isVerified = response.data.is_phone_verified === true;
-      const verifiedPhone = response.data.verified_phone || user?.verified_phone || "";
-      const currentPhone = profileData.phone || response.data.billing_phone || user?.phone || "";
-
-      const mergedProfile = {
-        ...profileData,
-        phone: currentPhone,
-      };
-
-      setProfile(mergedProfile);
-      safeStorage.setJSON("user_profile", mergedProfile);
-
-      const rawFullName = profileData.full_name || user?.name || user?.full_name || "";
-      const nameParts = rawFullName.trim().split(/\s+/);
-      const loadedFirst = profileData.first_name || user?.first_name || nameParts[0] || "";
-      const loadedLast = profileData.last_name || user?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
-
-      if (updateUser && (rawFullName || loadedFirst)) {
-        updateUser({
+        setForm({
           first_name: loadedFirst,
           last_name: loadedLast,
-          name: rawFullName || `${loadedFirst} ${loadedLast}`.trim(),
-          full_name: rawFullName || `${loadedFirst} ${loadedLast}`.trim(),
           phone: currentPhone,
-          verified_phone: verifiedPhone,
-          is_phone_verified: isVerified && !!verifiedPhone && currentPhone === verifiedPhone,
         });
-      }
-
-      setForm({
-        first_name: loadedFirst,
-        last_name: loadedLast,
-        phone: currentPhone,
-      });
-    } catch (error) {
-      if (error.response?.status === 401) {
-        if (handleSessionExpired) {
-          handleSessionExpired();
+      } catch (error) {
+        if (!isActive() || controller.signal.aborted) return;
+        if (error.response?.status === 401) {
+          if (handleSessionExpired) {
+            handleSessionExpired();
+          }
+          navigate("/login", {
+            replace: true,
+            state: { from: "/account/profile" },
+          });
+          return;
         }
-        navigate("/login", {
-          replace: true,
-          state: { from: "/account/profile" },
-        });
-        return;
+        setError(
+          error.response?.data?.message ||
+            "Unable to load profile."
+        );
+      } finally {
+        if (isActive()) {
+          setLoading(false);
+        }
       }
-      setError(
-        error.response?.data?.message ||
-          "Unable to load profile."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
     loadProfile();
-  }, []);
+
+    return () => {
+      requestGenRef.current += 1;
+      controller.abort();
+    };
+  }, [user?.id]);
 
   // ==============================
   // INPUT CHANGE (NAME & PHONE)
@@ -309,6 +359,10 @@ function Profile() {
       return;
     }
 
+    const saveGen = requestGenRef.current;
+    const saveUserId = user?.id;
+    const isSaveActive = () => saveGen === requestGenRef.current && user?.id === saveUserId;
+
     try {
       setSaving(true);
 
@@ -330,6 +384,8 @@ function Profile() {
         }
       );
 
+      if (!isSaveActive()) return;
+
       const returnedProfile = response.data?.profile || {};
 
       const updatedProfile = {
@@ -341,8 +397,10 @@ function Profile() {
         phone: cleanPhone,
       };
 
-      setProfile(updatedProfile);
-      safeStorage.setJSON("user_profile", updatedProfile);
+      setProfileState({ data: updatedProfile, userId: saveUserId });
+      if (saveUserId) {
+        safeSessionStorage.setJSON(`user_profile_${saveUserId}`, updatedProfile);
+      }
       if (updateUser) {
         updateUser({
           first_name: cleanFirst,
@@ -362,6 +420,8 @@ function Profile() {
       setEditing(false);
       setSuccess("Profile updated successfully.");
     } catch (error) {
+      if (!isSaveActive()) return;
+
       if (error.response?.status === 401) {
         if (handleSessionExpired) {
           handleSessionExpired();
@@ -397,6 +457,7 @@ function Profile() {
         setFieldErrors({ [targetField]: serverMsg });
         setError("");
         setTimeout(() => {
+          if (!isSaveActive()) return;
           const elem = document.querySelector(`[name="${targetField}"]`);
           if (elem) {
             elem.focus();
@@ -408,7 +469,9 @@ function Profile() {
         setError(serverMsg);
       }
     } finally {
-      setSaving(false);
+      if (isSaveActive()) {
+        setSaving(false);
+      }
     }
   };
 
@@ -423,6 +486,10 @@ function Profile() {
       return;
     }
 
+    const deleteGen = requestGenRef.current;
+    const deleteUserId = user?.id;
+    const isDeleteActive = () => deleteGen === requestGenRef.current && user?.id === deleteUserId;
+
     try {
       setIsDeleting(true);
       setError("");
@@ -430,10 +497,12 @@ function Profile() {
 
       if (passwordlessGoogle) {
         const proof = await verifyPasswordResetOtp(user.email, deletePassword);
+        if (!isDeleteActive()) return;
         await deleteAccount({ reset_token: proof.reset_token });
       } else {
         await deleteAccount(deletePassword);
       }
+      if (!isDeleteActive()) return;
       setShowDeleteModal(false);
       setDeletePassword("");
 
@@ -445,12 +514,15 @@ function Profile() {
         },
       });
     } catch (err) {
+      if (!isDeleteActive()) return;
       setDeleteError(
         err.response?.data?.message ||
           "Failed to delete account. Please try again or contact support."
       );
     } finally {
-      setIsDeleting(false);
+      if (isDeleteActive()) {
+        setIsDeleting(false);
+      }
     }
   };
 

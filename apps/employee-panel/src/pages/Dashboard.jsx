@@ -18,10 +18,12 @@ import {
   Radio,
   Check,
   Send,
+  Fan,
 } from "lucide-react";
 import { getOverview, updateOrderStatus } from "../services/employeeApi.js";
 import {
   triggerNewOrderNotification,
+  announceOrderCountChange,
   requestNotificationPermission,
 } from "../utils/orderNotification.js";
 
@@ -65,7 +67,14 @@ function Dashboard() {
           const currentToPack = payload.summary?.ordersToPack ?? payload.ordersToPack;
           if (typeof currentToPack === "number" && prevToPackCountRef.current !== null) {
             if (currentToPack > prevToPackCountRef.current) {
-              triggerNewOrderNotification({ count: currentToPack - prevToPackCountRef.current });
+              const diff = currentToPack - prevToPackCountRef.current;
+              const pendingOrders = (payload.ordersNeedingAction || payload.recentOrders || [])
+                .filter((o) => o?.id && (o.status === "processing" || o.status === "pending"));
+              if (pendingOrders.length > 0) {
+                pendingOrders.forEach((o) => triggerNewOrderNotification({ orderId: o.id }));
+              } else {
+                announceOrderCountChange(diff);
+              }
             }
           }
           if (typeof currentToPack === "number") {
@@ -163,7 +172,9 @@ function Dashboard() {
     return (
       <div className="flex h-96 items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20 shadow-xs">
+            <Fan size={26} className="text-emerald-500 animate-spin" style={{ animationDuration: "1s" }} />
+          </div>
           <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
             Loading Operations Console...
           </p>

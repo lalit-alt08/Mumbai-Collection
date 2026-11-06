@@ -4,7 +4,7 @@ import { getProductsByIds, getLiveProductStockByIds } from "../services/productS
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { ArrowLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "lucide-react";
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import CartCrossSells from "../components/cart/CartCrossSells";
@@ -613,30 +613,45 @@ function Cart() {
 
   return (
     <div className={`mx-auto w-full max-w-[700px] ${isCartEmpty ? "pb-6" : "pb-56"} lg:pb-20 pt-4 sm:pt-5 md:pt-6`}>
-      {/* Header */}
-      <div className="mb-4 flex items-center justify-between rounded-[22px] bg-[#111F36] border border-[#1E3252]/80 px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.2)] md:mb-6">
+      {/* TOP BAR / NAVIGATION (Pill Design) */}
+      <div className="mb-4 flex items-center justify-between gap-2.5 sm:gap-3 md:mb-6">
+        {/* Left: Circular Back Button */}
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => {
+            triggerHaptic("light");
+            navigate(-1);
+          }}
           aria-label="Go back"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#132B45] text-[#F1F5F9] border border-[#1E3252] transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+          className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
         >
-          <ArrowLeft size={20} strokeWidth={2.4} />
+          <ChevronLeft size={23} strokeWidth={2.5} />
         </button>
-        <h1 className="text-[18px] font-bold text-[#F1F5F9]">My Cart</h1>
+
+        {/* Center: Capsule utilizing available space with full descender clearance */}
+        <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+          <h1 className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
+            My Cart
+          </h1>
+        </div>
+
+        {/* Right: Circular Action Button (Share Cart) */}
         <div className="relative">
           <button
-            onClick={handleShareCart}
+            onClick={() => {
+              triggerHaptic("light");
+              handleShareCart();
+            }}
             aria-label="Share cart"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#132B45] text-[#F1F5F9] border border-[#1E3252] transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-[#42D6E8]/40 hover:text-white active:scale-95 cursor-pointer"
           >
             {shareFeedback ? (
-              <Check size={18} className="text-[#42D6E8]" />
+              <Check size={20} className="text-[#42D6E8]" />
             ) : (
-              <Share size={18} strokeWidth={2.2} />
+              <Share size={20} strokeWidth={2.2} />
             )}
           </button>
           {shareFeedback && (
-            <div className="absolute right-0 top-12 z-20 whitespace-nowrap rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out] flex items-center gap-1.5 border border-[#1E3252]">
+            <div className="absolute right-0 top-14 z-20 whitespace-nowrap rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out] flex items-center gap-1.5 border border-[#1E3252]">
               <Check size={13} className="text-[#42D6E8]" />
               <span>{shareFeedback}</span>
             </div>

@@ -288,15 +288,6 @@ function Products() {
         </div>
       )}
 
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-black tracking-tight text-gray-900 md:text-3xl">
-          Inventory &amp; Stock Manager
-        </h1>
-        <p className="text-xs font-medium text-gray-500 mt-1">
-          Server-side stock control, instant price editing, and catalog management
-        </p>
-      </div>
 
       {/* Integrated Search & Filter Card */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl bg-white p-3.5 sm:p-4 shadow-sm border border-gray-100">

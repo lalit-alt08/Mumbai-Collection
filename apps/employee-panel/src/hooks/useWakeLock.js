@@ -93,8 +93,8 @@ export function useWakeLock() {
     } catch (_) {}
 
     if (nextState) {
-      // User gesture: also arm the audio alert pipeline and request notification permissions
-      await armOrderAlarm();
+      // User gesture: silently arm the audio alert pipeline without unprompted sound
+      await armOrderAlarm({ playTestSound: false });
       await requestLock();
     } else {
       await releaseLock();

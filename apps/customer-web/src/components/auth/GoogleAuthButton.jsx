@@ -43,7 +43,12 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
       setLoading(true);
       setInternalError("");
 
-      const res = await googleLogin({ code: codeResponse.code });
+      const payload = { code: codeResponse.code };
+      if (mode === "link") {
+        payload.intent = "link";
+      }
+
+      const res = await googleLogin(payload);
 
       if (mode === "link") {
         if (!res?.success || !res?.user) throw new Error("Google linking was not confirmed.");

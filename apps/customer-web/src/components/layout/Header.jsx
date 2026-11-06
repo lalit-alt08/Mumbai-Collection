@@ -1,6 +1,6 @@
 import SearchBar from "./SearchBar";
-import { ShoppingCart, User } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { ShoppingCart, User, ArrowLeft } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { triggerHaptic } from "../../utils/haptics";
@@ -10,6 +10,7 @@ function Header() {
   const { cart } = useCart();
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isAuthPage = [
     "/login",
@@ -26,6 +27,7 @@ function Header() {
 
   const isRecentlyViewedPage = location.pathname === "/recently-viewed";
   const isHomePage = location.pathname === "/";
+  const isSearchPage = location.pathname.startsWith("/search");
   // Seamlessly mix the page color all the way to the top status bar with no visible border
   const headerBgClass = isHomePage
     ? "bg-gradient-to-b from-[#1B3459] via-[#162A48] to-[#132238]"
@@ -48,6 +50,27 @@ function Header() {
       <div className="relative mx-auto max-w-7xl">
         {/* ================= SEARCH BAR & CONTROLS ROW ================= */}
         <div className={`relative flex items-center gap-2.5 sm:gap-3 md:gap-3.5 lg:gap-4 ${isRecentlyViewedPage ? "justify-end" : ""}`}>
+          {/* ================= CIRCULAR BACK BUTTON (Search page) ================= */}
+          {isSearchPage && (
+            <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic("light");
+                  if (window.history.state && window.history.state.idx > 0) {
+                    navigate(-1);
+                  } else {
+                    navigate("/");
+                  }
+                }}
+                aria-label="Back"
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#F1F5F9] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:text-[#42D6E8] hover:border-[#42D6E8]/70 active:scale-95 cursor-pointer`}
+              >
+                <ArrowLeft size={20} strokeWidth={2.2} />
+              </button>
+            </HapticTapTarget>
+          )}
+
           {!isRecentlyViewedPage && (
             <div className="flex-1 min-w-0">
               <SearchBar />

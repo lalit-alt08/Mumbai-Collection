@@ -25,9 +25,11 @@ import {
   X,
   Loader2,
   ArrowLeft,
+  ChevronLeft,
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+import { triggerHaptic } from "../utils/haptics";
 
 const emptyForm = {
   type: "home",
@@ -472,10 +474,12 @@ function Addresses() {
     <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 py-6 sm:px-5 md:px-10 md:py-10 pb-28 sm:pb-16">
       <div className="mx-auto max-w-4xl">
 
-        {/* HEADER */}
-        <div className="mb-6 flex items-center gap-3.5 sm:mb-8">
+        {/* TOP BAR / NAVIGATION (Pill Design) */}
+        <div className="mb-6 flex items-center justify-between gap-2.5 sm:gap-3 md:mb-8">
+          {/* Left: Circular Back Button */}
           <button
             onClick={() => {
+              triggerHaptic("light");
               if (location.state?.from) {
                 navigate(getSafeInternalPath(location.state.from, "/account"));
               } else if (window.history.state && window.history.state.idx > 0) {
@@ -485,18 +489,51 @@ function Addresses() {
               }
             }}
             aria-label="Back to Account"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-sm border border-[#1E3252] transition hover:bg-[#42D6E8] hover:text-[#061220] hover:border-[#42D6E8] cursor-pointer active:scale-95"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
           >
-            <ArrowLeft size={18} />
+            <ChevronLeft size={23} strokeWidth={2.5} />
           </button>
-          <div>
-            <h1 className="text-[26px] font-extrabold tracking-tight text-[#F1F5F9] sm:text-[32px]">
+
+          {/* Center: Capsule utilizing available space with full descender clearance */}
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+            <h1 className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
               My Addresses
             </h1>
-            <p className="text-xs text-[#8FA4BE] font-medium sm:text-sm">
-              Manage your saved delivery addresses.
-            </p>
           </div>
+
+          {/* Right: Circular Action Button */}
+          {canAddAddress && !showForm ? (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic("light");
+                openAddForm();
+              }}
+              aria-label="Add Address"
+              className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-[#42D6E8]/40 hover:text-white active:scale-95 cursor-pointer"
+            >
+              <Plus size={22} strokeWidth={2.4} />
+            </button>
+          ) : showForm ? (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic("light");
+                closeForm();
+              }}
+              aria-label="Close Form"
+              className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#8FA4BE] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 hover:text-white active:scale-95 cursor-pointer"
+            >
+              <X size={20} strokeWidth={2.4} />
+            </button>
+          ) : (
+            <div
+              aria-hidden="true"
+              className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)]"
+            >
+              <MapPin size={21} strokeWidth={2.2} />
+            </div>
+          )}
         </div>
 
         {/* FEEDBACK TOAST / BANNER */}
@@ -529,58 +566,58 @@ function Addresses() {
 
         {/* ADD / EDIT FORM */}
         {showForm && (
-          <div className="mb-8 rounded-3xl border border-[#1E3252]/80 bg-[#111F36] p-5 shadow-lg md:p-7 animate-[slideUp_0.25s_ease-out]">
+          <div className="mb-8 rounded-[28px] border border-white/10 bg-[#122038]/95 backdrop-blur-xl p-5 shadow-[0_12px_40px_rgba(0,0,0,0.4)] sm:p-7 animate-[slideUp_0.25s_ease-out]">
 
             {/* FORM HEADER */}
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-extrabold text-[#F1F5F9]">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#132B45] text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
+                {form.type === "office" ? (
+                  <Building2 size={21} strokeWidth={2.2} />
+                ) : (
+                  <Home size={21} strokeWidth={2.2} />
+                )}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight truncate">
                   {editingId
                     ? "Edit Address"
-                    : `Add ${!hasHome ? "Home" : "Office"} Address`}
+                    : `Add ${form.type === "office" ? "Office" : "Home"} Address`}
                 </h2>
-
-                <p className="mt-1 text-sm text-[#8FA4BE]">
+                <p className="text-xs sm:text-sm text-[#8FA4BE] font-medium mt-0.5 truncate">
                   {editingId
                     ? "Update your saved delivery address details."
                     : "Save your address for 1-click checkout."}
                 </p>
               </div>
-
-              <button
-                type="button"
-                onClick={closeForm}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#080F1C] text-[#8FA4BE] border border-[#1E3252] transition hover:bg-[#162744] hover:text-[#F1F5F9] cursor-pointer"
-              >
-                <X size={19} />
-              </button>
             </div>
 
             {/* FORM ERROR */}
             {formError && (
-              <div className="mb-5 rounded-xl border border-rose-900/60 bg-rose-950/40 p-3 text-sm font-medium text-rose-300">
-                {formError}
+              <div className="mb-5 flex items-center gap-2 rounded-2xl border border-rose-900/60 bg-rose-950/40 p-3.5 text-xs sm:text-sm font-semibold text-rose-300">
+                <AlertCircle size={16} className="shrink-0 text-rose-400" />
+                <span>{formError}</span>
               </div>
             )}
 
             <form
               onSubmit={handleSubmit}
               noValidate
-              className="space-y-5"
+              className="space-y-4 sm:space-y-5"
             >
 
-              {/* ADDRESS TYPE SELECTOR */}
+              {/* ADDRESS TYPE SELECTOR (Segmented Pill Switch) */}
               <div>
-                <label className={`mb-2 block text-sm font-bold ${fieldErrors.type ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.type ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                   Address Type <span className={fieldErrors.type ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                 </label>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-[#080F1C]/90 border border-white/10 shadow-inner">
                   {/* HOME OPTION */}
                   {isHomeAvailable ? (
                     <button
                       type="button"
                       onClick={() => {
+                        triggerHaptic("light");
                         setForm((prev) => ({
                           ...prev,
                           type: "home",
@@ -594,21 +631,21 @@ function Addresses() {
                         }
                         setFormError("");
                       }}
-                      className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition cursor-pointer ${
+                      className={`flex h-11 items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                         form.type === "home"
-                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9]"
+                          ? "bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#42D6E8]/30"
                           : fieldErrors.type
-                          ? "border-rose-400 text-[#8FA4BE] hover:bg-rose-950/20"
-                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
+                          ? "border border-rose-400/40 text-rose-300 hover:bg-rose-950/20"
+                          : "text-[#8FA4BE] hover:text-white hover:bg-white/5 border border-transparent"
                       }`}
                     >
-                      <Home size={18} />
-                      Home
+                      <Home size={17} strokeWidth={2.2} />
+                      <span>Home</span>
                     </button>
                   ) : (
-                    <div className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-[#1E3252] bg-[#080F1C]/50 px-3 text-xs font-semibold text-[#6E84A3]">
-                      <Home size={16} />
-                      <span>Home (Already Saved)</span>
+                    <div className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-white/5 bg-white/5 px-2 text-xs font-semibold text-[#5E7696]">
+                      <Home size={15} />
+                      <span>Home (Saved)</span>
                     </div>
                   )}
 
@@ -617,6 +654,7 @@ function Addresses() {
                     <button
                       type="button"
                       onClick={() => {
+                        triggerHaptic("light");
                         setForm((prev) => ({
                           ...prev,
                           type: "office",
@@ -630,21 +668,21 @@ function Addresses() {
                         }
                         setFormError("");
                       }}
-                      className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 font-semibold transition cursor-pointer ${
+                      className={`flex h-11 items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                         form.type === "office"
-                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9]"
+                          ? "bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#42D6E8]/30"
                           : fieldErrors.type
-                          ? "border-rose-400 text-[#8FA4BE] hover:bg-rose-950/20"
-                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
+                          ? "border border-rose-400/40 text-rose-300 hover:bg-rose-950/20"
+                          : "text-[#8FA4BE] hover:text-white hover:bg-white/5 border border-transparent"
                       }`}
                     >
-                      <Building2 size={18} />
-                      Office
+                      <Building2 size={17} strokeWidth={2.2} />
+                      <span>Office</span>
                     </button>
                   ) : (
-                    <div className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-[#1E3252] bg-[#080F1C]/50 px-3 text-xs font-semibold text-[#6E84A3]">
-                      <Building2 size={16} />
-                      <span>Office (Already Saved)</span>
+                    <div className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-white/5 bg-white/5 px-2 text-xs font-semibold text-[#5E7696]">
+                      <Building2 size={15} />
+                      <span>Office (Saved)</span>
                     </div>
                   )}
                 </div>
@@ -656,10 +694,10 @@ function Addresses() {
                 )}
               </div>
 
-              {/* FIRST NAME + LAST NAME */}
-              <div className="grid gap-4 md:grid-cols-2">
+              {/* FIRST NAME + LAST NAME (Side-by-side grid) */}
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 <div>
-                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.first_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                  <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.first_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                     First Name <span className={fieldErrors.first_name ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                   </label>
 
@@ -669,10 +707,10 @@ function Addresses() {
                     value={form.first_name}
                     onChange={handleChange}
                     placeholder="e.g. Rahul"
-                    className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
+                    className={`h-12 w-full rounded-xl border px-3.5 text-sm font-medium outline-none transition-all ${
                       fieldErrors.first_name
-                        ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
-                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
+                        ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                        : "border-white/10 bg-[#080F1C]/80 text-[#F1F5F9] placeholder:text-[#5E7696] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                     }`}
                   />
                   {fieldErrors.first_name && (
@@ -684,7 +722,7 @@ function Addresses() {
                 </div>
 
                 <div>
-                  <label className={`mb-2 block text-sm font-bold ${fieldErrors.last_name ? "text-rose-400" : "text-[#8DA79A]"}`}>
+                  <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.last_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                     Last Name <span className={fieldErrors.last_name ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                   </label>
 
@@ -694,10 +732,10 @@ function Addresses() {
                     value={form.last_name}
                     onChange={handleChange}
                     placeholder="e.g. Sharma"
-                    className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
+                    className={`h-12 w-full rounded-xl border px-3.5 text-sm font-medium outline-none transition-all ${
                       fieldErrors.last_name
-                        ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
-                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
+                        ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                        : "border-white/10 bg-[#080F1C]/80 text-[#F1F5F9] placeholder:text-[#5E7696] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                     }`}
                   />
                   {fieldErrors.last_name && (
@@ -709,16 +747,16 @@ function Addresses() {
                 </div>
               </div>
 
-              {/* PHONE */}
+              {/* PHONE WITH COUNTRY CODE PILL */}
               <div>
-                <label className={`mb-2 block text-sm font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#8DA79A]"}`}>
+                <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                   Mobile Number <span className={fieldErrors.phone ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                 </label>
 
                 <div className="relative flex items-center">
-                  <span className={`absolute left-3.5 text-sm font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#6E84A3]"}`}>
-                    +91
-                  </span>
+                  <div className="absolute left-3 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-[#42D6E8] select-none">
+                    <span>+91</span>
+                  </div>
                   <input
                     name="phone"
                     type="tel"
@@ -726,11 +764,11 @@ function Addresses() {
                     maxLength={10}
                     value={form.phone}
                     onChange={handleChange}
-                    placeholder="10-digit number"
-                    className={`h-12 w-full rounded-xl border pl-12 pr-4 text-sm outline-none transition ${
+                    placeholder="10-digit mobile number"
+                    className={`h-12 w-full rounded-xl border pl-18 pr-4 text-sm font-medium outline-none transition-all ${
                       fieldErrors.phone
-                        ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
-                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
+                        ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                        : "border-white/10 bg-[#080F1C]/80 text-[#F1F5F9] placeholder:text-[#5E7696] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                     }`}
                   />
                 </div>
@@ -744,7 +782,7 @@ function Addresses() {
 
               {/* ADDRESS LINE 1 */}
               <div>
-                <label className={`mb-2 block text-sm font-bold ${fieldErrors.address_line1 ? "text-rose-400" : "text-[#8DA79A]"}`}>
+                <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.address_line1 ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                   Address Line 1 <span className={fieldErrors.address_line1 ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                 </label>
 
@@ -753,10 +791,10 @@ function Addresses() {
                   value={form.address_line1}
                   onChange={handleChange}
                   placeholder="Flat / House no., building, street"
-                  className={`h-12 w-full rounded-xl border px-4 text-sm outline-none transition ${
+                  className={`h-12 w-full rounded-xl border px-3.5 text-sm font-medium outline-none transition-all ${
                     fieldErrors.address_line1
-                      ? "border-rose-500 bg-rose-950/40 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/20"
-                      : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
+                      ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                      : "border-white/10 bg-[#080F1C]/80 text-[#F1F5F9] placeholder:text-[#5E7696] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                   }`}
                 />
                 {fieldErrors.address_line1 && (
@@ -769,9 +807,9 @@ function Addresses() {
 
               {/* ADDRESS LINE 2 */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-[#8FA4BE]">
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#8FA4BE]">
                   Address Line 2
-                  <span className="ml-1 font-normal text-[#6E84A3]">
+                  <span className="ml-1 text-[11px] font-normal normal-case text-[#6E84A3]">
                     (Optional)
                   </span>
                 </label>
@@ -780,24 +818,24 @@ function Addresses() {
                   name="address_line2"
                   value={form.address_line2}
                   onChange={handleChange}
-                  placeholder="Landmark, area name"
-                  className="h-12 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-sm text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] focus:ring-4 focus:ring-[#42D6E8]/15"
+                  placeholder="Landmark, nearby place, or area details"
+                  className="h-12 w-full rounded-xl border border-white/10 bg-[#080F1C]/80 px-3.5 text-sm font-medium text-[#F1F5F9] placeholder:text-[#5E7696] outline-none transition-all focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                 />
               </div>
 
-              {/* DELIVERY REGION (4 OPTIONS WITH SMOOTH SCROLL) */}
+              {/* DELIVERY REGION (Balanced 2x2 Grid, No Cutoffs) */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className={`block text-sm font-bold ${fieldErrors.city ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                  <label className={`block text-xs font-bold uppercase tracking-wider ${fieldErrors.city ? "text-rose-400" : "text-[#8FA4BE]"}`}>
                     Delivery Region / Area <span className={fieldErrors.city ? "text-rose-400 font-black" : "text-[#42D6E8]"}>*</span>
                   </label>
-                  <span className="text-[11px] font-semibold text-[#6E84A3]">
+                  <span className="text-[11px] font-semibold text-[#42D6E8]">
                     Local delivery zones
                   </span>
                 </div>
 
-                <div className={`flex gap-2 overflow-x-auto p-1 rounded-2xl scroll-smooth no-scrollbar md:grid md:grid-cols-2 lg:grid-cols-4 ${
-                  fieldErrors.city ? "border-2 border-dashed border-rose-400/40 bg-rose-950/20" : ""
+                <div className={`grid grid-cols-2 gap-2 sm:gap-2.5 ${
+                  fieldErrors.city ? "p-1 rounded-2xl border border-dashed border-rose-400/50 bg-rose-950/20" : ""
                 }`}>
                   {DELIVERY_REGIONS.map((region) => {
                     const isSelected = form.city?.toLowerCase() === region.toLowerCase();
@@ -807,6 +845,7 @@ function Addresses() {
                         key={region}
                         type="button"
                         onClick={() => {
+                          triggerHaptic("light");
                           setForm((prev) => ({
                             ...prev,
                             city: region,
@@ -820,16 +859,16 @@ function Addresses() {
                           }
                           setFormError("");
                         }}
-                        className={`flex shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3.5 py-3 text-xs font-bold transition-all duration-200 cursor-pointer active:scale-95 ${
+                        className={`flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl border px-3 py-3 text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer active:scale-95 ${
                           isSelected
-                            ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] shadow-sm ring-2 ring-[#42D6E8]/20"
+                            ? "border-[#42D6E8] bg-[#132B45] text-[#42D6E8] shadow-[0_2px_10px_rgba(66,214,232,0.2)] ring-1 ring-[#42D6E8]/40"
                             : fieldErrors.city
-                            ? "border-rose-400 bg-rose-950/30 text-[#8FA4BE]"
-                            : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:border-[#42D6E8]/40 hover:bg-[#162744]"
+                            ? "border-rose-400/50 bg-rose-950/30 text-rose-300"
+                            : "border-white/10 bg-[#080F1C]/80 text-[#8FA4BE] hover:border-white/20 hover:text-white hover:bg-white/5"
                         }`}
                       >
-                        <MapPin size={14} className={isSelected ? "text-[#67E8F9]" : fieldErrors.city ? "text-rose-400" : "text-[#6E84A3]"} />
-                        <span className="whitespace-nowrap">{region}</span>
+                        <MapPin size={15} className={isSelected ? "text-[#42D6E8]" : fieldErrors.city ? "text-rose-400" : "text-[#6E84A3]"} />
+                        <span className="truncate">{region}</span>
                       </button>
                     );
                   })}
@@ -842,30 +881,33 @@ function Addresses() {
                 )}
               </div>
 
-              {/* STATE (PERMANENTLY LOCKED TO MAHARASHTRA) */}
+              {/* STATE (Permanently Locked To Maharashtra) */}
               <div>
-                <label className="mb-2 block text-sm font-bold text-[#8FA4BE]">
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#8FA4BE]">
                   State
                 </label>
 
-                <div className="flex h-12 w-full items-center justify-between rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-sm font-bold text-[#8FA4BE]">
+                <div className="flex h-11 w-full items-center justify-between rounded-xl border border-white/8 bg-[#080F1C]/60 px-3.5 text-xs font-bold text-[#8FA4BE]">
                   <div className="flex items-center gap-2">
                     <span className="text-[#F1F5F9]">Maharashtra</span>
-                    <span className="text-xs font-semibold text-[#6E84A3]">(MH)</span>
+                    <span className="text-[11px] font-semibold text-[#6E84A3]">(MH)</span>
                   </div>
-                  <span className="rounded-md bg-[#132B45] border border-[#1E3252] px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#67E8F9]">
-                    Store Delivery Zone
+                  <span className="rounded-md bg-[#132B45] border border-white/10 px-2 py-0.5 text-[10px] font-extrabold uppercase text-[#42D6E8]">
+                    Store Zone
                   </span>
                 </div>
               </div>
 
-              {/* FORM BUTTONS */}
-              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+              {/* FORM BUTTONS (Cancel + Primary CTA) */}
+              <div className="flex items-center gap-2.5 sm:gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={closeForm}
+                  onClick={() => {
+                    triggerHaptic("light");
+                    closeForm();
+                  }}
                   disabled={saving}
-                  className="h-12 rounded-xl border border-[#1E3252] bg-[#080F1C] px-6 text-sm font-bold text-[#8FA4BE] transition hover:bg-[#162744] hover:text-white disabled:opacity-50 cursor-pointer"
+                  className="h-12 px-5 sm:px-6 rounded-xl border border-white/10 bg-white/5 text-sm font-bold text-[#8FA4BE] transition hover:bg-white/10 hover:text-white disabled:opacity-50 cursor-pointer active:scale-95"
                 >
                   Cancel
                 </button>
@@ -873,7 +915,8 @@ function Addresses() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex h-12 items-center justify-center gap-2 rounded-xl bg-[#42D6E8] px-7 text-sm font-black text-[#061220] shadow-sm transition hover:bg-[#2CC4D8] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer active:scale-95"
+                  onClick={() => triggerHaptic("medium")}
+                  className="flex-1 h-12 flex items-center justify-center gap-2 rounded-xl bg-[#42D6E8] text-sm font-extrabold text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition hover:bg-[#2CC4D8] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
                 >
                   {saving && (
                     <Loader2
@@ -882,11 +925,13 @@ function Addresses() {
                     />
                   )}
 
-                  {saving
-                    ? "Saving..."
-                    : editingId
-                    ? "Update Address"
-                    : "Save Address"}
+                  <span>
+                    {saving
+                      ? "Saving..."
+                      : editingId
+                      ? "Update Address"
+                      : "Save Address"}
+                  </span>
                 </button>
               </div>
             </form>

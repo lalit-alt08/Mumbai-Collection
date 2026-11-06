@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
   CalendarDays,
@@ -54,6 +55,22 @@ function Analytics() {
   const searchRequestId = useRef(0);
   const productSearchAbortRef = useRef(null);
   const reportAbortRef = useRef(null);
+  const { setPageRefresh, setRefreshLoading } = useOutletContext() || {};
+
+  useEffect(() => {
+    if (setPageRefresh) {
+      setPageRefresh(() => () => setRefreshTick((tick) => tick + 1));
+    }
+    return () => {
+      if (setPageRefresh) setPageRefresh(null);
+    };
+  }, [setPageRefresh]);
+
+  useEffect(() => {
+    if (setRefreshLoading) {
+      setRefreshLoading(loading);
+    }
+  }, [loading, setRefreshLoading]);
 
   useEffect(() => {
     if (productQuery.trim().length < 2 || productQuery === selectedProduct?.name) {
@@ -187,20 +204,6 @@ function Analytics() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-gray-900 md:text-3xl">Sales Analytics</h1>
-          <p className="mt-1 text-sm text-gray-500">Explore order and product sales without changing your WooCommerce history.</p>
-        </div>
-        <button
-          onClick={() => setRefreshTick((tick) => tick + 1)}
-          disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
-        >
-          <RotateCcw size={15} className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
-      </div>
-
       <section className="rounded-3xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5 space-y-4">
         {/* Top Header Row: Filter Title + Quick Preset Pills */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-gray-100 pb-3.5">

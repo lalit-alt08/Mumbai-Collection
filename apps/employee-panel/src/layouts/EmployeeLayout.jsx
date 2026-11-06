@@ -14,7 +14,6 @@ import {
   UserCheck,
   Sliders,
   FolderTree,
-  Smartphone,
   Sun,
 } from "lucide-react";
 
@@ -27,7 +26,7 @@ function EmployeeLayout() {
   const navigate = useNavigate();
 
   const { logout, user } = useEmployeeAuth();
-  const { isLocked, isEnabled, isSupported, toggleCounterMode, releaseLock } = useWakeLock();
+  const { isLocked, isEnabled, toggleCounterMode, releaseLock } = useWakeLock();
 
   const navigation = [
     { name: "Dashboard", href: "/", exact: true, icon: LayoutDashboard },
@@ -37,6 +36,14 @@ function EmployeeLayout() {
     { name: "Categories", href: "/categories/add", exact: true, icon: FolderPlus },
     { name: "Homepage Banners", href: "/banners", exact: true, icon: Sliders },
     { name: "Subcategories", href: "/subcategories", exact: true, icon: FolderTree },
+  ];
+
+  // Core mobile bottom navigation items
+  const mobileNavItems = [
+    { name: "Dashboard", href: "/", exact: true, icon: LayoutDashboard },
+    { name: "Orders", href: "/orders", exact: false, icon: Truck },
+    { name: "Products", href: "/products", exact: true, icon: Boxes },
+    { name: "Banners", href: "/banners", exact: true, icon: Sliders },
   ];
 
   // Resynchronize locked-screen push subscription automatically if permission is already granted
@@ -63,7 +70,7 @@ function EmployeeLayout() {
     if (location.pathname === "/banners") return "Banners";
     if (location.pathname === "/subcategories") return "Subcategories";
     if (location.pathname.startsWith("/products")) return "Product Inventory";
-    if (location.pathname.startsWith("/orders")) return "Orders & Dispatch Pipeline";
+    if (location.pathname.startsWith("/orders")) return "Orders & Dispatch";
     return "Employee Panel";
   };
 
@@ -105,13 +112,14 @@ function EmployeeLayout() {
           <button
             onClick={() => setSidebarOpen(false)}
             className="p-1 text-slate-400 hover:text-white lg:hidden cursor-pointer"
+            aria-label="Close Sidebar"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1.5 px-3 py-4">
+        <nav className="flex-1 space-y-1.5 px-3 py-4 overflow-y-auto">
           {navigation.map((item) => {
             const Icon = item.icon;
 
@@ -202,48 +210,120 @@ function EmployeeLayout() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-x-hidden min-h-screen">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 flex min-h-16 h-auto sm:h-18 items-center justify-between border-b border-gray-200 bg-white/95 px-3.5 sm:px-6 py-2.5 sm:py-0 backdrop-blur-md">
+        {/* Top Header with Safe Area Padding */}
+        <header
+          className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200/80 bg-white/95 px-3.5 sm:px-7 pb-3 sm:pb-3.5 backdrop-blur-md transition-all shadow-[0_2px_12px_rgba(0,0,0,0.03)]"
+          style={{
+            paddingTop: "max(12px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 8px))",
+          }}
+        >
+          {/* Left: Previous Position of Hamburger Menu Button [ ☰ ] + Title */}
           <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="rounded-xl border border-gray-200 p-2 text-gray-600 hover:bg-gray-50 lg:hidden cursor-pointer shrink-0"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 active:scale-95 shadow-xs transition cursor-pointer lg:hidden shrink-0"
               aria-label="Open Sidebar Menu"
             >
               <Menu size={20} />
             </button>
 
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-lg font-black tracking-tight text-gray-900 truncate leading-snug">
-                {getPageTitle()}
-              </h2>
-              <p className="text-[11px] text-gray-500 truncate hidden sm:block">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-2xl lg:text-[28px] font-black tracking-[-0.02em] text-slate-900 truncate leading-tight antialiased">
+                  {getPageTitle()}
+                </h1>
+                <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200 shrink-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  Store Active
+                </span>
+              </div>
+              <p className="text-[11px] sm:text-[13px] font-medium text-slate-500 truncate mt-0.5 sm:mt-1">
                 Vasai Quick-Commerce Fulfillment Center
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <div className="hidden sm:flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 border border-emerald-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-              Store Active
-            </div>
-
+          {/* Right Action Controls: Counter Mode & Logout */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Quick Counter WakeLock Toggle */}
             <button
+              type="button"
+              onClick={toggleCounterMode}
+              className={`flex h-9 sm:h-10 items-center gap-1.5 rounded-xl border px-2.5 sm:px-3 text-xs font-bold transition active:scale-95 cursor-pointer shadow-xs ${
+                isLocked
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                  : isEnabled
+                  ? "bg-amber-50 border-amber-300 text-amber-700"
+                  : "bg-gray-50 border-gray-200 text-slate-600 hover:bg-gray-100"
+              }`}
+              title={isLocked ? "Counter Mode: Awake & Armed" : "Keep Screen Awake & Armed"}
+            >
+              <Sun size={15} className={isLocked ? "text-emerald-600 animate-spin" : "text-slate-500"} />
+              <span className="hidden sm:inline">Counter</span>
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isLocked ? "bg-emerald-500 animate-pulse" : isEnabled ? "bg-amber-500" : "bg-slate-300"
+                }`}
+              />
+            </button>
+
+            {/* Logout Button */}
+            <button
+              type="button"
               onClick={handleLogout}
-              className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-xs font-bold text-gray-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition cursor-pointer"
+              className="flex h-9 sm:h-10 items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-bold text-gray-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 active:scale-95 transition cursor-pointer shadow-xs"
               title="Logout"
             >
-              <LogOut size={14} />
+              <LogOut size={15} />
               <span className="hidden md:inline">Logout</span>
             </button>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        {/* Page Content with bottom clearance for Mobile Bottom Navigation */}
+        <main className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
           <Outlet />
         </main>
+
+        {/* Mobile Bottom Navigation Bar */}
+        <nav
+          aria-label="Mobile Staff Navigation"
+          className="fixed bottom-0 left-0 right-0 z-40 rounded-t-[20px] border-t border-gray-200/90 bg-white/95 backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.06)] lg:hidden"
+          style={{
+            paddingBottom: "max(8px, env(safe-area-inset-bottom, 8px))",
+            touchAction: "manipulation",
+          }}
+        >
+          <div className="mx-auto flex h-14 max-w-lg items-center justify-around px-2 select-none">
+            {mobileNavItems.map((item) => {
+              const Icon = item.icon;
+
+              const isActive = item.exact
+                ? location.pathname === item.href
+                : location.pathname.startsWith(item.href);
+
+              return (
+                <NavLink
+                  key={item.name}
+                  to={item.href}
+                  className={`flex flex-1 flex-col items-center justify-center gap-1 py-1 active:scale-95 transition ${
+                    isActive ? "text-emerald-600" : "text-slate-500 hover:text-emerald-600"
+                  }`}
+                >
+                  <div className={`relative flex items-center justify-center transition-transform ${isActive ? "scale-105" : ""}`}>
+                    <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                    {item.href === "/orders" && (
+                      <span className="absolute -top-1 -right-1.5 flex h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+                    )}
+                  </div>
+                  <span className={`text-[11px] tracking-tight ${isActive ? "font-bold text-emerald-600" : "font-semibold text-slate-500"}`}>
+                    {item.name}
+                  </span>
+                </NavLink>
+              );
+            })}
+          </div>
+        </nav>
       </div>
     </div>
   );

@@ -436,51 +436,6 @@ function Orders() {
                     </div>
                   </div>
 
-                  {/* Live Progress Bar (Blinkit / Zepto style) */}
-                  {isLive && order.tracking_stage > 0 && (
-                    <div className="border-b border-[#1E3252]/70 bg-[#132B45]/30 px-5 py-4 sm:px-6">
-                      <div className="mb-2 flex items-center justify-between text-xs font-bold">
-                        <span className="flex items-center gap-1.5 text-[#42D6E8]">
-                          <Truck size={15} className="animate-pulse" />
-                          Delivery in 60–90 mins (Vasai Store Dispatch)
-                        </span>
-                        <span className="text-[#8FA4BE] font-medium">Stage {order.tracking_stage} of 4</span>
-                      </div>
-
-                      {/* 4-Step Progress Indicator */}
-                      <div className="grid grid-cols-4 gap-2 pt-1">
-                        {[
-                          { label: "Placed", stage: 1 },
-                          { label: "Packing", stage: 2 },
-                          { label: "On the Way", stage: 3 },
-                          { label: "Delivered", stage: 4 },
-                        ].map((step) => {
-                          const isDone = order.tracking_stage >= step.stage;
-                          const isCurrent = order.tracking_stage === step.stage;
-
-                          return (
-                            <div key={step.stage} className="flex flex-col gap-1.5">
-                              <div
-                                className={`h-1.5 w-full rounded-full transition-all duration-500 ${
-                                  isDone
-                                    ? "bg-[#42D6E8]"
-                                    : "bg-[#1E3252]"
-                                } ${isCurrent ? "animate-pulse" : ""}`}
-                              />
-                              <span
-                                className={`text-[10px] font-semibold text-center ${
-                                  isDone ? "text-[#42D6E8]" : "text-[#6E84A3]"
-                                }`}
-                              >
-                                {step.label}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Items Preview */}
                   <div className="p-5 sm:p-6">
                     <div className="space-y-3">

@@ -10,6 +10,7 @@ import { logError, logger } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
 import { fetchAllProductCategories } from "../services/productService.js";
 import { validateDeliveryAddress } from "../controllers/addressController.js";
+import { publishOrderEvent } from "../services/orderNotificationService.js";
 import api from "../config/woocommerce.js";
 
 const router = express.Router();
@@ -284,6 +285,22 @@ async function proxyStoreApi(req, res) {
             serverCache.delete(`catalog:product:${productId}`);
           }
         }
+      }
+
+      // Publish real-time ORDER_CREATED event so employee panel sirens and push notifications trigger immediately
+      const createdOrderId = response.data?.id || response.data?.order_id;
+      if (createdOrderId) {
+        const rawTotal = response.data?.totals?.total_price ?? response.data?.total;
+        const total = rawTotal !== undefined && rawTotal !== null
+          ? (typeof rawTotal === "number" && rawTotal > 1000 ? (rawTotal / 100).toFixed(2) : String(rawTotal))
+          : null;
+        publishOrderEvent({
+          event: "ORDER_CREATED",
+          orderId: createdOrderId,
+          total,
+        }).catch((err) => {
+          logger.warn({ err: err?.message, orderId: createdOrderId }, "[Store] Failed to publish ORDER_CREATED event");
+        });
       }
     }
 

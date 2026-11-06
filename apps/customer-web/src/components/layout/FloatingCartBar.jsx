@@ -156,9 +156,9 @@ function FloatingCartBar() {
     >
       <Link
         to="/cart"
-        className="group flex min-w-[255px] max-w-[295px] items-center justify-between gap-3.5 rounded-full bg-gradient-to-r from-[#174F6D] via-[#14445F] to-[#113B53] border border-[#2B7A9E]/45 p-1.5 pl-2 pr-3 shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.15)] transition-all hover:scale-[1.02] hover:border-[#3891BA]/60 active:scale-[0.98]"
+        className="group flex min-w-[260px] max-w-[305px] items-center justify-between gap-3.5 rounded-full bg-gradient-to-r from-[#174F6D] via-[#14445F] to-[#113B53] border border-[#2B7A9E]/45 py-2.5 pl-2.5 pr-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.15)] transition-all hover:scale-[1.02] hover:border-[#3891BA]/60 active:scale-[0.98]"
       >
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#081220] p-0.5 border border-[#1E4362] shadow-xs">
+        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#081220] p-0.5 border border-[#1E4362] shadow-xs">
           {firstItemImage ? (
             <img
               src={firstItemImage}
@@ -171,16 +171,16 @@ function FloatingCartBar() {
         </div>
 
         <div className="flex flex-col text-left min-w-0 flex-1">
-          <span className="text-[14px] font-bold text-white leading-tight truncate">
+          <span className="text-[14.5px] font-bold text-white leading-tight truncate">
             View cart
           </span>
-          <span className="text-[11.5px] font-semibold text-[#8FE3D9] leading-tight">
+          <span className="text-[12px] font-semibold text-[#8FE3D9] leading-tight mt-0.5">
             {totalItems} {totalItems === 1 ? "Item" : "Items"}
           </span>
         </div>
 
-        <div className="flex h-7.5 w-7.5 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white ml-0.5 transition-colors group-hover:bg-white/25">
-          <ChevronRight size={16} strokeWidth={2.8} />
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white ml-0.5 transition-colors group-hover:bg-white/25">
+          <ChevronRight size={17} strokeWidth={2.8} />
         </div>
       </Link>
     </aside>

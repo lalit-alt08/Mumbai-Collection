@@ -289,21 +289,12 @@ function Customers() {
 
   return (
     <div className="space-y-6">
-      {/* HEADER & TOP STATS STRIP */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900">
-            Customer Directory
-          </h1>
-          <p className="mt-0.5 text-xs text-gray-500 font-medium">
-            Registered customer accounts, lifetime order metrics, and purchase history.
-          </p>
-        </div>
-
+      {/* TOP CONTROLS STRIP */}
+      <div className="flex justify-end">
         <button
           onClick={() => fetchCustomerList({ forceRefresh: true })}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:border-[#FF8A00] hover:text-[#FF8A00] hover:bg-amber-50/40 transition active:scale-95 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:border-[#FF8A00] hover:text-[#FF8A00] hover:bg-amber-50/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
         >
           <RotateCcw size={13} className={loading ? "animate-spin text-[#FF8A00]" : ""} />
           <span>Refresh</span>
