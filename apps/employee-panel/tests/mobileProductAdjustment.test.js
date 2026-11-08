@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   validateAdjustInput,
+  buildProductAdjustmentPayload,
   applyProductAdjustment,
   calculateStockStep,
+  matchesProductAdjustment,
 } from "../src/utils/productAdjuster.js";
 
 test("Phase 2: Mobile Quick Adjust Validation & Calculations", async (t) => {
@@ -63,7 +65,7 @@ test("Phase 2: Mobile Quick Adjust Validation & Calculations", async (t) => {
     assert.equal(calculateStockStep("", 5), 5);
   });
 
-  await t.test("applyProductAdjustment updates price and stock with status calculation", () => {
+  await t.test("applyProductAdjustment changes only submitted price and stock fields", () => {
     const originalProduct = {
       id: 101,
       name: "Bandhani Silk Saree",
@@ -75,19 +77,13 @@ test("Phase 2: Mobile Quick Adjust Validation & Calculations", async (t) => {
     };
 
     // Update stock to 0 -> outofstock
-    const outOfStockResult = applyProductAdjustment(originalProduct, {
-      regular_price: "1499",
-      stock_quantity: 0,
-    });
+    const outOfStockResult = applyProductAdjustment(originalProduct, { stock_quantity: 0 });
     assert.equal(outOfStockResult.stock_quantity, 0);
     assert.equal(outOfStockResult.stock_status, "outofstock");
     assert.equal(outOfStockResult.regular_price, "1499");
 
     // Update stock to 12 -> instock and price to 1599
-    const inStockResult = applyProductAdjustment(originalProduct, {
-      regular_price: "1599",
-      stock_quantity: 12,
-    });
+    const inStockResult = applyProductAdjustment(originalProduct, { regular_price: "1599", stock_quantity: 12 });
     assert.equal(inStockResult.stock_quantity, 12);
     assert.equal(inStockResult.stock_status, "instock");
     assert.equal(inStockResult.regular_price, "1599");
@@ -139,10 +135,99 @@ test("Phase 2: Mobile Quick Adjust Validation & Calculations", async (t) => {
     const updated = applyProductAdjustment(product, {
       regular_price: "1000",
       sale_price: "799",
-      stock_quantity: 10,
     });
     assert.equal(updated.regular_price, "1000");
     assert.equal(updated.sale_price, "799");
     assert.equal(updated.price, "799");
+  });
+
+  await t.test("selective diffing: only returns changed fields when initialProduct is provided", () => {
+    const original = {
+      id: 303,
+      regular_price: "2839",
+      sale_price: "",
+      stock_quantity: 5,
+    };
+
+    // 1. Only regular price changed -> stock_quantity must NOT be included
+    const priceOnly = validateAdjustInput(
+      { regular_price: "2999", sale_price: "", stock_quantity: 5 },
+      original
+    );
+    assert.equal(priceOnly.isValid, true);
+    assert.deepEqual(priceOnly.updateData, { regular_price: "2999" });
+    assert.equal("stock_quantity" in priceOnly.updateData, false);
+
+    // 2. Only stock changed -> price must NOT be included
+    const stockOnly = validateAdjustInput(
+      { regular_price: "2839", sale_price: "", stock_quantity: 8 },
+      original
+    );
+    assert.equal(stockOnly.isValid, true);
+    assert.deepEqual(stockOnly.updateData, { stock_quantity: 8 });
+    assert.equal("regular_price" in stockOnly.updateData, false);
+
+    // 3. Both changed -> both included
+    const both = validateAdjustInput(
+      { regular_price: "2999", sale_price: "2499", stock_quantity: 12 },
+      original
+    );
+    assert.equal(both.isValid, true);
+    assert.deepEqual(both.updateData, {
+      regular_price: "2999",
+      sale_price: "2499",
+      stock_quantity: 12,
+    });
+
+    // 4. Nothing changed -> noChanges: true
+    const unchanged = validateAdjustInput(
+      { regular_price: "2839", sale_price: "", stock_quantity: 5 },
+      original
+    );
+    assert.equal(unchanged.isValid, false);
+    assert.equal(unchanged.noChanges, true);
+    assert.equal(unchanged.error, "No changes to save.");
+  });
+
+  await t.test("price-only edits on unmanaged stock omit stock and CAS fields and preserve stock locally", () => {
+    const unmanaged = {
+      id: 404,
+      regular_price: "100",
+      sale_price: "",
+      stock_quantity: null,
+      manage_stock: false,
+      stock_status: "instock",
+    };
+    const validation = validateAdjustInput(
+      { regular_price: "125", sale_price: "", stock_quantity: "" },
+      unmanaged
+    );
+    assert.deepEqual(validation.updateData, { regular_price: "125" });
+    assert.deepEqual(buildProductAdjustmentPayload(validation.updateData, unmanaged), { regular_price: "125" });
+    assert.deepEqual(applyProductAdjustment(unmanaged, validation.updateData), {
+      ...unmanaged,
+      regular_price: "125",
+      price: "125",
+    });
+  });
+
+  await t.test("explicit zero quantity preserves CAS even when original stock is null", () => {
+    const unmanaged = { id: 405, stock_quantity: null, manage_stock: false, stock_status: "instock" };
+    const validation = validateAdjustInput({ stock_quantity: "0" }, unmanaged);
+    assert.deepEqual(validation.updateData, { stock_quantity: 0 });
+    assert.deepEqual(buildProductAdjustmentPayload(validation.updateData, unmanaged), {
+      stock_quantity: 0,
+      expected_stock_quantity: null,
+    });
+  });
+
+  await t.test("timeout verification compares zero stock and changed or cleared sale prices exactly", () => {
+    assert.equal(matchesProductAdjustment({ stock_quantity: 0 }, { stock_quantity: 0 }), true);
+    assert.equal(matchesProductAdjustment({ stock_quantity: null }, { stock_quantity: 0 }), false);
+    assert.equal(matchesProductAdjustment({ regular_price: "100.00" }, { regular_price: "100" }), true);
+    assert.equal(matchesProductAdjustment({ sale_price: "75.00" }, { sale_price: "80" }), false);
+    assert.equal(matchesProductAdjustment({ sale_price: "" }, { sale_price: "" }), true);
+    assert.equal(matchesProductAdjustment({ sale_price: "75" }, { sale_price: "" }), false);
+    assert.equal(matchesProductAdjustment({}, { regular_price: "100" }), false);
   });
 });

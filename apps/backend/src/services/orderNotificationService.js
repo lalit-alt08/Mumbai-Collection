@@ -1,9 +1,12 @@
 import EventEmitter from "events";
+import axios from "axios";
+import { httpsAgent } from "../config/httpAgent.js";
 import { getRedisClient, getRedisSubscriber, isRedisActive, isRedisSubscriberActive } from "../config/redis.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { sendOrderCreatedPush, enqueuePushOutboxJob } from "./pushNotificationService.js";
 import { alertStaffAnomaly } from "./alertService.js";
+import { getSessionKeyHashes, checkDurableRevocation, checkDurableUserRevocation } from "../middlewares/authMiddleware.js";
 
 export const ORDER_EVENTS_CHANNEL = "orders:events";
 
@@ -14,6 +17,8 @@ localBus.setMaxListeners(200);
 const employeeClients = new Set();
 const userClientCounts = new Map();
 const localAcknowledgedOrders = new Map();
+
+export const _getLocalAcknowledgedOrders = () => localAcknowledgedOrders;
 
 export const MAX_GLOBAL_SSE_CLIENTS = 100;
 export const MAX_PER_USER_SSE_CLIENTS = 3;
@@ -83,8 +88,23 @@ export const broadcastToEmployeeClients = (payload) => {
   serverCache.invalidatePrefix("employee:overview");
 
   const dataString = `event: order_event\ndata: ${JSON.stringify(payload)}\n\n`;
+  const now = Date.now();
 
   for (const client of Array.from(employeeClients)) {
+    // Strictly enforce session expiration deadline before delivering any order event
+    if (client._sessionExpiresAt && now >= client._sessionExpiresAt) {
+      try {
+        client.write(`event: session_expired\ndata: ${JSON.stringify({ expired: true, reason: "SESSION_EXPIRED" })}\n\n`);
+      } catch (_) {}
+      if (typeof client._cleanupSSE === "function") {
+        client._cleanupSSE();
+      } else {
+        employeeClients.delete(client);
+      }
+      try { client.end(); } catch (_) {}
+      continue;
+    }
+
     try {
       client.write(dataString);
     } catch (_) {
@@ -198,17 +218,17 @@ export const acknowledgeOrderNotification = async ({ orderId, employeeId } = {})
     acknowledgedAt: Date.now(),
   };
 
+  // Always cache locally as immediate zero-latency backup and in-flight guard
+  localAcknowledgedOrders.set(cleanOrderId, { ...ackRecord, expiresAt: Date.now() + ACK_TTL_MS });
+
   // Cache in Redis with 24-hour TTL if active
   const redis = getRedisClient();
   if (redis && isRedisActive()) {
     try {
       await redis.set(`mumbai:order:ack:${cleanOrderId}`, JSON.stringify(ackRecord), "EX", 86400);
     } catch (err) {
-      logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Redis ack set failed, fallback to local");
-      localAcknowledgedOrders.set(cleanOrderId, { ...ackRecord, expiresAt: Date.now() + ACK_TTL_MS });
+      logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Redis ack set failed, fallback retained in local memory");
     }
-  } else {
-    localAcknowledgedOrders.set(cleanOrderId, { ...ackRecord, expiresAt: Date.now() + ACK_TTL_MS });
   }
 
   // Broadcast to all connected panels so other phones stop ringing immediately
@@ -223,27 +243,150 @@ export const acknowledgeOrderNotification = async ({ orderId, employeeId } = {})
 
 /**
  * Checks if an order was acknowledged.
+ *
+ * Persistence semantics:
+ * - Redis records survive backend restarts and are shared across all Node worker processes.
+ * - Local memory entries are maintained per Node process during temporary Redis outages
+ *   and reconcile back into Redis with their remaining TTL as soon as Redis is reachable.
+ * - In-memory entries do NOT survive a Node process restart or sync to other workers if Redis
+ *   remained unavailable throughout.
  */
 export const isOrderAcknowledged = async (orderId) => {
   const cleanOrderId = Number(orderId);
   if (!cleanOrderId) return false;
 
   const redis = getRedisClient();
+  let redisChecked = false;
   if (redis && isRedisActive()) {
     try {
       const raw = await redis.get(`mumbai:order:ack:${cleanOrderId}`);
-      return Boolean(raw);
+      if (raw) return true;
+      redisChecked = true;
     } catch (_) {
-      // Fall through to memory check
+      // Fall through to local memory check
     }
   }
 
+  const now = Date.now();
   const local = localAcknowledgedOrders.get(cleanOrderId);
   if (local) {
-    if (local.expiresAt > Date.now()) return true;
+    if (local.expiresAt > now) {
+      // If Redis was active but missed this key (e.g. key was written during Redis outage),
+      // reconcile into Redis using remaining unexpired TTL so original expiry is preserved.
+      if (redisChecked && redis && isRedisActive()) {
+        const remainingTtlMs = local.expiresAt - now;
+        if (remainingTtlMs > 0) {
+          redis.set(`mumbai:order:ack:${cleanOrderId}`, JSON.stringify(local), "PX", remainingTtlMs, "NX").catch(() => {});
+        }
+      }
+      return true;
+    }
     localAcknowledgedOrders.delete(cleanOrderId);
   }
   return false;
+};
+
+/**
+ * Checks a batch of order IDs for acknowledgement status in Redis/memory.
+ * Returns a Set of acknowledged order IDs.
+ *
+ * Merges unexpired local memory entries for Redis misses and reconciles them into Redis
+ * with their remaining TTL so original expiry times are preserved when Redis recovers.
+ *
+ * Persistence semantics:
+ * - Redis records survive restarts and are shared across all Node worker processes.
+ * - Local memory entries survive in the current process during a Redis outage and
+ *   backfill to Redis on the next query after recovery.
+ * - If the process restarts while Redis was down, local-only entries are lost.
+ *
+ * @param {Array<number|string>} orderIds
+ * @returns {Promise<Set<number>>}
+ */
+const awaitWithAbortSignal = (promise, signal) => {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    const error = new Error("Operation aborted");
+    error.name = "AbortError";
+    error.code = "ERR_CANCELED";
+    return Promise.reject(error);
+  }
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      cleanup();
+      const error = new Error("Operation aborted");
+      error.name = "AbortError";
+      error.code = "ERR_CANCELED";
+      reject(error);
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+};
+
+export const getAcknowledgedOrderIds = async (orderIds, { signal } = {}) => {
+  if (!Array.isArray(orderIds) || orderIds.length === 0) return new Set();
+  if (signal?.aborted) {
+    const error = new Error("Operation aborted");
+    error.name = "AbortError";
+    error.code = "ERR_CANCELED";
+    throw error;
+  }
+  const cleanIds = orderIds.map(Number).filter(Boolean);
+  const ackSet = new Set();
+  const unconfirmedIds = new Set(cleanIds);
+
+  const redis = getRedisClient();
+  let redisChecked = false;
+  if (redis && isRedisActive() && cleanIds.length > 0) {
+    try {
+      const keys = cleanIds.map((id) => `mumbai:order:ack:${id}`);
+      const values = await awaitWithAbortSignal(redis.mget(keys), signal);
+      values.forEach((val, i) => {
+        if (val) {
+          ackSet.add(cleanIds[i]);
+          unconfirmedIds.delete(cleanIds[i]);
+        }
+      });
+      redisChecked = true;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      logger.warn({ err: err?.message }, "[OrderNotification] Redis batch mget failed, falling back to local");
+    }
+  }
+
+  // Check unconfirmed IDs in local memory (handles Redis misses after recovery or during Redis outage)
+  const now = Date.now();
+  for (const id of unconfirmedIds) {
+    const local = localAcknowledgedOrders.get(id);
+    if (local) {
+      if (local.expiresAt > now) {
+        ackSet.add(id);
+        // If Redis is active, reconcile the unexpired record back into Redis
+        if (redisChecked && redis && isRedisActive()) {
+          const remainingTtlMs = local.expiresAt - now;
+          if (remainingTtlMs > 0) {
+            redis.set(`mumbai:order:ack:${id}`, JSON.stringify(local), "PX", remainingTtlMs, "NX").catch(() => {});
+          }
+        }
+      } else {
+        localAcknowledgedOrders.delete(id);
+      }
+    }
+  }
+
+  return ackSet;
 };
 
 /**
@@ -260,6 +403,9 @@ export const handleEmployeeOrderStream = (req, res) => {
   }
 
   const userId = req.user?.id ? String(req.user.id) : null;
+  const sessionExpiresAt = req.authExpiresAt || null;
+  const validatedAt = req.authValidatedAt || Date.now();
+  const authCookie = req.wpAuthCookie || null;
   if (userId) {
     const currentCount = userClientCounts.get(userId) || 0;
     if (currentCount >= MAX_PER_USER_SSE_CLIENTS) {
@@ -315,8 +461,142 @@ export const handleEmployeeOrderStream = (req, res) => {
     }
   };
   res._cleanupSSE = cleanupClient;
+  res._sessionExpiresAt = sessionExpiresAt;
+  res._validatedAt = validatedAt;
+  res._authCookie = authCookie;
+  res._userId = userId;
+  res._userVersion = req.userVersion || null;
 
-  const pingInterval = setInterval(() => {
+  let consecutiveCheckFailures = 0;
+
+  const pingInterval = setInterval(async () => {
+    // 1. Session expiry verification on heartbeat
+    if (res._sessionExpiresAt && Date.now() >= res._sessionExpiresAt) {
+      try {
+        res.write(`event: session_expired\ndata: ${JSON.stringify({ expired: true, reason: "SESSION_EXPIRED" })}\n\n`);
+      } catch (_) {}
+      cleanupClient();
+      try { res.end(); } catch (_) {}
+      return;
+    }
+
+    // 2. Revocation check on heartbeat across shared durable storage & Redis
+    let checkedWithRedis = false;
+    let isRevoked = false;
+
+    // First check shared durable storage (survives Redis outages & backend restarts)
+    if (authCookie) {
+      const durableToken = checkDurableRevocation(authCookie);
+      if (durableToken.revoked) {
+        isRevoked = true;
+      }
+    }
+    if (!isRevoked && userId) {
+      const durableUser = checkDurableUserRevocation(userId, res._userVersion, validatedAt);
+      if (durableUser.revoked) {
+        isRevoked = true;
+      }
+    }
+
+    const redis = getRedisClient();
+    if (!isRevoked && redis && isRedisActive()) {
+      try {
+        const { allRevocationKeys } = getSessionKeyHashes(authCookie);
+        const keysToCheck = (allRevocationKeys || []).map((k) => `sess:revoked:${k}`);
+        if (userId) {
+          keysToCheck.push(`sess:user_ver:${userId}`);
+          keysToCheck.push(`sess:user_rev:${userId}`);
+        }
+        if (keysToCheck.length > 0) {
+          const results = await redis.mget(...keysToCheck);
+          for (let i = 0; i < (allRevocationKeys || []).length; i++) {
+            if (results[i]) {
+              isRevoked = true;
+              break;
+            }
+          }
+          if (userId && !isRevoked) {
+            const verIndex = (allRevocationKeys || []).length;
+            const revTimeIndex = verIndex + 1;
+            const currentVerStr = results[verIndex];
+            const currentVer = currentVerStr ? Number(currentVerStr) : null;
+            const userRevTime = results[revTimeIndex];
+
+            if (currentVer !== null && res._userVersion !== undefined && res._userVersion !== null) {
+              if (Number(res._userVersion) < currentVer) {
+                isRevoked = true;
+              }
+            }
+            if (!isRevoked && userRevTime && Number(userRevTime) > validatedAt) {
+              isRevoked = true;
+            }
+          }
+        }
+        checkedWithRedis = true;
+        consecutiveCheckFailures = 0;
+      } catch (checkErr) {
+        logger.warn({ err: checkErr?.message }, "[OrderNotification] Heartbeat Redis check threw error");
+      }
+    }
+
+    if (isRevoked) {
+      try {
+        res.write(`event: session_revoked\ndata: ${JSON.stringify({ revoked: true, reason: "SESSION_REVOKED" })}\n\n`);
+      } catch (_) {}
+      cleanupClient();
+      try { res.end(); } catch (_) {}
+      return;
+    }
+
+    // If Redis was unavailable or threw an error:
+    if (!checkedWithRedis) {
+      consecutiveCheckFailures++;
+      logger.warn({ consecutiveCheckFailures }, "[OrderNotification] Heartbeat Redis check unavailable");
+
+      // After 3 failed Redis checks (45 seconds), revalidate against WordPress primary authority!
+      if (consecutiveCheckFailures >= 3 && authCookie) {
+        try {
+          const wpRes = await axios.get(
+            `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
+            {
+              headers: { Cookie: authCookie },
+              httpsAgent,
+              timeout: 4000,
+            }
+          );
+          const wpData = wpRes.data;
+          const roles = Array.isArray(wpData?.roles) ? wpData.roles : [];
+          const isAllowed = wpData?.logged_in && roles.some((r) => ["employee", "administrator"].includes(r));
+          if (isAllowed) {
+            // Employee verified as still authorized by WordPress authority
+            consecutiveCheckFailures = 0;
+            if (wpData.expires_at) {
+              res._sessionExpiresAt = Number(wpData.expires_at) * 1000;
+            }
+          } else {
+            // Upstream confirmed session is revoked, suspended, or expired
+            try {
+              res.write(`event: session_revoked\ndata: ${JSON.stringify({ revoked: true, reason: "SESSION_REVOKED_UPSTREAM" })}\n\n`);
+            } catch (_) {}
+            cleanupClient();
+            try { res.end(); } catch (_) {}
+            return;
+          }
+        } catch (wpErr) {
+          // Both Redis and WordPress cannot verify authorization after 6 checks (90 seconds)
+          if (consecutiveCheckFailures >= 6) {
+            logger.error("[OrderNotification] Both Redis and WordPress unreachable for 90s; terminating unverified stream");
+            try {
+              res.write(`event: session_revoked\ndata: ${JSON.stringify({ revoked: true, reason: "REVOCATION_CHECK_UNAVAILABLE" })}\n\n`);
+            } catch (_) {}
+            cleanupClient();
+            try { res.end(); } catch (_) {}
+            return;
+          }
+        }
+      }
+    }
+
     try {
       res.write(`: ping\n\nevent: heartbeat\ndata: ${Date.now()}\n\n`);
     } catch (_) {

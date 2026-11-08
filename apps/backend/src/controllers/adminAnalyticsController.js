@@ -1,9 +1,14 @@
+import { getVerifiedStoreTimezone } from "../services/storeHoursService.js";
 import api from "../config/woocommerce.js";
 import wp from "../services/wordpress.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logError } from "../utils/logger.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
-import { fetchStockCounts } from "./adminProductController.js";
+import {
+  EDITABLE_PRODUCT_SCOPE,
+  fetchStockCounts,
+  PRODUCT_STOCK_COUNTS_CACHE_KEY,
+} from "./adminProductController.js";
 import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
 
 /**
@@ -47,9 +52,94 @@ export const getISTMonthBoundaries = (referenceDate = new Date()) => {
  * Executive Overview Analytics
  * (Unchanged — uses its own clean-revenue logic)
  */
+/**
+ * Normalizes WooCommerce order creation timestamps into ISO 8601 UTC representation.
+ * - Uses date_created_gmt as UTC (Z).
+ * - Preserves explicit ISO offsets (+/-HH:MM, Z).
+ * - When only timezone-less date_created is present, converts using store timezone (Asia/Kolkata / +05:30).
+ * - Never appends 'Z' to site-local timestamp.
+ * - Returns "" if unresolvable.
+ */
+function parseLocalInTimezone(localIso, timeZone) {
+  const tz = timeZone || getVerifiedStoreTimezone();
+  if (!tz) return null;
+
+  // Handle explicit offset format if WordPress returned an offset e.g. "+05:30", "-04:00"
+  if (/^[+-]\d{2}(?::?\d{2})?$/.test(tz)) {
+    const formattedTz = tz.includes(":") ? tz : `${tz.slice(0, 3)}:${tz.slice(3)}`;
+    const d = new Date(`${localIso}${formattedTz}`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const [datePart, timePart = "00:00:00"] = localIso.split("T");
+  if (!datePart) return null;
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm, ss = 0] = timePart.split(":").map(Number);
+  if (!y || !m || !d) return null;
+
+  const utcGuess = new Date(Date.UTC(y, m - 1, d, hh, mm, ss));
+  if (isNaN(utcGuess.getTime())) return null;
+
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(utcGuess);
+
+    const p = {};
+    for (const part of parts) p[part.type] = part.value;
+    const pHour = p.hour === "24" ? 0 : Number(p.hour);
+    const tzAsUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), pHour, Number(p.minute), Number(p.second));
+    const offsetMs = tzAsUtc - utcGuess.getTime();
+    return new Date(utcGuess.getTime() - offsetMs);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Normalizes WooCommerce order creation timestamps into ISO 8601 UTC representation with explicit offset.
+ * - Uses date_created_gmt as UTC (Z).
+ * - Preserves explicit ISO offsets (+/-HH:MM, Z).
+ * - When only timezone-less date_created is present, converts using verified store timezone (not hardcoded +05:30).
+ * - Never appends 'Z' to site-local timestamp.
+ * - Returns "" if unresolvable.
+ */
+function normalizeOrderDateToIso(dateGmt, dateLocal, explicitTimezone = null) {
+  if (dateGmt && typeof dateGmt === "string") {
+    const trimmed = dateGmt.trim();
+    if (trimmed) {
+      const candidate = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(trimmed) ? trimmed : `${trimmed}Z`;
+      const d = new Date(candidate);
+      if (!isNaN(d.getTime())) return d.toISOString();
+    }
+  }
+  if (dateLocal && typeof dateLocal === "string") {
+    const trimmed = dateLocal.trim();
+    if (trimmed) {
+      if (/(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(trimmed)) {
+        const d = new Date(trimmed);
+        if (!isNaN(d.getTime())) return d.toISOString();
+      } else {
+        const storeTz = explicitTimezone || getVerifiedStoreTimezone();
+        const d = parseLocalInTimezone(trimmed, storeTz);
+        if (d && !isNaN(d.getTime())) return d.toISOString();
+      }
+    }
+  }
+  return "";
+}
+
 export const getDashboardOverview = async (req, res) => {
   try {
     const isRefresh = req.query.refresh === "true" || req.query.refresh === "1";
+    if (isRefresh) serverCache.delete(PRODUCT_STOCK_COUNTS_CACHE_KEY);
     if (!isRefresh) {
       const cachedOverview = serverCache.get("admin:analytics:overview");
       if (cachedOverview) {
@@ -59,6 +149,8 @@ export const getDashboardOverview = async (req, res) => {
         return res.json(cachedOverview);
       }
     }
+
+    const overviewFence = await serverCache.createFence("admin:analytics:overview");
 
     const todayBounds = getISTDateBoundaries("today");
     const { istMonthStartUTC, istNextMonthStartUTC } = getISTMonthBoundaries();
@@ -89,16 +181,18 @@ export const getDashboardOverview = async (req, res) => {
         per_page: 10,
         orderby: "date",
         order: "desc",
-      }).catch(() => ({ data: [] })),
+      }).catch(() => null),
 
       api.get("products", {
+        ...EDITABLE_PRODUCT_SCOPE,
         stock_status: "lowstock",
         per_page: 6,
-      }).catch(() => ({ data: [] })),
+      }).catch(() => null),
 
-      fetchStockCounts().catch(() => ({ all: 0, instock: 0, lowstock: 0, outofstock: 0 })),
+      fetchStockCounts({ bypassCache: isRefresh }).catch(() => null),
     ]);
 
+    const inventoryAvailable = Array.isArray(lowStockRes?.data) && stockCounts !== null;
     const lowStockProducts = (Array.isArray(lowStockRes?.data) ? lowStockRes.data : []).slice(0, 6).map((p) => ({
       id: p.id,
       name: p.name,
@@ -108,9 +202,15 @@ export const getDashboardOverview = async (req, res) => {
       price: p.price,
     }));
 
-    const rawRecentOrders = Array.isArray(recentOrdersRes?.data) ? recentOrdersRes.data : [];
+    const recentOrdersAvailable = recentOrdersRes !== null && Array.isArray(recentOrdersRes?.data);
+    const rawRecentOrders = recentOrdersAvailable ? recentOrdersRes.data : [];
+    const wpSiteTimezone = summaryRes?.data?.wp_timezone || null;
+    if (wpSiteTimezone) {
+      serverCache.set("wp:site_timezone", { timezone: wpSiteTimezone, gmt_offset: summaryRes?.data?.gmt_offset }, 3600000);
+    }
     const recentOrders = rawRecentOrders.map((o) => {
       const effectiveStatus = getEffectiveStatus(o);
+      const formattedUtcDate = normalizeOrderDateToIso(o.date_created_gmt, o.date_created, wpSiteTimezone);
       return {
         id: o.id,
         order_number: o.number || String(o.id),
@@ -120,7 +220,7 @@ export const getDashboardOverview = async (req, res) => {
         customer_phone: o.billing?.phone || "",
         total: o.total,
         status: effectiveStatus,
-        date: o.date_created,
+        date: formattedUtcDate,
         items_count: o.line_items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0,
         payment_method: o.payment_method_title || "Cash on Delivery",
       };
@@ -162,8 +262,8 @@ export const getDashboardOverview = async (req, res) => {
         activeOrders: activeOrdersCount,
         completedOrders: sc.completed || 0,
         cancelledOrders: (sc.cancelled || 0) + (sc.failed || 0) + (sc.refunded || 0),
-        totalProducts: stockCounts?.all || 0,
-        lowStockCount: stockCounts?.lowstock ?? lowStockProducts.length,
+        totalProducts: stockCounts?.all ?? null,
+        lowStockCount: stockCounts?.lowstock ?? null,
         avgOrderValue: s.avgOrderValue,
       };
 
@@ -187,15 +287,21 @@ export const getDashboardOverview = async (req, res) => {
       salesTrend: Array.from(last7DaysMap.values()),
       lowStockProducts: lowStockProducts.slice(0, 6),
       recentOrders,
+      recentOrdersAvailable,
+      inventoryAvailable,
       data: {
         summary: summaryData,
         salesTrend: Array.from(last7DaysMap.values()),
         lowStockProducts: lowStockProducts.slice(0, 6),
         recentOrders,
+        recentOrdersAvailable,
+        inventoryAvailable,
       },
     };
 
-    serverCache.set("admin:analytics:overview", responsePayload, 120000);
+    if (inventoryAvailable && recentOrdersAvailable) {
+      await serverCache.setFenced("admin:analytics:overview", responsePayload, 120000, overviewFence);
+    }
 
     if (typeof res.set === "function") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");

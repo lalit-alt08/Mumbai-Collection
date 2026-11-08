@@ -8,9 +8,14 @@
  * Output example: "08 Sep, 06:35 pm"
  */
 export function formatOrderDateTimeIST(dateStr) {
-  if (!dateStr) return "";
-  const iso = dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : `${dateStr}Z`;
+  if (!dateStr || typeof dateStr !== "string") return "";
+  const trimmed = dateStr.trim();
+  if (!trimmed) return "";
+
+  // Preserve explicit offsets; by contract, assume UTC ISO when no offset is provided
+  const iso = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(trimmed) ? trimmed : `${trimmed}Z`;
   const d = new Date(iso);
+
   if (isNaN(d.getTime())) return "";
 
   const day = new Intl.DateTimeFormat("en-US", {

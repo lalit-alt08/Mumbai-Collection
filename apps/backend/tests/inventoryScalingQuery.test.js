@@ -11,6 +11,7 @@ import {
 } from "../src/controllers/adminProductController.js";
 import api from "../src/config/woocommerce.js";
 import { serverCache } from "../src/utils/memoryCache.js";
+import { searchIndexService } from "../src/services/searchIndexService.js";
 
 test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (t) => {
   const originalApiGet = api.get;
@@ -18,9 +19,13 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
   const originalApiPut = api.put;
   const originalApiDelete = api.delete;
   const originalAxiosGet = axios.get;
+  const originalWpPost = wp.post;
+  const originalMarkDirty = searchIndexService.markDirty;
 
   t.beforeEach(() => {
     serverCache.clear();
+    searchIndexService.markDirty = () => {};
+    axios.get = async () => { throw new Error("Mocked WordPress summary outage"); };
   });
 
   t.afterEach(() => {
@@ -29,6 +34,8 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     api.put = originalApiPut;
     api.delete = originalApiDelete;
     axios.get = originalAxiosGet;
+    wp.post = originalWpPost;
+    searchIndexService.markDirty = originalMarkDirty;
     serverCache.clear();
   });
 
@@ -70,6 +77,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     assert.equal(responseData.totalPages, 26);
     assert.equal(capturedParams.page, 3);
     assert.equal(capturedParams.per_page, 20);
+    assert.deepEqual(capturedParams.include_status, ["any"], "inventory retains unpublished editable products");
   });
 
   await t.test("2. SKU / Search Query: forwards search term properly to WooCommerce query", async () => {
@@ -154,6 +162,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
             counts: {
               all: 500,
               instock: 450,
+              onbackorder: 8,
               lowstock: 15,
               outofstock: 35,
             },
@@ -181,6 +190,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     assert.deepEqual(responseData.counts, {
       all: 500,
       instock: 450,
+      onbackorder: 8,
       lowstock: 15,
       outofstock: 35,
     });
@@ -188,7 +198,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
 
   await t.test("5. In-Memory 60s Cache: serves repeated query from cache without calling WooCommerce API", async () => {
     let callCount = 0;
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
     api.get = async () => {
       callCount++;
@@ -218,7 +228,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
 
   await t.test("6. Cache Invalidation: updateProduct clears product list cache and stock counts", async () => {
     let getCallCount = 0;
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
     api.get = async () => {
       getCallCount++;
@@ -229,6 +239,9 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     };
 
     api.put = async () => ({
+      data: { id: 401, name: "Product 401", price: "550", stock_quantity: 8 },
+    });
+    wp.post = async () => ({
       data: { id: 401, name: "Product 401", price: "550", stock_quantity: 8 },
     });
 
@@ -242,12 +255,12 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     // Mutation: updateProduct
     const putReq = {
       params: { id: "401" },
-      body: { regular_price: "550", stock_quantity: 8 },
+      body: { regular_price: "550", stock_quantity: 8, expected_stock_quantity: 10 },
     };
     const putRes = { json: () => {}, status: () => putRes };
     await updateProduct(putReq, putRes);
 
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
     // Subsequent query should miss cache and fetch fresh data
     await getAdminProducts(getReq, getRes);
@@ -256,7 +269,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
 
   await t.test("7. Cache Invalidation: deleteProduct clears product list cache and stock counts", async () => {
     let getCallCount = 0;
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
     api.get = async () => {
       getCallCount++;
@@ -282,7 +295,7 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     const delRes = { json: () => {}, status: () => delRes };
     await deleteProduct(delReq, delRes);
 
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
     // Subsequent query should miss cache and fetch fresh data
     await getAdminProducts(getReq, getRes);
@@ -291,9 +304,12 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
 
   await t.test("8. Cache Invalidation: createProduct clears product list cache and stock counts", async () => {
     let getCallCount = 0;
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
-    api.get = async () => {
+    api.get = async (endpoint) => {
+      if (endpoint === "products/categories") {
+        return { data: [{ id: 9, name: "Test Department", slug: "test-department", parent: 0 }] };
+      }
       getCallCount++;
       return {
         data: [{ id: 601, name: "Product 601", price: "500" }],
@@ -314,12 +330,12 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
 
     // Mutation: createProduct
     const createReq = {
-      body: { name: "New Product", regular_price: "1200", stock_quantity: 10 },
+      body: { name: "New Product", regular_price: "1200", stock_quantity: 10, category_ids: [9] },
     };
     const createRes = { json: () => {}, status: () => createRes };
     await createProduct(createReq, createRes);
 
-    serverCache.set("product_stock_counts", { all: 1, instock: 1, lowstock: 0, outofstock: 0 }, 60000);
+    serverCache.set("product_stock_counts", { all: 1, instock: 1, onbackorder: 0, lowstock: 0, outofstock: 0 }, 60000);
 
     // Subsequent query should miss cache and fetch fresh data
     await getAdminProducts(getReq, getRes);

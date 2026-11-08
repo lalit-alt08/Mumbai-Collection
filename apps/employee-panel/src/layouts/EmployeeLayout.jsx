@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -15,6 +15,11 @@ import {
   Sliders,
   FolderTree,
   Sun,
+  Clock,
+  Eye,
+  EyeOff,
+  AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
@@ -22,11 +27,69 @@ import { useWakeLock } from "../hooks/useWakeLock.js";
 
 function EmployeeLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pageRefresh, setPageRefresh] = useState(null);
+  const mainRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { logout, user } = useEmployeeAuth();
+  const handleMenuClick = (event, href) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    setSidebarOpen(false);
+    if (location.pathname !== href) return;
+
+    event.preventDefault();
+    mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    void pageRefresh?.();
+  };
+
+  const { logout, user, expiryWarning, login, logoutPending, setLogoutPending } = useEmployeeAuth();
   const { isLocked, isEnabled, toggleCounterMode, releaseLock } = useWakeLock();
+
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewEmail, setRenewEmail] = useState("");
+  const [renewPassword, setRenewPassword] = useState("");
+  const [showRenewPassword, setShowRenewPassword] = useState(false);
+  const [renewSubmitting, setRenewSubmitting] = useState(false);
+  const [renewError, setRenewError] = useState("");
+
+  const handleRenewSubmit = async (e) => {
+    e.preventDefault();
+    if (!renewPassword) {
+      setRenewError("Password is required.");
+      return;
+    }
+    try {
+      setRenewSubmitting(true);
+      setRenewError("");
+      const res = await login(renewEmail.trim(), renewPassword);
+      if (res?.superseded || res?.cancelled) {
+        return;
+      }
+      setShowRenewModal(false);
+      setRenewPassword("");
+      try {
+        window.dispatchEvent(new CustomEvent("mumbai:session-renewed"));
+      } catch (_) {}
+    } catch (err) {
+      setRenewError(
+        err.response?.data?.message || err.message || "Failed to renew shift session."
+      );
+    } finally {
+      setRenewSubmitting(false);
+    }
+  };
 
   const navigation = [
     { name: "Dashboard", href: "/", exact: true, icon: LayoutDashboard },
@@ -57,10 +120,18 @@ function EmployeeLayout() {
     }
   }, []);
 
-  const handleLogout = async () => {
-    await releaseLock();
-    await logout();
-    navigate("/login", { replace: true });
+  const handleLogout = async (options = {}) => {
+    try {
+      setLoggingOut(true);
+      await releaseLock();
+      const res = await logout(options);
+      if (res?.success) {
+        navigate("/login", { replace: true });
+      }
+    } catch (_) {
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   const getPageTitle = () => {
@@ -80,14 +151,14 @@ function EmployeeLayout() {
       {sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-[45] bg-black/60 backdrop-blur-sm lg:hidden"
         />
       )}
 
       {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#0F172A] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none lg:pointer-events-auto"
         }`}
       >
         {/* Brand Header */}
@@ -132,7 +203,7 @@ function EmployeeLayout() {
               <NavLink
                 key={item.name}
                 to={item.href}
-                onClick={() => setSidebarOpen(false)}
+                onClick={(e) => handleMenuClick(e, item.href)}
                 className={`group flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
                   isActive
                     ? "bg-emerald-500 text-white shadow-[0_4px_16px_rgba(16,185,129,0.35)]"
@@ -280,9 +351,162 @@ function EmployeeLayout() {
           </div>
         </header>
 
+        {/* 12-Hour Shift Session Expiry Warning Strip */}
+        {expiryWarning && (
+          <div className="bg-amber-500 text-slate-950 px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center justify-between border-b border-amber-600 shadow-xs animate-[slideDown_0.2s_ease-out]">
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock size={16} className="shrink-0 text-slate-950" />
+              <span className="truncate">
+                Staff Shift Notice: Session expires in <strong>{expiryWarning} minute{expiryWarning > 1 ? "s" : ""}</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setRenewEmail(user?.email || "");
+                setRenewPassword("");
+                setRenewError("");
+                setShowRenewModal(true);
+              }}
+              className="px-3 py-1 bg-slate-950 text-white rounded-lg text-xs font-black hover:bg-slate-800 transition shrink-0 ml-3 cursor-pointer shadow-xs"
+            >
+              Extend Shift
+            </button>
+          </div>
+        )}
+
+        {/* In-Page Shift Extension Modal (Keeps Orders Screen & Audio Alarm Active) */}
+        {showRenewModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-[fadeIn_0.15s_ease-out]">
+            <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden animate-[scaleUp_0.15s_ease-out]">
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center">
+                    <Clock size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Extend 12-Hour Shift</h3>
+                    <p className="text-xs text-gray-500">Order monitoring will continue in the background</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRenewModal(false)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleRenewSubmit} className="p-6 space-y-4">
+                {renewError && (
+                  <div className="p-3 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl">
+                    {renewError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Staff Email</label>
+                  <input
+                    type="email"
+                    value={renewEmail}
+                    onChange={(e) => setRenewEmail(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 text-gray-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showRenewPassword ? "text" : "password"}
+                      value={renewPassword}
+                      onChange={(e) => setRenewPassword(e.target.value)}
+                      autoFocus
+                      placeholder="Enter password to extend"
+                      required
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRenewPassword(!showRenewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    >
+                      {showRenewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRenewModal(false)}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={renewSubmitting}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-white text-xs font-bold transition disabled:opacity-60 cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                  >
+                    {renewSubmitting ? "Extending..." : "Confirm & Extend"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Logout Pending / Server Unconfirmed Modal */}
+        {logoutPending && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <div className="relative w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#0F172A] p-6 text-white shadow-2xl">
+              <div className="flex items-center gap-3 text-amber-400 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Server Revocation Pending</h3>
+                  <p className="text-xs text-amber-400/90 font-medium">Single-device logout verification</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed mb-6">
+                {logoutPending.message || "WordPress could not confirm destruction of this device's session token. You can retry revoking it on the server, or proceed to sign out on this device."}
+              </p>
+
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => handleLogout({ force: false })}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 text-xs font-bold text-white transition disabled:opacity-60 cursor-pointer shadow-sm"
+                >
+                  <RotateCcw size={14} className={loggingOut ? "animate-spin" : ""} />
+                  {loggingOut ? "Retrying Revocation..." : "Retry Server Logout"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => handleLogout({ force: true })}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 hover:text-rose-300 border border-slate-700 px-4 py-2.5 text-xs font-bold text-rose-400 transition cursor-pointer"
+                >
+                  <LogOut size={14} />
+                  Sign Out on This Device
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Page Content with bottom clearance for Mobile Bottom Navigation */}
-        <main className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
-          <Outlet />
+        <main ref={mainRef} className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
+          <Outlet context={{ setPageRefresh }} />
         </main>
 
         {/* Mobile Bottom Navigation Bar */}
@@ -306,6 +530,7 @@ function EmployeeLayout() {
                 <NavLink
                   key={item.name}
                   to={item.href}
+                  onClick={(e) => handleMenuClick(e, item.href)}
                   className={`flex flex-1 flex-col items-center justify-center gap-1 py-1 active:scale-95 transition ${
                     isActive ? "text-emerald-600" : "text-slate-500 hover:text-emerald-600"
                   }`}

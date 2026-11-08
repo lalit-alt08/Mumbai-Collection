@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams, useOutletContext } from "react-router-dom";
+import { useVisibleRevalidation } from "../hooks/useVisibleRevalidation.js";
 import {
   Boxes,
   Search,
@@ -27,12 +29,16 @@ import {
 } from "../utils/productAdjuster";
 
 function Products() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const outletContext = useOutletContext();
+  const setPageRefresh = outletContext?.setPageRefresh;
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [stockFilter, setStockFilter] = useState("all");
+  const stockParam = searchParams.get("stock");
+  const stockFilter = ["instock", "lowstock", "outofstock"].includes(stockParam) ? stockParam : "all";
   const [stockCounts, setStockCounts] = useState(null);
 
   // Pagination & Per-Page state (20 / 50 / 100)
@@ -61,6 +67,9 @@ function Products() {
   const isDeletingRef = useRef(false);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef(null);
+  const listViewKey = JSON.stringify([page, perPage, debouncedSearch, stockFilter]);
+  const listViewKeyRef = useRef(listViewKey);
+  listViewKeyRef.current = listViewKey;
 
   // Toast Notification state
   const [toast, setToast] = useState(null);
@@ -82,6 +91,10 @@ function Products() {
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [stockFilter]);
 
   const fetchProductList = async () => {
     abortControllerRef.current?.abort();
@@ -127,6 +140,9 @@ function Products() {
       }
       setError(err.response?.data?.message || err.message || "Failed to load catalog products.");
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       if (currentRequestId === requestIdRef.current && !controller.signal.aborted) {
         setLoading(false);
       }
@@ -139,6 +155,21 @@ function Products() {
       abortControllerRef.current?.abort();
     };
   }, [page, perPage, debouncedSearch, stockFilter]);
+
+  const fetchProductListRef = useRef(fetchProductList);
+  fetchProductListRef.current = fetchProductList;
+
+  // Connect active tab / drawer re-click refresh (uses latest filters & pagination)
+  useEffect(() => {
+    setPageRefresh?.(() => () => fetchProductListRef.current?.());
+    return () => setPageRefresh?.(null);
+  }, [setPageRefresh]);
+
+  // Revalidate stock on app resume / wake-up
+  useVisibleRevalidation(
+    () => fetchProductListRef.current?.(),
+    () => Boolean(abortControllerRef.current)
+  );
 
   // Close per-page dropdown on outside click or Escape
   useEffect(() => {
@@ -197,6 +228,8 @@ function Products() {
 
   const handleSaveQuickAdjust = async () => {
     if (!quickAdjustProduct || adjustSaving) return;
+    const submittedViewKey = listViewKeyRef.current;
+    const productId = quickAdjustProduct.id;
 
     const validation = validateAdjustInput(adjustForm);
     if (!validation.isValid) {
@@ -206,16 +239,18 @@ function Products() {
 
     try {
       setAdjustSaving(true);
-      const res = await updateProduct(quickAdjustProduct.id, { ...validation.updateData, expected_stock_quantity: quickAdjustProduct.stock_quantity ?? null });
+      const res = await updateProduct(productId, { ...validation.updateData, expected_stock_quantity: quickAdjustProduct.stock_quantity ?? null });
       if (res.success) {
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === quickAdjustProduct.id ? applyProductAdjustment(p, adjustForm) : p
-          )
-        );
+        if (listViewKeyRef.current === submittedViewKey) {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === productId ? applyProductAdjustment(p, adjustForm) : p
+            )
+          );
+          await fetchProductList();
+        }
         showToast("Product updated successfully!");
         setQuickAdjustProduct(null);
-        await fetchProductList();
       } else {
         showToast(res.message || "Failed to update product.", "error");
       }
@@ -302,7 +337,10 @@ function Products() {
             <button
               key={tab.id}
               onClick={() => {
-                setStockFilter(tab.id);
+                const nextParams = new URLSearchParams(searchParams);
+                if (tab.id === "all") nextParams.delete("stock");
+                else nextParams.set("stock", tab.id);
+                setSearchParams(nextParams);
                 setPage(1);
               }}
               className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer active:scale-95 ${

@@ -637,18 +637,43 @@ add_action('rest_api_init', function () {
             'per_page' => ['default' => 10, 'sanitize_callback' => 'absint'],
         ],
     ]);
+    register_rest_route('mumbai-auth/v1', '/admin/customers/(?P<id>\d+)/payments', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_admin_get_customer_payments',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'id' => [
+                'validate_callback' => function ($param) {
+                    return is_numeric($param);
+                },
+                'sanitize_callback' => 'absint',
+            ],
+        ],
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/payments/lookup', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_admin_lookup_payment_reference',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'ref' => ['sanitize_callback' => 'sanitize_text_field'],
+        ],
+    ]);
     register_rest_route('mumbai-auth/v1', '/employee/orders', [
         'methods'             => 'GET',
         'callback'            => 'mumbai_employee_get_orders',
         'permission_callback' => 'mumbai_internal_server_permission',
         'args'                => [
-            'status'   => ['sanitize_callback' => 'sanitize_key'],
-            'location' => ['sanitize_callback' => 'sanitize_key'],
-            'page'     => ['default' => 1, 'sanitize_callback' => 'absint'],
-            'per_page' => ['default' => 20, 'sanitize_callback' => 'absint'],
-            'after'    => ['sanitize_callback' => 'sanitize_text_field'],
-            'before'   => ['sanitize_callback' => 'sanitize_text_field'],
-            'search'   => ['sanitize_callback' => 'sanitize_text_field'],
+            'status'      => ['sanitize_callback' => 'sanitize_key'],
+            'location'    => ['sanitize_callback' => 'sanitize_key'],
+            'page'        => ['default' => 1, 'sanitize_callback' => 'absint'],
+            'per_page'    => ['default' => 20, 'sanitize_callback' => 'absint'],
+            'after'       => ['sanitize_callback' => 'sanitize_text_field'],
+            'before'      => ['sanitize_callback' => 'sanitize_text_field'],
+            'search'      => ['sanitize_callback' => 'sanitize_text_field'],
+            'mode'        => ['sanitize_callback' => 'sanitize_key'],
+            'cursor'      => ['sanitize_callback' => 'sanitize_text_field'],
+            'cursor_date' => ['sanitize_callback' => 'sanitize_text_field'],
+            'cursor_id'   => ['sanitize_callback' => 'absint'],
         ],
     ]);
     register_rest_route('mumbai-auth/v1', '/employee/orders/summary', [
@@ -660,6 +685,19 @@ add_action('rest_api_init', function () {
     register_rest_route('mumbai-auth/v1', '/staff/orders/(?P<id>\d+)/status', [
         'methods' => 'POST', 'callback' => 'mumbai_staff_update_order_status',
         'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/internal/orders/(?P<id>\d+)/reconcile-payment', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_internal_reconcile_order_payment',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'id' => [
+                'validate_callback' => function ($param) {
+                    return is_numeric($param);
+                },
+                'sanitize_callback' => 'absint',
+            ],
+        ],
     ]);
     register_rest_route('mumbai-auth/v1', '/staff/products/(?P<id>\d+)/adjust', [
         'methods' => 'POST', 'callback' => 'mumbai_staff_adjust_product',
@@ -695,6 +733,96 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
 });
+
+/**
+ * ─────────────────────────────────────────────
+ * SESSION LOCKING & MONOTONIC VERSION BINDING
+ * ─────────────────────────────────────────────
+ * Serializes session token issuance and all-device revocation
+ * using MySQL GET_LOCK to prevent concurrency races.
+ */
+function mumbai_with_user_session_lock($user_id, callable $callback) {
+    global $wpdb;
+    $user_id = absint($user_id);
+    if (!$user_id) {
+        return new WP_Error('invalid_user', 'Valid User ID required.', ['status' => 400]);
+    }
+    $has_db = !empty($wpdb) && method_exists($wpdb, 'get_var');
+    $lock_name = 'mumbai_sess_lock_' . $user_id;
+    $got_lock = false;
+    if ($has_db) {
+        $got_lock = (int) $wpdb->get_var($wpdb->prepare("SELECT GET_LOCK(%s, 10)", $lock_name)) === 1;
+        if (!$got_lock) {
+            return new WP_Error('session_lock_busy', 'Session update in progress, please retry.', ['status' => 429]);
+        }
+    }
+    try {
+        return $callback();
+    } finally {
+        if ($got_lock && $has_db) {
+            $wpdb->query($wpdb->prepare("SELECT RELEASE_LOCK(%s)", $lock_name));
+        }
+    }
+}
+
+/**
+ * Creates a session token bound to the current authoritative user session version.
+ * Requires being called inside or with mumbai_with_user_session_lock.
+ */
+function mumbai_create_versioned_session_token($user_id, $expiration) {
+    $manager = WP_Session_Tokens::get_instance($user_id);
+    $raw = get_user_meta($user_id, '_mumbai_session_version', true);
+    $version = ($raw !== '' && $raw !== false && $raw !== null) ? max(1, (int) $raw) : 1;
+    if ($raw === '' || $raw === false || $raw === null) {
+        update_user_meta($user_id, '_mumbai_session_version', $version);
+    }
+    $token = $manager->create($expiration);
+    if (!$token) {
+        throw new \RuntimeException('Failed to create WordPress session token.');
+    }
+    $session = $manager->get($token);
+    if (!is_array($session)) {
+        throw new \RuntimeException('Session token not found immediately after creation.');
+    }
+    $session['version'] = (int) $version;
+    $manager->update($token, $session);
+
+    // Verify storage
+    $verify = $manager->get($token);
+    if (!is_array($verify) || !isset($verify['version']) || (int) $verify['version'] !== $version) {
+        throw new \RuntimeException('Failed to bind authoritative session version to WordPress token.');
+    }
+
+    return [
+        'token'   => $token,
+        'version' => $version,
+    ];
+}
+
+/**
+ * Monotonically increments the user's session version and destroys all active sessions.
+ * Returns the new version.
+ */
+function mumbai_revoke_all_user_sessions($user_id) {
+    return mumbai_with_user_session_lock($user_id, function () use ($user_id) {
+        $raw = get_user_meta($user_id, '_mumbai_session_version', true);
+        $current = ($raw !== '' && $raw !== false && $raw !== null) ? (int) $raw : 0;
+        $new_version = max(1, $current) + 1;
+
+        $updated = update_user_meta($user_id, '_mumbai_session_version', $new_version);
+        $saved_ver = (int) get_user_meta($user_id, '_mumbai_session_version', true);
+        if ($saved_ver !== $new_version) {
+            throw new \RuntimeException("Failed to persist updated session version {$new_version} for user {$user_id}");
+        }
+
+        // Destroy all existing tokens in WordPress
+        WP_Session_Tokens::get_instance($user_id)->destroy_all();
+
+        mumbai_log("All sessions revoked for user {$user_id}. Version advanced to {$new_version}.");
+
+        return $new_version;
+    });
+}
 /*
  * ─────────────────────────────────────────────
  * LOGIN
@@ -719,6 +847,9 @@ function mumbai_login(WP_REST_Request $request)
         );
     }
     $user = get_user_by('email', $email);
+    if (!$user) {
+        $user = get_user_by('login', $email);
+    }
     if (!$user) {
         // Equalize response timing with valid accounts to prevent timing enumeration
         $dummy_hash = '$P$B71VqT0EaKz.w6m0/5Q6Gz2sC/l0Bq.';
@@ -772,12 +903,26 @@ function mumbai_login(WP_REST_Request $request)
      * Create ONE session token and use it everywhere.
      * Enforce 12-hour expiration on server-side WordPress session for staff/admins,
      * and 30 days for regular customers.
+     * Binds token strictly to the user's current session version with atomic lock.
      */
     $user_roles = (array) $signon->roles;
     $is_staff = !empty(array_intersect(['administrator', 'employee', 'shop_manager'], $user_roles));
     $expiration = time() + ($is_staff ? (12 * HOUR_IN_SECONDS) : (30 * DAY_IN_SECONDS));
-    $session_manager = WP_Session_Tokens::get_instance($signon->ID);
-    $session_token   = $session_manager->create($expiration);
+
+    try {
+        $session_data = mumbai_with_user_session_lock($signon->ID, function () use ($signon, $expiration) {
+            return mumbai_create_versioned_session_token($signon->ID, $expiration);
+        });
+        if (is_wp_error($session_data)) {
+            return $session_data;
+        }
+        $session_token = $session_data['token'];
+        $session_version = (int) $session_data['version'];
+    } catch (\Throwable $e) {
+        mumbai_log("Login session token generation failed: " . $e->getMessage());
+        return new WP_Error('session_error', 'Unable to establish secure session.', ['status' => 500]);
+    }
+
     /*
      * Set WordPress authentication cookie
      * using the same session token.
@@ -809,7 +954,7 @@ function mumbai_login(WP_REST_Request $request)
      * Generate REST nonce tied to the same session.
      */
     $rest_nonce = wp_create_nonce('wp_rest');
-    mumbai_log("User {$signon->ID} logged in successfully.");
+    mumbai_log("User {$signon->ID} logged in successfully with session version {$session_version}.");
     return [
         'success'     => true,
         'message'     => 'Login successful.',
@@ -821,10 +966,14 @@ function mumbai_login(WP_REST_Request $request)
             'roles'    => array_values((array) $signon->roles),
             'is_google_user' => (bool) get_user_meta($signon->ID, '_google_sub', true),
             'has_usable_password' => true,
+            'is_suspended' => function_exists('mumbai_is_customer_suspended') && mumbai_is_customer_suspended($signon->ID),
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
         'rest_nonce'  => $rest_nonce,
+        'expires_at'  => $expiration,
+        'server_now'  => time(),
+        'session_version' => $session_version,
     ];
 }
 /*
@@ -1004,8 +1153,19 @@ function mumbai_sso(WP_REST_Request $request)
     wp_set_current_user($user->ID);
 
     $expiration = time() + (30 * DAY_IN_SECONDS);
-    $session_manager = WP_Session_Tokens::get_instance($user->ID);
-    $session_token   = $session_manager->create($expiration);
+    try {
+        $session_data = mumbai_with_user_session_lock($user->ID, function () use ($user, $expiration) {
+            return mumbai_create_versioned_session_token($user->ID, $expiration);
+        });
+        if (is_wp_error($session_data)) {
+            return $session_data;
+        }
+        $session_token = $session_data['token'];
+        $session_version = (int) $session_data['version'];
+    } catch (\Throwable $e) {
+        mumbai_log("SSO session token generation failed: " . $e->getMessage());
+        return new WP_Error('session_error', 'Unable to establish secure session.', ['status' => 500]);
+    }
 
     wp_set_auth_cookie($user->ID, true, is_ssl(), $session_token);
 
@@ -1013,7 +1173,7 @@ function mumbai_sso(WP_REST_Request $request)
     $_COOKIE[LOGGED_IN_COOKIE] = $logged_in_cookie;
     $rest_nonce = wp_create_nonce('wp_rest');
 
-    mumbai_log("User {$user->ID} logged in via SSO.");
+    mumbai_log("User {$user->ID} logged in via SSO with session version {$session_version}.");
 
     $is_phone_verified = function_exists('mumbai_is_user_phone_verified')
         ? (bool) mumbai_is_user_phone_verified($user->ID)
@@ -1034,10 +1194,14 @@ function mumbai_sso(WP_REST_Request $request)
             'is_phone_verified' => $is_phone_verified,
             'is_google_user' => true,
             'has_usable_password' => (bool) get_user_meta($user->ID, '_mumbai_has_custom_password', true),
+            'is_suspended' => function_exists('mumbai_is_customer_suspended') && mumbai_is_customer_suspended($user->ID),
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
         'rest_nonce'  => $rest_nonce,
+        'expires_at'  => $expiration,
+        'server_now'  => time(),
+        'session_version' => $session_version,
     ];
 }
 
@@ -1264,8 +1428,19 @@ function mumbai_register_locked(WP_REST_Request $request)
      */
     wp_set_current_user($user_id);
     $expiration = time() + (30 * DAY_IN_SECONDS);
-    $session_manager = WP_Session_Tokens::get_instance($user_id);
-    $session_token   = $session_manager->create($expiration);
+    try {
+        $session_data = mumbai_with_user_session_lock($user_id, function () use ($user_id, $expiration) {
+            return mumbai_create_versioned_session_token($user_id, $expiration);
+        });
+        if (is_wp_error($session_data)) {
+            return $session_data;
+        }
+        $session_token = $session_data['token'];
+        $session_version = (int) $session_data['version'];
+    } catch (\Throwable $e) {
+        mumbai_log("Registration session token generation failed: " . $e->getMessage());
+        return new WP_Error('session_error', 'Unable to establish secure session.', ['status' => 500]);
+    }
 
     wp_set_auth_cookie($user_id, true, is_ssl(), $session_token);
     $logged_in_cookie = wp_generate_auth_cookie($user_id, $expiration, 'logged_in', $session_token);
@@ -1283,10 +1458,14 @@ function mumbai_register_locked(WP_REST_Request $request)
             'roles'    => array_values((array) $user->roles),
             'is_google_user' => false,
             'has_usable_password' => true,
+            'is_suspended' => function_exists('mumbai_is_customer_suspended') && mumbai_is_customer_suspended($user_id),
         ],
         'session'     => $logged_in_cookie,
         'cookie_name' => LOGGED_IN_COOKIE,
         'rest_nonce'  => $rest_nonce,
+        'expires_at'  => $expiration,
+        'server_now'  => time(),
+        'session_version' => $session_version,
     ];
 }
 /*
@@ -1312,6 +1491,9 @@ function mumbai_forgot_password(WP_REST_Request $request)
         'message' => 'If an account exists with this email, a password reset link has been sent.',
     ];
     $user = get_user_by('email', $email);
+    if (!$user) {
+        $user = get_user_by('login', $email);
+    }
     if (!$user) {
         return $generic_response;
     }
@@ -1427,19 +1609,25 @@ function mumbai_reset_password(WP_REST_Request $request)
         // Reset the password
         reset_password($user, $password);
         update_user_meta($user->ID, '_mumbai_has_custom_password', true);
-        // Revoke ALL active sessions so a compromised token cannot persist (H7 fix)
-        WP_Session_Tokens::get_instance($user->ID)->destroy_all();
+
+        // Revoke ALL active sessions atomically and advance session version
+        $session_version = mumbai_revoke_all_user_sessions($user->ID);
+        if (is_wp_error($session_version)) {
+            return $session_version;
+        }
+
         // Make token single-use
         delete_user_meta($user->ID, '_mumbai_reset_token');
         delete_user_meta($user->ID, '_mumbai_reset_expires');
         // Also clear any login lockout so user can log in immediately
         delete_user_meta($user->ID, '_mumbai_failed_logins');
         delete_user_meta($user->ID, '_mumbai_lockout_until');
-        mumbai_log("Password reset completed for user {$user->ID}. All sessions revoked.");
+        mumbai_log("Password reset completed for user {$user->ID}. All sessions revoked with version {$session_version}.");
         return [
-            'success' => true,
-            'message' => 'Password reset successfully. You can now login.',
-            'user_id' => (int) $user->ID,
+            'success'         => true,
+            'message'         => 'Password reset successfully. You can now login.',
+            'user_id'         => (int) $user->ID,
+            'session_version' => $session_version,
         ];
     } finally {
         if ($has_db_lock) {
@@ -1457,11 +1645,19 @@ function mumbai_reset_password(WP_REST_Request $request)
 function mumbai_logout(WP_REST_Request $request)
 {
     $cookie_value = $_COOKIE[LOGGED_IN_COOKIE] ?? '';
-    if (!$cookie_value) {
-        $raw_cookie = $request->get_header('cookie') ?? '';
-        if ($raw_cookie && defined('LOGGED_IN_COOKIE')) {
-            if (preg_match('/' . preg_quote(LOGGED_IN_COOKIE, '/') . '=([^;]+)/', $raw_cookie, $matches)) {
-                $cookie_value = urldecode($matches[1]);
+    $raw_cookie = $request->get_header('cookie') ?? ($_SERVER['HTTP_COOKIE'] ?? '');
+    if ($raw_cookie && defined('LOGGED_IN_COOKIE')) {
+        $pattern = '/' . preg_quote(LOGGED_IN_COOKIE, '/') . '=([^;]+)/';
+        if (preg_match_all($pattern, $raw_cookie, $all_matches)) {
+            if (count($all_matches[0]) > 1) {
+                // Reject ambiguous / multiple session credentials
+                return [
+                    'success' => false,
+                    'message' => 'Ambiguous session credentials provided.',
+                ];
+            }
+            if (!$cookie_value && !empty($all_matches[1][0])) {
+                $cookie_value = urldecode($all_matches[1][0]);
             }
         }
     }
@@ -1471,27 +1667,47 @@ function mumbai_logout(WP_REST_Request $request)
             'message' => 'Already logged out.',
         ];
     }
-    $user_id = wp_validate_auth_cookie($cookie_value, 'logged_in');
-    if ($user_id) {
-        /*
-         * Extract the session token from the cookie and
-         * destroy only THIS session (not all devices).
-         */
-        $parsed = wp_parse_auth_cookie($cookie_value, 'logged_in');
-        $token = $parsed ? ($parsed['token'] ?? '') : wp_get_session_token();
-        $session_manager = WP_Session_Tokens::get_instance($user_id);
-        if ($token) {
-            $session_manager->destroy($token);
-        } else {
-            // Fallback: destroy all sessions for this user
-            $session_manager->destroy_all();
+    try {
+        $user_id = wp_validate_auth_cookie($cookie_value, 'logged_in');
+        if ($user_id) {
+            /*
+             * Extract the session token from the cookie and
+             * destroy only THIS session (not all devices).
+             */
+            $parsed = wp_parse_auth_cookie($cookie_value, 'logged_in');
+            $token = $parsed ? ($parsed['token'] ?? '') : wp_get_session_token();
+            $session_manager = WP_Session_Tokens::get_instance($user_id);
+            if ($token) {
+                $session_manager->destroy($token);
+                $remaining = $session_manager->get($token);
+                if (!empty($remaining)) {
+                    return [
+                        'success' => false,
+                        'message' => 'Could not destroy session token in WordPress database.',
+                    ];
+                }
+            } else {
+                // A valid cookie normally has an extractable token. Failure to extract it
+                // must never turn a single-device logout into an unexpected all-device logout.
+                mumbai_log("Warning: Could not parse session token for user {$user_id} on single logout; skipping token destruction.");
+                return [
+                    'success' => false,
+                    'message' => 'Could not parse session token to destroy.',
+                ];
+            }
+            mumbai_log("User {$user_id} logged out.");
         }
-        mumbai_log("User {$user_id} logged out.");
+        return [
+            'success' => true,
+            'message' => 'Logged out successfully.',
+        ];
+    } catch (\Throwable $e) {
+        mumbai_log("Logout error: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => 'Logout error: ' . $e->getMessage(),
+        ];
     }
-    return [
-        'success' => true,
-        'message' => 'Logged out successfully.',
-    ];
 }
 /*
  * ─────────────────────────────────────────────
@@ -1618,6 +1834,44 @@ function mumbai_get_user_contact_phone($user_id) {
     return '';
 }
 
+/**
+ * Extract all distinct, normalized 10-digit Indian contact phone numbers for a user
+ * from authoritative contact sources: billing_phone, _mumbai_user_profile, and _mumbai_saved_addresses.
+ *
+ * @param int $user_id
+ * @return array List of unique normalized 10-digit phone strings
+ */
+function mumbai_get_user_all_contact_phones($user_id) {
+    if (!$user_id) {
+        return [];
+    }
+
+    $candidates = [(string) get_user_meta($user_id, 'billing_phone', true)];
+    $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
+    if (is_array($profile) && !empty($profile['phone'])) {
+        $candidates[] = (string) $profile['phone'];
+    }
+
+    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+    if (is_array($addresses)) {
+        foreach ($addresses as $addr) {
+            if (is_array($addr) && !empty($addr['phone'])) {
+                $candidates[] = (string) $addr['phone'];
+            }
+        }
+    }
+
+    $unique_phones = [];
+    foreach ($candidates as $candidate) {
+        $clean_phone = mumbai_normalize_phone($candidate);
+        if (preg_match('/^[6-9][0-9]{9}$/', $clean_phone)) {
+            $unique_phones[$clean_phone] = $clean_phone;
+        }
+    }
+
+    return array_values($unique_phones);
+}
+
 function mumbai_is_user_phone_verified($user_id) {
     return mumbai_get_user_contact_phone($user_id) !== '';
 }
@@ -1633,6 +1887,23 @@ function mumbai_me()
     }
 
     $cookie_value = $_COOKIE[LOGGED_IN_COOKIE] ?? '';
+    if (!empty($_SERVER['HTTP_COOKIE']) && defined('LOGGED_IN_COOKIE')) {
+        $raw_cookie = (string) $_SERVER['HTTP_COOKIE'];
+        $pattern = '/' . preg_quote(LOGGED_IN_COOKIE, '/') . '=([^;]+)/';
+        if (preg_match_all($pattern, $raw_cookie, $all_matches)) {
+            if (count($all_matches[0]) > 1) {
+                // Ambiguous credentials: fail closed strictly
+                return [
+                    'logged_in'       => false,
+                    'current_user_id' => 0,
+                    'roles'           => [],
+                ];
+            }
+            if (!$cookie_value && !empty($all_matches[1][0])) {
+                $cookie_value = urldecode($all_matches[1][0]);
+            }
+        }
+    }
     $validated_user_id = 0;
 
     if ($cookie_value) {
@@ -1729,6 +2000,62 @@ function mumbai_me()
         }
     }
 
+    $session_expiration = 0;
+    if ($user && $cookie_value && class_exists('WP_Session_Tokens')) {
+        $cookie_elements = wp_parse_auth_cookie($cookie_value, 'logged_in');
+        if ($cookie_elements && !empty($cookie_elements['token'])) {
+            $parsed_token = $cookie_elements['token'];
+            $tok_manager = WP_Session_Tokens::get_instance($user->ID);
+            $user_sess = $tok_manager->get($parsed_token);
+            if (is_array($user_sess) && !empty($user_sess['expiration'])) {
+                $session_expiration = (int) $user_sess['expiration'];
+                // Get the token's own bound issuance version (0 for legacy unversioned tokens)
+                $token_version = isset($user_sess['version']) ? (int) $user_sess['version'] : 0;
+            } else {
+                // Session token is missing or destroyed in WP_Session_Tokens.
+                // Strictly fail closed: do NOT invent an artificial deadline.
+                return [
+                    'logged_in'       => false,
+                    'current_user_id' => 0,
+                    'roles'           => [],
+                ];
+            }
+        } else {
+            // Unparseable token in cookie
+            return [
+                'logged_in'       => false,
+                'current_user_id' => 0,
+                'roles'           => [],
+            ];
+        }
+    }
+
+    // Fail closed if session has expired or expiration timestamp is non-positive
+    if ($session_expiration <= 0 || time() >= $session_expiration) {
+        return [
+            'logged_in'       => false,
+            'current_user_id' => 0,
+            'roles'           => [],
+        ];
+    }
+
+    // Check if token has been superseded by the account's authoritative revocation version
+    $raw_ver = $user ? get_user_meta($user->ID, '_mumbai_session_version', true) : '';
+    $account_version = ($raw_ver !== '' && $raw_ver !== false && $raw_ver !== null) ? (int) $raw_ver : 0;
+
+    if ($user && $account_version > 0 && $token_version < $account_version) {
+        // Destroy superseded token in WordPress database
+        if (isset($tok_manager) && !empty($parsed_token)) {
+            $tok_manager->destroy($parsed_token);
+        }
+        mumbai_log("Token version {$token_version} superseded by account revocation version {$account_version} for user {$user->ID}; rejected.");
+        return [
+            'logged_in'       => false,
+            'current_user_id' => 0,
+            'roles'           => [],
+        ];
+    }
+
     return [
         'logged_in'          => $validated_user_id > 0,
         'current_user_id'    => $validated_user_id,
@@ -1745,6 +2072,9 @@ function mumbai_me()
         'verified_phone'     => $verified_phone,
         'is_google_user'     => $user ? (bool) get_user_meta($user->ID, '_google_sub', true) : false,
         'has_usable_password' => $has_usable_password,
+        'expires_at'          => $session_expiration,
+        'server_now'          => time(),
+        'session_version'     => $token_version,
     ];
 }
 /*
@@ -2403,12 +2733,27 @@ function mumbai_save_profile_locked(WP_REST_Request $request)
 
     if ($password_changed) {
         // Password changes invalidate cookies signed with the previous hash.
-        // Issue a fresh logged-in cookie so the customer can finish profile and
-        // address setup without being unexpectedly signed out mid-flow.
+        // Revoke all older sessions atomically and bump the session version.
+        $session_version = mumbai_revoke_all_user_sessions($user_id);
+        if (is_wp_error($session_version)) {
+            return $session_version;
+        }
+
         wp_set_current_user($user_id);
         $expiration = time() + (30 * DAY_IN_SECONDS);
-        $session_manager = WP_Session_Tokens::get_instance($user_id);
-        $session_token = $session_manager->create($expiration);
+
+        try {
+            $session_data = mumbai_with_user_session_lock($user_id, function () use ($user_id, $expiration) {
+                return mumbai_create_versioned_session_token($user_id, $expiration);
+            });
+            if (is_wp_error($session_data)) {
+                return $session_data;
+            }
+            $session_token = $session_data['token'];
+        } catch (\Throwable $e) {
+            mumbai_log("Profile replacement session token generation failed: " . $e->getMessage());
+            return new WP_Error('session_error', 'Unable to establish replacement session.', ['status' => 500]);
+        }
 
         wp_set_auth_cookie($user_id, true, is_ssl(), $session_token);
         $logged_in_cookie = wp_generate_auth_cookie(
@@ -2422,6 +2767,9 @@ function mumbai_save_profile_locked(WP_REST_Request $request)
         $response['session'] = $logged_in_cookie;
         $response['cookie_name'] = LOGGED_IN_COOKIE;
         $response['rest_nonce'] = wp_create_nonce('wp_rest');
+        $response['expires_at'] = $expiration;
+        $response['server_now'] = time();
+        $response['session_version'] = $session_version;
     }
 
     return $response;
@@ -2518,6 +2866,33 @@ function mumbai_delete_account(WP_REST_Request $request)
             'User account not found.',
             ['status' => 404]
         );
+    }
+
+    // Preserve any legacy suspension before deleting user_meta. If the durable
+    // store cannot be confirmed, do not delete the only remaining restriction.
+    $identity_record = mumbai_get_identity_suspension_record(
+        $user->user_email,
+        (string) get_user_meta($user_id, '_google_sub', true)
+    );
+    if (is_wp_error($identity_record)) {
+        return $identity_record;
+    }
+    $legacy_suspended = get_user_meta($user_id, '_mumbai_customer_suspended', true);
+    $legacy_expires_at = (int) get_user_meta($user_id, '_mumbai_customer_suspension_expires_at', true);
+    $legacy_is_active = in_array($legacy_suspended, ['yes', '1', true], true)
+        && ($legacy_expires_at === 0 || time() < $legacy_expires_at);
+    if ($legacy_is_active && !$identity_record) {
+        $saved = mumbai_store_customer_suspension(
+            $user->user_email,
+            (string) get_user_meta($user_id, '_google_sub', true),
+            $legacy_expires_at,
+            (string) get_user_meta($user_id, '_mumbai_customer_suspension_duration', true) ?: ($legacy_expires_at === 0 ? 'permanent' : 'temporary'),
+            (string) get_user_meta($user_id, '_mumbai_customer_suspension_reason', true),
+            (int) get_user_meta($user_id, '_mumbai_customer_suspended_by', true)
+        );
+        if (is_wp_error($saved)) {
+            return $saved;
+        }
     }
 
     $password = (string) $request->get_param('password');
@@ -3363,16 +3738,20 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
         reset_password($user, $new_password);
         update_user_meta($user->ID, '_mumbai_has_custom_password', true);
         
-        WP_Session_Tokens::get_instance($user->ID)->destroy_all();
+        $session_version = mumbai_revoke_all_user_sessions($user->ID);
+        if (is_wp_error($session_version)) {
+            return $session_version;
+        }
         delete_user_meta($user->ID, '_mumbai_failed_logins');
         delete_user_meta($user->ID, '_mumbai_lockout_until');
         delete_user_meta($user->ID, '_mumbai_reset_auth_token');
         delete_user_meta($user->ID, '_mumbai_reset_auth_expires');
 
         return [
-            'success' => true,
-            'message' => 'Password reset successfully.',
-            'user_id' => (int) $user->ID,
+            'success'         => true,
+            'message'         => 'Password reset successfully.',
+            'user_id'         => (int) $user->ID,
+            'session_version' => $session_version,
         ];
     } finally {
         if ($has_db_lock) {
@@ -3861,22 +4240,37 @@ add_action('mumbai_daily_media_cleanup', 'mumbai_secure_uploads_directory');
  * 2. SKU search via _sku postmeta in WooCommerce REST API
  * 3. Live stock counts calculation
  */
-add_filter('woocommerce_product_stock_status_options', 'mumbai_add_lowstock_stock_status_option', 20, 1);
-function mumbai_add_lowstock_stock_status_option($statuses) {
-    if (is_array($statuses) && !isset($statuses['lowstock'])) {
-        $statuses['lowstock'] = __('Low stock', 'woocommerce');
+// Extend only the registered WooCommerce v3 products collection GET schema.
+// Do not register lowstock as a WooCommerce product stock status: it is a
+// computed filter and must never be persisted by product setters or editors.
+add_filter('rest_endpoints', 'mumbai_wc_v3_product_lowstock_collection_params', 100, 1);
+function mumbai_wc_v3_product_lowstock_collection_params($endpoints) {
+    $route = '/wc/v3/products';
+    if (!isset($endpoints[$route]) || !is_array($endpoints[$route])) {
+        return $endpoints;
     }
-    return $statuses;
-}
 
-add_filter('woocommerce_rest_product_collection_params', 'mumbai_wc_rest_product_collection_params', 20, 1);
-function mumbai_wc_rest_product_collection_params($params) {
-    if (isset($params['stock_status']['enum']) && is_array($params['stock_status']['enum'])) {
-        if (!in_array('lowstock', $params['stock_status']['enum'], true)) {
-            $params['stock_status']['enum'][] = 'lowstock';
+    foreach ($endpoints[$route] as &$handler) {
+        if (!is_array($handler) || !isset($handler['args']['stock_status'])) {
+            continue;
+        }
+
+        $methods = $handler['methods'] ?? '';
+        $has_get = is_string($methods)
+            ? (bool) preg_match('/(^|[,\s])GET([,\s]|$)/i', $methods)
+            : (is_array($methods) && (isset($methods['GET']) || in_array('GET', $methods, true)));
+        if (!$has_get) {
+            continue;
+        }
+
+        $enum = $handler['args']['stock_status']['enum'] ?? null;
+        if (is_array($enum) && !in_array('lowstock', $enum, true)) {
+            $handler['args']['stock_status']['enum'][] = 'lowstock';
         }
     }
-    return $params;
+    unset($handler);
+
+    return $endpoints;
 }
 
 add_filter('woocommerce_rest_product_object_query', 'mumbai_wc_rest_product_object_query', 20, 2);
@@ -3899,6 +4293,11 @@ function mumbai_wc_rest_product_object_query($args, $request) {
         $args['meta_query'][] = [
             'key'     => '_manage_stock',
             'value'   => 'yes',
+            'compare' => '=',
+        ];
+        $args['meta_query'][] = [
+            'key'     => '_stock_status',
+            'value'   => 'instock',
             'compare' => '=',
         ];
         $args['meta_query'][] = [
@@ -3928,49 +4327,6 @@ function mumbai_wc_rest_product_object_query($args, $request) {
  * Strips invalid '_stock_status = lowstock' clause if added by WooCommerce core
  * and enforces low stock meta boundaries on the WP_Query.
  */
-add_action('pre_get_posts', 'mumbai_strip_lowstock_meta_query', 20, 1);
-function mumbai_strip_lowstock_meta_query($query) {
-    $meta_query = $query->get('meta_query');
-    if (is_array($meta_query)) {
-        $found = false;
-        foreach ($meta_query as $key => $clause) {
-            if (is_array($clause) && isset($clause['key']) && $clause['key'] === '_stock_status' && isset($clause['value']) && $clause['value'] === 'lowstock') {
-                unset($meta_query[$key]);
-                $found = true;
-            }
-        }
-        if ($found) {
-            $has_stock_condition = false;
-            foreach ($meta_query as $clause) {
-                if (is_array($clause) && isset($clause['key']) && $clause['key'] === '_stock') {
-                    $has_stock_condition = true;
-                    break;
-                }
-            }
-            if (!$has_stock_condition) {
-                $meta_query[] = [
-                    'key'     => '_manage_stock',
-                    'value'   => 'yes',
-                    'compare' => '=',
-                ];
-                $meta_query[] = [
-                    'key'     => '_stock',
-                    'value'   => 0,
-                    'type'    => 'NUMERIC',
-                    'compare' => '>',
-                ];
-                $meta_query[] = [
-                    'key'     => '_stock',
-                    'value'   => 5,
-                    'type'    => 'NUMERIC',
-                    'compare' => '<=',
-                ];
-            }
-            $query->set('meta_query', array_values($meta_query));
-        }
-    }
-}
-
 add_filter('posts_search', 'mumbai_extend_product_search_to_sku', 20, 2);
 function mumbai_extend_product_search_to_sku($search_sql, $wp_query) {
     if (empty($search_sql)) {
@@ -3997,45 +4353,80 @@ function mumbai_extend_product_search_to_sku($search_sql, $wp_query) {
 }
 
 /**
- * Endpoint for live inventory stock counts (All, In Stock, Low Stock, Out of Stock)
+ * Endpoint for live inventory stock counts using WooCommerce's `any` product
+ * status scope (all editable statuses except statuses excluded from search).
  */
+function mumbai_product_stock_count_query($sql, $values) {
+    global $wpdb;
+
+    $wpdb->last_error = '';
+    $prepared = $wpdb->prepare($sql, ...$values);
+    $result = $wpdb->get_var($prepared);
+    if ($wpdb->last_error !== '' || $result === null || !is_numeric($result)) {
+        return new WP_Error(
+            'stock_counts_unavailable',
+            'Product stock counts are temporarily unavailable.',
+            ['status' => 500]
+        );
+    }
+
+    return (int) $result;
+}
+
 function mumbai_get_product_stock_counts($request) {
     global $wpdb;
 
-    $all = (int) $wpdb->get_var(
-        "SELECT COUNT(ID) FROM {$wpdb->posts} WHERE post_type = 'product' AND post_status = 'publish'"
-    );
+    // WP_Query's post_status="any" excludes exactly statuses whose registered
+    // status has exclude_from_search=true. Match that collection scope here.
+    $excluded_statuses = array_values(get_post_stati(['exclude_from_search' => true], 'names'));
+    $status_clause = '';
+    $status_values = [];
+    if ($excluded_statuses) {
+        $status_clause = ' AND p.post_status NOT IN (' . implode(',', array_fill(0, count($excluded_statuses), '%s')) . ')';
+        $status_values = $excluded_statuses;
+    }
+    $base_values = array_merge(['product'], $status_values);
+    $base_where = "p.post_type = %s{$status_clause}";
 
-    $outofstock = (int) $wpdb->get_var(
-        "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
-         LEFT JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_stock_status'
-         LEFT JOIN {$wpdb->postmeta} pm_manage ON p.ID = pm_manage.post_id AND pm_manage.meta_key = '_manage_stock'
-         LEFT JOIN {$wpdb->postmeta} pm_stock ON p.ID = pm_stock.post_id AND pm_stock.meta_key = '_stock'
-         WHERE p.post_type = 'product' AND p.post_status = 'publish'
-           AND (
-             pm_status.meta_value = 'outofstock'
-             OR (pm_manage.meta_value = 'yes' AND CAST(pm_stock.meta_value AS SIGNED) <= 0)
-           )"
+    $all = mumbai_product_stock_count_query(
+        "SELECT COUNT(p.ID) FROM {$wpdb->posts} p WHERE {$base_where}",
+        $base_values
     );
+    if (is_wp_error($all)) return $all;
 
-    $lowstock = (int) $wpdb->get_var(
+    $count_by_status = static function ($status) use ($wpdb, $base_where, $base_values) {
+        return mumbai_product_stock_count_query(
+            "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_stock_status' AND pm_status.meta_value = %s
+             WHERE {$base_where}",
+            array_merge([$status], $base_values)
+        );
+    };
+
+    $instock = $count_by_status('instock');
+    if (is_wp_error($instock)) return $instock;
+    $onbackorder = $count_by_status('onbackorder');
+    if (is_wp_error($onbackorder)) return $onbackorder;
+    $outofstock = $count_by_status('outofstock');
+    if (is_wp_error($outofstock)) return $outofstock;
+
+    $lowstock = mumbai_product_stock_count_query(
         "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
-         INNER JOIN {$wpdb->postmeta} pm_manage ON p.ID = pm_manage.post_id AND pm_manage.meta_key = '_manage_stock' AND pm_manage.meta_value = 'yes'
+         INNER JOIN {$wpdb->postmeta} pm_status ON p.ID = pm_status.post_id AND pm_status.meta_key = '_stock_status' AND pm_status.meta_value = %s
+         INNER JOIN {$wpdb->postmeta} pm_manage ON p.ID = pm_manage.post_id AND pm_manage.meta_key = '_manage_stock' AND pm_manage.meta_value = %s
          INNER JOIN {$wpdb->postmeta} pm_stock ON p.ID = pm_stock.post_id AND pm_stock.meta_key = '_stock'
-         WHERE p.post_type = 'product' AND p.post_status = 'publish'
-           AND CAST(pm_stock.meta_value AS SIGNED) > 0
-           AND CAST(pm_stock.meta_value AS SIGNED) <= 5"
+         WHERE {$base_where}
+           AND CAST(pm_stock.meta_value AS SIGNED) BETWEEN %d AND %d",
+        array_merge(['instock', 'yes'], $base_values, [1, 5])
     );
-
-    // In-stock products include all published products that are not out-of-stock.
-    // Low-stock products (1 <= stock <= 5) are active in-stock inventory and must not be subtracted from instock.
-    $instock = max(0, $all - $outofstock);
+    if (is_wp_error($lowstock)) return $lowstock;
 
     return rest_ensure_response([
         'success' => true,
         'counts'  => [
             'all'        => $all,
             'instock'    => $instock,
+            'onbackorder' => $onbackorder,
             'lowstock'   => $lowstock,
             'outofstock' => $outofstock,
         ],
@@ -4841,13 +5232,16 @@ function mumbai_admin_reject_employee(WP_REST_Request $request) {
     }
 
     WP_Session_Tokens::get_instance($user_id)->destroy_all();
+    $session_version = mumbai_revoke_all_user_sessions($user_id);
 
     mumbai_log("Employee access rejected for user {$user_id} by admin {$rejected_by}");
 
     return rest_ensure_response([
-        'success' => true,
-        'message' => 'Employee access request rejected.',
-        'status'  => 'rejected',
+        'success'         => true,
+        'message'         => 'Employee access request rejected.',
+        'status'          => 'rejected',
+        'user_id'         => $user_id,
+        'session_version' => is_wp_error($session_version) ? null : $session_version,
     ]);
 }
 
@@ -4883,14 +5277,16 @@ function mumbai_admin_update_employee_status(WP_REST_Request $request) {
         update_user_meta($user_id, '_mumbai_employee_status', 'deactivated');
         update_user_meta($user_id, '_mumbai_employee_deactivated_at', time());
         update_user_meta($user_id, '_mumbai_employee_deactivated_by', $updated_by);
-        WP_Session_Tokens::get_instance($user_id)->destroy_all();
+        $session_version = mumbai_revoke_all_user_sessions($user_id);
 
         mumbai_log("Employee access deactivated for user {$user_id} by admin {$updated_by}");
 
         return rest_ensure_response([
-            'success' => true,
-            'message' => 'Employee access deactivated and sessions revoked.',
-            'status'  => 'deactivated',
+            'success'         => true,
+            'message'         => 'Employee access deactivated and sessions revoked.',
+            'status'          => 'deactivated',
+            'user_id'         => $user_id,
+            'session_version' => is_wp_error($session_version) ? null : $session_version,
         ]);
     } else {
         $wp_user->set_role('employee');
@@ -4925,13 +5321,18 @@ function mumbai_admin_revoke_employee_sessions(WP_REST_Request $request) {
         return new WP_Error('user_not_found', 'User not found.', ['status' => 404]);
     }
 
-    WP_Session_Tokens::get_instance($user_id)->destroy_all();
+    $session_version = mumbai_revoke_all_user_sessions($user_id);
+    if (is_wp_error($session_version)) {
+        return $session_version;
+    }
 
-    mumbai_log("All sessions revoked for user {$user_id}");
+    mumbai_log("All sessions revoked for user {$user_id} with version {$session_version}");
 
     return rest_ensure_response([
-        'success' => true,
-        'message' => 'All active sessions have been revoked for this user.',
+        'success'         => true,
+        'message'         => 'All active sessions have been revoked for this user.',
+        'user_id'         => $user_id,
+        'session_version' => $session_version,
     ]);
 }
 
@@ -4952,6 +5353,8 @@ function mumbai_get_store_hours() {
     return rest_ensure_response([
         'success'     => true,
         'store_hours' => $hours,
+        'wp_timezone' => wp_timezone_string(),
+        'gmt_offset'  => (float) get_option('gmt_offset', 0),
     ]);
 }
 
@@ -5028,7 +5431,16 @@ function mumbai_customer_search_table_name() {
     return $wpdb->prefix . 'mumbai_customer_search';
 }
 
+function mumbai_customer_search_phones_table_name() {
+    global $wpdb;
+    return $wpdb->prefix . 'mumbai_customer_search_phones';
+}
+
 /** Create the customer metrics table and begin a resumable historical backfill. */
+function mumbai_customer_metrics_queue_table_name() {
+    global $wpdb;
+    return $wpdb->prefix . 'mumbai_customer_metrics_queue';
+}
 function mumbai_upgrade_customer_metrics_table() {
     global $wpdb;
     $table = mumbai_customer_metrics_table_name();
@@ -5052,6 +5464,48 @@ function mumbai_upgrade_customer_metrics_table() {
         if (!$table_exists) {
             delete_option('mumbai_customer_metrics_backfill_complete');
             delete_option('mumbai_customer_metrics_backfill_last_customer_id');
+        }
+    }
+
+    $queue_table = mumbai_customer_metrics_queue_table_name();
+    $queue_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $queue_table)) === $queue_table;
+    if ((int) get_option('mumbai_customer_metrics_queue_schema_version', 0) < 2 || !$queue_table_exists) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset_collate = $wpdb->get_charset_collate();
+        dbDelta("CREATE TABLE {$queue_table} (
+            customer_id BIGINT UNSIGNED NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            attempts INT UNSIGNED NOT NULL DEFAULT 0,
+            available_at DATETIME NOT NULL,
+            claimed_at DATETIME NULL,
+            claimed_by VARCHAR(64) NULL,
+            enqueued_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
+            last_error TEXT NULL,
+            PRIMARY KEY (customer_id),
+            KEY status_available (status, available_at),
+            KEY claimed_at (claimed_at)
+        ) {$charset_collate};");
+
+        $has_rev = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'revision'",
+            $queue_table
+        )) > 0;
+
+        if (!$has_rev) {
+            $wpdb->query("ALTER TABLE {$queue_table} ADD COLUMN revision BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER updated_at");
+            $has_rev = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'revision'",
+                $queue_table
+            )) > 0;
+        }
+
+        // Only commit version 2 once the revision column is verified to exist on disk
+        if ($has_rev && !$wpdb->last_error) {
+            update_option('mumbai_customer_metrics_queue_schema_version', 2, false);
+        } else {
+            error_log("[mumbai_upgrade_customer_metrics_table] Failed to verify 'revision' column on {$queue_table}; schema version not bumped.");
         }
     }
 
@@ -5079,6 +5533,25 @@ function mumbai_upgrade_customer_metrics_table() {
         ) {$charset_collate};");
         update_option('mumbai_customer_search_schema_version', 1, false);
         if (!$search_table_exists) {
+            delete_option('mumbai_customer_search_backfill_complete');
+            delete_option('mumbai_customer_search_backfill_last_user_id');
+        }
+    }
+
+    $phones_table = mumbai_customer_search_phones_table_name();
+    $phones_table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $phones_table)) === $phones_table;
+    if ((int) get_option('mumbai_customer_search_phones_schema_version', 0) < 1 || !$phones_table_exists) {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset_collate = $wpdb->get_charset_collate();
+        dbDelta("CREATE TABLE {$phones_table} (
+            customer_id BIGINT UNSIGNED NOT NULL,
+            phone_digits VARCHAR(32) NOT NULL,
+            PRIMARY KEY  (customer_id, phone_digits),
+            KEY phone_digits (phone_digits),
+            KEY customer_id (customer_id)
+        ) {$charset_collate};");
+        update_option('mumbai_customer_search_phones_schema_version', 1, false);
+        if (!$phones_table_exists) {
             delete_option('mumbai_customer_search_backfill_complete');
             delete_option('mumbai_customer_search_backfill_last_user_id');
         }
@@ -5124,20 +5597,38 @@ function mumbai_get_customer_location_key($city, $postcode, $address) {
     return 'unassigned';
 }
 
-/** Keep one searchable, indexed record per customer instead of scanning many usermeta rows. */
+/** Keep searchable, indexed records per customer instead of scanning many usermeta rows. */
 function mumbai_sync_customer_search_index($user_id) {
     global $wpdb;
     $user_id = absint($user_id);
     $user = $user_id ? get_userdata($user_id) : false;
     $table = mumbai_customer_search_table_name();
+    $phones_table = mumbai_customer_search_phones_table_name();
     if (!$user) {
-        if ($user_id) $wpdb->delete($table, ['customer_id' => $user_id], ['%d']);
+        if ($user_id) {
+            $tx_start = $wpdb->query('START TRANSACTION');
+            if ($tx_start === false || !empty($wpdb->last_error)) {
+                return false;
+            }
+            $d1 = $wpdb->delete($table, ['customer_id' => $user_id], ['%d']);
+            $d2 = $wpdb->delete($phones_table, ['customer_id' => $user_id], ['%d']);
+            if ($d1 === false || $d2 === false || !empty($wpdb->last_error)) {
+                $wpdb->query('ROLLBACK');
+                return false;
+            }
+            $tx_commit = $wpdb->query('COMMIT');
+            if ($tx_commit === false || !empty($wpdb->last_error)) {
+                $wpdb->query('ROLLBACK');
+                return false;
+            }
+        }
         return true;
     }
 
     $first = (string) get_user_meta($user_id, 'first_name', true);
     $last = (string) get_user_meta($user_id, 'last_name', true);
-    $phone = mumbai_get_user_contact_phone($user_id);
+    $all_phones = mumbai_get_user_all_contact_phones($user_id);
+    $phone = !empty($all_phones) ? $all_phones[0] : mumbai_get_user_contact_phone($user_id);
     $city = (string) get_user_meta($user_id, 'billing_city', true);
     $state = (string) get_user_meta($user_id, 'billing_state', true);
     $postcode = (string) get_user_meta($user_id, 'billing_postcode', true);
@@ -5151,9 +5642,15 @@ function mumbai_sync_customer_search_index($user_id) {
     $display_name = trim($first . ' ' . $last) ?: (string) $user->display_name;
     $phone_digits = preg_replace('/\D/', '', $phone);
     $search_text = strtolower(implode(' ', array_filter([
-        $display_name, $user->user_email, $user->user_login, $phone, $address,
+        $display_name, $user->user_email, $user->user_login, implode(' ', $all_phones), $address,
     ])));
-    return $wpdb->replace($table, [
+
+    $tx_start = $wpdb->query('START TRANSACTION');
+    if ($tx_start === false || !empty($wpdb->last_error)) {
+        return false;
+    }
+
+    $res = $wpdb->replace($table, [
         'customer_id' => $user_id,
         'display_name' => $display_name,
         'email' => strtolower((string) $user->user_email),
@@ -5163,11 +5660,41 @@ function mumbai_sync_customer_search_index($user_id) {
         'search_text' => $search_text,
         'updated_at' => current_time('mysql', true),
     ], ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s']);
+
+    if ($res === false || !empty($wpdb->last_error)) {
+        $wpdb->query('ROLLBACK');
+        return false;
+    }
+
+    // Sync all normalized contact phones into mumbai_customer_search_phones atomically
+    $del_res = $wpdb->delete($phones_table, ['customer_id' => $user_id], ['%d']);
+    if ($del_res === false || !empty($wpdb->last_error)) {
+        $wpdb->query('ROLLBACK');
+        return false;
+    }
+
+    foreach ($all_phones as $p_digit) {
+        $p_res = $wpdb->replace($phones_table, [
+            'customer_id' => $user_id,
+            'phone_digits' => $p_digit,
+        ], ['%d', '%s']);
+        if ($p_res === false || !empty($wpdb->last_error)) {
+            $wpdb->query('ROLLBACK');
+            return false;
+        }
+    }
+
+    $tx_commit = $wpdb->query('COMMIT');
+    if ($tx_commit === false || !empty($wpdb->last_error)) {
+        $wpdb->query('ROLLBACK');
+        return false;
+    }
+    return true;
 }
 
 function mumbai_schedule_customer_search_index_update($user_id, $meta_id = null, $meta_key = null) {
     if ($meta_key !== null && !in_array($meta_key, [
-        'first_name', 'last_name', 'billing_phone',
+        'first_name', 'last_name', 'billing_phone', '_mumbai_user_profile', '_mumbai_saved_addresses',
         'billing_city', 'billing_state', 'billing_postcode', 'billing_address_1', 'billing_address_2',
     ], true)) {
         return;
@@ -5182,10 +5709,35 @@ add_action('profile_update', 'mumbai_schedule_customer_search_index_update', 10,
 add_action('added_user_meta', 'mumbai_schedule_customer_search_index_from_meta', 10, 3);
 add_action('updated_user_meta', 'mumbai_schedule_customer_search_index_from_meta', 10, 3);
 add_action('deleted_user_meta', 'mumbai_schedule_customer_search_index_from_meta', 10, 3);
-add_action('mumbai_sync_customer_search_index_event', 'mumbai_sync_customer_search_index', 10, 1);
+
+function mumbai_handle_sync_customer_search_index_event($user_id, $attempts = 0) {
+    $user_id = absint($user_id);
+    if (!$user_id) return;
+
+    $success = mumbai_sync_customer_search_index($user_id);
+    if (!$success) {
+        $attempts = absint($attempts);
+        if ($attempts < 5) {
+            $next_attempts = $attempts + 1;
+            // Check whether an equivalent retry is already scheduled before registering
+            if (!wp_next_scheduled('mumbai_sync_customer_search_index_event', [$user_id, $next_attempts]) &&
+                !wp_next_scheduled('mumbai_sync_customer_search_index_event', [$user_id])) {
+                $delay = max(10, 15 * $next_attempts);
+                $scheduled = wp_schedule_single_event(time() + $delay, 'mumbai_sync_customer_search_index_event', [$user_id, $next_attempts]);
+                if (!$scheduled) {
+                    error_log("[mumbai_sync_customer_search_index_event] Failed to schedule retry attempt {$next_attempts} for customer {$user_id}.");
+                }
+            }
+        } else {
+            error_log("[mumbai_sync_customer_search_index_event] Customer search index sync failed after {$attempts} attempts for user ID {$user_id}.");
+        }
+    }
+}
+add_action('mumbai_sync_customer_search_index_event', 'mumbai_handle_sync_customer_search_index_event', 10, 2);
 add_action('deleted_user', function ($user_id) {
     global $wpdb;
     $wpdb->delete(mumbai_customer_search_table_name(), ['customer_id' => absint($user_id)], ['%d']);
+    $wpdb->delete(mumbai_customer_search_phones_table_name(), ['customer_id' => absint($user_id)], ['%d']);
 }, 10, 1);
 
 function mumbai_customer_search_backfill_batch() {
@@ -5209,10 +5761,18 @@ function mumbai_customer_search_backfill_batch() {
     $user_ids = array_map('absint', $user_ids);
     update_meta_cache('user', $user_ids);
     $write_failed = false;
+    $last_successful_id = $last_id;
     foreach ($user_ids as $user_id) {
-        if (mumbai_sync_customer_search_index($user_id) === false) $write_failed = true;
+        if (mumbai_sync_customer_search_index($user_id) === false) {
+            $write_failed = true;
+            break;
+        }
+        $last_successful_id = $user_id;
     }
     if ($write_failed) {
+        if ($last_successful_id > $last_id) {
+            update_option('mumbai_customer_search_backfill_last_user_id', $last_successful_id, false);
+        }
         wp_schedule_single_event(time() + 30, 'mumbai_customer_search_backfill_batch');
         return;
     }
@@ -5224,41 +5784,522 @@ add_action('mumbai_customer_search_backfill_batch', 'mumbai_customer_search_back
 /** Recalculate exactly one customer's metrics after one of their orders changes. */
 function mumbai_refresh_customer_metrics($customer_id) {
     global $wpdb;
-    $reporting_source = mumbai_reporting_orders_source();
-    if (!mumbai_require_reporting_hpos()) return;
     $customer_id = absint($customer_id);
+    if (!$customer_id) return false;
+
+    $reporting_source = mumbai_reporting_orders_source();
+    if (!mumbai_require_reporting_hpos()) {
+        mumbai_queue_customer_metrics_retry($customer_id, 'HPOS reporting required');
+        return false;
+    }
+
     $table_orders = $wpdb->prefix . 'wc_orders';
     $table_metrics = mumbai_customer_metrics_table_name();
-    if (!$customer_id || $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) !== $table_orders ||
-        $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_metrics)) !== $table_metrics) {
+    $orders_exist = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_orders)) === $table_orders;
+    $metrics_exist = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_metrics)) === $table_metrics;
+
+    // A database outage or missing table must enqueue a retry rather than silently dropping work
+    if (!$orders_exist || !$metrics_exist || $wpdb->last_error) {
+        $err = $wpdb->last_error ?: 'Metrics or orders table missing/unavailable';
+        error_log("[mumbai_refresh_customer_metrics] DB error checking tables for customer {$customer_id}: " . $err);
+        mumbai_queue_customer_metrics_retry($customer_id, $err);
+        return false;
+    }
+
+    // Serialize calculation and write per customer to prevent out-of-order writes from stale calculations
+    $lock_key = hash('sha256', 'mumbai_customer_metrics:' . $customer_id);
+    $got_lock = (int) $wpdb->get_var($wpdb->prepare("SELECT GET_LOCK(%s, 10)", $lock_key)) === 1;
+    if (!$got_lock) {
+        error_log("[mumbai_refresh_customer_metrics] Metrics lock busy for customer {$customer_id}; queueing retry.");
+        mumbai_queue_customer_metrics_retry($customer_id, 'Metrics lock busy');
+        return false;
+    }
+
+    try {
+        $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COUNT(id) AS orders_count,
+                    COALESCE(SUM(total_amount), 0) AS lifetime_spent,
+                    MAX(date_created_gmt) AS last_order_date_gmt,
+                    MAX(id) AS last_order_id
+             FROM {$reporting_source} reporting_orders
+             WHERE customer_id = %d AND status NOT IN {$invalid_statuses_sql}",
+            $customer_id
+        ), ARRAY_A);
+
+        if ($wpdb->last_error) {
+            $err = $wpdb->last_error;
+            error_log("[mumbai_refresh_customer_metrics] DB error reading metrics for customer {$customer_id}: " . $err);
+            mumbai_queue_customer_metrics_retry($customer_id, $err);
+            return false;
+        }
+        if (!$row || (int) $row['orders_count'] === 0) {
+            $del_res = $wpdb->delete($table_metrics, ['customer_id' => $customer_id], ['%d']);
+            if ($del_res === false || $wpdb->last_error) {
+                $err = $wpdb->last_error ?: 'Delete returned false';
+                error_log("[mumbai_refresh_customer_metrics] DB error deleting metrics for customer {$customer_id}: " . $err);
+                mumbai_queue_customer_metrics_retry($customer_id, $err);
+                return false;
+            }
+            return true;
+        }
+
+        $write_res = $wpdb->replace($table_metrics, [
+            'customer_id'          => $customer_id,
+            'orders_count'         => (int) $row['orders_count'],
+            'lifetime_spent'       => $row['lifetime_spent'],
+            'last_order_date_gmt'  => $row['last_order_date_gmt'],
+            'last_order_id'        => $row['last_order_id'],
+            'updated_at'           => current_time('mysql', true),
+        ], ['%d', '%d', '%s', '%s', '%d', '%s']);
+
+        if ($write_res === false || $wpdb->last_error) {
+            $err = $wpdb->last_error ?: 'Replace returned false';
+            error_log("[mumbai_refresh_customer_metrics] DB error writing metrics for customer {$customer_id}: " . $err);
+            mumbai_queue_customer_metrics_retry($customer_id, $err);
+            return false;
+        }
+
+        return true;
+    } finally {
+        $wpdb->get_var($wpdb->prepare("SELECT RELEASE_LOCK(%s)", $lock_key));
+    }
+}
+
+function mumbai_get_emergency_metrics_retry_file() {
+    $dir = defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR : sys_get_temp_dir();
+    return rtrim($dir, '/\\') . '/.mumbai_emergency_metrics_retries.json';
+}
+
+function mumbai_record_emergency_metrics_retry($customer_id) {
+    $customer_id = absint($customer_id);
+    if (!$customer_id) return false;
+
+    $file_written = false;
+    // 1. Durable file fallback: survives complete MySQL crashes & connection dropouts
+    // Uses flock exclusive lock to safely synchronize read-modify-write and check write success
+    $file = mumbai_get_emergency_metrics_retry_file();
+    try {
+        $fp = @fopen($file, 'c+');
+        if ($fp) {
+            if (flock($fp, LOCK_EX)) {
+                rewind($fp);
+                $content = stream_get_contents($fp);
+                $existing = [];
+                if ($content) {
+                    $decoded = json_decode($content, true);
+                    if (is_array($decoded)) $existing = $decoded;
+                }
+                if (!in_array($customer_id, $existing, true)) {
+                    $existing[] = $customer_id;
+                    $payload = json_encode(array_values(array_unique(array_filter(array_map('absint', $existing)))));
+                    ftruncate($fp, 0);
+                    rewind($fp);
+                    $bytes = fwrite($fp, $payload);
+                    fflush($fp);
+                    if ($bytes !== false && $bytes >= strlen($payload)) {
+                        $file_written = true;
+                    } else {
+                        error_log("[mumbai_record_emergency_metrics_retry] File write incomplete for customer {$customer_id}");
+                    }
+                } else {
+                    $file_written = true;
+                }
+                flock($fp, LOCK_UN);
+            }
+            fclose($fp);
+        }
+    } catch (\Throwable $t) {
+        error_log("[mumbai_record_emergency_metrics_retry] File write error: " . $t->getMessage());
+    }
+
+    // 2. Option fallback: survives when queue table specifically is corrupt or locked but wp_options is readable
+    try {
+        $pending = get_option('mumbai_pending_customer_metrics_retries', []);
+        if (!is_array($pending)) $pending = [];
+        if (!in_array($customer_id, $pending, true)) {
+            $pending[] = $customer_id;
+            update_option('mumbai_pending_customer_metrics_retries', array_values(array_unique(array_filter(array_map('absint', $pending)))), false);
+        }
+    } catch (\Throwable $t) {
+        // Full database outage: disk file above safely preserves the retry
+    }
+
+    return $file_written;
+}
+
+function mumbai_migrate_legacy_metrics_retries() {
+    global $wpdb;
+    $queue_table = mumbai_customer_metrics_queue_table_name();
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $queue_table)) !== $queue_table) {
         return;
     }
 
-    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
-    $row = $wpdb->get_row($wpdb->prepare(
-        "SELECT COUNT(id) AS orders_count,
-                COALESCE(SUM(total_amount), 0) AS lifetime_spent,
-                MAX(date_created_gmt) AS last_order_date_gmt,
-                MAX(id) AS last_order_id
-         FROM {$reporting_source} reporting_orders
-         WHERE customer_id = %d AND status NOT IN {$invalid_statuses_sql}",
-        $customer_id
+    $file = mumbai_get_emergency_metrics_retry_file();
+    $file_ids = [];
+
+    // Atomically detach the file batch under shared lock before processing
+    // Truncating the file while holding flock(LOCK_EX) ensures that any concurrent writes
+    // arriving during recovery will safely accumulate into the next batch rather than being wiped out.
+    if (file_exists($file)) {
+        $fp = @fopen($file, 'c+');
+        if ($fp) {
+            if (flock($fp, LOCK_EX)) {
+                rewind($fp);
+                $content = stream_get_contents($fp);
+                if ($content) {
+                    $decoded = json_decode($content, true);
+                    if (is_array($decoded)) {
+                        $file_ids = array_values(array_unique(array_filter(array_map('absint', $decoded))));
+                    }
+                }
+                // Atomically detach: empty the file for incoming concurrent writes
+                ftruncate($fp, 0);
+                rewind($fp);
+                $written = fwrite($fp, '[]');
+                fflush($fp);
+                if ($written === false) {
+                    error_log("[mumbai_migrate_legacy_metrics_retries] Failed to clear detached batch in file");
+                }
+                flock($fp, LOCK_UN);
+            }
+            fclose($fp);
+        }
+    }
+
+    // Atomically detach the option batch before processing
+    $legacy = get_option('mumbai_pending_customer_metrics_retries');
+    if (!is_array($legacy)) {
+        $legacy = [];
+    } else {
+        $legacy = array_values(array_unique(array_filter(array_map('absint', $legacy))));
+        // Atomically detach: delete the option so concurrent writes accumulate newly added IDs
+        delete_option('mumbai_pending_customer_metrics_retries');
+    }
+
+    $all_ids = array_values(array_unique(array_merge($legacy, $file_ids)));
+    if (empty($all_ids)) {
+        // If file is empty and no IDs were detached, clean up the empty file
+        if (file_exists($file)) {
+            $should_unlink = false;
+            $fp = @fopen($file, 'c+');
+            if ($fp) {
+                if (flock($fp, LOCK_EX)) {
+                    rewind($fp);
+                    $c = trim(stream_get_contents($fp));
+                    $parsed = json_decode($c, true);
+                    if (empty($parsed)) {
+                        $should_unlink = true;
+                    }
+                    flock($fp, LOCK_UN);
+                }
+                fclose($fp);
+                if ($should_unlink) {
+                    @unlink($file);
+                }
+            }
+        }
+        return;
+    }
+
+    $now = current_time('mysql', true);
+    $failed_file_ids = [];
+    $failed_option_ids = [];
+
+    foreach ($all_ids as $cid) {
+        if ($cid <= 0) continue;
+
+        // Replay through the same revision-incrementing upsert as a normal enqueue
+        // Increments revision so an active worker holding an older revision cannot acknowledge
+        // and delete this newer update upon finishing its stale calculation.
+        $res = $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$queue_table} (customer_id, status, attempts, available_at, enqueued_at, updated_at, revision, last_error)
+             VALUES (%d, 'pending', 0, %s, %s, %s, 1, 'Emergency buffer replay')
+             ON DUPLICATE KEY UPDATE
+                status = IF(status = 'claimed', 'claimed', 'pending'),
+                available_at = IF(status = 'claimed', available_at, %s),
+                enqueued_at = %s,
+                updated_at = %s,
+                revision = revision + 1,
+                last_error = IF(%s != '', %s, last_error)",
+            $cid, $now, $now, $now,
+            $now, $now, $now, 'Emergency buffer replay', 'Emergency buffer replay'
+        ));
+
+        if ($res === false || !empty($wpdb->last_error)) {
+            if (in_array($cid, $file_ids, true)) $failed_file_ids[] = $cid;
+            if (in_array($cid, $legacy, true)) $failed_option_ids[] = $cid;
+        }
+    }
+
+    // If any detached file IDs failed to queue, restore ONLY the failed IDs into the file under lock
+    if (!empty($failed_file_ids)) {
+        $fp = @fopen($file, 'c+');
+        if ($fp) {
+            if (flock($fp, LOCK_EX)) {
+                rewind($fp);
+                $content = stream_get_contents($fp);
+                $current = [];
+                if ($content) {
+                    $decoded = json_decode($content, true);
+                    if (is_array($decoded)) $current = $decoded;
+                }
+                $merged = array_values(array_unique(array_merge($current, $failed_file_ids)));
+                $payload = json_encode($merged);
+                ftruncate($fp, 0);
+                rewind($fp);
+                $written = fwrite($fp, $payload);
+                fflush($fp);
+                if ($written === false || $written < strlen($payload)) {
+                    error_log("[mumbai_migrate_legacy_metrics_retries] Failed restoring failed retries to file");
+                }
+                flock($fp, LOCK_UN);
+            }
+            fclose($fp);
+        }
+    } else {
+        // All detached file IDs succeeded. If no concurrent writes added new items, clean up the file
+        if (file_exists($file)) {
+            $should_unlink = false;
+            $fp = @fopen($file, 'c+');
+            if ($fp) {
+                if (flock($fp, LOCK_EX)) {
+                    rewind($fp);
+                    $c = trim(stream_get_contents($fp));
+                    $parsed = json_decode($c, true);
+                    if (empty($parsed)) {
+                        $should_unlink = true;
+                    }
+                    flock($fp, LOCK_UN);
+                }
+                fclose($fp);
+                if ($should_unlink) {
+                    @unlink($file);
+                }
+            }
+        }
+    }
+
+    // If any detached option IDs failed to queue, restore ONLY the failed IDs into the option
+    if (!empty($failed_option_ids)) {
+        $current = get_option('mumbai_pending_customer_metrics_retries', []);
+        if (!is_array($current)) $current = [];
+        $merged = array_values(array_unique(array_merge($current, $failed_option_ids)));
+        update_option('mumbai_pending_customer_metrics_retries', $merged, false);
+    }
+}
+
+function mumbai_schedule_metrics_retries_wake($delay = 5) {
+    $delay = max(5, (int) $delay);
+    $target_time = time() + $delay;
+    $next = wp_next_scheduled('mumbai_process_customer_metrics_retries');
+    if ($next === false) {
+        wp_schedule_single_event($target_time, 'mumbai_process_customer_metrics_retries');
+    } elseif ($target_time < $next) {
+        // Earlier run needed than currently scheduled; reschedule
+        wp_unschedule_event($next, 'mumbai_process_customer_metrics_retries');
+        wp_schedule_single_event($target_time, 'mumbai_process_customer_metrics_retries');
+    }
+}
+
+function mumbai_queue_customer_metrics_retry($customer_id, $reason = '') {
+    global $wpdb;
+    $customer_id = absint($customer_id);
+    if (!$customer_id) return false;
+
+    $table = mumbai_customer_metrics_queue_table_name();
+    $now = current_time('mysql', true);
+
+    $has_db = !empty($wpdb) && method_exists($wpdb, 'get_var');
+    $table_exists = false;
+    if ($has_db) {
+        $table_exists = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table);
+    }
+
+    if (!$table_exists) {
+        if ($has_db) {
+            mumbai_upgrade_customer_metrics_table();
+            $table_exists = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table);
+        }
+    }
+
+    if (!$table_exists || !$has_db || !empty($wpdb->last_error)) {
+        $err = (!empty($wpdb) && !empty($wpdb->last_error)) ? $wpdb->last_error : 'Queue table unavailable or DB error';
+        error_log("[mumbai_customer_metrics_queue] Failed to enqueue customer {$customer_id}: " . $err);
+        mumbai_record_emergency_metrics_retry($customer_id);
+        return false;
+    }
+
+    // Atomic enqueue & deduplication with per-customer revision increment
+    // If the customer is already 'claimed' by an active worker, status stays 'claimed',
+    // but revision is incremented so the worker's acknowledgment will detect the concurrent update!
+    $enqueued = $wpdb->query($wpdb->prepare(
+        "INSERT INTO {$table} (customer_id, status, attempts, available_at, enqueued_at, updated_at, revision, last_error)
+         VALUES (%d, 'pending', 0, %s, %s, %s, 1, %s)
+         ON DUPLICATE KEY UPDATE
+            status = IF(status = 'claimed', 'claimed', 'pending'),
+            available_at = IF(status = 'claimed', available_at, %s),
+            enqueued_at = %s,
+            updated_at = %s,
+            revision = revision + 1,
+            last_error = IF(%s != '', %s, last_error)",
+        $customer_id, $now, $now, $now, $reason,
+        $now, $now, $now, $reason, $reason
+    ));
+
+    if ($enqueued === false || !empty($wpdb->last_error)) {
+        error_log("[mumbai_customer_metrics_queue] Failed to enqueue customer {$customer_id}: " . $wpdb->last_error);
+        mumbai_record_emergency_metrics_retry($customer_id);
+        return false;
+    }
+
+    mumbai_schedule_metrics_retries_wake(5);
+
+    return true;
+}
+
+function mumbai_process_customer_metrics_retries() {
+    global $wpdb;
+    mumbai_migrate_legacy_metrics_retries();
+
+    $table = mumbai_customer_metrics_queue_table_name();
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+        return;
+    }
+
+    $worker_id = wp_generate_uuid4() ?: uniqid('w_', true);
+    $now = current_time('mysql', true);
+    $now_ts = time();
+    $stale_cutoff = gmdate('Y-m-d H:i:s', $now_ts - 120);
+
+    // 1. Recover stale claimed leases (worker crashed or interrupted > 120s)
+    $wpdb->query($wpdb->prepare(
+        "UPDATE {$table}
+         SET status = 'pending', claimed_by = NULL, claimed_at = NULL
+         WHERE status = 'claimed' AND claimed_at < %s",
+        $stale_cutoff
+    ));
+
+    // 2. Select a bounded batch of available work (limit 25)
+    $batch = $wpdb->get_results($wpdb->prepare(
+        "SELECT customer_id, revision, attempts
+         FROM {$table}
+         WHERE status = 'pending' AND available_at <= %s
+         ORDER BY available_at ASC, attempts ASC
+         LIMIT 25",
+        $now
     ), ARRAY_A);
 
-    if ($wpdb->last_error) return;
-    if (!$row || (int) $row['orders_count'] === 0) {
-        $wpdb->delete($table_metrics, ['customer_id' => $customer_id], ['%d']);
+    if (!empty($batch)) {
+        foreach ($batch as $item) {
+            $cid = (int) $item['customer_id'];
+            $claimed_revision = (int) ($item['revision'] ?? 1);
+            $attempts = (int) $item['attempts'];
+
+            // 3. Atomically claim work with recoverable lease and specific revision
+            $claimed = $wpdb->query($wpdb->prepare(
+                "UPDATE {$table}
+                 SET status = 'claimed', claimed_by = %s, claimed_at = %s, updated_at = %s
+                 WHERE customer_id = %d AND status = 'pending' AND available_at <= %s AND revision = %d",
+                $worker_id, $now, $now, $cid, $now, $claimed_revision
+            ));
+
+            if (!$claimed) {
+                continue;
+            }
+
+            // 4. Execute metrics refresh
+            $success = mumbai_refresh_customer_metrics($cid);
+
+            if ($success) {
+                // 5. Remove only after successful refresh AND verify no newer enqueue arrived (revision matches)
+                $deleted = $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$table}
+                     WHERE customer_id = %d AND status = 'claimed' AND claimed_by = %s AND revision = %d",
+                    $cid, $worker_id, $claimed_revision
+                ));
+
+                if (!$deleted) {
+                    // A newer enqueue arrived (revision incremented) while worker was processing!
+                    // Reset status to pending with attempts = 0 so the newer update will run
+                    $wpdb->query($wpdb->prepare(
+                        "UPDATE {$table}
+                         SET status = 'pending', claimed_by = NULL, claimed_at = NULL, attempts = 0, available_at = %s, updated_at = %s
+                         WHERE customer_id = %d AND status = 'claimed' AND claimed_by = %s",
+                        $now, $now, $cid, $worker_id
+                    ));
+                }
+            } else {
+                // 6. On failure: keep entry and retry with exponential backoff
+                $backoff_sec = min(1800, max(15, (int) pow(2, min($attempts + 1, 8)) * 10));
+                $next_avail = gmdate('Y-m-d H:i:s', $now_ts + $backoff_sec);
+                $err_msg = $wpdb->last_error ?: 'Refresh failed';
+
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$table}
+                     SET status = 'pending', claimed_by = NULL, claimed_at = NULL,
+                         attempts = attempts + 1, available_at = %s, updated_at = %s, last_error = %s
+                     WHERE customer_id = %d AND status = 'claimed' AND claimed_by = %s",
+                    $next_avail, $now, $err_msg, $cid, $worker_id
+                ));
+            }
+        }
+    }
+
+    // 7. Retain overflow and schedule next wake accurately
+    // Check if any items are ready right now
+    $now_check = current_time('mysql', true);
+    $remaining_ready = (int) $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$table} WHERE status = 'pending' AND available_at <= %s",
+        $now_check
+    ));
+
+    if ($remaining_ready > 0) {
+        mumbai_schedule_metrics_retries_wake(5);
         return;
     }
 
-    $wpdb->replace($table_metrics, [
-        'customer_id'          => $customer_id,
-        'orders_count'         => (int) $row['orders_count'],
-        'lifetime_spent'       => $row['lifetime_spent'],
-        'last_order_date_gmt'  => $row['last_order_date_gmt'],
-        'last_order_id'        => $row['last_order_id'],
-        'updated_at'           => current_time('mysql', true),
-    ], ['%d', '%d', '%s', '%s', '%d', '%s']);
+    // If nothing ready right now, schedule from the EARLIEST future retry or lease expiry
+    $earliest_pending = $wpdb->get_var($wpdb->prepare(
+        "SELECT MIN(available_at) FROM {$table} WHERE status = 'pending' AND available_at > %s",
+        $now_check
+    ));
+    $earliest_claimed_at = $wpdb->get_var(
+        "SELECT MIN(claimed_at) FROM {$table} WHERE status = 'claimed' AND claimed_at IS NOT NULL"
+    );
+
+    $next_wake_ts = null;
+    if ($earliest_pending) {
+        $pts = strtotime($earliest_pending);
+        if ($pts > 0) $next_wake_ts = $pts;
+    }
+    if ($earliest_claimed_at) {
+        $lts = strtotime($earliest_claimed_at) + 120;
+        if ($lts > 0) $next_wake_ts = $next_wake_ts ? min($next_wake_ts, $lts) : $lts;
+    }
+
+    if ($next_wake_ts !== null) {
+        $delay = max(5, $next_wake_ts - time());
+        mumbai_schedule_metrics_retries_wake($delay);
+    }
+}
+add_action('mumbai_process_customer_metrics_retries', 'mumbai_process_customer_metrics_retries');
+
+// Register 5-minute schedule if not present for fallback recovery
+add_filter('cron_schedules', function ($schedules) {
+    if (!isset($schedules['five_minutes'])) {
+        $schedules['five_minutes'] = [
+            'interval' => 300,
+            'display'  => 'Every 5 Minutes',
+        ];
+    }
+    return $schedules;
+});
+
+// Recurring fallback recovery cron to ensure retries or crashed worker leases never stall
+add_action('mumbai_recover_customer_metrics_retries', 'mumbai_process_customer_metrics_retries');
+if (!wp_next_scheduled('mumbai_recover_customer_metrics_retries')) {
+    wp_schedule_event(time() + 120, 'five_minutes', 'mumbai_recover_customer_metrics_retries');
 }
 
 /** Populate metrics in bounded batches; safe to resume after a request interruption. */
@@ -5273,7 +6314,7 @@ function mumbai_customer_metrics_backfill_batch() {
         return;
     }
 
-    $batch_size = 200;
+    $batch_size = 100;
     $last_id = (int) get_option('mumbai_customer_metrics_backfill_last_customer_id', 0);
     $customer_ids = $wpdb->get_col($wpdb->prepare(
         "SELECT DISTINCT customer_id FROM {$reporting_source} reporting_orders
@@ -5294,44 +6335,20 @@ function mumbai_customer_metrics_backfill_batch() {
     }
 
     $customer_ids = array_map('absint', $customer_ids);
-    $placeholders = implode(',', array_fill(0, count($customer_ids), '%d'));
-    $invalid_statuses_sql = "('wc-pending', 'wc-cancelled', 'wc-failed', 'wc-refunded', 'wc-trash', 'wc-on-hold', 'wc-checkout-draft', 'pending', 'cancelled', 'failed', 'refunded', 'trash', 'on-hold', 'checkout-draft')";
-    $query = $wpdb->prepare(
-        "SELECT customer_id, COUNT(id) AS orders_count,
-                COALESCE(SUM(total_amount), 0) AS lifetime_spent,
-                MAX(date_created_gmt) AS last_order_date_gmt,
-                MAX(id) AS last_order_id
-         FROM {$reporting_source} reporting_orders
-         WHERE customer_id IN ({$placeholders}) AND status NOT IN {$invalid_statuses_sql}
-         GROUP BY customer_id",
-        ...$customer_ids
-    );
-    $rows = $wpdb->get_results($query, ARRAY_A) ?: [];
-    if (!empty($wpdb->last_error)) {
-        wp_schedule_single_event(time() + 30, 'mumbai_customer_metrics_backfill_batch');
-        return;
-    }
-    $table_metrics = mumbai_customer_metrics_table_name();
-    $missing_ids = array_values(array_diff($customer_ids, array_map(static function ($row) { return (int) $row['customer_id']; }, $rows)));
-    if ($missing_ids) {
-        $missing_placeholders = implode(',', array_fill(0, count($missing_ids), '%d'));
-        if ($wpdb->query($wpdb->prepare("DELETE FROM {$table_metrics} WHERE customer_id IN ({$missing_placeholders})", ...$missing_ids)) === false) {
-            wp_schedule_single_event(time() + 30, 'mumbai_customer_metrics_backfill_batch');
-            return;
-        }
-    }
     $write_failed = false;
-    foreach ($rows as $row) {
-        if ($wpdb->replace($table_metrics, [
-            'customer_id'          => (int) $row['customer_id'],
-            'orders_count'         => (int) $row['orders_count'],
-            'lifetime_spent'       => $row['lifetime_spent'],
-            'last_order_date_gmt'  => $row['last_order_date_gmt'],
-            'last_order_id'        => $row['last_order_id'],
-            'updated_at'           => current_time('mysql', true),
-        ], ['%d', '%d', '%s', '%s', '%d', '%s']) === false) {
+    $processed_ids = [];
+    foreach ($customer_ids as $cid) {
+        if (!$cid) continue;
+        // Use the locked refresh function to serialize calculations and prevent overwriting newer totals
+        if (mumbai_refresh_customer_metrics($cid) === false) {
             $write_failed = true;
+            break;
         }
+        $processed_ids[] = $cid;
+    }
+
+    if (!empty($processed_ids)) {
+        update_option('mumbai_customer_metrics_backfill_last_customer_id', max($processed_ids), false);
     }
 
     if ($write_failed) {
@@ -5445,8 +6462,12 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
     $metrics_ready = (bool) get_option('mumbai_customer_metrics_backfill_complete') &&
         $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_customer_metrics)) === $table_customer_metrics;
     $table_customer_search = mumbai_customer_search_table_name();
+    $table_customer_search_phones = mumbai_customer_search_phones_table_name();
+    $search_table_exists = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_customer_search)) === $table_customer_search);
+    $phones_table_exists = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_customer_search_phones)) === $table_customer_search_phones);
     $search_index_ready = (bool) get_option('mumbai_customer_search_backfill_complete') &&
-        $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_customer_search)) === $table_customer_search;
+        $search_table_exists &&
+        $phones_table_exists;
 
     $cap_key = $wpdb->prefix . 'capabilities';
     $where_clauses = [
@@ -5463,52 +6484,235 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
         ),
     ];
 
+    $contact_priority_sql = '';
+
     // Search filter across display name, email, login, and usermeta
     if (!empty($search)) {
         $normalized_search = strtolower(trim($search));
-        if ($search_index_ready) {
-            $phone_search = preg_replace('/\D/', '', $normalized_search);
-            if (strlen($phone_search) > 10 && substr($phone_search, 0, 2) === '91') {
-                $phone_search = substr($phone_search, 2);
-            } elseif (strlen($phone_search) === 11 && substr($phone_search, 0, 1) === '0') {
-                $phone_search = substr($phone_search, 1);
-            }
-            $tokens = preg_split('/[^\p{L}\p{N}]+/u', $normalized_search, -1, PREG_SPLIT_NO_EMPTY);
-            $tokens = array_values(array_filter($tokens, static function ($token) {
-                return function_exists('mb_strlen') ? mb_strlen($token) >= 3 : strlen($token) >= 3;
-            }));
-            if (!empty($tokens)) {
-                $boolean_search = implode(' ', array_map(static function ($token) {
-                    return '+' . preg_replace('/[^\p{L}\p{N}]/u', '', $token) . '*';
-                }, $tokens));
-                $search_match = $wpdb->prepare(
-                    "MATCH(search_text) AGAINST (%s IN BOOLEAN MODE)",
-                    $boolean_search
-                );
-                if ($phone_search !== '') {
-                    $search_match = '(' . $search_match . ' OR phone_digits LIKE ' . $wpdb->prepare('%s', $wpdb->esc_like($phone_search) . '%') . ')';
-                }
-                $where_clauses[] = "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE {$search_match})";
+
+        // 1. Identify input pattern
+        $is_email_query = (strpos($normalized_search, '@') !== false);
+        $is_complete_email = (bool) filter_var($normalized_search, FILTER_VALIDATE_EMAIL);
+
+        // Phone pattern check: only run on phone-shaped input (mostly digits, +, -, spaces; at least 5 digits)
+        $clean_phone_chars = preg_replace('/[\s\+\-\(\)]/', '', $normalized_search);
+        $is_phone_shaped = (strlen($clean_phone_chars) >= 5 && ctype_digit($clean_phone_chars));
+
+        $phone_search = '';
+        if ($is_phone_shaped) {
+            $digits = preg_replace('/\D/', '', $normalized_search);
+            if (strlen($digits) > 10 && substr($digits, 0, 2) === '91') {
+                $phone_search = substr($digits, 2);
+            } elseif (strlen($digits) === 11 && substr($digits, 0, 1) === '0') {
+                $phone_search = substr($digits, 1);
             } else {
-                $prefix = $wpdb->esc_like($normalized_search) . '%';
-                $phone_prefix = preg_replace('/\D/', '', $normalized_search);
-                $where_clauses[] = $wpdb->prepare(
-                    "u.ID IN (SELECT customer_id FROM {$table_customer_search}
-                     WHERE display_name LIKE %s OR email LIKE %s OR username LIKE %s OR phone_digits LIKE %s)",
-                    $prefix, $prefix, $prefix,
-                    $phone_prefix !== '' ? $wpdb->esc_like($phone_prefix) . '%' : $prefix
+                $phone_search = $digits;
+            }
+        }
+
+        if ($is_complete_email) {
+            // EXACT EMAIL MATCH:
+            // 1. Live account user_email
+            // 2. Search table indexed email (if search index ready)
+            // 3. Exact historical billing email match on WooCommerce orders where customer_id > 0
+            $email_exact_conditions = [
+                $wpdb->prepare("u.user_email = %s", $normalized_search)
+            ];
+            if ($search_index_ready) {
+                $email_exact_conditions[] = $wpdb->prepare(
+                    "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE email = %s)",
+                    $normalized_search
                 );
             }
+            if ($has_hpos) {
+                $email_exact_conditions[] = $wpdb->prepare(
+                    "u.ID IN (SELECT DISTINCT customer_id FROM {$table_orders} WHERE billing_email = %s AND customer_id > 0)",
+                    $normalized_search
+                );
+            }
+            $where_clauses[] = '(' . implode(' OR ', $email_exact_conditions) . ')';
+            $contact_priority_sql = $wpdb->prepare("(CASE WHEN u.user_email = %s THEN 0 ELSE 1 END) ASC, ", $normalized_search);
+
+        } elseif ($is_email_query) {
+            // EMAIL FRAGMENT MATCH (e.g. "rohan@", "@gmail.com"):
+            // Literal email matching using LIKE (do not send through full-text token matcher!)
+            $email_like = '%' . $wpdb->esc_like($normalized_search) . '%';
+            $email_frag_conditions = [
+                $wpdb->prepare("u.user_email LIKE %s", $email_like)
+            ];
+            if ($search_index_ready) {
+                $email_frag_conditions[] = $wpdb->prepare(
+                    "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE email LIKE %s)",
+                    $email_like
+                );
+            }
+            $where_clauses[] = '(' . implode(' OR ', $email_frag_conditions) . ')';
+            $contact_priority_sql = $wpdb->prepare("(CASE WHEN u.user_email LIKE %s THEN 0 ELSE 1 END) ASC, ", $wpdb->esc_like($normalized_search) . '%');
+
+        } elseif ($is_phone_shaped && !empty($phone_search)) {
+            // PHONE MATCHING (returns all matching accounts if number is shared across accounts):
+            $phone_conditions = [];
+            $is_full_phone = (strlen($phone_search) >= 10);
+            if ($search_index_ready) {
+                if ($is_full_phone) {
+                    $phone_conditions[] = $wpdb->prepare(
+                        "(u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE phone_digits = %s) OR u.ID IN (SELECT customer_id FROM {$table_customer_search_phones} WHERE phone_digits = %s))",
+                        $phone_search,
+                        $phone_search
+                    );
+                    $contact_priority_sql = $wpdb->prepare(
+                        "(CASE WHEN (u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE phone_digits = %s) OR u.ID IN (SELECT customer_id FROM {$table_customer_search_phones} WHERE phone_digits = %s)) THEN 0 ELSE 1 END) ASC, ",
+                        $phone_search,
+                        $phone_search
+                    );
+                } else {
+                    $phone_prefix_like = $wpdb->esc_like($phone_search) . '%';
+                    $phone_conditions[] = $wpdb->prepare(
+                        "(u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE phone_digits LIKE %s) OR u.ID IN (SELECT customer_id FROM {$table_customer_search_phones} WHERE phone_digits LIKE %s))",
+                        $phone_prefix_like,
+                        $phone_prefix_like
+                    );
+                }
+            } else {
+                // Fallback during index rebuild: extract and normalize phone values across authoritative contact sources
+                // (billing_phone, _mumbai_user_profile, _mumbai_saved_addresses) consistent with mumbai_get_user_all_contact_phones().
+                $cond_parts = [];
+
+                // 1. If phones table exists and has entries, query indexed records
+                if ($phones_table_exists) {
+                    if ($is_full_phone) {
+                        $cond_parts[] = $wpdb->prepare(
+                            "u.ID IN (SELECT customer_id FROM {$table_customer_search_phones} WHERE phone_digits = %s)",
+                            $phone_search
+                        );
+                    } else {
+                        $cond_parts[] = $wpdb->prepare(
+                            "u.ID IN (SELECT customer_id FROM {$table_customer_search_phones} WHERE phone_digits LIKE %s)",
+                            $wpdb->esc_like($phone_search) . '%'
+                        );
+                    }
+                }
+
+                // 2. Match billing_phone (raw phone string cleaned of non-digits via SQL)
+                $clean_meta_sql = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(meta_value, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '')";
+                if ($is_full_phone) {
+                    $billing_phone_sql = $wpdb->prepare(
+                        "(meta_key = 'billing_phone' AND ({$clean_meta_sql} = %s OR {$clean_meta_sql} LIKE %s))",
+                        $phone_search,
+                        '%' . $wpdb->esc_like($phone_search)
+                    );
+                } else {
+                    $billing_phone_sql = $wpdb->prepare(
+                        "(meta_key = 'billing_phone' AND {$clean_meta_sql} LIKE %s)",
+                        '%' . $wpdb->esc_like($phone_search) . '%'
+                    );
+                }
+                $cond_parts[] = "u.ID IN (SELECT user_id FROM {$table_usermeta} WHERE {$billing_phone_sql})";
+
+                // 3. For structured contact metadata (_mumbai_user_profile, _mumbai_saved_addresses) not yet indexed,
+                // pre-filter in SQL supporting both contiguous and formatted numbers (e.g. +91 98765 43210, 98765-43210)
+                $digits_arr = str_split($phone_search);
+                $like_flexible = '%' . implode('%', array_map([$wpdb, 'esc_like'], $digits_arr)) . '%';
+                $structured_rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT user_id, meta_key, meta_value FROM {$table_usermeta} " .
+                    "WHERE meta_key IN ('_mumbai_user_profile', '_mumbai_saved_addresses') " .
+                    "AND (meta_value LIKE %s OR meta_value LIKE %s)",
+                    '%' . $wpdb->esc_like($phone_search) . '%',
+                    $like_flexible
+                ));
+                $structured_uids = [];
+                if (is_array($structured_rows)) {
+                    foreach ($structured_rows as $row) {
+                        $uid = absint(is_object($row) ? $row->user_id : ($row['user_id'] ?? 0));
+                        if (!$uid) continue;
+                        $meta_k = is_object($row) ? $row->meta_key : ($row['meta_key'] ?? '');
+                        $meta_v = is_object($row) ? $row->meta_value : ($row['meta_value'] ?? '');
+                        $data = maybe_unserialize($meta_v);
+                        if (!is_array($data) && is_string($data)) {
+                            $decoded = json_decode($data, true);
+                            if (is_array($decoded)) $data = $decoded;
+                        }
+                        if (!is_array($data)) continue;
+
+                        $candidates = [];
+                        if ($meta_k === '_mumbai_user_profile') {
+                            if (!empty($data['phone'])) {
+                                $candidates[] = (string) $data['phone'];
+                            }
+                        } elseif ($meta_k === '_mumbai_saved_addresses') {
+                            $addr_list = isset($data['phone']) ? [$data] : $data;
+                            foreach ($addr_list as $addr) {
+                                if (is_array($addr) && !empty($addr['phone'])) {
+                                    $candidates[] = (string) $addr['phone'];
+                                }
+                            }
+                        }
+
+                        foreach ($candidates as $cand) {
+                            $norm = mumbai_normalize_phone($cand);
+                            if ($norm === '') continue;
+                            if ($is_full_phone ? ($norm === $phone_search) : (strpos($norm, $phone_search) !== false)) {
+                                $structured_uids[$uid] = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                $matching_structured_ids = array_keys($structured_uids);
+                if (!empty($matching_structured_ids)) {
+                    $structured_ids_in = implode(',', array_map('absint', $matching_structured_ids));
+                    $cond_parts[] = "u.ID IN ({$structured_ids_in})";
+                }
+
+                $phone_conditions[] = '(' . implode(' OR ', $cond_parts) . ')';
+                if ($is_full_phone) {
+                    $contact_priority_sql = "(CASE WHEN (" . implode(' OR ', $cond_parts) . ") THEN 0 ELSE 1 END) ASC, ";
+                }
+            }
+            $where_clauses[] = '(' . implode(' OR ', $phone_conditions) . ')';
+
         } else {
-            // Safe compatibility path while the indexed customer search table is backfilling.
-            $like = '%' . $wpdb->esc_like($normalized_search) . '%';
-            $where_clauses[] = $wpdb->prepare(
-                "(u.display_name LIKE %s OR u.user_email LIKE %s OR u.user_login LIKE %s
-                  OR u.ID IN (SELECT DISTINCT sm.user_id FROM {$table_usermeta} sm
-                    WHERE sm.meta_key IN ('first_name', 'last_name', 'billing_phone', 'billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode')
-                    AND sm.meta_value LIKE %s))",
-                $like, $like, $like, $like
-            );
+            // GENERAL TEXT (Name, username, location, or local part of email):
+            $text_conditions = [];
+            $email_like = '%' . $wpdb->esc_like($normalized_search) . '%';
+            $text_conditions[] = $wpdb->prepare("u.user_email LIKE %s", $email_like);
+            $text_conditions[] = $wpdb->prepare("u.display_name LIKE %s", $email_like);
+            $text_conditions[] = $wpdb->prepare("u.user_login LIKE %s", $email_like);
+
+            if ($search_index_ready) {
+                // Known MySQL / English stopwords that should not be forced with '+' in boolean mode
+                $stopwords = ['com', 'net', 'org', 'the', 'and', 'for', 'about', 'with', 'from', 'was', 'are', 'this', 'that', 'und'];
+                $tokens = preg_split('/[^\p{L}\p{N}]+/u', $normalized_search, -1, PREG_SPLIT_NO_EMPTY);
+                $tokens = array_values(array_filter($tokens, static function ($token) use ($stopwords) {
+                    $len = function_exists('mb_strlen') ? mb_strlen($token) : strlen($token);
+                    return $len >= 3 && !in_array($token, $stopwords, true);
+                }));
+
+                if (!empty($tokens)) {
+                    $boolean_search = implode(' ', array_map(static function ($token) {
+                        return '+' . preg_replace('/[^\p{L}\p{N}]/u', '', $token) . '*';
+                    }, $tokens));
+                    $text_conditions[] = $wpdb->prepare(
+                        "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE MATCH(search_text) AGAINST (%s IN BOOLEAN MODE))",
+                        $boolean_search
+                    );
+                } else {
+                    $prefix = $wpdb->esc_like($normalized_search) . '%';
+                    $text_conditions[] = $wpdb->prepare(
+                        "u.ID IN (SELECT customer_id FROM {$table_customer_search} WHERE display_name LIKE %s OR email LIKE %s OR username LIKE %s)",
+                        $prefix, $prefix, $prefix
+                    );
+                }
+            } else {
+                $text_conditions[] = $wpdb->prepare(
+                    "u.ID IN (SELECT DISTINCT sm.user_id FROM {$table_usermeta} sm
+                     WHERE sm.meta_key IN ('first_name', 'last_name', 'billing_phone', 'billing_city', 'billing_address_1', 'billing_address_2', 'billing_postcode')
+                     AND sm.meta_value LIKE %s)",
+                    $email_like
+                );
+            }
+            $where_clauses[] = '(' . implode(' OR ', $text_conditions) . ')';
         }
     }
 
@@ -5614,7 +6818,11 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
     $where_sql = implode(' AND ', $where_clauses);
 
     // Exact total count query across all users matching filters
-    $total_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_users} u WHERE {$where_sql}");
+    $total_count_raw = $wpdb->get_var("SELECT COUNT(*) FROM {$table_users} u WHERE {$where_sql}");
+    if ($wpdb->last_error) {
+        return new WP_Error("directory_count_failed", "Customer directory count query failed.", ["status" => 500]);
+    }
+    $total_count = (int) $total_count_raw;
     $total_pages = (int) ceil($total_count / $limit) ?: 1;
 
     $select_metrics = $has_hpos 
@@ -5626,6 +6834,10 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
            0 AS lifetime_spent,
            NULL AS last_order_date,
            NULL AS last_order_id";
+
+    if (!empty($contact_priority_sql)) {
+        $order_by = $contact_priority_sql . $order_by;
+    }
 
     // Paginated retrieval of the exact requested slice
     $query = $wpdb->prepare(
@@ -5677,6 +6889,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
         $address_parts = array_filter([$addr1, $addr2, $city, $state . ($postcode ? " - {$postcode}" : '')]);
         $full_address = implode(', ', $address_parts) ?: 'Vasai, Maharashtra';
 
+        $is_suspended = mumbai_is_customer_suspended($user_id);
         $customers[] = [
             'id'              => $user_id,
             'email'           => $email,
@@ -5691,6 +6904,7 @@ function mumbai_admin_get_customers(WP_REST_Request $request) {
             'lifetimeSpent'   => (int) round((float) ($u['lifetime_spent'] ?? 0)),
             'lastOrderDate'   => !empty($u['last_order_date']) ? date('c', strtotime($u['last_order_date'])) : null,
             'lastOrderId'     => !empty($u['last_order_id']) ? (int) $u['last_order_id'] : null,
+            'is_suspended'    => $is_suspended,
             'roles'           => ['customer'],
         ];
     }
@@ -5765,6 +6979,122 @@ function mumbai_staff_update_order_status(WP_REST_Request $request) {
     }
 }
 
+/**
+ * Internal compare-and-update endpoint for safe payment reconciliation.
+ * Takes the shared staff order lock (GET_LOCK), reloads the order, verifies
+ * status, Razorpay association, currency, and total in paise before writing processing.
+ */
+function mumbai_internal_reconcile_order_payment(WP_REST_Request $request) {
+    global $wpdb;
+    $id = absint($request['id']);
+    if (!$id) {
+        return new WP_Error('invalid_order_id', 'Valid order ID is required.', ['status' => 400]);
+    }
+
+    $key = hash('sha256', 'staff-order:' . $id);
+    if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 3)', $key)) !== 1) {
+        return new WP_Error('order_busy', 'Another staff member or reconciliation process is updating this order.', ['status' => 409]);
+    }
+
+    try {
+        $order = wc_get_order($id);
+        if (!$order) {
+            return new WP_Error('order_read_failed', 'Could not read current order state from store database.', ['status' => 503]);
+        }
+
+        $core_status = $order->get_status();
+        $delivery_status = $order->get_meta('_delivery_status', true) ?: $core_status;
+        $terminal = ['completed', 'cancelled', 'refunded', 'failed'];
+
+        // Terminal orders: safe no-op
+        if (in_array($core_status, $terminal, true) || in_array($delivery_status, $terminal, true)) {
+            return rest_ensure_response([
+                'reconciled'   => true,
+                'action'       => 'none',
+                'message'      => "Order is already in a terminal state ({$core_status}).",
+                'order_status' => $core_status,
+            ]);
+        }
+
+        // Already in processing or fulfillment: safe no-op
+        if (in_array($core_status, ['processing', 'packed', 'out-for-delivery', 'dispatched'], true) ||
+            in_array($delivery_status, ['processing', 'packed', 'out-for-delivery', 'dispatched'], true)) {
+            return rest_ensure_response([
+                'reconciled'   => true,
+                'action'       => 'none',
+                'message'      => "Order is already in processing/fulfillment ({$core_status}).",
+                'order_status' => $core_status,
+            ]);
+        }
+
+        // Only pending or on-hold can transition to processing via reconciliation
+        if ($core_status !== 'pending' && $core_status !== 'on-hold') {
+            return rest_ensure_response([
+                'reconciled'   => true,
+                'action'       => 'none',
+                'message'      => "Order status is '{$core_status}'. Cannot overwrite with processing.",
+                'order_status' => $core_status,
+            ]);
+        }
+
+        // Check Razorpay order association
+        $expected_rzp_order_id = sanitize_text_field($request->get_param('razorpay_order_id'));
+        $order_rzp_id = $order->get_meta('_razorpay_order_id', true);
+        if (!$order_rzp_id || $order_rzp_id !== $expected_rzp_order_id) {
+            return new WP_Error('razorpay_order_mismatch', 'Razorpay order ID does not match current order metadata.', ['status' => 409]);
+        }
+
+        // Check currency
+        $order_currency = strtoupper($order->get_currency() ?: 'INR');
+        $expected_currency = strtoupper(sanitize_text_field($request->get_param('currency') ?: 'INR'));
+        if ($order_currency !== $expected_currency || $expected_currency !== 'INR') {
+            return new WP_Error('currency_mismatch', 'Payment currency does not match WooCommerce order currency.', ['status' => 409]);
+        }
+
+        // Check total in paise
+        $order_total = (float) $order->get_total();
+        $expected_amount_paise = (int) round($order_total * 100);
+        $captured_amount_paise = (int) $request->get_param('captured_amount_paise');
+
+        if ($captured_amount_paise !== $expected_amount_paise) {
+            return new WP_Error(
+                'amount_mismatch',
+                'Payment captured on Razorpay but amount does not match WooCommerce total.',
+                [
+                    'status'                => 409,
+                    'expected_amount_paise' => $expected_amount_paise,
+                    'actual_amount_paise'   => $captured_amount_paise,
+                ]
+            );
+        }
+
+        // Write processing status and payment metadata under the lock
+        $rzp_payment_id = sanitize_text_field($request->get_param('razorpay_payment_id'));
+        $payment_method_detail = sanitize_text_field($request->get_param('payment_method_detail') ?: 'online');
+
+        $order->set_status('processing');
+        $order->set_transaction_id($rzp_payment_id);
+        $order->update_meta_data('_razorpay_payment_id', $rzp_payment_id);
+        $order->update_meta_data('_payment_verified_at', current_time('mysql', true));
+        $order->update_meta_data('_payment_verified_by', 'reconciliation');
+        $order->update_meta_data('_payment_method_detail', $payment_method_detail);
+        $order->save();
+
+        return rest_ensure_response([
+            'reconciled'   => true,
+            'action'       => 'updated_to_processing',
+            'payment_id'   => $rzp_payment_id,
+            'order_status' => 'processing',
+            'order_id'     => $id,
+        ]);
+    } catch (Throwable $e) {
+        error_log('[mumbai_internal_reconcile_order_payment] Error: ' . $e->getMessage());
+        return new WP_Error('reconciliation_failed', 'Internal error updating order state.', ['status' => 500]);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $key));
+    }
+}
+
 /** Compare and replace while holding the same authoritative stock row used by WooCommerce. */
 function mumbai_staff_adjust_product(WP_REST_Request $request) {
     global $wpdb;
@@ -5782,7 +7112,10 @@ function mumbai_staff_adjust_product(WP_REST_Request $request) {
         if (($payload['expected_stock_quantity'] === null && $product->managing_stock()) ||
             ($payload['expected_stock_quantity'] !== null && (float) $stock !== (float) $payload['expected_stock_quantity'])) {
             $wpdb->query('ROLLBACK');
-            return new WP_Error('stock_changed', 'Stock changed since you opened this product. Refresh and review the new quantity.', ['status' => 409]);
+            return new WP_Error('stock_changed', 'Stock changed since you opened this product. Refresh and review the new quantity.', [
+                'status' => 409,
+                'current_stock' => (float) $stock,
+            ]);
         }
         if ((float) $payload['stock_quantity'] < (float) wc_get_held_stock_quantity(wc_get_product($managed_id))) {
             $wpdb->query('ROLLBACK');
@@ -6194,6 +7527,8 @@ function mumbai_admin_get_analytics_summary(WP_REST_Request $request) {
             'repeatCustomerRate'   => $repeat_rate,
         ],
         'weeklyTrend'       => $weekly_trend,
+        'wp_timezone'       => wp_timezone_string(),
+        'gmt_offset'        => (float) get_option('gmt_offset', 0),
     ]);
 }
 
@@ -6530,8 +7865,304 @@ function mumbai_employee_get_order_summary() {
 }
 
 /**
- * Fetch employee orders with DB-side status, location, and date filtering and
- * pagination. This internal endpoint requires HPOS for supported query semantics.
+ * Parse and normalize packing alarm cursor.
+ * Supports:
+ *  - Compound token "<isoDate>_<id>" (e.g. "2026-11-07T12:00:00.000Z_502" or "2026-11-07 12:00:00_502")
+ *  - Separate cursor_date and cursor_id params
+ * Normalizes timezone-less GMT strings to canonical UTC.
+ * Rejects malformed or incomplete cursors with WP_Error(400).
+ *
+ * @param string $raw_cursor
+ * @param string $cursor_date_param
+ * @param int|string $cursor_id_param
+ * @return array|null|WP_Error Array with ['date_gmt', 'id', 'timestamp'], null if no cursor provided, or WP_Error on malformed.
+ */
+function mumbai_parse_packing_alarm_cursor($raw_cursor = '', $cursor_date_param = '', $cursor_id_param = null) {
+    $raw_cursor = is_string($raw_cursor) ? trim($raw_cursor) : '';
+    $cursor_date_param = is_string($cursor_date_param) ? trim($cursor_date_param) : '';
+
+    $date_str = '';
+    $id = 0;
+
+    // Check if cursor_id was explicitly supplied
+    $has_id_param = ($cursor_id_param !== null && $cursor_id_param !== '');
+    if ($has_id_param) {
+        // Reject explicitly supplied zero before casting or date checking
+        if ($cursor_id_param === 0 || $cursor_id_param === '0' || (is_string($cursor_id_param) && trim($cursor_id_param) === '0')) {
+            return new WP_Error('invalid_cursor', 'Cursor order ID must be a positive integer.', ['status' => 400]);
+        }
+    }
+
+    if ($raw_cursor !== '') {
+        $last_us = strrpos($raw_cursor, '_');
+        if ($last_us === false) {
+            return new WP_Error('invalid_cursor', 'Malformed packing alarm cursor token.', ['status' => 400]);
+        }
+        $date_str = trim(substr($raw_cursor, 0, $last_us));
+        $id_str = trim(substr($raw_cursor, $last_us + 1));
+        // Strictly validate original ID before conversion: must be a positive integer without signs or decimals, and within integer range (not clamped)
+        if (!preg_match('/^[1-9]\d*$/', $id_str) || filter_var($id_str, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+            return new WP_Error('invalid_cursor', 'Cursor order ID must be a positive integer within valid range.', ['status' => 400]);
+        }
+        $id = (int) $id_str;
+    } elseif ($cursor_date_param !== '' || $has_id_param) {
+        if ($cursor_date_param === '') {
+            return new WP_Error('invalid_cursor', 'Cursor date and positive cursor ID are both required.', ['status' => 400]);
+        }
+        if (!$has_id_param) {
+            return new WP_Error('invalid_cursor', 'Cursor date and positive cursor ID are both required.', ['status' => 400]);
+        }
+        // Strictly validate original ID parameter before conversion and reject out-of-range IDs before casting
+        $is_valid_id = false;
+        if (is_int($cursor_id_param) && $cursor_id_param > 0) {
+            $is_valid_id = true;
+            $id = $cursor_id_param;
+        } elseif (is_string($cursor_id_param)) {
+            $trimmed_id = trim($cursor_id_param);
+            if (preg_match('/^[1-9]\d*$/', $trimmed_id) && filter_var($trimmed_id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false) {
+                $is_valid_id = true;
+                $id = (int) $trimmed_id;
+            }
+        }
+        if (!$is_valid_id) {
+            return new WP_Error('invalid_cursor', 'Cursor order ID must be a positive integer within valid range.', ['status' => 400]);
+        }
+        $date_str = $cursor_date_param;
+    } else {
+        // No cursor parameters supplied: initial page
+        return null;
+    }
+
+    if ($date_str === '') {
+        return new WP_Error('invalid_cursor', 'Cursor date string is missing.', ['status' => 400]);
+    }
+
+    // Strictly validate date and timestamp format before conversion
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?)?(?:(Z)|([+-])(\d{2}):?(\d{2}))?$/i', $date_str, $m)) {
+        return new WP_Error('invalid_cursor', 'Invalid cursor date format.', ['status' => 400]);
+    }
+
+    $year = (int) $m[1];
+    $month = (int) $m[2];
+    $day = (int) $m[3];
+
+    // Calendar validation: reject invalid calendar dates such as Feb 31, April 31, etc.
+    if (!checkdate($month, $day, $year)) {
+        return new WP_Error('invalid_cursor', 'Invalid calendar date in cursor.', ['status' => 400]);
+    }
+
+    // Time components validation
+    if (isset($m[4]) && $m[4] !== '') {
+        $hour = (int) $m[4];
+        $min = (int) $m[5];
+        $sec = (int) $m[6];
+        if ($hour > 23 || $min > 59 || $sec > 59) {
+            return new WP_Error('invalid_cursor', 'Invalid time components in cursor date.', ['status' => 400]);
+        }
+    }
+
+    // Timezone offset validation
+    if (isset($m[9]) && $m[9] !== '') {
+        $tz_hour = (int) $m[9];
+        $tz_min = (int) $m[10];
+        if ($tz_hour > 23 || $tz_min > 59) {
+            return new WP_Error('invalid_cursor', 'Invalid timezone offset in cursor date.', ['status' => 400]);
+        }
+    }
+
+    // Normalize timezone-less WooCommerce GMT values to UTC
+    $parse_str = $date_str;
+    if (!preg_match('/(?:Z|[+-]\d{2}:?\d{2})$/i', $parse_str)) {
+        $parse_str .= 'Z';
+    }
+
+    try {
+        $dt = new DateTimeImmutable($parse_str, new DateTimeZone('UTC'));
+        $dt_utc = $dt->setTimezone(new DateTimeZone('UTC'));
+        $date_gmt = $dt_utc->format('Y-m-d H:i:s');
+        $ts = $dt_utc->getTimestamp();
+    } catch (Exception $e) {
+        return new WP_Error('invalid_cursor', 'Invalid cursor date timestamp.', ['status' => 400]);
+    }
+
+    return [
+        'date_gmt'  => $date_gmt,
+        'id'        => $id,
+        'timestamp' => $ts,
+    ];
+}
+
+/**
+ * Apply packing alarm storage-layer clauses (HPOS or legacy posts) before LIMIT.
+ * Sorts by created_gmt DESC, order_id DESC on both initial and continuation pages.
+ * When cursor is present, appends:
+ * created_gmt < cursor_date OR (created_gmt = cursor_date AND order_id < cursor_id)
+ */
+function mumbai_apply_packing_alarm_clauses(&$clauses, $cursor, $storage_type = 'hpos') {
+    global $wpdb;
+
+    if ($storage_type === 'hpos') {
+        $table_orders = $wpdb->prefix . 'wc_orders';
+        $clauses['orderby'] = "{$table_orders}.date_created_gmt DESC, {$table_orders}.id DESC";
+        if (is_array($cursor) && !empty($cursor['date_gmt']) && !empty($cursor['id'])) {
+            $clauses['where'] .= $wpdb->prepare(
+                " AND ({$table_orders}.date_created_gmt < %s OR ({$table_orders}.date_created_gmt = %s AND {$table_orders}.id < %d))",
+                $cursor['date_gmt'],
+                $cursor['date_gmt'],
+                $cursor['id']
+            );
+        }
+    } else {
+        $posts_table = $wpdb->posts;
+        $clauses['orderby'] = "{$posts_table}.post_date_gmt DESC, {$posts_table}.ID DESC";
+        if (is_array($cursor) && !empty($cursor['date_gmt']) && !empty($cursor['id'])) {
+            $clauses['where'] .= $wpdb->prepare(
+                " AND ({$posts_table}.post_date_gmt < %s OR ({$posts_table}.post_date_gmt = %s AND {$posts_table}.ID < %d))",
+                $cursor['date_gmt'],
+                $cursor['date_gmt'],
+                $cursor['id']
+            );
+        }
+    }
+}
+
+/**
+ * Hook into WooCommerce REST Orders query preparation.
+ * Applies keyset tuple tie-breaking predicate and sort strictly for:
+ *  - exact GET /wc/v3/orders collection requests
+ *  - explicit Mumbai alarm mode: mode=packing_alarms
+ *  - authenticated with valid internal server key
+ * Removes any cursor-derived native before filter.
+ * Rejects malformed/incomplete cursors in internal alarm mode.
+ * Returns X-Mumbai-Keyset-Capability: v1 via rest_post_dispatch when sort & predicate applied.
+ */
+add_filter('woocommerce_rest_orders_prepare_object_query', 'mumbai_wc_rest_prepare_alarm_query', 10, 2);
+
+function mumbai_wc_rest_prepare_alarm_query($args, $request) {
+    if (!($request instanceof WP_REST_Request)) {
+        return $args;
+    }
+
+    // 1. Only exact GET /wc/v3/orders collection request
+    if ($request->get_method() !== 'GET') {
+        return $args;
+    }
+    $route = (string) $request->get_route();
+    if ($route !== '/wc/v3/orders') {
+        return $args;
+    }
+
+    // 2. Explicit Mumbai alarm mode
+    $mode = sanitize_key((string) $request->get_param('mode'));
+    if ($mode !== 'packing_alarms') {
+        return $args;
+    }
+
+    // 3. Valid existing internal server key
+    if (!mumbai_has_internal_key_configured()) {
+        return $args;
+    }
+    $api_key = $request->get_header('X-Mumbai-Internal-Key');
+    if (!$api_key || !mumbai_is_valid_internal_key($api_key)) {
+        return $args;
+    }
+
+    // 4. Parse cursor and reject malformed/incomplete cursors in internal alarm mode
+    $raw_cursor = (string) ($request->get_param('cursor') ?: '');
+    $cursor_date_param = (string) ($request->get_param('cursor_date') ?: '');
+    $cursor_id_param = $request->get_param('cursor_id');
+
+    $cursor = mumbai_parse_packing_alarm_cursor($raw_cursor, $cursor_date_param, $cursor_id_param);
+    if (is_wp_error($cursor)) {
+        // WC_REST_CRUD_Controller::get_items:
+        // if ( is_wp_error( current( $query_args ) ) ) return current( $query_args );
+        return [$cursor];
+    }
+
+    // 5. Remove cursor-derived native before filter so it cannot exclude same-second rows ahead of tuple predicate
+    if (isset($args['date_query']) && is_array($args['date_query'])) {
+        $filtered_date_query = [];
+        foreach ($args['date_query'] as $k => $clause) {
+            if (is_array($clause)) {
+                if (isset($clause['before'])) {
+                    continue;
+                }
+            }
+            $filtered_date_query[$k] = $clause;
+        }
+        $args['date_query'] = $filtered_date_query;
+    }
+    unset($args['before']);
+
+    if ($cursor) {
+        $args['paged'] = 1;
+    }
+
+    // 6. Mark query with unique token
+    $token = 'mumbai_alarm_' . wp_generate_password(16, false);
+    $args['mumbai_alarm_token'] = $token;
+
+    // Track state for capability signal
+    $context = [
+        'cursor'             => $cursor,
+        'sort_applied'       => false,
+        'predicate_applied'  => false,
+        'token'              => $token,
+    ];
+
+    $hpos_filter = function ($clauses, $query, $query_args = []) use ($token, &$context) {
+        $is_match = false;
+        if (is_object($query) && method_exists($query, 'get') && $query->get('mumbai_alarm_token') === $token) {
+            $is_match = true;
+        } elseif (isset($query_args['mumbai_alarm_token']) && $query_args['mumbai_alarm_token'] === $token) {
+            $is_match = true;
+        }
+        if ($is_match) {
+            mumbai_apply_packing_alarm_clauses($clauses, $context['cursor'], 'hpos');
+            $context['sort_applied'] = true;
+            if ($context['cursor'] !== null) {
+                $context['predicate_applied'] = true;
+            }
+        }
+        return $clauses;
+    };
+    add_filter('woocommerce_orders_table_query_clauses', $hpos_filter, 10, 3);
+
+    $posts_filter = function ($clauses, $wp_query) use ($token, &$context) {
+        if (is_object($wp_query) && method_exists($wp_query, 'get') && $wp_query->get('mumbai_alarm_token') === $token) {
+            mumbai_apply_packing_alarm_clauses($clauses, $context['cursor'], 'legacy');
+            $context['sort_applied'] = true;
+            if ($context['cursor'] !== null) {
+                $context['predicate_applied'] = true;
+            }
+        }
+        return $clauses;
+    };
+    add_filter('posts_clauses', $posts_filter, 10, 2);
+
+    // Attach rest_post_dispatch hook to return explicit versioned capability signal and cleanup
+    $dispatch_filter = null;
+    $dispatch_filter = function ($response, $server, $disp_request) use ($token, &$context, $hpos_filter, $posts_filter, &$dispatch_filter) {
+        remove_filter('woocommerce_orders_table_query_clauses', $hpos_filter, 10);
+        remove_filter('posts_clauses', $posts_filter, 10);
+        remove_filter('rest_post_dispatch', $dispatch_filter, 10);
+
+        $keyset_verified = $context['sort_applied'] && ($context['cursor'] === null || $context['predicate_applied']);
+        if ($keyset_verified) {
+            if ($response instanceof WP_REST_Response) {
+                $response->header('X-Mumbai-Keyset-Capability', 'v1');
+            }
+        }
+        return $response;
+    };
+    add_filter('rest_post_dispatch', $dispatch_filter, 10, 3);
+
+    return $args;
+}
+
+/**
+ * List orders for employee panel with delivery status resolution and cursor pagination.
+ * This internal endpoint requires HPOS for supported query semantics.
  */
 function mumbai_employee_get_orders(WP_REST_Request $request) {
     if (!function_exists('wc_get_orders') || !class_exists('Automattic\\WooCommerce\\Utilities\\OrderUtil') || !class_exists('WC_REST_Orders_Controller')) {
@@ -6567,6 +8198,11 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
         'orderby'  => 'date',
         'order'    => 'DESC',
     ];
+
+    $order_param = strtoupper((string) $request->get_param('order'));
+    if (in_array($order_param, ['ASC', 'DESC'], true)) {
+        $args['order'] = $order_param;
+    }
 
     $active_statuses = ['pending', 'processing', 'on-hold', 'packed', 'out-for-delivery', 'dispatched'];
     $operational_wc_statuses = ['pending', 'processing', 'on-hold'];
@@ -6619,13 +8255,30 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
         }
     }
 
+    // Scope alarm discovery queries (when mode === 'packing_alarms' or cursor is present)
+    $mode = sanitize_key((string) $request->get_param('mode'));
+    $raw_cursor = (string) ($request->get_param('cursor') ?: '');
+    $cursor_date_param = (string) ($request->get_param('cursor_date') ?: '');
+    $cursor_id_param = $request->get_param('cursor_id');
+
+    $is_alarm_query = ($mode === 'packing_alarms' || !empty($raw_cursor) || !empty($cursor_date_param) || ($cursor_id_param !== null && $cursor_id_param !== ''));
+
+    $cursor = null;
+    if ($is_alarm_query) {
+        $cursor = mumbai_parse_packing_alarm_cursor($raw_cursor, $cursor_date_param, $cursor_id_param);
+        if (is_wp_error($cursor)) {
+            return $cursor;
+        }
+    }
+
     $date_query = [];
     $after = $request->get_param('after');
     $before = $request->get_param('before');
     if ($after && ($timestamp = strtotime($after)) !== false) {
         $date_query[] = ['column' => 'date_created_gmt', 'after' => gmdate('Y-m-d H:i:s', $timestamp), 'inclusive' => true];
     }
-    if ($before && ($timestamp = strtotime($before)) !== false) {
+    // Only apply loose before filter when not performing a strict tie-breaking cursor query
+    if (!$is_alarm_query && $before && ($timestamp = strtotime($before)) !== false) {
         $date_query[] = ['column' => 'date_created_gmt', 'before' => gmdate('Y-m-d H:i:s', $timestamp), 'inclusive' => true];
     }
     if (!empty($date_query)) {
@@ -6637,8 +8290,67 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
         $args['s'] = $search;
     }
 
+    global $wpdb;
+    $table_orders = $wpdb->prefix . 'wc_orders';
+
+    $alarm_clause_filter = null;
+    $alarm_post_filter = null;
+    $applied_sort = false;
+    $applied_predicate = false;
+
+    if ($is_alarm_query) {
+        // Enforce stable keyset pagination: UTC creation time descending, then order ID descending
+        if ($cursor) {
+            $args['paged'] = 1;
+        }
+
+        // Scope query with a unique token so unrelated queries cannot be changed or set the capability flag
+        $token = 'mumbai_alarm_' . wp_generate_password(16, false);
+        $args['mumbai_alarm_token'] = $token;
+
+        $alarm_clause_filter = function ($clauses, $query = null, $query_args = []) use ($token, $cursor, &$applied_sort, &$applied_predicate) {
+            $is_match = false;
+            if (is_object($query) && method_exists($query, 'get') && $query->get('mumbai_alarm_token') === $token) {
+                $is_match = true;
+            } elseif (isset($query_args['mumbai_alarm_token']) && $query_args['mumbai_alarm_token'] === $token) {
+                $is_match = true;
+            }
+            if ($is_match) {
+                mumbai_apply_packing_alarm_clauses($clauses, $cursor, 'hpos');
+                $applied_sort = true;
+                if ($cursor !== null) {
+                    $applied_predicate = true;
+                }
+            }
+            return $clauses;
+        };
+        add_filter('woocommerce_orders_table_query_clauses', $alarm_clause_filter, 10, 3);
+
+        $alarm_post_filter = function ($clauses, $wp_query = null) use ($token, $cursor, &$applied_sort, &$applied_predicate) {
+            if (is_object($wp_query) && method_exists($wp_query, 'get') && $wp_query->get('mumbai_alarm_token') === $token) {
+                mumbai_apply_packing_alarm_clauses($clauses, $cursor, 'legacy');
+                $applied_sort = true;
+                if ($cursor !== null) {
+                    $applied_predicate = true;
+                }
+            }
+            return $clauses;
+        };
+        add_filter('posts_clauses', $alarm_post_filter, 10, 2);
+    }
+
     try {
         $result = wc_get_orders($args);
+        // Unhook immediately after order fetch before response serialization
+        if ($alarm_clause_filter) {
+            remove_filter('woocommerce_orders_table_query_clauses', $alarm_clause_filter, 10);
+            $alarm_clause_filter = null;
+        }
+        if ($alarm_post_filter) {
+            remove_filter('posts_clauses', $alarm_post_filter, 10);
+            $alarm_post_filter = null;
+        }
+
         $orders = [];
         $controller = new WC_REST_Orders_Controller();
         $wc_request = new WP_REST_Request('GET');
@@ -6656,19 +8368,219 @@ function mumbai_employee_get_orders(WP_REST_Request $request) {
             }
         }
 
-        return new WP_REST_Response([
+        $resp_data = [
             'success'    => true,
             'orders'     => $orders,
             'total'      => (int) ($result->total ?? count($orders)),
             'total_pages'=> (int) ($result->max_num_pages ?? 1),
-        ], 200);
+        ];
+        $keyset_verified = $applied_sort && ($cursor === null || $applied_predicate);
+        if ($keyset_verified) {
+            $resp_data['keyset_capability'] = 'v1';
+        }
+
+        $resp = new WP_REST_Response($resp_data, 200);
+        if ($keyset_verified) {
+            $resp->header('X-Mumbai-Keyset-Capability', 'v1');
+        }
+        return $resp;
     } catch (Throwable $error) {
         mumbai_log('Employee order query failed: ' . $error->getMessage());
         return new WP_Error('employee_orders_unavailable', 'Could not load employee orders.', ['status' => 500]);
+    } finally {
+        if ($alarm_clause_filter) {
+            remove_filter('woocommerce_orders_table_query_clauses', $alarm_clause_filter, 10);
+        }
+        if ($alarm_post_filter) {
+            remove_filter('posts_clauses', $alarm_post_filter, 10);
+        }
     }
 }
 
 /** Return one customer's order history page and line items without a global cap. */
+function mumbai_admin_get_customer_payments(WP_REST_Request $request) {
+    global $wpdb;
+    $user_id = absint($request->get_param('id'));
+    if (!$user_id) {
+        return new WP_Error('invalid_user', 'Valid Customer ID required.', ['status' => 400]);
+    }
+
+    $table = $wpdb->prefix . 'mumbai_payment_intents';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+        return new WP_Error('payments_unavailable', 'Payment records table is unavailable.', ['status' => 503]);
+    }
+
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT 
+            rzp_order_id,
+            rzp_payment_id,
+            amount_paise,
+            captured_amount_paise,
+            status,
+            wc_order_id,
+            refund_id,
+            created_at,
+            updated_at,
+            first_paid_at
+         FROM {$table}
+         WHERE user_id = %d
+         ORDER BY created_at DESC
+         LIMIT 10",
+        $user_id
+    ), ARRAY_A);
+
+    if ($wpdb->last_error) {
+        return new WP_Error('payments_query_failed', 'Could not read customer payment records.', ['status' => 503]);
+    }
+
+    $payments = [];
+    foreach ($rows as $r) {
+        $amount_paise = (int) $r['amount_paise'];
+        $captured_paise = (int) $r['captured_amount_paise'];
+        $wc_order_id = !empty($r['wc_order_id']) ? (int) $r['wc_order_id'] : null;
+        $status = (string) $r['status'];
+        $refund_id = !empty($r['refund_id']) ? (string) $r['refund_id'] : null;
+
+        // Plain outcome label based strictly on stored evidence
+        $outcome_label = 'Payment capture not confirmed';
+        $outcome_type = 'unconfirmed';
+
+        if ($status === 'refunded') {
+            $outcome_label = 'Refunded';
+            $outcome_type = 'refunded';
+        } elseif ($status === 'refund_pending') {
+            $outcome_label = 'Refund pending';
+            $outcome_type = 'refund_pending';
+        } elseif (in_array($status, ['refund_failed', 'refund_escalated', 'reconciliation_escalated'], true) || (!empty($refund_id) && $status !== 'refunded')) {
+            $outcome_label = 'Needs review';
+            $outcome_type = 'needs_review';
+        } elseif ($wc_order_id) {
+            $outcome_label = "Order created · #{$wc_order_id}";
+            $outcome_type = 'order_created';
+        } elseif ($status === 'paid' || $status === 'captured' || ($captured_paise > 0 && $captured_paise >= $amount_paise)) {
+            $outcome_label = 'Payment captured · Order not created yet';
+            $outcome_type = 'captured_no_order';
+        } elseif ($status === 'failed' || $status === 'amount_mismatch' || $status === 'quarantined') {
+            $outcome_label = 'Payment capture not confirmed';
+            $outcome_type = 'failed';
+        }
+
+        $payments[] = [
+            'rzp_order_id'          => (string) $r['rzp_order_id'],
+            'rzp_payment_id'        => (string) ($r['rzp_payment_id'] ?? ''),
+            'amount'                => (int) round($amount_paise / 100),
+            'amount_paise'          => $amount_paise,
+            'captured_amount_paise' => $captured_paise,
+            'status'                => $status,
+            'wc_order_id'           => $wc_order_id,
+            'refund_id'             => $refund_id,
+            'outcome_label'         => $outcome_label,
+            'outcome_type'          => $outcome_type,
+            'date'                  => !empty($r['first_paid_at']) ? $r['first_paid_at'] : $r['created_at'],
+            'created_at'            => $r['created_at'],
+        ];
+    }
+
+    return rest_ensure_response([
+        'success'  => true,
+        'payments' => $payments,
+    ]);
+}
+
+function mumbai_admin_lookup_payment_reference(WP_REST_Request $request) {
+    global $wpdb;
+    $ref = sanitize_text_field(trim($request->get_param('ref') ?? ''));
+    if (empty($ref)) {
+        return new WP_Error('missing_ref', 'Payment reference (order_... or pay_...) required.', ['status' => 400]);
+    }
+
+    $table = $wpdb->prefix . 'mumbai_payment_intents';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+        return new WP_Error('payments_unavailable', 'Payment records table is unavailable.', ['status' => 503]);
+    }
+
+    $row = $wpdb->get_row($wpdb->prepare(
+        "SELECT 
+            rzp_order_id,
+            rzp_payment_id,
+            user_id,
+            amount_paise,
+            captured_amount_paise,
+            status,
+            wc_order_id,
+            refund_id,
+            created_at,
+            updated_at,
+            first_paid_at
+         FROM {$table}
+         WHERE rzp_order_id = %s OR rzp_payment_id = %s
+         LIMIT 1",
+        $ref, $ref
+    ), ARRAY_A);
+
+    if ($wpdb->last_error) {
+        return new WP_Error('payments_query_failed', 'Could not read payment record.', ['status' => 503]);
+    }
+
+    if (!$row) {
+        return rest_ensure_response([
+            'success' => true,
+            'found'   => false,
+            'payment' => null,
+            'message' => 'No matching payment record found',
+        ]);
+    }
+
+    $amount_paise = (int) $row['amount_paise'];
+    $captured_paise = (int) $row['captured_amount_paise'];
+    $wc_order_id = !empty($row['wc_order_id']) ? (int) $row['wc_order_id'] : null;
+    $status = (string) $row['status'];
+    $refund_id = !empty($row['refund_id']) ? (string) $row['refund_id'] : null;
+
+    $outcome_label = 'Payment capture not confirmed';
+    $outcome_type = 'unconfirmed';
+
+    if ($status === 'refunded') {
+        $outcome_label = 'Refunded';
+        $outcome_type = 'refunded';
+    } elseif ($status === 'refund_pending') {
+        $outcome_label = 'Refund pending';
+        $outcome_type = 'refund_pending';
+    } elseif (in_array($status, ['refund_failed', 'refund_escalated', 'reconciliation_escalated'], true) || (!empty($refund_id) && $status !== 'refunded')) {
+        $outcome_label = 'Needs review';
+        $outcome_type = 'needs_review';
+    } elseif ($wc_order_id) {
+        $outcome_label = "Order created · #{$wc_order_id}";
+        $outcome_type = 'order_created';
+    } elseif ($status === 'paid' || $status === 'captured' || ($captured_paise > 0 && $captured_paise >= $amount_paise)) {
+        $outcome_label = 'Payment captured · Order not created yet';
+        $outcome_type = 'captured_no_order';
+    } elseif ($status === 'failed' || $status === 'amount_mismatch' || $status === 'quarantined') {
+        $outcome_label = 'Payment capture not confirmed';
+        $outcome_type = 'failed';
+    }
+
+    return rest_ensure_response([
+        'success' => true,
+        'found'   => true,
+        'payment' => [
+            'rzp_order_id'          => (string) $row['rzp_order_id'],
+            'rzp_payment_id'        => (string) ($row['rzp_payment_id'] ?? ''),
+            'user_id'               => (int) $row['user_id'],
+            'amount'                => (int) round($amount_paise / 100),
+            'amount_paise'          => $amount_paise,
+            'captured_amount_paise' => $captured_paise,
+            'status'                => $status,
+            'wc_order_id'           => $wc_order_id,
+            'refund_id'             => $refund_id,
+            'outcome_label'         => $outcome_label,
+            'outcome_type'          => $outcome_type,
+            'date'                  => !empty($row['first_paid_at']) ? $row['first_paid_at'] : $row['created_at'],
+            'created_at'            => $row['created_at'],
+        ],
+    ]);
+}
+
 function mumbai_admin_get_customer_orders(WP_REST_Request $request) {
     global $wpdb;
 
@@ -6691,10 +8603,15 @@ function mumbai_admin_get_customer_orders(WP_REST_Request $request) {
     $where_args = [$customer_id];
     $where .= " AND status NOT IN ('wc-trash', 'trash')";
 
-    $total = (int) $wpdb->get_var($wpdb->prepare(
+    $total_raw = $wpdb->get_var($wpdb->prepare(
         "SELECT COUNT(*) FROM {$table_orders} WHERE {$where}",
         ...$where_args
     ));
+    if ($wpdb->last_error) {
+        return new WP_Error('customer_history_query_failed', 'Database error querying customer orders count.', ['status' => 500]);
+    }
+    $total = (int) $total_raw;
+
     $order_rows = $wpdb->get_results($wpdb->prepare(
         "SELECT id, date_created_gmt, total_amount, status, payment_method_title
          FROM {$table_orders}
@@ -6702,7 +8619,11 @@ function mumbai_admin_get_customer_orders(WP_REST_Request $request) {
          ORDER BY date_created_gmt DESC, id DESC
          LIMIT %d OFFSET %d",
         ...array_merge($where_args, [$per_page, $offset])
-    ), ARRAY_A) ?: [];
+    ), ARRAY_A);
+    if ($wpdb->last_error) {
+        return new WP_Error('customer_history_query_failed', 'Database error querying customer orders list.', ['status' => 500]);
+    }
+    $order_rows = $order_rows ?: [];
 
     $orders = [];
     $order_ids = [];
@@ -6739,7 +8660,11 @@ function mumbai_admin_get_customer_orders(WP_REST_Request $request) {
                  GROUP BY items.order_id, items.order_item_id, items.order_item_name
                  ORDER BY items.order_id DESC, items.order_item_id ASC",
                 ...$order_ids
-            ), ARRAY_A) ?: [];
+            ), ARRAY_A);
+            if ($wpdb->last_error) {
+                return new WP_Error('customer_history_query_failed', 'Database error querying order items.', ['status' => 500]);
+            }
+            $item_rows = $item_rows ?: [];
             foreach ($item_rows as $item) {
                 $order_id = (int) $item['order_id'];
                 if (!isset($orders[$order_id])) continue;
@@ -6779,6 +8704,23 @@ function mumbai_is_customer_suspended($user_id) {
         return false;
     }
 
+    $user = get_user_by('id', $user_id);
+    $identity_suspension = null;
+    if ($user) {
+        $identity_suspension = mumbai_get_identity_suspension_record(
+            $user->user_email,
+            (string) get_user_meta($user_id, '_google_sub', true)
+        );
+        // Fail closed if the durable suspension store cannot be read. A DB
+        // error must never turn a previously stored restriction into access.
+        if (is_wp_error($identity_suspension)) {
+            return true;
+        }
+        if ($identity_suspension && mumbai_suspension_record_is_active($identity_suspension)) {
+            return true;
+        }
+    }
+
     $is_suspended = get_user_meta($user_id, '_mumbai_customer_suspended', true);
     if ($is_suspended !== 'yes' && $is_suspended !== '1' && $is_suspended !== true) {
         return false;
@@ -6790,6 +8732,198 @@ function mumbai_is_customer_suspended($user_id) {
         return false;
     }
 
+    // Backfill legacy suspensions on first read so a user suspended before
+    // this durable store was introduced cannot delete the only restriction.
+    if (!$identity_suspension && $user) {
+        $saved = mumbai_store_customer_suspension(
+            $user->user_email,
+            (string) get_user_meta($user_id, '_google_sub', true),
+            $expires_at,
+            (string) get_user_meta($user_id, '_mumbai_customer_suspension_duration', true) ?: ($expires_at === 0 ? 'permanent' : 'temporary'),
+            (string) get_user_meta($user_id, '_mumbai_customer_suspension_reason', true),
+            (int) get_user_meta($user_id, '_mumbai_customer_suspended_by', true)
+        );
+        if (is_wp_error($saved)) {
+            return true;
+        }
+    }
+
+    return true;
+}
+
+/** Durable identity-based suspension records survive deletion of the WP user. */
+function mumbai_customer_suspensions_table_name() {
+    global $wpdb;
+    return $wpdb->prefix . 'mumbai_customer_suspensions';
+}
+
+function mumbai_upgrade_customer_suspensions_table() {
+    global $wpdb;
+    $table = mumbai_customer_suspensions_table_name();
+    $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
+    if ((int) get_option('mumbai_customer_suspensions_schema_version', 0) >= 1 && $exists) {
+        return;
+    }
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    $charset_collate = $wpdb->get_charset_collate();
+    dbDelta("CREATE TABLE {$table} (
+        email_hash CHAR(64) NOT NULL,
+        google_sub_hash CHAR(64) NOT NULL DEFAULT '',
+        expires_at BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        duration VARCHAR(32) NOT NULL DEFAULT 'permanent',
+        reason TEXT NOT NULL,
+        suspended_at BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        suspended_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        PRIMARY KEY  (email_hash),
+        KEY google_sub_hash (google_sub_hash),
+        KEY expires_at (expires_at)
+    ) {$charset_collate};");
+
+    $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
+    if (!$exists) {
+        mumbai_log('Customer suspension table migration failed: ' . $wpdb->last_error);
+        return;
+    }
+
+    // Migrate currently suspended accounts before marking the schema complete.
+    // This protects legacy suspensions even if those customers never sign in
+    // again before deleting their WordPress account.
+    $page = 1;
+    do {
+        $legacy_users = get_users([
+            'meta_query' => [[
+                'key' => '_mumbai_customer_suspended',
+                'value' => ['yes', '1'],
+                'compare' => 'IN',
+            ]],
+            'number' => 100,
+            'paged' => $page,
+            'fields' => 'all',
+        ]);
+        foreach ($legacy_users as $legacy_user) {
+            $expires_at = (int) get_user_meta($legacy_user->ID, '_mumbai_customer_suspension_expires_at', true);
+            if ($expires_at > 0 && time() >= $expires_at) {
+                continue;
+            }
+            $saved = mumbai_store_customer_suspension(
+                $legacy_user->user_email,
+                (string) get_user_meta($legacy_user->ID, '_google_sub', true),
+                $expires_at,
+                (string) get_user_meta($legacy_user->ID, '_mumbai_customer_suspension_duration', true) ?: ($expires_at === 0 ? 'permanent' : 'temporary'),
+                (string) get_user_meta($legacy_user->ID, '_mumbai_customer_suspension_reason', true),
+                (int) get_user_meta($legacy_user->ID, '_mumbai_customer_suspended_by', true)
+            );
+            if (is_wp_error($saved)) {
+                mumbai_log('Legacy customer suspension migration deferred: ' . $saved->get_error_message());
+                return;
+            }
+        }
+        $page++;
+    } while (count($legacy_users) === 100);
+
+    update_option('mumbai_customer_suspensions_schema_version', 1, false);
+}
+add_action('init', 'mumbai_upgrade_customer_suspensions_table', 32);
+
+function mumbai_suspension_identity_hash($value) {
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+    return hash_hmac('sha256', $value, wp_salt('auth'));
+}
+
+function mumbai_suspension_record_is_active($record) {
+    $expires_at = isset($record->expires_at) ? (int) $record->expires_at : 0;
+    return $expires_at === 0 || time() < $expires_at;
+}
+
+/** Returns a row, null when no identity matches, or WP_Error on DB failure. */
+function mumbai_get_identity_suspension_record($email, $google_sub = '') {
+    global $wpdb;
+    $email = strtolower(trim(sanitize_email((string) $email)));
+    $email_hash = mumbai_suspension_identity_hash($email);
+    $google_sub_hash = mumbai_suspension_identity_hash($google_sub);
+    if ($email_hash === '' && $google_sub_hash === '') {
+        return null;
+    }
+
+    $table = mumbai_customer_suspensions_table_name();
+    if ($email_hash !== '' && $google_sub_hash !== '') {
+        $sql = $wpdb->prepare(
+            "SELECT * FROM {$table} WHERE email_hash = %s OR (google_sub_hash <> '' AND google_sub_hash = %s) ORDER BY suspended_at DESC",
+            $email_hash,
+            $google_sub_hash
+        );
+    } elseif ($email_hash !== '') {
+        $sql = $wpdb->prepare("SELECT * FROM {$table} WHERE email_hash = %s", $email_hash);
+    } else {
+        $sql = $wpdb->prepare("SELECT * FROM {$table} WHERE google_sub_hash = %s", $google_sub_hash);
+    }
+
+    $wpdb->last_error = '';
+    $rows = $wpdb->get_results($sql);
+    if ($wpdb->last_error !== '') {
+        return new WP_Error('suspension_store_unavailable', 'Customer suspension status could not be verified.', ['status' => 503]);
+    }
+    foreach ((array) $rows as $row) {
+        if (mumbai_suspension_record_is_active($row)) {
+            return $row;
+        }
+    }
+    return null;
+}
+
+function mumbai_store_customer_suspension($email, $google_sub, $expires_at, $duration, $reason, $admin_id) {
+    global $wpdb;
+    $email = strtolower(trim(sanitize_email((string) $email)));
+    $email_hash = mumbai_suspension_identity_hash($email);
+    if ($email_hash === '') {
+        return new WP_Error('invalid_suspension_identity', 'A verified customer email is required.', ['status' => 400]);
+    }
+
+    $table = mumbai_customer_suspensions_table_name();
+    $result = $wpdb->replace(
+        $table,
+        [
+            'email_hash' => $email_hash,
+            'google_sub_hash' => mumbai_suspension_identity_hash($google_sub),
+            'expires_at' => max(0, (int) $expires_at),
+            'duration' => sanitize_text_field((string) $duration),
+            'reason' => sanitize_textarea_field((string) $reason),
+            'suspended_at' => time(),
+            'suspended_by' => absint($admin_id),
+        ],
+        ['%s', '%s', '%d', '%s', '%s', '%d', '%d']
+    );
+    if ($result === false) {
+        return new WP_Error('suspension_store_unavailable', 'The durable suspension could not be saved.', ['status' => 503]);
+    }
+    return true;
+}
+
+function mumbai_delete_customer_suspension_record($email, $google_sub = '') {
+    global $wpdb;
+    $email = strtolower(trim(sanitize_email((string) $email)));
+    $email_hash = mumbai_suspension_identity_hash($email);
+    if ($email_hash === '') {
+        return new WP_Error('invalid_suspension_identity', 'A valid customer email is required.', ['status' => 400]);
+    }
+    $wpdb->last_error = '';
+    $google_sub_hash = mumbai_suspension_identity_hash($google_sub);
+    if ($google_sub_hash !== '') {
+        $deleted = $wpdb->query($wpdb->prepare(
+            'DELETE FROM ' . mumbai_customer_suspensions_table_name() . ' WHERE email_hash = %s OR google_sub_hash = %s',
+            $email_hash,
+            $google_sub_hash
+        ));
+    } else {
+        $deleted = $wpdb->delete(mumbai_customer_suspensions_table_name(), ['email_hash' => $email_hash], ['%s']);
+    }
+    if ($deleted === false || $wpdb->last_error !== '') {
+        return new WP_Error('suspension_store_unavailable', 'The durable suspension could not be removed.', ['status' => 503]);
+    }
     return true;
 }
 
@@ -6809,14 +8943,29 @@ function mumbai_get_customer_suspension_details($user_id) {
         ];
     }
 
+    // Upgrade active legacy user-meta suspensions before exposing their status.
+    mumbai_is_customer_suspended($user_id);
+
     $is_suspended_meta = get_user_meta($user_id, '_mumbai_customer_suspended', true);
     $raw_suspended = ($is_suspended_meta === 'yes' || $is_suspended_meta === '1' || $is_suspended_meta === true);
     $expires_at = (int) get_user_meta($user_id, '_mumbai_customer_suspension_expires_at', true);
     $reason = (string) get_user_meta($user_id, '_mumbai_customer_suspension_reason', true);
     $duration = (string) get_user_meta($user_id, '_mumbai_customer_suspension_duration', true);
 
-    $is_active = $raw_suspended;
-    if ($raw_suspended && $expires_at > 0 && time() >= $expires_at) {
+    $user = get_user_by('id', $user_id);
+    $identity_record = $user
+        ? mumbai_get_identity_suspension_record($user->user_email, (string) get_user_meta($user_id, '_google_sub', true))
+        : null;
+    $identity_store_error = is_wp_error($identity_record);
+    $is_active = $raw_suspended || $identity_store_error;
+    if ($identity_record && !is_wp_error($identity_record) && mumbai_suspension_record_is_active($identity_record)) {
+        $raw_suspended = true;
+        $expires_at = (int) $identity_record->expires_at;
+        $reason = (string) $identity_record->reason;
+        $duration = (string) $identity_record->duration;
+        $is_active = true;
+    }
+    if (!$identity_store_error && $raw_suspended && $expires_at > 0 && time() >= $expires_at) {
         $is_active = false;
     }
 
@@ -6826,7 +8975,7 @@ function mumbai_get_customer_suspension_details($user_id) {
         'expires_at'           => $expires_at > 0 ? date('c', $expires_at) : null,
         'expires_at_timestamp' => $expires_at > 0 ? $expires_at : 0,
         'reason'               => $reason,
-        'is_permanent'         => $raw_suspended && ($expires_at === 0),
+        'is_permanent'         => $is_active && ($expires_at === 0),
     ];
 }
 
@@ -6841,7 +8990,36 @@ function mumbai_admin_customer_suspension_lookup(WP_REST_Request $request) {
 
     $user = get_user_by('email', $email);
     if (!$user) {
-        return new WP_Error('customer_not_found', "No registered customer found with email: {$email}", ['status' => 404]);
+        $user = get_user_by('login', $email);
+    }
+    if (!$user) {
+        $record = mumbai_get_identity_suspension_record($email);
+        if (is_wp_error($record)) {
+            return $record;
+        }
+        if (!$record) {
+            return new WP_Error('customer_not_found', 'No customer account or suspension record was found for that email.', ['status' => 404]);
+        }
+        return rest_ensure_response([
+            'success' => true,
+            'customer' => [
+                'id' => 0,
+                'email' => strtolower(trim($email)),
+                'name' => '',
+                'first_name' => '',
+                'last_name' => '',
+                'phone' => '',
+                'roles' => [],
+                'registered_at' => null,
+                'account_exists' => false,
+                'is_suspended' => mumbai_suspension_record_is_active($record),
+                'duration' => (string) $record->duration,
+                'expires_at' => (int) $record->expires_at > 0 ? date('c', (int) $record->expires_at) : null,
+                'expires_at_timestamp' => (int) $record->expires_at,
+                'reason' => (string) $record->reason,
+                'is_permanent' => mumbai_suspension_record_is_active($record) && (int) $record->expires_at === 0,
+            ],
+        ]);
     }
 
     $roles = (array) $user->roles;
@@ -6880,6 +9058,7 @@ function mumbai_admin_customer_suspension_lookup(WP_REST_Request $request) {
             'roles'                => $roles,
             'registered_at'        => $user->user_registered ? date('c', strtotime($user->user_registered)) : null,
             'is_suspended'         => $suspension['is_suspended'],
+            'account_exists'       => true,
             'duration'             => $suspension['duration'],
             'expires_at'           => $suspension['expires_at'],
             'expires_at_timestamp' => $suspension['expires_at_timestamp'],
@@ -6903,6 +9082,9 @@ function mumbai_admin_customer_suspension_suspend(WP_REST_Request $request) {
     }
 
     $user = get_user_by('email', $email);
+    if (!$user) {
+        $user = get_user_by('login', $email);
+    }
     if (!$user) {
         return new WP_Error('customer_not_found', "No registered customer found with email: {$email}", ['status' => 404]);
     }
@@ -6942,6 +9124,11 @@ function mumbai_admin_customer_suspension_suspend(WP_REST_Request $request) {
     }
 
     // Store suspension metadata (sessions are NOT destroyed)
+    $google_sub = (string) get_user_meta($user->ID, '_google_sub', true);
+    $durable_result = mumbai_store_customer_suspension($user->user_email, $google_sub, $expires_at, $norm_duration, $reason, $admin_id);
+    if (is_wp_error($durable_result)) {
+        return $durable_result;
+    }
     update_user_meta($user->ID, '_mumbai_customer_suspended', 'yes');
     update_user_meta($user->ID, '_mumbai_customer_suspension_expires_at', $expires_at);
     update_user_meta($user->ID, '_mumbai_customer_suspension_reason', $reason);
@@ -6982,25 +9169,35 @@ function mumbai_admin_customer_suspension_unsuspend(WP_REST_Request $request) {
 
     $user = get_user_by('email', $email);
     if (!$user) {
-        return new WP_Error('customer_not_found', "No registered customer found with email: {$email}", ['status' => 404]);
+        $user = get_user_by('login', $email);
+    }
+    $durable_result = mumbai_delete_customer_suspension_record(
+        $email,
+        $user ? (string) get_user_meta($user->ID, '_google_sub', true) : ''
+    );
+    if (is_wp_error($durable_result)) {
+        return $durable_result;
     }
 
-    // Clear suspension metadata
-    delete_user_meta($user->ID, '_mumbai_customer_suspended');
-    delete_user_meta($user->ID, '_mumbai_customer_suspension_expires_at');
-    delete_user_meta($user->ID, '_mumbai_customer_suspension_reason');
-    delete_user_meta($user->ID, '_mumbai_customer_suspension_duration');
-    update_user_meta($user->ID, '_mumbai_customer_unsuspended_at', time());
-    update_user_meta($user->ID, '_mumbai_customer_unsuspended_by', $admin_id);
+    if ($user) {
+        // Clear the legacy per-user copy as well as the durable identity record.
+        delete_user_meta($user->ID, '_mumbai_customer_suspended');
+        delete_user_meta($user->ID, '_mumbai_customer_suspension_expires_at');
+        delete_user_meta($user->ID, '_mumbai_customer_suspension_reason');
+        delete_user_meta($user->ID, '_mumbai_customer_suspension_duration');
+        update_user_meta($user->ID, '_mumbai_customer_unsuspended_at', time());
+        update_user_meta($user->ID, '_mumbai_customer_unsuspended_by', $admin_id);
+    }
 
-    mumbai_log("Customer {$user->ID} ({$email}) unsuspended by admin {$admin_id}.");
+    mumbai_log('Customer suspension removed for ' . $email . ' by admin ' . $admin_id . ($user ? " (user {$user->ID})." : ' (account already deleted).'));
 
     return rest_ensure_response([
         'success'  => true,
         'message'  => 'Customer suspension removed successfully.',
         'customer' => [
-            'id'           => (int) $user->ID,
-            'email'        => strtolower(trim($user->user_email)),
+            'id'           => $user ? (int) $user->ID : 0,
+            'email'        => $user ? strtolower(trim($user->user_email)) : strtolower(trim($email)),
+            'account_exists' => (bool) $user,
             'is_suspended' => false,
         ],
     ]);

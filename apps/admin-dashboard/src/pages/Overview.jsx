@@ -14,8 +14,10 @@ import {
   Users,
   Calendar,
   Loader2,
+  ChevronDown,
 } from "lucide-react";
 import { getOverview, reconcilePayment } from "../services/adminApi";
+import { useVisibleRevalidation } from "../hooks/useVisibleRevalidation.js";
 import { formatOrderDateTimeIST, getStatusBadgeClass } from "../utils/recentOrdersFormatter.js";
 
 function Overview() {
@@ -24,6 +26,8 @@ function Overview() {
   const [error, setError] = useState("");
   const [reconcilingId, setReconcilingId] = useState(null);
   const [reconcileFeedback, setReconcileFeedback] = useState(null);
+  const [isOrdersOpen, setIsOrdersOpen] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const { setDashboardRefresh } = useOutletContext();
 
   const dashboardRequestRef = useRef(null);
@@ -37,11 +41,15 @@ function Overview() {
       const res = await getOverview(isRefresh ? { refresh: "true" } : {}, { signal: controller.signal });
       if (!controller.signal.aborted && res.success) {
         setData(res.data);
+        setLastUpdated(new Date());
       }
     } catch (err) {
       if (controller.signal.aborted) return;
       setError("Failed to load dashboard metrics. Check backend connection.");
     } finally {
+      if (dashboardRequestRef.current === controller) {
+        dashboardRequestRef.current = null;
+      }
       if (!controller.signal.aborted) setLoading(false);
     }
   };
@@ -53,6 +61,9 @@ function Overview() {
     setDashboardRefresh(() => () => fetchDashboardDataRef.current(true));
     return () => setDashboardRefresh(null);
   }, [setDashboardRefresh]);
+
+  // Revalidate metrics when waking from sleep in PWA mode
+  useVisibleRevalidation(() => fetchDashboardDataRef.current(true), () => Boolean(dashboardRequestRef.current));
 
   const handleReconcile = async (orderId) => {
     try {
@@ -115,7 +126,7 @@ function Overview() {
     );
   }
 
-  const { summary, salesTrend, lowStockProducts, recentOrders } = data;
+  const { summary, salesTrend, lowStockProducts, recentOrders, inventoryAvailable = true } = data;
 
   // Max sales for chart scaling
   const maxRevenue = Math.max(...salesTrend.map((d) => d.revenue), 1000);
@@ -173,12 +184,14 @@ function Overview() {
             </span>
             <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
-                {summary.lowStockCount}
+                {summary.lowStockCount == null ? "Unavailable" : summary.lowStockCount}
               </span>
-              <span className="text-[11px] font-medium text-gray-500 sm:text-xs">critical products</span>
+              <span className="text-[11px] font-medium text-gray-500 sm:text-xs">
+                {summary.lowStockCount == null ? "count unavailable" : "critical products"}
+              </span>
             </div>
             <Link
-              to="/products"
+              to="/products?stock=lowstock"
               className="mt-0.5 inline-flex text-[11px] font-semibold text-amber-700 hover:text-amber-800 sm:text-xs"
             >
               Review inventory <span aria-hidden="true" className="ml-1">→</span>
@@ -225,15 +238,20 @@ function Overview() {
         </div>
 
         {/* Low Stock Quick Glance — shown only when action is needed */}
-        {lowStockProducts.length > 0 && (
+        {(lowStockProducts.length > 0 || !inventoryAvailable) && (
           <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-xs sm:p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-bold text-gray-900 sm:text-base">Inventory Alerts</h2>
-              <Link to="/products" className="text-[11px] font-semibold text-amber-700 hover:underline sm:text-xs">
+              <Link to="/products?stock=lowstock" className="text-[11px] font-semibold text-amber-700 hover:underline sm:text-xs">
                 View All
               </Link>
             </div>
             <div className="space-y-3">
+              {!inventoryAvailable && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800" role="status">
+                  Inventory alerts could not be refreshed. Try refreshing the dashboard.
+                </p>
+              )}
               {lowStockProducts.map((p) => (
                 <div
                   key={p.id}
@@ -265,17 +283,63 @@ function Overview() {
 
       {/* Recent Orders Live Stream with Instant Status Changer */}
       <div className="rounded-2xl bg-white p-4 sm:p-6 shadow-sm border border-gray-100">
-        <div className="mb-4 sm:mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-gray-900">Recent Customer Orders</h2>
-            <p className="text-xs font-medium text-gray-500">Live order overview across the store</p>
+        <div className="flex items-center justify-between">
+          <div
+            onClick={() => setIsOrdersOpen((prev) => !prev)}
+            className="flex items-center gap-2 cursor-pointer select-none group"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setIsOrdersOpen((prev) => !prev);
+              }
+            }}
+            aria-expanded={isOrdersOpen}
+          >
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-gray-900 group-hover:text-gray-700 transition">
+                  Recent Customer Orders
+                </h2>
+                {recentOrders?.length > 0 && (
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600">
+                    {recentOrders.length}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs font-medium text-gray-500">
+                Live order overview across the store
+                {lastUpdated && (
+                  <span className="ml-2 text-[10px] text-gray-400">
+                    • Updated {lastUpdated.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
-          <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live
-          </span>
+
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsOrdersOpen((prev) => !prev)}
+              aria-label={isOrdersOpen ? "Collapse orders list" : "Expand orders list"}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 shadow-xs transition hover:bg-gray-50 hover:text-gray-900 active:scale-95 cursor-pointer"
+            >
+              <ChevronDown
+                size={16}
+                className={`transition-transform duration-200 ${isOrdersOpen ? "rotate-180" : "rotate-0"}`}
+              />
+            </button>
+          </div>
         </div>
 
+        {isOrdersOpen && (
+          <div className="mt-4 sm:mt-6">
         {/* Reconcile Feedback Banner */}
         {reconcileFeedback && (
           <div
@@ -307,7 +371,11 @@ function Overview() {
 
         {/* Mobile View: Compact order cards */}
         <div className="space-y-2.5 md:hidden">
-          {!recentOrders || recentOrders.length === 0 ? (
+          {data?.recentOrdersAvailable === false ? (
+            <div className="py-10 text-center text-xs font-medium text-amber-600 bg-amber-50/50 rounded-xl border border-dashed border-amber-200">
+              Recent orders temporarily unavailable. Check backend connection.
+            </div>
+          ) : !recentOrders || recentOrders.length === 0 ? (
             <div className="py-10 text-center text-xs font-medium text-gray-500 bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
               No orders received yet.
             </div>
@@ -404,7 +472,13 @@ function Overview() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
-              {!recentOrders || recentOrders.length === 0 ? (
+              {data?.recentOrdersAvailable === false ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-xs font-medium text-amber-600 bg-amber-50/30">
+                    Recent orders temporarily unavailable. Check backend connection.
+                  </td>
+                </tr>
+              ) : !recentOrders || recentOrders.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-xs font-medium text-gray-500">
                     No orders received yet.
@@ -461,6 +535,8 @@ function Overview() {
             </tbody>
           </table>
         </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   Package,
   Truck,
@@ -7,7 +7,6 @@ import {
   AlertCircle,
   RotateCcw,
   CheckCircle2,
-  Boxes,
   ArrowRight,
   Clock,
   ChevronRight,
@@ -31,6 +30,8 @@ let cachedOverviewData = null;
 
 function Dashboard() {
   const [data, setData] = useState(() => cachedOverviewData);
+  const outletContext = useOutletContext();
+  const setPageRefresh = outletContext?.setPageRefresh;
   const [loading, setLoading] = useState(() => !cachedOverviewData);
   const [error, setError] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
@@ -140,16 +141,34 @@ function Dashboard() {
       startPolling();
     };
 
+    const handlePageShow = (event) => {
+      if (event?.persisted && !document.hidden) {
+        fetchOverview(true);
+        startPolling();
+      }
+    };
+
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
 
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
       activeRequestRef.current?.controller.abort();
       activeRequestRef.current = null;
     };
   }, []);
+
+  const fetchOverviewRef = useRef(fetchOverview);
+  fetchOverviewRef.current = fetchOverview;
+
+  // Register Dashboard tab re-tap refresh
+  useEffect(() => {
+    setPageRefresh?.(() => () => fetchOverviewRef.current?.(false));
+    return () => setPageRefresh?.(null);
+  }, [setPageRefresh]);
 
   // 1-Click Operational Status Transition
   const handleQuickStatusUpdate = async (orderId, newStatus) => {
@@ -200,7 +219,6 @@ function Dashboard() {
   const overviewData = data?.data || data || {};
   const summary = overviewData?.summary || {};
   const ordersNeedingAction = overviewData?.ordersNeedingAction || overviewData?.recentOrders || [];
-  const lowStockProducts = overviewData?.lowStockProducts || [];
 
   const ordersToPackCount = summary.ordersToPack ?? 0;
   const ordersOutForDeliveryCount = summary.ordersOutForDelivery ?? 0;
@@ -369,10 +387,8 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* MAIN TASK FORCE WORKSPACE: Orders Needing Action & Stock Actions */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* PRIMARY SECTION: Orders Needing Action (2 Columns) */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm lg:col-span-2 flex flex-col">
+      {/* MAIN TASK FORCE WORKSPACE: Orders Needing Action */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
           <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
             <div>
               <h2 className="text-base sm:text-lg font-black tracking-tight text-gray-900 flex items-center gap-2">
@@ -525,89 +541,6 @@ function Dashboard() {
             </div>
           )}
         </div>
-
-        {/* SIDEBAR: Stock Actions (1 Column) */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-4">
-            <div>
-              <h2 className="text-base font-black tracking-tight text-gray-900 flex items-center gap-1.5">
-                <AlertTriangle size={16} className="text-rose-500" />
-                Stock Actions
-              </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Products needing inventory replenishment
-              </p>
-            </div>
-            <Link
-              to="/products"
-              className="text-xs font-bold text-[#7C3AED] hover:text-purple-700"
-            >
-              Inventory <ArrowRight size={13} className="inline" />
-            </Link>
-          </div>
-
-          <div className="flex-1 divide-y divide-gray-100 overflow-y-auto max-h-[460px]">
-            {lowStockProducts.length === 0 ? (
-              <div className="py-12 text-center my-auto">
-                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                  <CheckCircle2 size={20} />
-                </div>
-                <p className="text-xs text-emerald-700 font-bold">
-                  ✓ All stock levels are healthy
-                </p>
-              </div>
-            ) : (
-              lowStockProducts.map((product) => (
-                <div key={product.id} className="flex items-center justify-between py-3 gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={product.image || "https://placehold.co/40x40?text=Item"}
-                      alt={product.name}
-                      className="h-10 w-10 rounded-lg object-cover bg-gray-100 border border-gray-200 shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-gray-900 truncate">
-                        {product.name}
-                      </p>
-                      <p className="text-[11px] text-gray-500">
-                        ₹{product.price || 0}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        (product.stock_quantity ?? 0) <= 0
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {(product.stock_quantity ?? 0) <= 0 ? "Out of Stock" : `${product.stock_quantity} left`}
-                    </span>
-                    <Link
-                      to={`/products?search=${encodeURIComponent(product.name)}`}
-                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700"
-                    >
-                      Update Stock →
-                    </Link>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-gray-100">
-            <Link
-              to="/products"
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 px-4 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-200 transition"
-            >
-              <Boxes size={14} />
-              Open Stock Manager
-            </Link>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

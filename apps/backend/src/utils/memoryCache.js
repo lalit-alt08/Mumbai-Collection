@@ -86,9 +86,21 @@ export class InvalidationBatch {
 }
 
 export class MemoryCache {
-  constructor({ defaultTtlMs = 60000, maxSize = 1000 } = {}) {
+  constructor({
+    defaultTtlMs = 60000,
+    maxSize = 1000,
+    redisProvider = getRedisClient,
+    subscriberProvider = getRedisSubscriber,
+    redisConfiguredCheck = isRedisConfigured,
+    redisActiveCheck = isRedisActive,
+    generationReader = getRedisGenerations,
+  } = {}) {
     this.defaultTtlMs = defaultTtlMs;
     this.maxSize = maxSize;
+    this.redisProvider = redisProvider;
+    this.redisConfiguredCheck = redisConfiguredCheck;
+    this.redisActiveCheck = redisActiveCheck;
+    this.generationReader = generationReader;
     this.store = new Map();
     this.inFlight = new Map();
     this.source = randomUUID();
@@ -96,7 +108,7 @@ export class MemoryCache {
     this.pendingInvalidations = Promise.resolve();
     this.pendingInvalidationErrors = [];
 
-    const sub = getRedisSubscriber();
+    const sub = subscriberProvider();
     if (sub) {
       const subscribe = async () => {
         try {
@@ -155,14 +167,14 @@ export class MemoryCache {
   set(key, value, ttlMs = this.defaultTtlMs) {
     const capturedRevision = this.revision;
     this._putLocal(key, value, ttlMs);
-    const redis = getRedisClient();
+    const redis = this.redisProvider();
     if (redis && value !== undefined) {
       const ns = getNamespace(key);
       void (async () => {
         try {
-          const [globalGen, nsGen] = await getRedisGenerations(redis, ns);
+          const [globalGen, nsGen] = await this.generationReader(redis, ns);
           if (this.revision !== capturedRevision) return;
-          const [checkGlobal, checkNs] = await getRedisGenerations(redis, ns);
+          const [checkGlobal, checkNs] = await this.generationReader(redis, ns);
           if (checkGlobal !== globalGen || checkNs !== nsGen || this.revision !== capturedRevision) {
             return;
           }
@@ -174,13 +186,13 @@ export class MemoryCache {
 
   async createFence(key) {
     const revision = this.revision;
-    const redis = getRedisClient();
+    const redis = this.redisProvider();
     let globalGen = null;
     let nsGen = null;
     if (redis) {
       try {
         const ns = getNamespace(key);
-        [globalGen, nsGen] = await getRedisGenerations(redis, ns);
+        [globalGen, nsGen] = await this.generationReader(redis, ns);
       } catch (_) {}
     }
     return { revision, globalGen, nsGen, key };
@@ -190,11 +202,11 @@ export class MemoryCache {
     if (!fence || fence.revision !== this.revision) {
       return false;
     }
-    const redis = getRedisClient();
+    const redis = this.redisProvider();
     if (redis && value !== undefined) {
       try {
         const ns = getNamespace(key);
-        const [currentGlobal, currentNs] = await getRedisGenerations(redis, ns);
+        const [currentGlobal, currentNs] = await this.generationReader(redis, ns);
         // Reject if Redis generations advanced or local revision changed while fetching
         if (
           fence.globalGen !== null &&
@@ -230,7 +242,7 @@ export class MemoryCache {
     if (this.inFlight.has(key)) return this.inFlight.get(key);
 
     const ns = getNamespace(key);
-    const redis = getRedisClient();
+    const redis = this.redisProvider();
     const revision = this.revision;
     let capturedGlobal = null;
     let capturedNs = null;
@@ -238,23 +250,50 @@ export class MemoryCache {
     const promise = (async () => {
       if (redis) {
         try {
-          const [globalGen, nsGen] = await getRedisGenerations(redis, ns);
+          const [globalGen, nsGen] = await this.generationReader(redis, ns);
           capturedGlobal = globalGen;
           capturedNs = nsGen;
           const cached = await redis.get(makeRedisKey(globalGen, ns, nsGen, key));
           if (cached !== null) {
             const parsed = JSON.parse(cached);
-            this._putLocal(key, parsed, ttlMs);
-            return parsed;
+            const [currentGlobal, currentNs] = await this.generationReader(redis, ns);
+            // Redis generations can advance before this process receives Pub/Sub.
+            // Recheck both the shared generations and local revision after every await
+            // before restoring a Redis hit into RAM or returning it to the caller.
+            if (
+              revision === this.revision &&
+              currentGlobal === globalGen &&
+              currentNs === nsGen
+            ) {
+              this._putLocal(key, parsed, ttlMs);
+              return parsed;
+            }
+            capturedGlobal = currentGlobal;
+            capturedNs = currentNs;
           }
         } catch (err) { logger.debug({ err: err.message }, "Cache read unavailable"); }
       }
+      const fetchRevision = this.revision;
       const result = await fetchFn();
-      if (revision === this.revision) {
-        this._putLocal(key, result, ttlMs);
-        if (redis && capturedGlobal !== null && result !== undefined) {
-          const [currentGlobal, currentNs] = await getRedisGenerations(redis, ns);
-          if (currentGlobal === capturedGlobal && currentNs === capturedNs) {
+      if (fetchRevision === this.revision && result !== undefined) {
+        let generationsStable = true;
+        let canWriteRedis = Boolean(redis && capturedGlobal !== null);
+        let currentGlobal = capturedGlobal;
+        let currentNs = capturedNs;
+        if (canWriteRedis) {
+          try {
+            [currentGlobal, currentNs] = await this.generationReader(redis, ns);
+            generationsStable = currentGlobal === capturedGlobal && currentNs === capturedNs;
+          } catch (err) {
+            // Preserve single-process availability during Redis outages, but do
+            // not publish under generations that could not be verified.
+            canWriteRedis = false;
+            logger.debug({ err: err.message }, "Cache generation recheck unavailable");
+          }
+        }
+        if (fetchRevision === this.revision && generationsStable) {
+          this._putLocal(key, result, ttlMs);
+          if (canWriteRedis && currentGlobal !== null) {
             void redis.psetex(makeRedisKey(currentGlobal, ns, currentNs, key), ttlMs, JSON.stringify(result)).catch(() => {});
           }
         }
@@ -273,8 +312,8 @@ export class MemoryCache {
   _invalidate(type, value = "", batch = null) {
     this._invalidateLocal(type, value);
 
-    const redisConfigured = isRedisConfigured();
-    const redis = getRedisClient();
+    const redisConfigured = this.redisConfiguredCheck();
+    const redis = this.redisProvider();
 
     // 1. Single-process local development without Redis configured:
     // Local invalidation is sufficient; no cluster propagation expected.
@@ -284,7 +323,7 @@ export class MemoryCache {
 
     // 2. Redis is configured in environment, but disconnected or unavailable:
     // Record degradation so flushPendingInvalidations() reflects that cluster propagation failed.
-    if (!redis || !isRedisActive()) {
+    if (!redis || !this.redisActiveCheck()) {
       const degradedError = new Error("Redis is configured but unavailable; distributed cache invalidation degraded");
       degradedError.code = "REDIS_UNAVAILABLE";
       degradedError.degraded = true;

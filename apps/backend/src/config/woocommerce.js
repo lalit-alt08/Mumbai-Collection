@@ -1,4 +1,5 @@
 import WooCommerceRestApiModule from "@woocommerce/woocommerce-rest-api";
+import axios from "axios";
 import { httpsAgent } from "./httpAgent.js";
 import "./env.js";
 
@@ -35,5 +36,64 @@ const api = new WooCommerceRestApi({
     timeout: woocommerceTimeoutMs,
   },
 });
+
+// Override _request to forward axios options (e.g. signal, timeout) directly to axios
+api._request = function (method, endpoint, data, params = {}, extraConfig = {}) {
+  const url = this._getUrl(endpoint, params);
+  const headers = {
+    Accept: "application/json",
+  };
+  if (typeof process !== "undefined" && Object.prototype.toString.call(process) === "[object process]") {
+    headers["User-Agent"] = "WooCommerce REST API - JS Client/" + this.classVersion;
+  }
+  let options = {
+    url,
+    method,
+    responseEncoding: this.encoding,
+    timeout: this.timeout,
+    responseType: "json",
+    headers,
+  };
+  if (this.isHttps) {
+    if (this.queryStringAuth) {
+      options.params = {
+        consumer_key: this.consumerKey,
+        consumer_secret: this.consumerSecret,
+      };
+    } else {
+      options.auth = {
+        username: this.consumerKey,
+        password: this.consumerSecret,
+      };
+    }
+    options.params = { ...options.params, ...params };
+  } else {
+    options.params = this._getOAuth().authorize({
+      url,
+      method,
+    });
+  }
+  if (data) {
+    options.headers["Content-Type"] = "application/json;charset=utf-8";
+    options.data = JSON.stringify(data);
+  }
+  const mergedHeaders = {
+    ...headers,
+    ...(this.axiosConfig?.headers || {}),
+    ...(extraConfig.headers || {}),
+  };
+  options = {
+    ...options,
+    ...this.axiosConfig,
+    ...extraConfig,
+    headers: mergedHeaders,
+  };
+  return axios(options);
+};
+
+// Augment api.get to accept extraConfig (signal, timeout, etc.)
+api.get = function (endpoint, params = {}, extraConfig = {}) {
+  return this._request("get", endpoint, null, params, extraConfig);
+};
 
 export default api;

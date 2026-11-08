@@ -274,6 +274,7 @@ async function proxyStoreApi(req, res) {
       serverCache.invalidatePrefix("admin:analytics");
       serverCache.invalidatePrefix("admin:customers");
       serverCache.delete("product_stock_counts");
+      serverCache.invalidatePrefix("admin_products:");
       serverCache.invalidatePrefix("catalog:products:");
 
       // Selectively invalidate detail caches for ordered products without wiping browse catalog

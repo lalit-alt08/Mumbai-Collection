@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo, useRef } from "react";
+import { useVisibleRevalidation } from "../hooks/useVisibleRevalidation.js";
 import {
   Users,
   Search,
   Phone,
   Mail,
   MapPin,
-  RotateCcw,
   Package,
   ChevronLeft,
   ChevronRight,
@@ -20,8 +20,15 @@ import {
   Sparkles,
   ChevronDown,
   Check,
+  CreditCard,
+  AlertTriangle,
 } from "lucide-react";
-import { getCustomers, getCustomerOrders } from "../services/adminApi";
+import {
+  getCustomers,
+  getCustomerOrders,
+  getCustomerPayments,
+  lookupPaymentReference,
+} from "../services/adminApi";
 
 // Fixed delivery zone filter options
 const LOCATION_FILTER_OPTIONS = [
@@ -85,6 +92,7 @@ function Customers() {
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef(null);
   const ordersAbortControllerRef = useRef(null);
+  const refAbortControllerRef = useRef(null);
   const [sortBy, setSortBy] = useState("ltv_desc");
   const [selectedLocation, setSelectedLocation] = useState("all");
 
@@ -110,6 +118,19 @@ function Customers() {
   const [customerOrdersLoading, setCustomerOrdersLoading] = useState(false);
   const [customerOrdersError, setCustomerOrdersError] = useState("");
   const [customerOrdersRetryKey, setCustomerOrdersRetryKey] = useState(0);
+
+  // Customer Payments State
+  const [customerPayments, setCustomerPayments] = useState([]);
+  const [customerPaymentsLoading, setCustomerPaymentsLoading] = useState(false);
+  const [customerPaymentsError, setCustomerPaymentsError] = useState("");
+  const [customerPaymentsRetryKey, setCustomerPaymentsRetryKey] = useState(0);
+
+  // Manual Reference Lookup State
+  const [refQuery, setRefQuery] = useState("");
+  const [refLiveCheck, setRefLiveCheck] = useState(false);
+  const [refResult, setRefResult] = useState(null);
+  const [refLoading, setRefLoading] = useState(false);
+  const [refError, setRefError] = useState("");
 
   // Close dropdowns on outside click or Escape
   useEffect(() => {
@@ -183,9 +204,12 @@ function Customers() {
         return;
       }
       if (requestId !== requestIdRef.current) return;
-      setError(err.response?.data?.message || err.message || "Failed to load customers directory. Please refresh.");
+      setError(err.response?.data?.message || err.message || "Failed to load customers directory. Please retry.");
       setCustomers([]);
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       if (requestId === requestIdRef.current && !controller.signal.aborted) {
         setLoading(false);
       }
@@ -199,6 +223,16 @@ function Customers() {
     };
   }, [page, debouncedSearch, selectedLocation, sortBy]);
 
+  const fetchCustomerListRef = useRef(fetchCustomerList);
+  fetchCustomerListRef.current = fetchCustomerList;
+
+  // Revalidate customers on app resume / wake-up
+  useVisibleRevalidation(
+    () => fetchCustomerListRef.current?.({ forceRefresh: true }),
+    () => Boolean(abortControllerRef.current)
+  );
+
+  // Fetch orders when customer is selected
   useEffect(() => {
     if (!selectedCustomer?.id) return undefined;
     ordersAbortControllerRef.current?.abort();
@@ -232,6 +266,9 @@ function Customers() {
         if (customerOrdersPage === 1) setCustomerOrders([]);
         setCustomerOrdersError(requestError.response?.data?.message || "Unable to load this customer’s order history.");
       } finally {
+        if (ordersAbortControllerRef.current === controller) {
+          ordersAbortControllerRef.current = null;
+        }
         if (active && !controller.signal.aborted) setCustomerOrdersLoading(false);
       }
     };
@@ -242,16 +279,100 @@ function Customers() {
     };
   }, [selectedCustomer?.id, customerOrdersPage, customerOrdersRetryKey]);
 
+  // Fetch payments when customer is selected
+  useEffect(() => {
+    if (!selectedCustomer?.id) {
+      setCustomerPayments([]);
+      setCustomerPaymentsError("");
+      setRefResult(null);
+      setRefQuery("");
+      setRefError("");
+      return undefined;
+    }
+    const controller = new AbortController();
+    let active = true;
+
+    const loadPayments = async () => {
+      try {
+        setCustomerPaymentsLoading(true);
+        setCustomerPaymentsError("");
+        const res = await getCustomerPayments(selectedCustomer.id, { signal: controller.signal });
+        if (!active || controller.signal.aborted) return;
+        setCustomerPayments(Array.isArray(res.payments) ? res.payments : []);
+      } catch (err) {
+        if (!active || controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
+        setCustomerPayments([]);
+        setCustomerPaymentsError(err.response?.data?.message || "Payment lookup unavailable");
+      } finally {
+        if (active && !controller.signal.aborted) {
+          setCustomerPaymentsLoading(false);
+        }
+      }
+    };
+
+    loadPayments();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectedCustomer?.id, customerPaymentsRetryKey]);
+
+  const handleRefLookup = async (e) => {
+    e?.preventDefault();
+    const cleanRef = refQuery.trim();
+    if (!cleanRef || !selectedCustomer?.id) return;
+
+    refAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    refAbortControllerRef.current = controller;
+    const lookupCustomerId = selectedCustomer.id;
+
+    try {
+      setRefLoading(true);
+      setRefError("");
+      setRefResult(null);
+      const res = await lookupPaymentReference(cleanRef, refLiveCheck, { signal: controller.signal });
+      if (controller.signal.aborted || selectedCustomer?.id !== lookupCustomerId) return;
+
+      if (res.found && res.payment) {
+        setRefResult(res.payment);
+      } else {
+        setRefResult(null);
+        setRefError(res.message || "No matching payment record found");
+      }
+    } catch (err) {
+      if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
+      if (selectedCustomer?.id !== lookupCustomerId) return;
+      setRefResult(null);
+      setRefError(err.response?.data?.message || "Payment lookup unavailable");
+    } finally {
+      if (refAbortControllerRef.current === controller) {
+        refAbortControllerRef.current = null;
+      }
+      if (!controller.signal.aborted && selectedCustomer?.id === lookupCustomerId) {
+        setRefLoading(false);
+      }
+    }
+  };
+
   const openCustomerProfile = (customer) => {
+    refAbortControllerRef.current?.abort();
+    refAbortControllerRef.current = null;
     setCustomerOrders([]);
     setCustomerOrdersPage(1);
     setCustomerOrdersTotal(0);
     setCustomerOrdersTotalPages(1);
     setCustomerOrdersError("");
+    setCustomerPayments([]);
+    setCustomerPaymentsError("");
+    setRefResult(null);
+    setRefQuery("");
+    setRefError("");
+    setRefLoading(false);
     setSelectedCustomer(customer);
   };
 
-  // Server-sorted customers list directly from API (database-level sorting across all records)
+  // Server-sorted customers list directly from API
   const processedCustomers = customers;
 
   // Format IST Date helper
@@ -284,25 +405,48 @@ function Customers() {
     return "bg-amber-50 text-amber-700 border-amber-200";
   };
 
+  const getPaymentOutcomeBadge = (outcomeType) => {
+    switch (outcomeType) {
+      case "order_created":
+        return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      case "captured_no_order":
+        return "bg-amber-50 text-amber-700 border-amber-200";
+      case "captured_order_unverified":
+        return "bg-amber-100 text-amber-800 border-amber-300 font-bold";
+      case "refunded":
+        return "bg-purple-50 text-purple-700 border-purple-200";
+      case "partially_refunded":
+        return "bg-purple-50 text-purple-800 border-purple-300 font-bold";
+      case "refund_pending":
+        return "bg-blue-50 text-blue-700 border-blue-200";
+      case "needs_review":
+        return "bg-amber-100 text-amber-900 border-amber-400 font-black";
+      case "unconfirmed":
+      case "failed":
+      default:
+        return "bg-rose-50 text-rose-700 border-rose-200";
+    }
+  };
+
   const activeSortLabel = SORT_OPTIONS.find((s) => s.id === sortBy)?.label || "Sort by";
   const activeLocationLabel = LOCATION_FILTER_OPTIONS.find((l) => l.id === selectedLocation)?.label || "All Locations";
 
+  const latestOrder = customerOrders && customerOrders.length > 0 ? customerOrders[0] : null;
+
   return (
     <div className="space-y-6">
-      {/* TOP CONTROLS STRIP */}
-      <div className="flex justify-end">
-        <button
-          onClick={() => fetchCustomerList({ forceRefresh: true })}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-bold text-gray-700 shadow-xs hover:border-[#FF8A00] hover:text-[#FF8A00] hover:bg-amber-50/40 transition active:scale-95 disabled:opacity-50 cursor-pointer"
-        >
-          <RotateCcw size={13} className={loading ? "animate-spin text-[#FF8A00]" : ""} />
-          <span>Refresh</span>
-        </button>
-      </div>
-
       {/* FILTER & SEARCH CONTROLS BAR */}
       <div className="rounded-2xl border border-gray-200/80 bg-white p-3.5 sm:p-4 shadow-xs space-y-3">
+        {/* Search header label */}
+        <div className="flex items-center justify-between px-0.5">
+          <label htmlFor="customer-search-input" className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+            <Search size={13} className="text-[#FF8A00]" /> Find a customer
+          </label>
+          <span className="text-[11px] font-medium text-gray-400 hidden sm:inline">
+            Search by customer name, phone, email, or location
+          </span>
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
           {/* Search Box */}
           <div className="relative flex-1">
@@ -311,10 +455,11 @@ function Customers() {
               className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
             />
             <input
+              id="customer-search-input"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by customer name, phone, email, or address..."
+              placeholder="Search by customer name, phone, email, or location…"
               className="w-full h-10 rounded-xl border border-gray-200 bg-gray-50/50 pl-9 pr-9 text-xs text-gray-900 placeholder-gray-400 focus:border-[#FF8A00] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#FF8A00]/15 transition"
             />
             {searchQuery && (
@@ -354,7 +499,7 @@ function Customers() {
               </button>
 
               {isLocationOpen && (
-              <div className="absolute left-0 mt-1.5 w-52 rounded-2xl border border-gray-100 bg-white py-1.5 shadow-xl z-30 animate-in fade-in-50 zoom-in-95 max-h-72 overflow-y-auto">
+                <div className="absolute left-0 mt-1.5 w-52 rounded-2xl border border-gray-100 bg-white py-1.5 shadow-xl z-30 animate-in fade-in-50 zoom-in-95 max-h-72 overflow-y-auto">
                   <div className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-gray-400">
                     Filter by Location
                   </div>
@@ -519,12 +664,19 @@ function Customers() {
                           </div>
                         </td>
 
-                        {/* Account Status Badge */}
+                        {/* Account Status Badge (Derived from durable suspension status) */}
                         <td className="py-3.5 px-4">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 size={10} />
-                            <span>Active</span>
-                          </span>
+                          {c.is_suspended ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200">
+                              <AlertTriangle size={10} />
+                              <span>Suspended</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 size={10} />
+                              <span>Active</span>
+                            </span>
+                          )}
                         </td>
 
                         {/* Contact Info */}
@@ -579,14 +731,14 @@ function Customers() {
                           </div>
                         </td>
 
-                        {/* Action Buttons */}
+                        {/* Action Buttons: Primary View orders & payments */}
                         <td className="py-3.5 px-4 text-right">
                           <button
                             onClick={() => openCustomerProfile(c)}
-                            className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-gray-700 shadow-sm hover:border-[#FF8A00] hover:text-[#FF8A00] hover:bg-amber-50/50 transition active:scale-95"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#FF8A00] text-white px-3 py-1.5 text-[11px] font-bold shadow-xs hover:bg-[#e67c00] transition active:scale-95"
                           >
-                            <Eye size={12} className="text-[#FF8A00]" />
-                            <span>History</span>
+                            <Eye size={12} className="text-white" />
+                            <span>View orders & payments</span>
                           </button>
                         </td>
                       </tr>
@@ -619,9 +771,15 @@ function Customers() {
                         </div>
                       </div>
 
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-extrabold text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 size={8} /> Active
-                      </span>
+                      {c.is_suspended ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-extrabold text-rose-700 border border-rose-200">
+                          <AlertTriangle size={8} /> Suspended
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-extrabold text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 size={8} /> Active
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50/70 p-2.5 rounded-xl border border-gray-100">
@@ -630,7 +788,7 @@ function Customers() {
                         <span className="font-black text-gray-900 text-xs tabular-nums">₹{Math.round(Number(c.lifetimeSpent) || 0).toLocaleString("en-IN")}</span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-gray-400 block font-semibold uppercase">Total Orders</span>
+                        <span className="text-[10px] text-gray-400 block font-semibold uppercase">Orders (LTV)</span>
                         <span className="font-black text-[#FF8A00] text-xs">{c.ordersCount || 0} orders</span>
                       </div>
                       <div className="col-span-2 pt-1 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-500">
@@ -639,17 +797,17 @@ function Customers() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="text-[11px] text-gray-500 truncate max-w-[170px]">
+                    <div className="flex items-center justify-between pt-1 gap-2">
+                      <div className="text-[11px] text-gray-500 truncate max-w-[150px]">
                         {c.phone || c.email || "No contact info"}
                       </div>
 
                       <button
                         onClick={() => openCustomerProfile(c)}
-                        className="inline-flex items-center gap-1 rounded-xl bg-amber-500/10 px-3 py-1 text-[11px] font-bold text-[#FF8A00] hover:bg-[#FF8A00] hover:text-white transition"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[#FF8A00] text-white px-3 py-1.5 text-[11px] font-bold shadow-xs hover:bg-[#e67c00] transition active:scale-95"
                       >
                         <Eye size={12} />
-                        <span>View Orders</span>
+                        <span>View orders & payments</span>
                       </button>
                     </div>
                   </div>
@@ -700,16 +858,22 @@ function Customers() {
                     <h3 className="text-base sm:text-lg font-black text-gray-900 truncate">
                       {selectedCustomer.name}
                     </h3>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 border border-emerald-200">
-                      <CheckCircle2 size={9} /> Active
-                    </span>
+                    {selectedCustomer.is_suspended ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-extrabold text-rose-700 border border-rose-200">
+                        <AlertTriangle size={9} /> Suspended
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 border border-emerald-200">
+                        <CheckCircle2 size={9} /> Active
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-gray-500 font-medium">Customer ID: {selectedCustomer.id || "N/A"}</p>
                 </div>
               </div>
 
               <button
-                onClick={() => setSelectedCustomer(null)}
+                onClick={() => { refAbortControllerRef.current?.abort(); setSelectedCustomer(null); }}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
               >
                 <X size={18} />
@@ -772,13 +936,35 @@ function Customers() {
               {/* Order History */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-extrabold uppercase tracking-wider text-gray-400 text-[10px] flex items-center gap-1.5">
-                    <ShoppingBag size={13} className="text-[#FF8A00]" /> Past Purchases ({customerOrdersTotal})
+                  <h4 className="font-extrabold uppercase tracking-wider text-gray-500 text-[10px] flex items-center gap-1.5">
+                    <ShoppingBag size={13} className="text-[#FF8A00]" />
+                    <span>Orders on file: {customerOrdersLoading && customerOrdersPage === 1 ? "Checking…" : (customerOrdersError ? "Unavailable" : customerOrdersTotal)}</span>
                   </h4>
-                  {customerOrdersTotalPages > 1 && <span className="text-[10px] font-semibold text-gray-400">Page {customerOrdersPage} of {customerOrdersTotalPages}</span>}
+                  {customerOrdersTotalPages > 1 && (
+                    <span className="text-[10px] font-semibold text-gray-400">Page {customerOrdersPage} of {customerOrdersTotalPages}</span>
+                  )}
                 </div>
 
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {/* Latest Order Summary Card */}
+                {latestOrder && (
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-3 sm:p-4 space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-extrabold text-blue-900 flex items-center gap-1.5">
+                        <Package size={14} className="text-blue-600" /> Latest Order: #{latestOrder.order_number}
+                      </span>
+                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase border ${getStatusBadge(latestOrder.status)}`}>
+                        {latestOrder.status}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-blue-800 font-medium">
+                      <span>Amount: <strong className="text-gray-900">₹{Number(latestOrder.total || 0).toLocaleString("en-IN")}</strong></span>
+                      <span>Date: <strong className="text-gray-900">{formatISTDate(latestOrder.date)}</strong></span>
+                      <span>Payment: <strong className="text-gray-900">{latestOrder.payment_method}</strong></span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {customerOrdersLoading && customerOrdersPage === 1 ? (
                     <div className="p-4 text-center text-xs font-semibold text-gray-400">Loading order history…</div>
                   ) : customerOrders.length === 0 ? (
@@ -823,6 +1009,7 @@ function Customers() {
                     ))
                   )}
                 </div>
+
                 {customerOrders.length > 0 && (
                   <div className="flex flex-col items-center gap-2 pt-1">
                     <span className="text-[10px] text-gray-400">
@@ -858,6 +1045,156 @@ function Customers() {
                     className="mx-auto block rounded-lg border border-gray-200 px-4 py-2 text-[10px] font-bold text-gray-600"
                   >Retry loading history</button>
                 )}
+              </div>
+
+              {/* RECENT ONLINE PAYMENTS SECTION */}
+              <div className="space-y-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold uppercase tracking-wider text-gray-500 text-[10px] flex items-center gap-1.5">
+                    <CreditCard size={13} className="text-[#FF8A00]" /> Recent Online Payments
+                  </h4>
+                  <span className="text-[10px] font-medium text-gray-400">Indexed records (max 10)</span>
+                </div>
+
+                {/* Payments List */}
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {customerPaymentsLoading ? (
+                    <div className="p-4 text-center text-xs font-semibold text-gray-400">
+                      Checking recent payment records…
+                    </div>
+                  ) : customerPaymentsError ? (
+                    <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-center space-y-1.5">
+                      <p className="text-xs font-semibold text-rose-600">Payment lookup unavailable</p>
+                      <button
+                        onClick={() => setCustomerPaymentsRetryKey((k) => k + 1)}
+                        className="text-[10px] font-bold text-rose-700 underline hover:text-rose-900"
+                      >
+                        Retry lookup
+                      </button>
+                    </div>
+                  ) : customerPayments.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-gray-400 bg-gray-50/80 rounded-xl">
+                      No matching payment record found for this customer.
+                    </div>
+                  ) : (
+                    customerPayments.map((p, idx) => (
+                      <div
+                        key={p.rzp_payment_id || p.rzp_order_id || idx}
+                        className="flex items-center justify-between rounded-xl bg-gray-50/80 p-3 border border-gray-100 hover:bg-gray-100/60 transition text-xs"
+                      >
+                        <div className="space-y-0.5 min-w-0 pr-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-extrabold border ${getPaymentOutcomeBadge(p.outcome_type)}`}>
+                              {p.outcome_label}
+                            </span>
+                            <span className="font-mono text-[10px] text-gray-500 truncate">
+                              {p.rzp_payment_id || p.rzp_order_id}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            {formatISTDate(p.date)}
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <div className="font-black text-gray-900 text-xs">
+                            ₹{Number(p.amount || 0).toLocaleString("en-IN")}
+                          </div>
+                          {p.captured_amount_paise > 0 && p.captured_amount_paise !== p.amount_paise && (
+                            <div className="text-[9px] text-gray-400">
+                              Cap: ₹{Math.round(p.captured_amount_paise / 100)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Exact Staff Reference Lookup Box */}
+                <div className="rounded-2xl border border-gray-200/80 bg-gray-50/40 p-3.5 space-y-2 mt-2">
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="ref-lookup-input" className="text-[10px] font-extrabold uppercase tracking-wider text-gray-600">
+                      Search Razorpay Reference
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={refLiveCheck}
+                        onChange={(e) => setRefLiveCheck(e.target.checked)}
+                        className="rounded text-[#FF8A00] focus:ring-[#FF8A00]"
+                      />
+                      Live gateway check
+                    </label>
+                  </div>
+
+                  <form onSubmit={handleRefLookup} className="flex gap-2">
+                    <input
+                      id="ref-lookup-input"
+                      type="text"
+                      value={refQuery}
+                      onChange={(e) => setRefQuery(e.target.value)}
+                      placeholder="order_... or pay_..."
+                      className="flex-1 h-9 rounded-xl border border-gray-200 bg-white px-3 text-xs text-gray-900 placeholder-gray-400 focus:border-[#FF8A00] focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={refLoading || !refQuery.trim()}
+                      className="h-9 px-3.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-black disabled:opacity-50 transition"
+                    >
+                      {refLoading ? "Searching…" : "Lookup"}
+                    </button>
+                  </form>
+
+                  {refError && (
+                    <div className="text-center text-[11px] font-semibold text-rose-500 pt-1">
+                      {refError}
+                    </div>
+                  )}
+
+                  {refResult && (
+                    <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2 text-xs">
+                      {/* Explicit Customer Association */}
+                      {refResult.customer_conflict ? (
+                        <div className="rounded-lg bg-rose-50 px-2.5 py-1.5 border border-rose-200 text-[10px] font-bold text-rose-800 flex items-center gap-1.5">
+                          <AlertTriangle size={12} className="text-rose-600 shrink-0" />
+                          <span>Customer conflict: Payment initiated by Customer #{refResult.payment_customer_id}, but order placed for Customer #{refResult.order_customer_id}</span>
+                        </div>
+                      ) : refResult.user_id && Number(refResult.user_id) === Number(selectedCustomer.id) ? (
+                        <div className="rounded-lg bg-emerald-50 px-2.5 py-1.5 border border-emerald-200 text-[10px] font-bold text-emerald-800 flex items-center gap-1.5">
+                          <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                          <span>Associated with this customer (#{selectedCustomer.id})</span>
+                        </div>
+                      ) : refResult.user_id && Number(refResult.user_id) !== Number(selectedCustomer.id) ? (
+                        <div className="rounded-lg bg-amber-50 px-2.5 py-1.5 border border-amber-200 text-[10px] font-bold text-amber-800 flex items-center gap-1.5">
+                          <AlertTriangle size={12} className="text-amber-600 shrink-0" />
+                          <span>Notice: Associated with Customer #{refResult.user_id} (not Customer #{selectedCustomer.id})</span>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg bg-gray-50 px-2.5 py-1.5 border border-gray-200 text-[10px] font-medium text-gray-600 flex items-center gap-1.5">
+                          <Clock size={12} className="text-gray-400 shrink-0" />
+                          <span>Customer association could not be verified</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-extrabold border ${getPaymentOutcomeBadge(refResult.outcome_type)}`}>
+                          {refResult.outcome_label}
+                        </span>
+                        <span className="font-black text-gray-900">
+                          ₹{Number(refResult.amount || 0).toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-mono">
+                        {refResult.rzp_payment_id || refResult.rzp_order_id}
+                      </div>
+                      <div className="text-[10px] text-gray-400 flex items-center justify-between pt-1 border-t border-gray-100">
+                        <span>Date: {formatISTDate(refResult.date)}</span>
+                        <span>Status: {refResult.status}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

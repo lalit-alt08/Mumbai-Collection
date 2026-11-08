@@ -3,6 +3,7 @@ import multer from "multer";
 
 import {
   getEmployeeOrders,
+  getEmployeePackingAlarms,
   updateOrderStatus,
   bulkDispatchOrders,
   sendOrderRefundEmail,
@@ -18,6 +19,7 @@ import { handleEmployeeOrderStream } from "../services/orderNotificationService.
 
 import {
   getAdminProducts,
+  getAdminProductById,
   updateProduct,
   createProduct,
   deleteProduct,
@@ -121,6 +123,13 @@ router.get(
   getEmployeeOrders
 );
 
+router.get(
+  "/orders/packing-alarms",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  getEmployeePackingAlarms
+);
+
 router.post(
   "/orders/bulk-status",
   requireAuth("employee"),
@@ -180,6 +189,14 @@ router.get(
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   validateRequest({ query: schemas.pagination }),
   getAdminProducts
+);
+
+router.get(
+  "/products/:id",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam }),
+  getAdminProductById
 );
 
 router.get(

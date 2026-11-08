@@ -138,10 +138,16 @@ export default function CustomerSuspension() {
       if (res.success) {
         showSuccess(res.message || "Customer suspension removed successfully.");
         setConfirmModal(null);
-        // Refresh customer details
-        const updated = await lookupCustomerSuspension(customer.email);
-        if (updated.success && updated.customer) {
-          setCustomer(updated.customer);
+        if (res.customer?.account_exists === false) {
+          // The suspended account may already have been deleted. Unsuspension
+          // still clears the durable identity record, but there is no WP user
+          // left for a follow-up lookup to return.
+          setCustomer((current) => current ? { ...current, ...res.customer, is_suspended: false } : res.customer);
+        } else {
+          const updated = await lookupCustomerSuspension(customer.email);
+          if (updated.success && updated.customer) {
+            setCustomer(updated.customer);
+          }
         }
       } else {
         setError(res.message || "Failed to remove customer suspension.");

@@ -36,7 +36,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const requestUrl = originalRequest?.url || "";
       const isUploadRequest = requestUrl.includes("/upload") || requestUrl.includes("/media");
-      if (!isUploadRequest && typeof window !== "undefined" && window.location?.pathname !== "/login") {
+      const isLogoutPending = typeof window !== "undefined" && window.__mumbaiLogoutPending === true;
+      const isAuthInProgress = typeof window !== "undefined" && (window.__mumbaiAuthInProgress === true || window.__mumbaiRenewalPending === true);
+      if (!isUploadRequest && !isLogoutPending && !isAuthInProgress && typeof window !== "undefined" && window.location?.pathname !== "/login") {
         window.location.href = "/login";
       }
     }
@@ -76,6 +78,19 @@ export const sendOrderRefundEmail = async (id) => {
 
 export const acknowledgeOrder = async (id) => {
   const res = await api.post(`/orders/${id}/acknowledge`);
+  return res.data;
+};
+
+export const getPackingAlarms = async (paramsOrConfig = {}, extraConfig = {}) => {
+  let config = {};
+  if (paramsOrConfig && (paramsOrConfig.params || paramsOrConfig.headers || paramsOrConfig.signal)) {
+    config = { ...paramsOrConfig, ...extraConfig };
+  } else if (paramsOrConfig && typeof paramsOrConfig === "object" && Object.keys(paramsOrConfig).length > 0) {
+    config = { params: paramsOrConfig, ...extraConfig };
+  } else {
+    config = { ...extraConfig };
+  }
+  const res = await api.get("/orders/packing-alarms", config);
   return res.data;
 };
 
@@ -140,6 +155,14 @@ export const getProducts = async (params = {}, config = {}) => {
 
 export const updateProduct = async (id, data) => {
   const res = await api.put(`/products/${id}`, data);
+  return res.data;
+};
+
+export const getProductById = async (id, config = {}) => {
+  const res = await api.get(`/products/${id}`, {
+    ...config,
+    params: { ...(config.params || {}), context: "edit" },
+  });
   return res.data;
 };
 

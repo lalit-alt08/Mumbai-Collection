@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useSearchParams, useOutletContext } from "react-router-dom";
 import {
   Package,
   Search,
@@ -31,7 +31,27 @@ import {
   VolumeX,
   Fan,
 } from "lucide-react";
-import { getOrders, bulkDispatchOrders, updateOrderStatus, sendOrderRefundEmail, getEmployeeOrderStreamUrl, acknowledgeOrder } from "../services/employeeApi.js";
+import {
+  getOrders,
+  bulkDispatchOrders,
+  updateOrderStatus,
+  sendOrderRefundEmail,
+  getEmployeeOrderStreamUrl,
+  acknowledgeOrder,
+  getPackingAlarms,
+} from "../services/employeeApi.js";
+import {
+  OrdersPipelineCoordinator,
+  buildOrdersQueryKey,
+} from "../utils/ordersPipelineCoordinator.js";
+import {
+  isOrderEligibleForDispatch,
+  deriveEligibleOrders,
+  computeActiveSelection,
+  createBulkConfirmSnapshot,
+  validateBulkConfirmSnapshot,
+  reconcileBulkDispatchResults,
+} from "../utils/bulkDispatchSelection.js";
 import {
   triggerNewOrderNotification,
   requestNotificationPermission,
@@ -170,11 +190,16 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
 
 function Orders() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const outletContext = useOutletContext();
+  const setPageRefresh = outletContext?.setPageRefresh;
   const [orders, setOrders] = useState([]);
+  const liveOrdersRef = useRef(orders);
+  liveOrdersRef.current = orders;
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const bulkBusyRef = useRef(false);
-  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState(null);
+  const [alarmDegraded, setAlarmDegraded] = useState(false);
   const [bulkResults, setBulkResults] = useState([]);
   const [ordersQueryKey, setOrdersQueryKey] = useState("");
   const [loading, setLoading] = useState(true);
@@ -267,7 +292,10 @@ function Orders() {
   const [totalOrders, setTotalOrders] = useState(0);
   const perPage = 20;
 
-  const currentOrdersQueryKey = JSON.stringify({
+  const pageRef = useRef(page);
+  pageRef.current = page;
+
+  const currentOrdersQueryKey = buildOrdersQueryKey({
     activeTab,
     debouncedSearch,
     locationFilter,
@@ -276,8 +304,6 @@ function Orders() {
     page,
   });
   const hasCurrentOrders = ordersQueryKey === currentOrdersQueryKey;
-
-  const abortControllerRef = useRef(null);
 
   // Debounce search input by 400ms
   useEffect(() => {
@@ -289,97 +315,6 @@ function Orders() {
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
-
-  const fetchOrderList = async (isBackground = false) => {
-    if (isBackground && updatingIdsRef.current.size > 0) return;
-    let controller = null;
-    if (!isBackground) {
-      abortControllerRef.current?.abort();
-      controller = new AbortController();
-      abortControllerRef.current = controller;
-    }
-    const requestId = ++requestIdRef.current;
-    try {
-      if (!isBackground) {
-        setLoading(true);
-        setError("");
-      }
-      const res = await getOrders(
-        {
-          status: activeTab !== "all" ? activeTab : undefined,
-          search: debouncedSearch || undefined,
-          location: locationFilter !== "all" ? locationFilter : undefined,
-          date_filter: dateFilter !== "all" ? dateFilter : undefined,
-          date_from: dateFilter === "custom" ? customDateRange.start || undefined : undefined,
-          date_to: dateFilter === "custom" ? customDateRange.end || undefined : undefined,
-          page,
-          per_page: perPage,
-        },
-        controller ? { signal: controller.signal } : {}
-      );
-      if (res.success) {
-        if (requestId !== requestIdRef.current) return;
-        const incomingOrders = res.orders || [];
-        incomingOrders.forEach((o) => {
-          const s = (o.status || "").toLowerCase();
-          if (["packed", "ready_for_dispatch", "dispatched", "completed", "cancelled", "refunded", "failed"].includes(s)) {
-            acknowledgeOrderAlarm(o.id);
-          }
-        });
-
-        // Auto-detect orders needing packing (status: processing, pending)
-        const pendingOrders = incomingOrders.filter((o) => {
-          const s = (o.status || "").toLowerCase();
-          return s === "processing" || s === "pending";
-        });
-
-        if (knownOrderIdsRef.current === null) {
-          // On initial load: trigger alarm for any unacknowledged to-pack orders
-          pendingOrders.forEach((o) => {
-            const isAck = o.meta_data?.some(
-              (m) => m.key === "_counter_acknowledged" && (m.value === "1" || m.value === "true" || m.value === true)
-            );
-            if (!isAck) {
-              triggerNewOrderNotification({ orderId: o.id });
-            }
-          });
-        } else {
-          // On background polling/refresh/SSE catch-up:
-          // Any new order needing packing automatically sounds the alarm!
-          pendingOrders.forEach((o) => {
-            if (!knownOrderIdsRef.current.has(o.id)) {
-              triggerNewOrderNotification({ orderId: o.id });
-            }
-          });
-        }
-
-        knownOrderIdsRef.current = new Set(incomingOrders.map((o) => o.id));
-        setOrders(incomingOrders);
-        setOrdersQueryKey(currentOrdersQueryKey);
-        setTotalOrders(res.total || incomingOrders.length || 0);
-        setTotalPages(res.totalPages || Math.ceil((res.total || 1) / perPage) || 1);
-        if (!isBackground) setError("");
-      }
-    } catch (err) {
-      if (
-        controller?.signal?.aborted ||
-        err.name === "CanceledError" ||
-        err.code === "ERR_CANCELED" ||
-        err.message?.toLowerCase().includes("canceled") ||
-        err.message?.toLowerCase().includes("aborted")
-      ) {
-        return;
-      }
-      if (requestId !== requestIdRef.current) return;
-      if (!isBackground) {
-        setError(err.response?.data?.message || err.message || "Failed to load orders from server.");
-      }
-    } finally {
-      if (requestId === requestIdRef.current && !controller?.signal?.aborted && !isBackground) {
-        setLoading(false);
-      }
-    }
-  };
 
   // Alarm state subscription
   const [alarmState, setAlarmState] = useState(() => {
@@ -396,6 +331,112 @@ function Orders() {
 
   useEffect(() => {
     return subscribeToAlarmState(setAlarmState);
+  }, []);
+
+  const alarmStateRef = useRef(alarmState);
+  useEffect(() => {
+    alarmStateRef.current = alarmState;
+  }, [alarmState]);
+
+  const activeFiltersRef = useRef({
+    activeTab,
+    debouncedSearch,
+    locationFilter,
+    dateFilter,
+    customDateRange: dateFilter === "custom" ? customDateRange : null,
+    page,
+  });
+  activeFiltersRef.current = {
+    activeTab,
+    debouncedSearch,
+    locationFilter,
+    dateFilter,
+    customDateRange: dateFilter === "custom" ? customDateRange : null,
+    page,
+  };
+
+  const handleStateUpdate = useCallback(
+    ({ orders: newOrders, queryKey, totalOrders: newTotal, totalPages: newPages }) => {
+      const calculatedPages = Math.ceil((Number(newTotal) || 0) / perPage) || 1;
+      const validTotalPages = Math.max(
+        1,
+        Number.isFinite(Number(newPages)) ? Math.min(Number(newPages), calculatedPages) : calculatedPages
+      );
+      const currentPage = pageRef.current || activeFiltersRef.current?.page || 1;
+
+      // When a successful refresh reports fewer pages than the current page number
+      // (e.g. staff dispatched the only order on the last page), move to the last
+      // valid page and fetch it instead of showing an empty page without controls.
+      if (currentPage > validTotalPages) {
+        pageRef.current = validTotalPages;
+        activeFiltersRef.current = {
+          ...activeFiltersRef.current,
+          page: validTotalPages,
+        };
+        setLoading(true);
+        setTotalOrders(newTotal);
+        setTotalPages(validTotalPages);
+        setPage(validTotalPages);
+        return;
+      }
+
+      setOrders(newOrders);
+      setOrdersQueryKey(queryKey);
+      setTotalOrders(newTotal);
+      setTotalPages(newPages);
+    },
+    [perPage]
+  );
+
+  const handleError = useCallback((errorMsg) => {
+    setError(errorMsg);
+  }, []);
+
+  const handleLoadingChange = useCallback((loadingState) => {
+    setLoading(loadingState);
+  }, []);
+
+  const coordinatorRef = useRef(null);
+  if (!coordinatorRef.current) {
+    coordinatorRef.current = new OrdersPipelineCoordinator({
+      getOrders,
+      getPackingAlarms,
+      getRingingIds: () => alarmStateRef.current?.unacknowledgedOrders || [],
+      onStateUpdate: handleStateUpdate,
+      onError: handleError,
+      onLoadingChange: handleLoadingChange,
+      onAlarmTrigger: triggerNewOrderNotification,
+      onAlarmAcknowledge: acknowledgeOrderAlarm,
+    });
+  }
+  coordinatorRef.current.onStateUpdate = handleStateUpdate;
+  coordinatorRef.current.onError = handleError;
+  coordinatorRef.current.onLoadingChange = handleLoadingChange;
+
+  const fetchOrderList = useCallback(
+    (isBackground = false) => {
+      const isBg = isBackground === true;
+      if (!coordinatorRef.current) return Promise.resolve({ status: "skipped" });
+      return coordinatorRef.current.fetchOrderList({
+        isBackground: isBg,
+        activeFilters: activeFiltersRef.current,
+        perPage,
+        hasUpdatingIds: updatingIdsRef.current.size > 0,
+      });
+    },
+    [perPage]
+  );
+
+  // Counter packing alarm background checker
+  const runAlarmCheck = useCallback(async () => {
+    if (!coordinatorRef.current) return;
+    const res = await coordinatorRef.current.checkActivePackingAlarms({ isHidden: document.hidden });
+    if (res?.status === "skipped" || res?.status === "in_flight") return;
+    if (res?.discovery_unavailable || res?.partial_discovery_failure || res?.status === "error") {
+      setAlarmDegraded(true);
+    } else if (res?.status === "success" && !res?.discovery_unavailable && !res?.partial_discovery_failure) {
+      setAlarmDegraded(false);
+    }
   }, []);
 
   const handleMuteAllAlarms = async () => {
@@ -562,7 +603,7 @@ function Orders() {
     // Foreground resume & network recovery listeners
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        // Catch-up refresh immediately when returning to foreground
+        runAlarmCheck();
         fetchOrderList(true);
         if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
           reconnectStream(true);
@@ -571,16 +612,32 @@ function Orders() {
     };
 
     const handleOnline = () => {
+      runAlarmCheck();
       fetchOrderList(true);
       reconnectStream(true);
     };
 
+    const handlePageShow = (event) => {
+      if (event?.persisted && !document.hidden) {
+        runAlarmCheck();
+        fetchOrderList(true);
+        if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+          reconnectStream(true);
+        }
+      }
+    };
+
+    setPageRefresh?.(() => () => fetchOrderList(false));
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
     window.addEventListener("online", handleOnline);
 
     // 8-second fallback polling for rapid auto-detection of incoming counter orders
     const pollInterval = setInterval(() => {
-      if (!document.hidden) fetchOrderList(true);
+      if (!document.hidden) {
+        runAlarmCheck();
+        fetchOrderList(true);
+      }
     }, 8000);
 
     return () => {
@@ -589,35 +646,12 @@ function Orders() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (eventRefreshTimerRef.current) clearTimeout(eventRefreshTimerRef.current);
       clearInterval(pollInterval);
+      setPageRefresh?.(null);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
       window.removeEventListener("online", handleOnline);
     };
   }, []);
-
-  const eligibleForDispatch = (order) => order.status === "packed" && !order.is_unpaid && !order.is_status_locked;
-  useEffect(() => { setSelectedIds(new Set()); setBulkConfirm(false); }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
-  const toggleDispatch = (id) => setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else if (next.size < 50) next.add(id); return next; });
-  const dispatchSelected = async () => {
-    if (bulkBusyRef.current || selectedIds.size === 0) return;
-    bulkBusyRef.current = true;
-    const ids = [...selectedIds];
-    ids.forEach((id) => updatingIdsRef.current.add(id));
-    setBulkBusy(true); setBulkConfirm(false); setBulkResults([]);
-    try {
-      const result = await bulkDispatchOrders(ids);
-      setBulkResults(result.results || []);
-      const succeeded = new Set((result.results || []).filter((row) => row.success).map((row) => row.id));
-      setOrders((current) => current.map((order) => succeeded.has(order.id) ? { ...order, status: "out-for-delivery" } : order));
-      setSelectedIds(new Set(ids.filter((id) => !succeeded.has(id))));
-      showToast(succeeded.size + " orders dispatched; " + (ids.length - succeeded.size) + " need review.");
-    } catch (error) {
-      showToast(error.response?.data?.message || "Dispatch confirmation was interrupted. Refresh orders to check which succeeded before retrying.", "error");
-    } finally {
-      ids.forEach((id) => updatingIdsRef.current.delete(id));
-      bulkBusyRef.current = false; setBulkBusy(false);
-      void fetchOrderList(true);
-    }
-  };
 
   const handleTabChange = (newTab) => {
     setActiveTab(newTab);
@@ -926,6 +960,221 @@ function Orders() {
     return true;
   });
 
+  const isViewCurrentAndReady = hasCurrentOrders && !loading && !Boolean(error);
+
+  const eligibleOrders = deriveEligibleOrders(filteredOrders, updatingIds, {
+    isViewCurrentAndReady,
+    maxLimit: 50,
+  });
+
+  const activeSelectedIds = computeActiveSelection(selectedIds, eligibleOrders);
+
+  // Remove selections that leave the visible page or become ineligible
+  useEffect(() => {
+    setSelectedIds((current) => {
+      if (current.size === 0) return current;
+      if (!isViewCurrentAndReady) return new Set();
+      const active = computeActiveSelection(current, eligibleOrders);
+      if (active.size === current.size && Array.from(current).every((id) => active.has(id))) {
+        return current;
+      }
+      return active;
+    });
+  }, [eligibleOrders, isViewCurrentAndReady]);
+
+  // Clear selection and confirmation when active filters or page change
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setBulkConfirm(null);
+    setBulkResults([]);
+  }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
+
+  // Keep select-all checkbox indeterminate state in sync with partial selection
+  const selectAllCheckboxRef = useRef(null);
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      const isIndeterminate =
+        activeSelectedIds.size > 0 && activeSelectedIds.size < eligibleOrders.length;
+      selectAllCheckboxRef.current.indeterminate = isIndeterminate;
+    }
+  }, [activeSelectedIds.size, eligibleOrders.length]);
+
+  const toggleDispatch = (id) => {
+    if (bulkBusyRef.current || !isViewCurrentAndReady) return;
+    const target = filteredOrders.find((o) => o.id === id);
+    if (!target || !isOrderEligibleForDispatch(target, updatingIds)) {
+      return;
+    }
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else if (next.size < 50) {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllToggle = (event) => {
+    if (bulkBusyRef.current || !isViewCurrentAndReady || eligibleOrders.length === 0) return;
+    if (event.target.checked) {
+      setSelectedIds(new Set(eligibleOrders.map((o) => o.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleOpenBulkConfirm = () => {
+    if (bulkBusyRef.current || !isViewCurrentAndReady || activeSelectedIds.size === 0) return;
+    const snapshot = createBulkConfirmSnapshot({
+      queryKey: currentOrdersQueryKey,
+      selectedIds: activeSelectedIds,
+      filteredOrders,
+      getOrderLocationInfo,
+    });
+    if (!snapshot) return;
+    setBulkConfirm(snapshot);
+  };
+
+  const handleConfirmDispatch = async () => {
+    if (bulkBusyRef.current || !bulkConfirm) return;
+
+    const validation = validateBulkConfirmSnapshot({
+      snapshot: bulkConfirm,
+      currentQueryKey: buildOrdersQueryKey(activeFiltersRef.current),
+      ordersQueryKey,
+      filteredOrders,
+      updatingIds: updatingIdsRef.current,
+      getOrderLocationInfo,
+      isViewCurrentAndReady: hasCurrentOrders && !loading && !Boolean(error),
+    });
+
+    if (!validation.valid) {
+      setBulkConfirm(null);
+      showToast("Order list changed during review. Please review and select again.", "error");
+      return;
+    }
+
+    const reviewedIds = [...bulkConfirm.reviewedIds];
+    if (reviewedIds.length === 0) {
+      setBulkConfirm(null);
+      return;
+    }
+
+    bulkBusyRef.current = true;
+    setBulkBusy(true);
+    const submissionQueryKey = bulkConfirm.queryKey;
+    setBulkConfirm(null);
+    setBulkResults([]);
+
+    reviewedIds.forEach((id) => updatingIdsRef.current.add(id));
+    setUpdatingIds(new Set(updatingIdsRef.current));
+
+    let rawResults = [];
+
+    try {
+      const result = await bulkDispatchOrders(reviewedIds);
+      rawResults = result?.results || [];
+
+      // Live view identifier check immediately after dispatch resolves
+      const liveKeyAfterDispatch = buildOrdersQueryKey(activeFiltersRef.current);
+
+      const succeeded = rawResults.filter((row) => row?.success).map((row) => row.id);
+      const failed = rawResults.filter((row) => row && !row.success);
+      setBulkResults(liveKeyAfterDispatch === submissionQueryKey ? failed : []);
+
+      // Optimistically update memory only if still on the same view
+      if (succeeded.length > 0 && liveKeyAfterDispatch === submissionQueryKey) {
+        const succSet = new Set(succeeded);
+        setOrders((current) =>
+          current.map((order) =>
+            succSet.has(order.id)
+              ? {
+                  ...order,
+                  status: "out-for-delivery",
+                  meta_data: [
+                    ...(order.meta_data || []).filter((m) => m.key !== "_delivery_status"),
+                    { key: "_delivery_status", value: "out-for-delivery" },
+                  ],
+                }
+              : order
+          )
+        );
+      }
+
+      if (failed.length === 0) {
+        showToast(
+          succeeded.length === 1
+            ? "1 order dispatched successfully."
+            : `${succeeded.length} orders dispatched successfully.`
+        );
+      } else {
+        showToast(
+          `${succeeded.length} dispatched; ${failed.length} failed. Please review remaining orders.`,
+          "error"
+        );
+      }
+    } catch (err) {
+      showToast(
+        err.response?.data?.message ||
+          "Dispatch request was interrupted. Refreshing orders; please review before retrying.",
+        "error"
+      );
+    } finally {
+      reviewedIds.forEach((id) => updatingIdsRef.current.delete(id));
+      setUpdatingIds(new Set(updatingIdsRef.current));
+      bulkBusyRef.current = false;
+      setBulkBusy(false);
+
+      // Refresh order list and wait for authoritative state
+      // Use a foreground read so an identical scheduled poll cannot coalesce this
+      // post-dispatch refresh and leave selection reconciliation on stale data.
+      const refreshResult = await fetchOrderList(false);
+
+      // Re-evaluate live view identifier after refresh resolves
+      const liveKeyAfterRefresh = buildOrdersQueryKey(activeFiltersRef.current);
+
+      if (liveKeyAfterRefresh !== submissionQueryKey) {
+        // Staff switched view/filters/page: NEVER restore selections in the new view
+        setSelectedIds(new Set());
+      } else {
+        // Same view: restore ONLY failed IDs that are still visible and eligible after refresh
+        const refreshedOrders = Array.isArray(refreshResult?.orders)
+          ? refreshResult.orders
+          : liveOrdersRef.current;
+        const currentTab = activeFiltersRef.current.activeTab;
+        const currentLoc = activeFiltersRef.current.locationFilter;
+
+        const refreshedFiltered = refreshedOrders.filter((order) => {
+          if (currentTab === "active" && (order.status === "completed" || order.status === "cancelled")) {
+            return false;
+          }
+          if (currentLoc !== "all") {
+            const loc = getOrderLocationInfo(order);
+            if (loc.location_key !== currentLoc) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        const refreshedEligible = deriveEligibleOrders(refreshedFiltered, updatingIdsRef.current, {
+          isViewCurrentAndReady: true,
+        });
+
+        const { nextSelectedIds } = reconcileBulkDispatchResults({
+          submissionQueryKey,
+          liveQueryKey: liveKeyAfterRefresh,
+          results: rawResults,
+          refreshedEligibleOrders: refreshedEligible,
+        });
+
+        setSelectedIds(nextSelectedIds);
+      }
+    }
+  };
+
   const formatDateLabel = (isoDate) => {
     if (!isoDate) return "";
     const parts = isoDate.split("-");
@@ -1197,7 +1446,7 @@ function Orders() {
           </div>
 
           <button
-            onClick={fetchOrderList}
+            onClick={() => fetchOrderList(false)}
             disabled={loading}
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900 shadow-2xs transition cursor-pointer disabled:opacity-50 shrink-0"
             title="Refresh Order Pipeline"
@@ -1417,29 +1666,112 @@ function Orders() {
       {/* ORDERS PRESENTATION (MOBILE STACKED CARDS / DESKTOP CLEAN TABLE) */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-xs overflow-hidden">
         <div className="border-b border-gray-100 p-4 space-y-3">
-          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
-            <input type="checkbox" disabled={bulkBusy} checked={orders.filter(eligibleForDispatch).length > 0 && orders.filter(eligibleForDispatch).slice(0, 50).every((order) => selectedIds.has(order.id))}
-              onChange={(event) => setSelectedIds(event.target.checked ? new Set(orders.filter(eligibleForDispatch).slice(0, 50).map((order) => order.id)) : new Set())} />
-            Select packed orders on this page
+          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 select-none">
+            <input
+              ref={selectAllCheckboxRef}
+              type="checkbox"
+              disabled={
+                bulkBusy ||
+                loading ||
+                !hasCurrentOrders ||
+                Boolean(error) ||
+                eligibleOrders.length === 0
+              }
+              checked={
+                eligibleOrders.length > 0 &&
+                activeSelectedIds.size === eligibleOrders.length
+              }
+              onChange={handleSelectAllToggle}
+            />
+            {hasCurrentOrders && !loading && !error && eligibleOrders.length === 0
+              ? "No packed orders ready to dispatch on this page"
+              : `Select packed orders on this page${
+                  eligibleOrders.length > 0 ? ` (${eligibleOrders.length})` : ""
+                }`}
           </label>
-          {selectedIds.size > 0 && <div className="flex flex-wrap items-center gap-3 text-xs">
-            <span>{selectedIds.size} selected</span>
-            <button type="button" disabled={bulkBusy} onClick={() => setBulkConfirm(true)} className="rounded-full bg-emerald-600 px-4 py-2 font-bold text-white disabled:opacity-50">{bulkBusy ? "Dispatching…" : "Dispatch selected"}</button>
-            <button type="button" disabled={bulkBusy} onClick={() => setSelectedIds(new Set())}>Clear selection</button>
-          </div>}
-          {bulkResults.some((row) => !row.success) && <div role="alert" className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800">
-            {bulkResults.filter((row) => !row.success).map((row) => <p key={row.id}>Order #{row.id}: {row.message}</p>)}
-            Failed orders remain selected. Review them before retrying.
-          </div>}
+          {activeSelectedIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="font-semibold text-gray-700">
+                {activeSelectedIds.size} selected
+              </span>
+              <button
+                type="button"
+                disabled={bulkBusy || activeSelectedIds.size === 0}
+                onClick={handleOpenBulkConfirm}
+                className="rounded-full bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition cursor-pointer"
+              >
+                {bulkBusy ? "Dispatching…" : "Dispatch selected"}
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => setSelectedIds(new Set())}
+                className="text-gray-500 hover:text-gray-800 transition cursor-pointer"
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+          {bulkResults.length > 0 && (
+            <div
+              role="alert"
+              className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800 space-y-1"
+            >
+              {bulkResults.map((row) => (
+                <p key={row.id}>
+                  Order #{row.id}: {row.message || "Dispatch failed"}
+                </p>
+              ))}
+              <p className="font-semibold pt-1">
+                Failed orders remain selected. Review them before retrying.
+              </p>
+            </div>
+          )}
         </div>
-        {bulkConfirm && <div role="dialog" aria-modal="true" aria-label="Confirm bulk dispatch" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4">
-            <h2 className="font-bold">Dispatch {selectedIds.size} packed orders?</h2>
-            <div className="text-sm text-gray-600">{Object.entries(orders.filter((order) => selectedIds.has(order.id)).reduce((groups, order) => { const location = getOrderLocationInfo(order).location; groups[location] = (groups[location] || 0) + 1; return groups; }, {})).map(([location, count]) => <p key={location}>{location}: {count}</p>)}</div>
-            <p className="text-xs text-gray-500">Customer tracking updates on its next refresh. Each order is checked again before dispatch.</p>
-            <div className="flex gap-3"><button type="button" onClick={dispatchSelected} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Confirm dispatch</button><button type="button" onClick={() => setBulkConfirm(false)}>Cancel</button></div>
+        {bulkConfirm && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm bulk dispatch"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5"
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4 shadow-xl">
+              <h2 className="text-base font-bold text-gray-900">
+                Dispatch {bulkConfirm.reviewedIds?.length || 0} packed{" "}
+                {bulkConfirm.reviewedIds?.length === 1 ? "order" : "orders"}?
+              </h2>
+              <div className="text-sm text-gray-600 space-y-1">
+                {Object.entries(bulkConfirm.groups || {}).map(([location, count]) => (
+                  <p key={location} className="flex justify-between">
+                    <span>{location}</span>
+                    <span className="font-semibold text-gray-800">{count}</span>
+                  </p>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500">
+                Customer tracking updates on its next refresh. Each order is checked again before dispatch.
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => setBulkConfirm(null)}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={handleConfirmDispatch}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition cursor-pointer"
+                >
+                  {bulkBusy ? "Dispatching…" : "Confirm dispatch"}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>}
+        )}
         {!hasCurrentOrders && error ? (
           <div className="p-8 text-center text-rose-600">
             <p className="text-sm font-bold">{error}</p>
@@ -1512,7 +1844,7 @@ function Orders() {
                     {/* Card Header: Order # + Date + Location + Status */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                        <input aria-label={"Select order " + order.id} type="checkbox" disabled={bulkBusy || !eligibleForDispatch(order)} checked={selectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
+                        <input aria-label={"Select order " + order.id} type="checkbox" disabled={bulkBusy || !isOrderEligibleForDispatch(order, updatingIds)} checked={activeSelectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
                         <span className="font-extrabold text-gray-900 text-sm">#{order.id}</span>
                         <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${getLocationBadgeClass(locationInfo.location_key)}`}>
                           <MapPin size={10} className="shrink-0" />
@@ -1597,7 +1929,7 @@ function Orders() {
                       >
                         {/* Order # and Date */}
                         <td className="px-5 py-3.5">
-                          <input aria-label={"Select order " + order.id} type="checkbox" className="mr-2" disabled={bulkBusy || !eligibleForDispatch(order)} checked={selectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
+                          <input aria-label={"Select order " + order.id} type="checkbox" className="mr-2" disabled={bulkBusy || !isOrderEligibleForDispatch(order, updatingIds)} checked={activeSelectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
                           <span className="font-extrabold text-gray-900">#{order.id}</span>
                           <p className="text-[11px] text-gray-400 mt-0.5">
                             {(() => {
@@ -1692,10 +2024,14 @@ function Orders() {
         )}
 
         {/* Server Pagination Controls */}
-        {(orders.length > 0 || !loading) && totalPages > 1 && (
+        {(orders.length > 0 || !loading) && (totalPages > 1 || page > 1) && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/50 px-4 py-3 sm:px-6 sm:py-3.5">
             <p className="text-xs text-gray-500 font-medium text-center sm:text-left">
-              Showing <span className="font-bold text-gray-900">{(page - 1) * perPage + 1}</span> to{" "}
+              Showing{" "}
+              <span className="font-bold text-gray-900">
+                {totalOrders === 0 ? 0 : Math.min((page - 1) * perPage + 1, totalOrders)}
+              </span>{" "}
+              to{" "}
               <span className="font-bold text-gray-900">
                 {Math.min(page * perPage, totalOrders)}
               </span>{" "}
@@ -1711,7 +2047,7 @@ function Orders() {
                 <ChevronLeft size={14} /> Prev
               </button>
               <span className="text-xs font-bold text-gray-700 px-2">
-                Page {page} of {totalPages}
+                Page {page} of {Math.max(page, totalPages)}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(p + 1, totalPages))}

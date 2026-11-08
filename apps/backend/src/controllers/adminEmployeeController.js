@@ -129,7 +129,7 @@ export const approveEmployee = async (req, res) => {
     );
 
     // Invalidate cached server-side sessions
-    invalidateUserSessionCache(targetUserId);
+    await invalidateUserSessionCache(targetUserId, response.data?.session_version);
 
 
     return res.json(response.data);
@@ -179,7 +179,7 @@ export const rejectEmployee = async (req, res) => {
       }
     );
 
-    invalidateUserSessionCache(targetUserId);
+    await invalidateUserSessionCache(targetUserId, response.data?.session_version);
     try {
       await removeSubscriptionsForEmployee(targetUserId);
     } catch (pushErr) {
@@ -240,7 +240,7 @@ export const updateEmployeeStatus = async (req, res) => {
       }
     );
 
-    invalidateUserSessionCache(targetUserId);
+    await invalidateUserSessionCache(targetUserId, response.data?.session_version);
     if (status === "deactivated") {
       try {
         await removeSubscriptionsForEmployee(targetUserId);
@@ -293,7 +293,7 @@ export const revokeEmployeeSessions = async (req, res) => {
       }
     );
 
-    invalidateUserSessionCache(targetUserId);
+    await invalidateUserSessionCache(targetUserId, response.data?.session_version);
     try {
       await removeSubscriptionsForEmployee(targetUserId);
     } catch (pushErr) {

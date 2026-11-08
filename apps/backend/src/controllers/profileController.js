@@ -6,7 +6,10 @@ import {
   invalidateSessionCache,
   invalidateUserSessionCache,
   setSessionCache,
+  parseWordPressAuthCookie,
+  checkDurableUserRevocation,
 } from "../middlewares/authMiddleware.js";
+import { getRedisClient } from "../config/redis.js";
 import { parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
@@ -168,12 +171,33 @@ export const saveProfile = async (req, res) => {
     const hasNewPasswordSession = Boolean(payload.session && payload.cookie_name);
 
     if (hasNewPasswordSession) {
-      // Password changed: invalidate previous sessions on other devices
+      // Authoritative session version issued directly by WordPress for the replacement token
+      const authoritativeVersion = payload.session_version !== undefined && payload.session_version !== null
+        ? Number(payload.session_version)
+        : null;
+
+      // Invalidate previous sessions across all devices using WordPress authoritative version
       if (req.wpUserId) {
-        invalidateUserSessionCache(req.wpUserId);
+        await invalidateUserSessionCache(req.wpUserId, authoritativeVersion);
       }
       if (wpAuth) {
         await invalidateSessionCache(wpAuth, { permanent: true });
+      }
+
+      // Check whether a newer revocation already superseded this replacement session
+      if (req.wpUserId && authoritativeVersion !== null) {
+        const durableUserCheck = checkDurableUserRevocation(req.wpUserId, authoritativeVersion, Date.now());
+        if (durableUserCheck.revoked) {
+          throw new Error("Password updated, but replacement session was superseded by a newer revocation.");
+        }
+        const redis = getRedisClient();
+        if (redis) {
+          const currentRedisVerStr = await redis.get(`sess:user_ver:${req.wpUserId}`).catch(() => null);
+          const currentRedisVer = currentRedisVerStr ? Number(currentRedisVerStr) : null;
+          if (currentRedisVer !== null && authoritativeVersion < currentRedisVer) {
+            throw new Error("Password updated, but replacement session was superseded by a newer revocation in Redis.");
+          }
+        }
       }
 
       // Issue replacement session to this client
@@ -185,13 +209,27 @@ export const saveProfile = async (req, res) => {
         res.cookie(cookieConfig.nonce, payload.rest_nonce, cookieOptions);
       }
 
-      // Seed replacement session cache with a timestamp strictly after the revocation time
+      // Require authoritative expiration returned by authentication authority, falling back to verified cookie expiration
+      const parsedReplCookie = parseWordPressAuthCookie(newFullCookie);
+      const rawExp = payload.expires_at;
+      const replExpiresAt = rawExp && Number.isFinite(Number(rawExp)) && Number(rawExp) > 0
+        ? Number(rawExp) * 1000
+        : (parsedReplCookie?.expiresAt && Number.isFinite(Number(parsedReplCookie.expiresAt)) && Number(parsedReplCookie.expiresAt) > 0
+            ? Number(parsedReplCookie.expiresAt)
+            : null);
+
+      if (!replExpiresAt) {
+        throw new Error("Password updated, but replacement session deadline could not be verified.");
+      }
+
       setSessionCache(newFullCookie, {
         userId: req.wpUserId,
         name: cleanFullName,
         roles: ["customer"],
         phone: cleanPhone || phone,
-        timestamp: Date.now() + 1000,
+        expiresAt: replExpiresAt,
+        userVersion: authoritativeVersion,
+        timestamp: Date.now(),
       });
     } else {
       // Ordinary contact details / profile update (no password changed):
@@ -326,9 +364,9 @@ export const deleteAccount = async (req, res) => {
     );
 
     if (wpAuth) {
-      invalidateSessionCache(wpAuth);
+      await invalidateSessionCache(wpAuth, { permanent: true });
     }
-    invalidateUserSessionCache(userId);
+    await invalidateUserSessionCache(userId);
     serverCache.invalidatePrefix("admin:customers");
 
     // 3. Clear customer auth cookies on response

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
   Eye,
@@ -14,6 +14,10 @@ import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
 
 function Login() {
   const { user, loading, isEmployee, login } = useEmployeeAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isRenew = searchParams.get("renew") === "true";
+  const returnTo = searchParams.get("returnTo") || "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,8 +35,8 @@ function Login() {
     );
   }
 
-  if (user && isEmployee) {
-    return <Navigate to="/" replace />;
+  if (user && isEmployee && !isRenew) {
+    return <Navigate to={returnTo} replace />;
   }
 
   const handleSubmit = async (e) => {
@@ -47,7 +51,11 @@ function Login() {
 
     try {
       setSubmitting(true);
-      await login(email.trim(), password);
+      const res = await login(email.trim(), password);
+      if (res?.superseded || res?.cancelled) {
+        return;
+      }
+      navigate(returnTo, { replace: true });
     } catch (err) {
       if (err.response?.status === 401) {
         setError(err.response.data?.message || "Invalid email or password.");
@@ -94,6 +102,13 @@ function Login() {
               Employee & Dispatch Portal
             </div>
           </div>
+
+          {/* Renew Notice */}
+          {isRenew && (
+            <div className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs font-semibold text-amber-300 animate-in fade-in duration-200">
+              Shift Renewal: Sign in again to refresh your 12-hour session without interrupting order monitoring.
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (

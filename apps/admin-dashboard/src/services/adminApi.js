@@ -87,6 +87,19 @@ export const getCustomerOrders = async (customerId, params = {}, config = {}) =>
   return res.data;
 };
 
+export const getCustomerPayments = async (customerId, config = {}) => {
+  const res = await api.get(`/customers/${customerId}/payments`, config);
+  return res.data;
+};
+
+export const lookupPaymentReference = async (ref, live = false, config = {}) => {
+  const res = await api.get("/customers/payment-lookup", {
+    params: { ref, live: live ? 1 : 0 },
+    ...config,
+  });
+  return res.data;
+};
+
 export const getAnalytics = async (params = {}, config = {}) => {
   const res = await api.get("/analytics", { params, ...config });
   return res.data;

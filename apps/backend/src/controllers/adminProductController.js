@@ -14,6 +14,27 @@ import { logError, logger } from "../utils/logger.js";
 import { isSafeExternalImageUrl } from "../utils/imageValidator.js";
 import { sanitizeUpstreamError } from "../utils/upstreamError.js";
 
+export const EDITABLE_PRODUCT_SCOPE = { context: "edit", include_status: ["any"] };
+export const PRODUCT_STOCK_COUNTS_CACHE_KEY = "product_stock_counts";
+
+const invalidateInventoryCaches = async () => {
+  const batch = serverCache.createInvalidationBatch();
+  batch.invalidatePrefix("admin_products:");
+  batch.delete(PRODUCT_STOCK_COUNTS_CACHE_KEY);
+  // This prefix also evicts admin:analytics:overview.
+  batch.invalidatePrefix("admin:analytics");
+  batch.invalidatePrefix("catalog:");
+  batch.delete("admin:categories");
+  batch.delete("seo:sitemap_xml");
+  searchIndexService.markDirty();
+
+  try {
+    await batch.flush();
+  } catch (error) {
+    logger.warn({ err: error.message }, "Product saved, but shared inventory cache invalidation is degraded");
+  }
+};
+
 const isProtectedUncategorized = (category) =>
   String(category?.slug || "").toLowerCase() === "uncategorized" ||
   String(category?.name || "").toLowerCase() === "uncategorized";
@@ -130,8 +151,20 @@ const validateProductCategories = async ({
 /**
  * Fetch Live Product Stock Counts (Cached for 60s)
  */
-export const fetchStockCounts = async () => {
-  return serverCache.getOrFetch("product_stock_counts", async () => {
+export const fetchStockCounts = async ({ bypassCache = false } = {}) => {
+  const normalizeCounts = (counts) => {
+    const fields = ["all", "instock", "onbackorder", "outofstock", "lowstock"];
+    const isCount = (value) =>
+      (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) ||
+      (typeof value === "string" && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)));
+    if (!counts || fields.some((field) => !isCount(counts[field]))) {
+      throw new Error("Stock counts are temporarily unavailable.");
+    }
+    return Object.fromEntries(fields.map((field) => [field, Number(counts[field])]));
+  };
+
+  const loadCounts = async () => {
+
     // 1. Try WordPress custom endpoint if MUMBAI_INTERNAL_API_KEY is configured
     try {
       const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
@@ -143,36 +176,60 @@ export const fetchStockCounts = async () => {
           timeout: 4000,
         });
         if (res.data?.success && res.data?.counts) {
-          return res.data.counts;
+          return normalizeCounts(res.data.counts);
         }
       }
     } catch (wpErr) {
       // Fall through to WooCommerce query
     }
 
-    // 2. Fallback: query WooCommerce with per_page=1 to extract x-wp-total headers
+    // 2. Fallback: use the same editable product scope as the inventory list.
     try {
-      const [allRes, inStockRes, outOfStockRes, lowStockRes] = await Promise.all([
-        api.get("products", { per_page: 1, status: "publish" }).catch(() => null),
-        api.get("products", { per_page: 1, stock_status: "instock", status: "publish" }).catch(() => null),
-        api.get("products", { per_page: 1, stock_status: "outofstock", status: "publish" }).catch(() => null),
-        api.get("products", { per_page: 1, stock_status: "lowstock", status: "publish" }).catch(() => null),
+      const scope = { ...EDITABLE_PRODUCT_SCOPE, per_page: 1 };
+      const [allRes, inStockRes, backorderRes, outOfStockRes, lowStockRes] = await Promise.all([
+        api.get("products", scope),
+        api.get("products", { ...scope, stock_status: "instock" }),
+        api.get("products", { ...scope, stock_status: "onbackorder" }),
+        api.get("products", { ...scope, stock_status: "outofstock" }),
+        api.get("products", { ...scope, stock_status: "lowstock" }),
       ]);
 
-      if (!allRes || !inStockRes || !outOfStockRes || !lowStockRes) throw new Error("Stock counts are temporarily unavailable.");
-      const all = Number(allRes?.headers?.["x-wp-total"]) || 0;
-      const outofstock = Number(outOfStockRes?.headers?.["x-wp-total"]) || 0;
-      const lowstock = Number(lowStockRes?.headers?.["x-wp-total"]) || 0;
-      let instock = Number(inStockRes?.headers?.["x-wp-total"]) || 0;
-      if (!instock && all > 0) {
-        instock = Math.max(0, all - outofstock);
-      }
+      const readTotal = (response) => {
+        const raw = response?.headers?.["x-wp-total"];
+        if ((typeof raw !== "string" && typeof raw !== "number") || !/^\d+$/.test(String(raw))) {
+          throw new Error("WooCommerce did not return a valid product total.");
+        }
+        const total = Number(raw);
+        if (!Number.isSafeInteger(total)) throw new Error("WooCommerce returned an invalid product total.");
+        return total;
+      };
 
-      return { all, instock, lowstock, outofstock };
+      return normalizeCounts({
+        all: readTotal(allRes),
+        instock: readTotal(inStockRes),
+        onbackorder: readTotal(backorderRes),
+        outofstock: readTotal(outOfStockRes),
+        lowstock: readTotal(lowStockRes),
+      });
     } catch (wcErr) {
       throw wcErr;
     }
-  }, 60000);
+  };
+  const counts = bypassCache
+    ? await loadCounts()
+    : await serverCache.getOrFetch(PRODUCT_STOCK_COUNTS_CACHE_KEY, loadCounts, 60000);
+  return normalizeCounts(counts);
+};
+
+const STOCK_COUNTS_RESPONSE_BUDGET_MS = 1500;
+
+export const settleWithinBudget = (promise, budgetMs = STOCK_COUNTS_RESPONSE_BUDGET_MS) => {
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), Math.max(0, budgetMs));
+  });
+  return Promise.race([Promise.resolve(promise).catch(() => null), deadline])
+    .finally(() => clearTimeout(timer));
 };
 
 /**
@@ -259,15 +316,21 @@ export const getAdminProducts = async (req, res) => {
     const cacheKey = `admin_products:${pageNum}:${limit}:${cleanCategory}:${cleanStockStatus}:${cleanSearch}`;
 
     const cachedData = serverCache.get(cacheKey);
+    // getOrFetch keeps summary refreshes to once per TTL, including searches,
+    // and lets another backend instance reuse the Redis-backed summary.
+    const stockCountsPromise = settleWithinBudget(fetchStockCounts());
     if (cachedData) {
+      const stockCounts = await stockCountsPromise;
       return res.json({
         ...cachedData,
+        counts: stockCounts,
         products: transformMediaUrls(cachedData.products, req),
       });
     }
 
     const queryParams = {
-      context: "edit",
+      // Keep editable unpublished products in the shared employee/admin list.
+      ...EDITABLE_PRODUCT_SCOPE,
       page: pageNum,
       per_page: limit,
       orderby: "date",
@@ -303,14 +366,12 @@ export const getAdminProducts = async (req, res) => {
       queryParams.search = search.trim();
     }
 
-    // Stock counts are independent of the search term. Avoid recalculating the
-    // full catalog summary for every keystroke; use the existing cache during
-    // searches and refresh it on the unfiltered inventory view.
-    const stockCountsPromise = cleanSearch
-      ? Promise.resolve(serverCache.get("product_stock_counts"))
-      : fetchStockCounts();
+    // Capture the list cache generation before the WooCommerce read. A stock
+    // mutation during this request then fences off this response from cache.
+    const listCacheFence = await serverCache.createFence(cacheKey);
 
-    // Parallel fetch: query filtered products and stock summary counts
+    // Counts are independent; their 60-second cache prevents a catalog scan on
+    // each search keystroke and a summary failure never fails the product list.
     const [response, stockCounts] = await Promise.all([
       api.get("products", queryParams),
       stockCountsPromise,
@@ -344,21 +405,56 @@ export const getAdminProducts = async (req, res) => {
       total: totalProducts,
       totalPages,
       count: formatted.length,
-      counts: stockCounts,
       products: formatted,
     };
 
-    // Cache product list for 60 seconds
-    serverCache.set(cacheKey, resultPayload, 60000);
+    // Cache list data separately; catalog-wide counts have their own cache.
+    await serverCache.setFenced(cacheKey, resultPayload, 60000, listCacheFence);
 
     res.json({
       ...resultPayload,
+      counts: stockCounts,
       products: transformMediaUrls(formatted, req),
     });
   } catch (error) {
     logError(req, error, "Get admin products error");
     const safeError = sanitizeUpstreamError(error, "Failed to load products.");
     res.status(safeError.status).json({ ...safeError.payload, products: [] });
+  }
+};
+
+/**
+ * Fresh staff-authorized product read used to confirm an ambiguous Quick Adjust timeout.
+ * This intentionally bypasses the paginated inventory cache and requests WooCommerce edit context.
+ */
+export const getAdminProductById = async (req, res) => {
+  try {
+    const productId = Number(req.params.id);
+    if (!Number.isSafeInteger(productId) || productId <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid product ID." });
+    }
+
+    const response = await api.get(`products/${productId}`, { context: "edit" });
+    const product = response.data;
+    if (!product || Number(product.id) !== productId) {
+      return res.status(404).json({ success: false, message: "Product not found." });
+    }
+
+    return res.json({
+      success: true,
+      product: {
+        id: product.id,
+        regular_price: product.regular_price,
+        sale_price: product.sale_price,
+        stock_quantity: product.stock_quantity,
+        stock_status: product.stock_status,
+        manage_stock: product.manage_stock,
+      },
+    });
+  } catch (error) {
+    logError(req, error, "Get admin product by ID error");
+    const safeError = sanitizeUpstreamError(error, "Failed to verify product changes.");
+    return res.status(safeError.status).json({ ...safeError.payload, success: false });
   }
 };
 
@@ -436,13 +532,7 @@ export const updateProduct = async (req, res) => {
       ? await wp.post("/wp-json/mumbai-auth/v1/staff/products/" + id + "/adjust", { ...updatePayload, expected_stock_quantity: req.body.expected_stock_quantity })
       : await api.put("products/" + encodeURIComponent(id), updatePayload);
 
-    // Invalidate product list, stock counts, public catalog, and category counts
-    serverCache.invalidatePrefix("admin_products:");
-    serverCache.delete("product_stock_counts");
-    serverCache.invalidatePrefix("catalog:");
-    searchIndexService.markDirty();
-    serverCache.delete("admin:categories");
-    serverCache.delete("seo:sitemap_xml");
+    await invalidateInventoryCaches();
 
 
     res.json({
@@ -453,6 +543,10 @@ export const updateProduct = async (req, res) => {
   } catch (error) {
     logError(req, error, "Update product error");
     const safeError = sanitizeUpstreamError(error, "Failed to update product.");
+    const currentStock = error.response?.data?.data?.current_stock ?? error.response?.data?.current_stock;
+    if (safeError.status === 409 && currentStock !== undefined) {
+      safeError.payload.current_stock = currentStock;
+    }
     res.status(safeError.status).json(safeError.payload);
   }
 };
@@ -476,13 +570,7 @@ export const deleteProduct = async (req, res) => {
       force: false,
     });
 
-    // Invalidate product list, stock counts, public catalog, and category counts
-    serverCache.invalidatePrefix("admin_products:");
-    serverCache.delete("product_stock_counts");
-    serverCache.invalidatePrefix("catalog:");
-    searchIndexService.markDirty();
-    serverCache.delete("admin:categories");
-    serverCache.delete("seo:sitemap_xml");
+    await invalidateInventoryCaches();
 
     res.json({
       success: true,
@@ -645,13 +733,7 @@ export const createProduct = async (req, res) => {
 
     const response = await api.post("products", payload);
 
-    // Invalidate product list, stock counts, public catalog, and category counts
-    serverCache.invalidatePrefix("admin_products:");
-    serverCache.delete("product_stock_counts");
-    serverCache.invalidatePrefix("catalog:");
-    searchIndexService.markDirty();
-    serverCache.delete("admin:categories");
-    serverCache.delete("seo:sitemap_xml");
+    await invalidateInventoryCaches();
 
     const createdProduct = response.data;
     const createdProductId = createdProduct?.id;

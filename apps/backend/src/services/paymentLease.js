@@ -22,6 +22,15 @@ export async function acquirePaymentLease(key, prefix = 'payment', waitMs = 4000
   timer.unref?.();
   return {
     refresh,
+    async isHeld() {
+      if (lost) return false;
+      try {
+        await refresh();
+        return !lost;
+      } catch {
+        return false;
+      }
+    },
     async release() {
       clearInterval(timer);
       await paymentIntentService.releaseLock(key, owner);

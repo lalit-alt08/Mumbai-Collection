@@ -1,4 +1,4 @@
-﻿import wp from "../services/wordpress.js";
+import wp from "../services/wordpress.js";
 import { invalidateUserSessionCache } from "../middlewares/authMiddleware.js";
 import { logError } from "../utils/logger.js";
 
@@ -80,7 +80,7 @@ export const suspendCustomer = async (req, res) => {
 
     const customerId = response.data?.customer?.id;
     if (customerId) {
-      invalidateUserSessionCache(customerId);
+      await invalidateUserSessionCache(customerId);
     }
 
 
@@ -128,7 +128,7 @@ export const unsuspendCustomer = async (req, res) => {
 
     const customerId = response.data?.customer?.id;
     if (customerId) {
-      invalidateUserSessionCache(customerId);
+      await invalidateUserSessionCache(customerId);
     }
 
 

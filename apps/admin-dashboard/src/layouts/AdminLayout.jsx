@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -23,18 +23,39 @@ function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pageRefresh, setPageRefresh] = useState(null);
   const [refreshLoading, setRefreshLoading] = useState(false);
+  const mainRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
 
+  const handleMenuClick = (event, href) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    setSidebarOpen(false);
+    if (location.pathname !== href) return;
+
+    event.preventDefault();
+    mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    void pageRefresh?.();
+  };
+
   const { logout } = useAdminAuth();
 
-  // Reset page-level refresh when navigating to a new route
+  // Page components own refresh callback registration and cleanup.
   useEffect(() => {
-    setPageRefresh(null);
     setRefreshLoading(false);
   }, [location.pathname]);
 
-  const setDashboardRefresh = (fn) => setPageRefresh(fn);
+  const setDashboardRefresh = setPageRefresh;
 
   const navigation = [
     { name: "Overview", href: "/", icon: LayoutDashboard },
@@ -79,14 +100,14 @@ function AdminLayout() {
       {sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-[45] bg-black/60 backdrop-blur-sm lg:hidden"
         />
       )}
 
       {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#121417] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none lg:pointer-events-auto"
         }`}
       >
         {/* Brand Header */}
@@ -131,7 +152,7 @@ function AdminLayout() {
               <NavLink
                 key={item.name}
                 to={item.href}
-                onClick={() => setSidebarOpen(false)}
+                onClick={(e) => handleMenuClick(e, item.href)}
                 style={{ touchAction: "manipulation" }}
                 className={`group flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all select-none ${
                   isActive
@@ -220,7 +241,7 @@ function AdminLayout() {
 
           {/* Right Action Controls: Refresh (when page provides it) & Logout */}
           <div className="flex items-center gap-2 shrink-0">
-            {pageRefresh && (
+            {pageRefresh && !location.pathname.startsWith('/customers') && (
               <button
                 type="button"
                 onClick={() => {
@@ -251,7 +272,7 @@ function AdminLayout() {
         </header>
 
         {/* Page Content with bottom clearance for Mobile Bottom Navigation */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">
           <Outlet context={{ setDashboardRefresh, setPageRefresh, setRefreshLoading }} />
         </main>
 
@@ -276,6 +297,7 @@ function AdminLayout() {
                 <NavLink
                   key={item.name}
                   to={item.href}
+                  onClick={(e) => handleMenuClick(e, item.href)}
                   className={`flex flex-1 flex-col items-center justify-center gap-1 py-1 active:scale-95 transition ${
                     isActive ? "text-[#FF8A00]" : "text-gray-400 hover:text-[#FF8A00]"
                   }`}

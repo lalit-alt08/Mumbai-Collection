@@ -10,6 +10,8 @@ import {
   invalidateUserSessionCache,
   rolesMatchAuthContext,
   setSessionCache,
+  parseWordPressAuthCookie,
+  removeDurableRevocation,
 } from "../middlewares/authMiddleware.js";
 import { OAuth2Client } from "google-auth-library";
 import { sendOtpEmail, normalizePhoneNumber } from "../services/brevoService.js";
@@ -211,6 +213,11 @@ export const login = async (req, res) => {
 
     const cookieOptions = getCookieOptions(req, userRoles);
 
+    let computedExpiresAt = null;
+    const sessionVersion = (data.session_version !== undefined && data.session_version !== null && Number.isFinite(Number(data.session_version)))
+      ? Number(data.session_version)
+      : null;
+
     if (data.success && data.session && data.cookie_name) {
       const fullCookieVal = `${data.cookie_name}=${data.session}`;
       res.cookie(
@@ -218,6 +225,13 @@ export const login = async (req, res) => {
         fullCookieVal,
         cookieOptions
       );
+
+      const parsedFullCookie = parseWordPressAuthCookie(fullCookieVal);
+      computedExpiresAt = data.expires_at && Number.isFinite(Number(data.expires_at)) && Number(data.expires_at) > 0
+        ? Number(data.expires_at) * 1000
+        : (parsedFullCookie?.expiresAt && Number.isFinite(Number(parsedFullCookie.expiresAt)) && Number(parsedFullCookie.expiresAt) > 0
+            ? Number(parsedFullCookie.expiresAt)
+            : null);
 
       if (data.user?.id) {
         setSessionCache(fullCookieVal, {
@@ -234,7 +248,9 @@ export const login = async (req, res) => {
           hasUsablePassword: data.user.has_usable_password === true,
           isPhoneVerified: data.user.is_phone_verified === true,
           isSuspended: data.user.is_suspended === true,
+          expiresAt: computedExpiresAt,
           timestamp: Date.now(),
+          userVersion: sessionVersion,
         });
       }
     }
@@ -248,6 +264,9 @@ export const login = async (req, res) => {
       message: data.message,
       user: data.user,
       context,
+      session_version: sessionVersion,
+      expires_at: computedExpiresAt ? Math.floor(computedExpiresAt / 1000) : (data.expires_at ? Number(data.expires_at) : null),
+      server_now: data.server_now ? Number(data.server_now) : Math.floor(Date.now() / 1000),
     });
   } catch (error) {
     const status = error.response?.status || 500;
@@ -269,32 +288,72 @@ export const logout = async (req, res) => {
     const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
     const clearOptions = getClearCookieOptions(req);
 
-    let serverRevocationSuccess = true;
+    let serverRevocationSuccess = false;
     if (wpAuth) {
-      // Invalidate session on WordPress server-side specifically for this session token
-      try {
-        await axios.post(
-          `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
-          {},
-          {
-            headers: {
-              Cookie: wpAuth,
-              ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
-            },
-            httpsAgent,
-            timeout: 5000,
+      // Invalidate session on WordPress server-side specifically for this session token (with retry)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const wpLogoutRes = await axios.post(
+            `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/logout`,
+            {},
+            {
+              headers: {
+                Cookie: wpAuth,
+                ...(process.env.MUMBAI_INTERNAL_API_KEY ? { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY } : {}),
+              },
+              httpsAgent,
+              timeout: 3000,
+            }
+          );
+          if (wpLogoutRes.data?.success) {
+            serverRevocationSuccess = true;
+            break;
           }
-        );
-      } catch (err) {
-        serverRevocationSuccess = false;
-        logger.warn({ err: err?.message }, "[Auth] Upstream WordPress session revocation could not be confirmed during logout");
+        } catch (err) {
+          logger.warn({ attempt, err: err?.message }, "[Auth] Upstream WordPress session revocation attempt failed during logout");
+          if (attempt < 3) {
+            await new Promise((r) => setTimeout(r, 150));
+          }
+        }
       }
 
-      // Invalidate session cache across all instances. If WordPress revocation failed,
-      // store a long-lived revocation marker in Redis to prevent session resurrection.
-      const sharedRevocationConfirmed = await invalidateSessionCache(wpAuth, { permanent: !serverRevocationSuccess });
-      if (!serverRevocationSuccess && !sharedRevocationConfirmed) {
-        logger.error("[Auth] Logout could not revoke the WordPress session or persist a Redis revocation marker");
+      // If confirmed by WordPress, remove any pending durable block and invalidate cache
+      if (serverRevocationSuccess) {
+        removeDurableRevocation(wpAuth);
+        await invalidateSessionCache(wpAuth, { permanent: false });
+      } else {
+        // WordPress did not confirm destruction: record shared durable block with atomic writes
+        let sharedRevocationConfirmed = false;
+        try {
+          sharedRevocationConfirmed = await invalidateSessionCache(wpAuth, { permanent: true });
+        } catch (dErr) {
+          logger.error({ err: dErr?.message }, "[Auth] Failed recording durable revocation during unconfirmed logout");
+        }
+
+        logger.warn({ sharedRevocationConfirmed }, "[Auth] Logout could not confirm WordPress server session destruction");
+        const isForce = req.body?.force === true || req.query?.force === "true";
+        if (isForce) {
+          res.clearCookie(cookieConfig.auth, clearOptions);
+          res.clearCookie(cookieConfig.nonce, clearOptions);
+          return res.status(200).json({
+            success: true,
+            server_revocation_confirmed: false,
+            shared_revocation_persisted: sharedRevocationConfirmed,
+            cookie_cleared: true,
+            message: "Local logout completed. Server session revocation could not be confirmed.",
+            context,
+          });
+        }
+
+        return res.status(500).json({
+          success: false,
+          server_revocation_confirmed: false,
+          shared_revocation_persisted: sharedRevocationConfirmed,
+          cookie_cleared: false,
+          code: "LOGOUT_REVOCATION_FAILED",
+          message: "Logout could not confirm server session revocation in WordPress. Credentials preserved for retry. Pass force=true to clear anyway.",
+          context,
+        });
       }
     }
 
@@ -305,9 +364,8 @@ export const logout = async (req, res) => {
     res.json({
       success: true,
       server_revocation_confirmed: serverRevocationSuccess,
-      message: serverRevocationSuccess
-        ? "Logged out successfully."
-        : "Local logout completed. Server session revocation could not be fully confirmed.",
+      cookie_cleared: true,
+      message: "Logged out successfully.",
       context,
     });
   } catch (error) {
@@ -422,6 +480,14 @@ export const register = async (req, res) => {
       res.cookie(cookieConfig.auth, fullCookieVal, cookieOptions);
 
       if (authUser?.id) {
+        const regExpiresAt = (response.data?.expires_at
+          ? Number(response.data.expires_at)
+          : Math.floor(Date.now() / 1000) + 30 * 86400) * 1000;
+
+        const regVersion = (response.data?.session_version !== undefined && response.data.session_version !== null && Number.isFinite(Number(response.data.session_version)))
+          ? Number(response.data.session_version)
+          : null;
+
         setSessionCache(fullCookieVal, {
           userId: authUser.id,
           name: authUser.name || cleanFullName,
@@ -436,7 +502,9 @@ export const register = async (req, res) => {
           hasUsablePassword: authUser.has_usable_password !== false,
           isPhoneVerified: authUser.is_phone_verified === true,
           isSuspended: authUser.is_suspended === true,
+          expiresAt: regExpiresAt,
           timestamp: Date.now(),
+          userVersion: regVersion,
         });
       }
     }
@@ -494,7 +562,16 @@ export const resetPassword = async (req, res) => {
     });
 
     if (response.data?.user_id) {
-      invalidateUserSessionCache(response.data.user_id);
+      const revoked = await invalidateUserSessionCache(
+        response.data.user_id,
+        response.data.session_version
+      );
+      if (!revoked) {
+        logger.warn(
+          { userId: response.data.user_id },
+          "[Auth] User revocation marker could not be persisted to Redis after reset password"
+        );
+      }
     }
 
     res.json(response.data);
@@ -609,8 +686,11 @@ export const me = async (req, res) => {
       current_user_id: userId,
       roles,
       user: userDetails,
+      session_version: session.userVersion !== undefined ? session.userVersion : null,
       is_phone_verified: session.isPhoneVerified === true,
       verified_phone: session.verifiedPhone || "",
+      expires_at: session.expiresAt ? Math.floor(session.expiresAt / 1000) : null,
+      server_now: Math.floor(Date.now() / 1000),
     });
   } catch (error) {
     const isUpstreamOutage =
@@ -778,7 +858,18 @@ export const googleLogin = async (req, res) => {
         cookieOptions
       );
 
+      const parsedFullCookie = parseWordPressAuthCookie(fullCookieVal);
+      const computedExpiresAt = data.expires_at && Number.isFinite(Number(data.expires_at)) && Number(data.expires_at) > 0
+        ? Number(data.expires_at) * 1000
+        : (parsedFullCookie?.expiresAt && Number.isFinite(Number(parsedFullCookie.expiresAt)) && Number(parsedFullCookie.expiresAt) > 0
+            ? Number(parsedFullCookie.expiresAt)
+            : null);
+
       if (data.user?.id) {
+        const ssoVersion = (data.session_version !== undefined && data.session_version !== null && Number.isFinite(Number(data.session_version)))
+          ? Number(data.session_version)
+          : null;
+
         setSessionCache(fullCookieVal, {
           userId: data.user.id,
           name: data.user.name || "",
@@ -793,7 +884,9 @@ export const googleLogin = async (req, res) => {
           hasUsablePassword: data.user.has_usable_password === true,
           isPhoneVerified: data.user.is_phone_verified === true,
           isSuspended: data.user.is_suspended === true,
+          expiresAt: computedExpiresAt,
           timestamp: Date.now(),
+          userVersion: ssoVersion,
         });
       }
     }
@@ -1082,7 +1175,16 @@ export const resetPasswordOtp = async (req, res) => {
     );
 
     if (resetResponse.data?.user_id) {
-      invalidateUserSessionCache(resetResponse.data.user_id);
+      const revoked = await invalidateUserSessionCache(
+        resetResponse.data.user_id,
+        resetResponse.data.session_version
+      );
+      if (!revoked) {
+        logger.warn(
+          { userId: resetResponse.data.user_id },
+          "[Auth] User revocation marker could not be persisted to Redis after OTP reset"
+        );
+      }
     }
 
     return res.status(200).json(resetResponse.data);

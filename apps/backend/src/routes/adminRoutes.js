@@ -19,6 +19,8 @@ import {
 import {
   getAdminCustomers,
   getAdminCustomerOrders,
+  getAdminCustomerPayments,
+  lookupAdminPaymentReference,
 } from "../controllers/adminCustomerController.js";
 
 import {
@@ -194,6 +196,21 @@ router.get(
   requireRole(["administrator"]),
   validateRequest({ params: schemas.idParam, query: schemas.pagination }),
   getAdminCustomerOrders
+);
+
+router.get(
+  "/customers/payment-lookup",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  lookupAdminPaymentReference
+);
+
+router.get(
+  "/customers/:id/payments",
+  requireAuth("admin"),
+  requireRole(["administrator"]),
+  validateRequest({ params: schemas.idParam }),
+  getAdminCustomerPayments
 );
 
 // Order Management (H4: previously orphaned — now mounted)

@@ -469,7 +469,15 @@ export const findWcOrderByRazorpayOrderId = async (rzpOrderId) => {
     const res = await wpClient.get("/wp-json/mumbai-auth/v1/orders/by-razorpay-order-id", {
       params: { rzp_order_id: rzpOrderId },
     });
-    return res.data?.order || null;
+    if (res.data && res.data.success === true && Object.prototype.hasOwnProperty.call(res.data, "order")) {
+      if (res.data.order === null) {
+        return null;
+      }
+      if (typeof res.data.order === "object" && res.data.order !== null && (res.data.order.id || res.data.order.number)) {
+        return res.data.order;
+      }
+    }
+    throw new Error(res.data?.message || "Incomplete order lookup response from store database");
   } catch (err) {
     logger.warn(
       { rzpOrderId, err: err.message },

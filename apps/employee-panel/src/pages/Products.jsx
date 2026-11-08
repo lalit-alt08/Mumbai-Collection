@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useOutletContext } from "react-router-dom";
+import { useVisibleRevalidation } from "../hooks/useVisibleRevalidation.js";
 import {
   Boxes,
   Search,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import {
   getProducts,
+  getProductById,
   updateProduct,
   createProduct,
   uploadProductImage,
@@ -40,12 +42,17 @@ import {
 } from "../utils/imageCompressor.js";
 import {
   validateAdjustInput,
+  buildProductAdjustmentPayload,
   applyProductAdjustment,
+  matchesProductAdjustment,
   calculateStockStep,
 } from "../utils/productAdjuster.js";
+import { getProductStockDisplay } from "../utils/productStockDisplay.js";
 
 function Products() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const outletContext = useOutletContext();
+  const setPageRefresh = outletContext?.setPageRefresh;
 
   const urlStockParam = searchParams.get("stock_status");
   const urlCategoryParam = searchParams.get("category");
@@ -58,7 +65,7 @@ function Products() {
   const [searchQuery, setSearchQuery] = useState(urlSearchParam || "");
   const [debouncedSearch, setDebouncedSearch] = useState(urlSearchParam || "");
   const [stockFilter, setStockFilter] = useState(() => {
-    return urlStockParam === "instock" || urlStockParam === "outofstock" ? urlStockParam : "all";
+    return ["instock", "outofstock", "lowstock", "onbackorder"].includes(urlStockParam) ? urlStockParam : "all";
   });
 
   // Category filter state
@@ -86,6 +93,9 @@ function Products() {
   const [quickAdjustProduct, setQuickAdjustProduct] = useState(null);
   const [adjustForm, setAdjustForm] = useState({ regular_price: "", sale_price: "", stock_quantity: "" });
   const [adjustSaving, setAdjustSaving] = useState(false);
+  const listViewKey = JSON.stringify([page, perPage, debouncedSearch, stockFilter, categoryFilter]);
+  const listViewKeyRef = useRef(listViewKey);
+  listViewKeyRef.current = listViewKey;
 
   // Delete product state
   const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
@@ -183,7 +193,7 @@ function Products() {
     const catParam = searchParams.get("category");
     const searchParam = searchParams.get("search");
 
-    const resolvedStock = stockParam === "instock" || stockParam === "outofstock" ? stockParam : "all";
+    const resolvedStock = ["instock", "outofstock", "lowstock", "onbackorder"].includes(stockParam) ? stockParam : "all";
     setStockFilter((prev) => (prev !== resolvedStock ? resolvedStock : prev));
 
     const resolvedCat = catParam || "all";
@@ -363,13 +373,15 @@ function Products() {
 
   const abortControllerRef = useRef(null);
 
-  const fetchProductList = async () => {
+  const fetchProductList = async ({ silent = false } = {}) => {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const currentRequestId = ++requestIdRef.current;
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError("");
       const res = await getProducts(
         {
@@ -389,9 +401,7 @@ function Products() {
 
       if (res.success) {
         setProducts(res.products || []);
-        if (res.counts) {
-          setStockCounts(res.counts);
-        }
+        setStockCounts(res.counts ?? null);
         setTotalProducts(res.total !== undefined ? res.total : (res.products?.length || 0));
         setTotalPages(res.totalPages !== undefined ? res.totalPages : (Math.ceil((res.total || 1) / perPage) || 1));
       }
@@ -402,8 +412,13 @@ function Products() {
       if (currentRequestId !== requestIdRef.current) {
         return;
       }
-      setError(err.response?.data?.message || err.message || "Failed to load catalog products.");
+      if (!silent) {
+        setError(err.response?.data?.message || err.message || "Failed to load catalog products.");
+      }
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       if (currentRequestId === requestIdRef.current && !controller.signal.aborted) {
         setLoading(false);
       }
@@ -416,6 +431,21 @@ function Products() {
       abortControllerRef.current?.abort();
     };
   }, [page, perPage, debouncedSearch, stockFilter, categoryFilter]);
+
+  const fetchProductListRef = useRef(fetchProductList);
+  fetchProductListRef.current = fetchProductList;
+
+  // Connect active tab / drawer re-click refresh (uses latest filters & pagination)
+  useEffect(() => {
+    setPageRefresh?.(() => () => fetchProductListRef.current?.({ silent: false }));
+    return () => setPageRefresh?.(null);
+  }, [setPageRefresh]);
+
+  // Revalidate stock on app resume / wake-up
+  useVisibleRevalidation(
+    () => fetchProductListRef.current?.({ silent: true }),
+    () => Boolean(abortControllerRef.current)
+  );
 
   const handleCopySku = (product, e) => {
     e?.stopPropagation?.();
@@ -433,9 +463,9 @@ function Products() {
   const handleOpenQuickAdjust = (product) => {
     setQuickAdjustProduct(product);
     setAdjustForm({
-      regular_price: product.regular_price || product.price || "",
-      sale_price: product.sale_price || "",
-      stock_quantity: product.stock_quantity ?? 0,
+      regular_price: product.regular_price ?? product.price ?? "",
+      sale_price: product.sale_price ?? "",
+      stock_quantity: product.stock_quantity == null ? "" : product.stock_quantity,
     });
   };
 
@@ -448,34 +478,85 @@ function Products() {
   const handleSaveQuickAdjust = async () => {
     if (!quickAdjustProduct || adjustSaving) return;
 
-    const validation = validateAdjustInput(adjustForm);
+    const validation = validateAdjustInput(adjustForm, quickAdjustProduct);
     if (!validation.isValid) {
+      if (validation.noChanges) {
+        handleCloseQuickAdjust();
+        return;
+      }
       showToast(validation.error, "error");
       return;
     }
 
+    const targetProductId = quickAdjustProduct.id;
+    const submittedFields = validation.updateData;
+    const submittedViewKey = listViewKeyRef.current;
+    const payload = buildProductAdjustmentPayload(submittedFields, quickAdjustProduct);
+
     try {
       setAdjustSaving(true);
-      const res = await updateProduct(quickAdjustProduct.id, { ...validation.updateData, expected_stock_quantity: quickAdjustProduct.stock_quantity ?? null });
+      const res = await updateProduct(targetProductId, payload);
       if (res.success) {
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === quickAdjustProduct.id
-              ? applyProductAdjustment(p, adjustForm)
-              : p
-          )
-        );
-        showToast("Product updated successfully!");
+        const returnedProduct = res.product || res.data;
+        if (listViewKeyRef.current === submittedViewKey) {
+          setProducts((prev) =>
+            prev.map((p) => {
+              if (p.id !== targetProductId) return p;
+              if (returnedProduct && (returnedProduct.id === p.id || returnedProduct.id === targetProductId)) {
+                return { ...p, ...returnedProduct };
+              }
+              return applyProductAdjustment(p, submittedFields);
+            })
+          );
+          fetchProductList({ silent: true });
+        }
+        showToast("Saved");
         setQuickAdjustProduct(null);
-        fetchProductList();
+        setAdjustForm({ regular_price: "", sale_price: "", stock_quantity: "" });
       } else {
         showToast(res.message || "Failed to update product.", "error");
       }
     } catch (err) {
-      showToast(
-        err.response?.data?.message || err.message || "Failed to update product.",
-        "error"
-      );
+      const status = err.response?.status;
+      const errData = err.response?.data;
+      if (status === 409) {
+        const latestStock = errData?.current_stock;
+        if (latestStock !== undefined && latestStock !== null) {
+          setQuickAdjustProduct((prev) => (prev ? { ...prev, stock_quantity: latestStock } : prev));
+          setAdjustForm((prev) => ({ ...prev, stock_quantity: latestStock }));
+        }
+        showToast(errData?.message || "Stock changed on server. Review new quantity.", "error");
+      } else if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+        showToast("Request timed out. Verifying server state...", "info");
+        try {
+          const verification = await getProductById(targetProductId, { timeout: 5000 });
+          const verifiedProduct = verification?.product;
+          if (verification?.success && matchesProductAdjustment(verifiedProduct, submittedFields)) {
+            if (listViewKeyRef.current === submittedViewKey) {
+              setProducts((prev) => prev.map((product) =>
+                product.id === targetProductId ? { ...product, ...verifiedProduct } : product
+              ));
+              fetchProductList({ silent: true });
+            }
+            if (quickAdjustProduct?.id === targetProductId) {
+              showToast("Saved");
+              setQuickAdjustProduct(null);
+              setAdjustForm({ regular_price: "", sale_price: "", stock_quantity: "" });
+            }
+            return;
+          }
+        } catch {
+          // A failed verification is inconclusive; keep the user's edit available for review.
+        }
+        if (quickAdjustProduct?.id === targetProductId) {
+          showToast("The save could not be confirmed. Review the product and retry.", "error");
+        }
+      } else {
+        showToast(
+          errData?.message || err.message || "Failed to update product.",
+          "error"
+        );
+      }
     } finally {
       setAdjustSaving(false);
     }
@@ -491,7 +572,7 @@ function Products() {
       if (res.success) {
         showToast(`Product "${product.name}" moved to Trash.`);
         setDeleteConfirmProduct(null);
-        fetchProductList();
+        fetchProductList({ silent: true });
       } else {
         showToast(res.message || "Failed to delete product.", "error");
       }
@@ -720,7 +801,7 @@ function Products() {
       String(category.name || "").toLowerCase() !== "uncategorized"
     )
     : [];
-  const totalCategoryProductsCount = stockCounts?.all ?? totalProducts;
+  const totalCategoryProductsCount = stockCounts?.all ?? null;
   const hierarchicalCategories = useMemo(() => {
     const roots = categories.filter(
       (c) =>
@@ -761,12 +842,19 @@ function Products() {
     return result;
   }, [categories, categorySearchQuery]);
 
-  // Stock filter tabs with authoritative counts from server (Low Stock removed as API doesn't support it)
+  // The three visible pill counts are catalog-wide, not current-page totals.
   const stockFilterTabs = [
     { id: "all", label: "All Items", count: stockCounts?.all },
     { id: "instock", label: "In Stock", count: stockCounts?.instock },
     { id: "outofstock", label: "Out of Stock", count: stockCounts?.outofstock },
   ];
+  const stockFilterLabels = {
+    all: "All Items",
+    instock: "In Stock",
+    outofstock: "Out of Stock",
+    lowstock: "Low Stock (managed, 1–5 units)",
+    onbackorder: "On Backorder",
+  };
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -811,7 +899,9 @@ function Products() {
       {/* 2. Filter Tabs & Category Selector Card */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-gray-200 bg-white p-3.5 sm:p-4 shadow-xs">
         {/* Stock Filter Pills: Equal 3-column grid on mobile to eliminate orphaned pills */}
-        <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto sm:flex sm:flex-wrap">
+        <div className="w-full sm:w-auto">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Catalog-wide counts</p>
+          <div className="grid grid-cols-3 gap-1.5 w-full sm:flex sm:flex-wrap">
           {stockFilterTabs.map((tab) => {
             const isSelected = stockFilter === tab.id;
             return (
@@ -840,6 +930,15 @@ function Products() {
               </button>
             );
           })}
+          </div>
+          {(stockFilter === "lowstock" || stockFilter === "onbackorder") && (
+            <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-emerald-800" role="status">
+              <span>Active filter: {stockFilterLabels[stockFilter]}</span>
+              <button type="button" onClick={() => handleStockFilterChange("all")} className="underline underline-offset-2">
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Unified Category Filter Dropdown (Responsive: Mobile + Desktop) */}
@@ -954,7 +1053,7 @@ function Products() {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span>All Categories</span>
-                    {totalCategoryProductsCount > 0 && (
+                    {totalCategoryProductsCount !== null && (
                       <span className="text-[10px] font-bold text-gray-400">
                         ({totalCategoryProductsCount})
                       </span>
@@ -1146,7 +1245,7 @@ function Products() {
               {searchQuery.trim()
                 ? `No products match your search "${searchQuery.trim()}".`
                 : stockFilter !== "all"
-                ? `There are currently no products marked as "${stockFilter === "instock" ? "In Stock" : "Out of Stock"}".`
+                ? `There are currently no products matching the "${stockFilterLabels[stockFilter] || stockFilter}" filter.`
                 : categoryFilter !== "all"
                 ? "No products found in the selected category."
                 : "No products found matching your filter criteria."}
@@ -1167,9 +1266,7 @@ function Products() {
             {/* Mobile Stacked Card Layout (<640px) */}
             <div className="block sm:hidden divide-y divide-gray-100">
               {displayedProducts.map((product) => {
-                const stock = product.stock_quantity ?? 0;
-                const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
-                const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+                const stockDisplay = getProductStockDisplay(product);
                 const imgUrl =
                   product.image ||
                   product.images?.[0]?.src ||
@@ -1198,14 +1295,18 @@ function Products() {
                           </h4>
                           <span
                             className={`inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                              isOutOfStock
+                              stockDisplay.tone === "rose"
                                 ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                : isLowStock
+                                : stockDisplay.tone === "amber"
                                 ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : stockDisplay.tone === "blue"
+                                ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                : stockDisplay.tone === "emerald"
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-gray-50 text-gray-600 border border-gray-200"
                             }`}
                           >
-                            {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
+                            {stockDisplay.statusLabel}
                           </span>
                         </div>
                         <p className="text-[11px] text-gray-400 truncate mt-0.5">
@@ -1239,7 +1340,7 @@ function Products() {
                           Stock Level
                         </span>
                         <span className="text-xs font-bold text-gray-800">
-                          {stock} units
+                          {stockDisplay.quantityLabel}
                         </span>
                       </div>
                     </div>
@@ -1284,9 +1385,7 @@ function Products() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
                   {displayedProducts.map((product) => {
-                    const stock = product.stock_quantity ?? 0;
-                    const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
-                    const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
+                    const stockDisplay = getProductStockDisplay(product);
                     const imgUrl =
                       product.image ||
                       product.images?.[0]?.src ||
@@ -1354,22 +1453,26 @@ function Products() {
                         {/* Stock Column with clear stock/status indication */}
                         <td className="px-6 py-4">
                           <div className="flex flex-col items-start gap-1">
-                            <span className="font-bold text-gray-900 text-xs">{stock} units</span>
+                            <span className="font-bold text-gray-900 text-xs">{stockDisplay.quantityLabel}</span>
                             <span
                               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                isOutOfStock
+                                stockDisplay.tone === "rose"
                                   ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                  : isLowStock
+                                  : stockDisplay.tone === "amber"
                                   ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : stockDisplay.tone === "blue"
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                  : stockDisplay.tone === "emerald"
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-gray-50 text-gray-600 border border-gray-200"
                               }`}
                             >
                               <span
                                 className={`h-1.5 w-1.5 rounded-full ${
-                                  isOutOfStock ? "bg-rose-500" : isLowStock ? "bg-amber-500" : "bg-emerald-500"
+                                  stockDisplay.tone === "rose" ? "bg-rose-500" : stockDisplay.tone === "amber" ? "bg-amber-500" : stockDisplay.tone === "blue" ? "bg-blue-500" : stockDisplay.tone === "emerald" ? "bg-emerald-500" : "bg-gray-500"
                                 }`}
                               />
-                              {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
+                              {stockDisplay.statusLabel}
                             </span>
                           </div>
                         </td>

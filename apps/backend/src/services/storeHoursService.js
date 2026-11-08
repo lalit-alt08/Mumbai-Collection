@@ -47,12 +47,57 @@ export const _resetCheckoutStoreFallbackForTesting = () => {
   sharedCheckoutFallback = null;
 };
 
+let verifiedWpTimezone = null;
+let verifiedGmtOffset = null;
+
+export const _setVerifiedWpTimezoneForTesting = (tz, offset = null) => {
+  verifiedWpTimezone = tz;
+  verifiedGmtOffset = offset;
+  if (tz) {
+    serverCache.set("wp:site_timezone", { timezone: tz, gmt_offset: offset }, 3600000);
+  } else {
+    serverCache.delete("wp:site_timezone");
+  }
+};
+
+/**
+ * Returns the verified store timezone string (e.g. "Asia/Kolkata", "+05:30").
+ * Prioritizes authoritative WordPress site timezone from WordPress API responses,
+ * then cached site timezone, then store hours config, then environment variables,
+ * and falls back to default store timezone.
+ */
+export const getVerifiedStoreTimezone = () => {
+  if (verifiedWpTimezone) return verifiedWpTimezone;
+  const cachedSiteTz = serverCache.get("wp:site_timezone");
+  if (cachedSiteTz?.timezone) {
+    verifiedWpTimezone = cachedSiteTz.timezone;
+    return verifiedWpTimezone;
+  }
+  const cachedHours = serverCache.get(STORE_HOURS_CACHE_KEY);
+  if (cachedHours?.wp_timezone) {
+    verifiedWpTimezone = cachedHours.wp_timezone;
+    return verifiedWpTimezone;
+  }
+  if (cachedHours?.timezone) {
+    return cachedHours.timezone;
+  }
+  return (
+    process.env.STORE_TIMEZONE ||
+    process.env.TZ ||
+    DEFAULT_STORE_HOURS_CONFIG.timezone ||
+    "Asia/Kolkata"
+  );
+};
+
 export const _resetStoreHoursCacheForTesting = () => {
   storeHoursCache = null;
   lastKnownGoodConfig = null;
   lastSuccessfulFetchTime = 0;
   sharedCheckoutFallback = null;
+  verifiedWpTimezone = null;
+  verifiedGmtOffset = null;
   serverCache.delete(STORE_HOURS_CACHE_KEY);
+  serverCache.delete("wp:site_timezone");
 };
 
 /**
@@ -450,6 +495,14 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
       timeout: 8000,
     });
 
+    if (response.data?.wp_timezone) {
+      verifiedWpTimezone = response.data.wp_timezone;
+      verifiedGmtOffset = response.data.gmt_offset;
+      serverCache.set("wp:site_timezone", {
+        timezone: verifiedWpTimezone,
+        gmt_offset: verifiedGmtOffset,
+      }, 3600000);
+    }
     const wpConfig = response.data?.store_hours;
 
     if (wpConfig && typeof wpConfig === "object" && wpConfig.schedule) {
