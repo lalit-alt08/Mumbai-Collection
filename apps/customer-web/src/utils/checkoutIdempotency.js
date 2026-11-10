@@ -74,15 +74,17 @@ export function clearCheckoutIdempotencyKey() {
   safeStorage.removeItem(CHECKOUT_IDEMP_STORAGE_KEY);
 }
 
-export function getPendingPayment() {
-  return safeStorage.getJSON(PENDING_PAYMENT_STORAGE_KEY, null);
+const pendingKey = (userId) => userId ? `${PENDING_PAYMENT_STORAGE_KEY}_${String(userId)}` : PENDING_PAYMENT_STORAGE_KEY;
+
+export function getPendingPayment(userId) {
+  return safeStorage.getJSON(pendingKey(userId), null);
 }
 
-export function setPendingPayment(data) {
-  safeStorage.setJSON(PENDING_PAYMENT_STORAGE_KEY, data);
+export function setPendingPayment(data, userId) {
+  safeStorage.setJSON(pendingKey(userId), data);
 }
 
-export function clearPendingPayment() {
-  safeStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY);
+export function clearPendingPayment(userId) {
+  safeStorage.removeItem(pendingKey(userId));
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Star, CheckCircle2, Trash2, Loader2, MessageSquarePlus } from "lucide-react";
+import { Star, CheckCircle2, Trash2, Loader2, ArrowRight, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -167,23 +167,29 @@ function ProductReviews({ productId }) {
                 setFormError("");
                 setFormSuccess("");
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#42D6E8] px-3 py-1.5 text-xs font-black text-[#061220] shadow-xs hover:bg-[#2CC4D8] hover:text-[#061220] transition active:scale-95 cursor-pointer shrink-0"
+              aria-label={showForm ? "Close Review Form" : "Write Review"}
+              title={showForm ? "Close Review Form" : "Write Review"}
+              className={`flex h-8 w-8 sm:h-8.5 sm:w-8.5 items-center justify-center rounded-full border border-[#42D6E8] transition active:scale-95 cursor-pointer shrink-0 shadow-xs ${
+                showForm
+                  ? "bg-[#42D6E8] text-[#061220]"
+                  : "bg-transparent text-[#42D6E8] hover:bg-[#42D6E8] hover:text-[#061220]"
+              }`}
             >
               {showForm ? (
-                "Close"
+                <X size={15} strokeWidth={2.2} />
               ) : (
-                <>
-                  <MessageSquarePlus size={13} /> Write Review
-                </>
+                <ArrowRight size={15} strokeWidth={2.2} />
               )}
             </button>
           )
         ) : (
           <button
             onClick={() => navigate("/login")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#42D6E8] bg-transparent px-3 py-1.5 text-xs font-bold text-[#42D6E8] hover:bg-[#42D6E8] hover:text-[#061220] transition active:scale-95 cursor-pointer shrink-0"
+            aria-label="Sign in to Review"
+            title="Sign in to Review"
+            className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 items-center justify-center rounded-full border border-[#42D6E8] bg-transparent text-[#42D6E8] hover:bg-[#42D6E8] hover:text-[#061220] transition active:scale-95 cursor-pointer shrink-0 shadow-xs"
           >
-            Sign in to Review
+            <ArrowRight size={15} strokeWidth={2.2} />
           </button>
         )}
       </div>

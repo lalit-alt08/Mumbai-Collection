@@ -2,7 +2,7 @@ import { Minus, Plus } from "lucide-react";
 import { getCatalogImageUrl, PRODUCT_PLACEHOLDER_URL } from "../../utils/imageUtils";
 import { cleanProductTitle } from "../../utils/productUtils";
 
-function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
+function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock }) {
   const price = Number(item.prices?.price) / 100;
   const regularPrice = item.prices?.regular_price
     ? Number(item.prices.regular_price) / 100
@@ -28,6 +28,8 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
   return (
     <div
+      data-stock-issue={isOutOfStock ? "true" : undefined}
+      tabIndex={isOutOfStock ? -1 : undefined}
       className={`flex items-center gap-3 rounded-[18px] p-3 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all duration-300 hover:-translate-y-0.5 ${
         isOutOfStock
           ? "bg-rose-950/30 border border-rose-800/60"
@@ -61,17 +63,22 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
           </h2>
           {isFullyOutOfStock ? (
             <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-rose-950/40 px-2 py-0.5 text-[10px] font-extrabold text-rose-300 border border-rose-800/60">
-              ● Out of Stock
+              Sold out
             </span>
           ) : isQuantityShort ? (
             <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-950/40 px-2 py-0.5 text-[10px] font-extrabold text-amber-300 border border-amber-800/60">
-              Only {maxLimit} available — reduce quantity
+              Only {maxLimit} left
             </span>
           ) : isMaxReached ? (
             <span className="text-[10px] font-bold text-amber-400">
               Max available stock reached
             </span>
           ) : null}
+          {isOutOfStock && (
+            <button type="button" disabled={isUpdating} onClick={() => onResolveStock(item, isFullyOutOfStock ? 0 : maxLimit)} className="ml-2 text-xs font-bold text-[#A9EAF2] underline disabled:opacity-50">
+              {isFullyOutOfStock ? "Remove" : `Change to ${maxLimit}`}
+            </button>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -89,7 +96,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
 
           {/* Quantity Controls */}
           <div
-            className={`flex h-[34px] w-[84px] items-center justify-between rounded-full px-1.5 shadow-sm flex-shrink-0 select-none transition-colors ${
+            className={`flex h-[38px] w-[96px] items-center justify-between rounded-full px-1 shadow-sm flex-shrink-0 select-none transition-colors ${
               isOutOfStock
                 ? "bg-rose-700 text-white"
                 : "bg-[#42D6E8] text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)]"
@@ -101,16 +108,16 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
                 onClick={() => onDecrease(item)}
                 aria-label="Decrease quantity"
                 title={item.quantity <= 1 ? "Remove item" : "Decrease quantity"}
-                className={`relative flex h-7 w-7 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                className={`relative flex h-8 w-8 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isOutOfStock
                     ? "text-white/90 hover:text-white hover:bg-white/15"
                     : "text-[#061220] hover:bg-black/15"
                 }`}
               >
-                <Minus size={15} strokeWidth={2.5} />
+                <Minus size={17} strokeWidth={2.8} />
               </button>
 
-            <span className="flex-1 text-center text-[13px] font-black leading-none tabular-nums">
+            <span className="flex-1 text-center text-[14px] font-black leading-none tabular-nums">
               {item.quantity}
             </span>
 
@@ -126,13 +133,13 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease }) {
                     ? `Only ${maxLimit} available in stock`
                     : "Increase quantity"
                 }
-                className={`relative flex h-7 w-7 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                className={`relative flex h-8 w-8 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isOutOfStock
                     ? "text-white/90 hover:text-white hover:bg-white/15"
                     : "text-[#061220] hover:bg-black/15"
                 }`}
               >
-                <Plus size={15} strokeWidth={2.5} />
+                <Plus size={17} strokeWidth={2.8} />
               </button>
           </div>
         </div>

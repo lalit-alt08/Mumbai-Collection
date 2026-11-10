@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
 import { useParams, Link, useLocation, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -10,8 +11,10 @@ import {
   ArrowRight,
   AlertCircle,
   Loader2,
+  Moon,
 } from "lucide-react";
 import { getOrderById } from "../services/orderService.js";
+import { getScheduledFulfillmentLabel, isPaymentAwaitingDeliveryReview, isScheduledFulfillmentOrder } from "../utils/scheduledDelivery.js";
 import { triggerHaptic } from "../utils/haptics.js";
 import { verifyPayment, checkPaymentStatus } from "../services/paymentService.js";
 import {
@@ -21,6 +24,7 @@ import {
 } from "../utils/checkoutIdempotency.js";
 
 function OrderSuccess() {
+  const { user } = useAuth();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -85,7 +89,7 @@ function OrderSuccess() {
               razorpay_signature: rzpSignature,
             });
             if (verifyRes?.success && verifyRes?.order_id) {
-              clearPendingPayment();
+              clearPendingPayment(user?.id);
               clearCheckoutIdempotencyKey();
               setActiveOrderId(String(verifyRes.order_id));
               setPaymentMethodTitle("Online Payment");
@@ -96,7 +100,7 @@ function OrderSuccess() {
 
           const statusRes = await checkPaymentStatus(rzpOrderId);
           if (statusRes?.success && statusRes?.order_id) {
-            clearPendingPayment();
+            clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             setActiveOrderId(String(statusRes.order_id));
             setPaymentMethodTitle("Online Payment");
@@ -106,12 +110,12 @@ function OrderSuccess() {
         } catch (_) {}
       }
 
-      const storedPending = getPendingPayment();
+      const storedPending = getPendingPayment(user?.id);
       if (storedPending?.razorpay_order_id) {
         try {
           const statusRes = await checkPaymentStatus(storedPending.razorpay_order_id);
           if (statusRes?.success && statusRes?.order_id) {
-            clearPendingPayment();
+            clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             setActiveOrderId(String(statusRes.order_id));
             setPaymentMethodTitle("Online Payment");
@@ -127,7 +131,7 @@ function OrderSuccess() {
     };
 
     resolvePayment();
-  }, [activeOrderId, rzpOrderId, rzpPaymentId, rzpSignature]);
+  }, [activeOrderId, rzpOrderId, rzpPaymentId, rzpSignature, user?.id]);
 
   // Fetch Order Details with automatic 3-attempt polling backoff
   useEffect(() => {
@@ -143,9 +147,6 @@ function OrderSuccess() {
         setPollAttempt(attempt);
         const data = await getOrderById(activeOrderId);
         if (!isMounted) return;
-
-        clearPendingPayment();
-        clearCheckoutIdempotencyKey();
 
         if (data?.order?.payment_method_title) {
           setPaymentMethodTitle(data.order.payment_method_title);
@@ -275,6 +276,16 @@ function OrderSuccess() {
     );
   }
 
+  const scheduledDeliveryMeta = order?.meta_data?.find((m) => m.key === "_scheduled_delivery_label")?.value;
+  const isAfterHours = Boolean(location.state?.isAfterHours || isScheduledFulfillmentOrder(order) || scheduledDeliveryMeta);
+  const needsDeliveryReview = isPaymentAwaitingDeliveryReview(order);
+  const scheduledFulfillmentLabel = getScheduledFulfillmentLabel(order);
+  const deliveryEtaText = needsDeliveryReview
+    ? "To be confirmed by the store"
+    : isAfterHours
+      ? scheduledFulfillmentLabel
+    : "60–90 mins";
+
   return (
     <div className="min-h-[calc(100vh-2rem)] w-full bg-[#0B1425] text-[#F1F5F9] flex items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-[460px] animate-[slideUp_0.3s_ease-out]">
@@ -310,6 +321,29 @@ function OrderSuccess() {
             </p>
           </div>
 
+          {/* Night Order Notification Card */}
+          {isAfterHours && (
+            <div className="mt-4 rounded-2xl bg-[#0E223D] border border-[#42D6E8]/35 p-3.5 text-left flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/40 shadow-xs">
+                <Moon size={18} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black text-white">
+                  🌙 Scheduled fulfillment · {scheduledFulfillmentLabel}
+                </p>
+                <p className="text-[11px] font-semibold text-[#A5E3EC] mt-0.5 leading-tight">
+                  Our team will begin preparing your order when the store opens. Delivery follows preparation and is not guaranteed at opening time.
+                </p>
+              </div>
+            </div>
+          )}
+          {needsDeliveryReview && (
+            <div className="mt-4 rounded-2xl border border-amber-400/35 bg-amber-950/30 p-3.5 text-left">
+              <p className="text-xs font-black text-amber-200">Payment received · Fulfillment confirmation pending</p>
+              <p className="mt-1 text-[11px] font-semibold leading-tight text-amber-100/90">Your payment is safe. The store team will contact you to confirm delivery timing.</p>
+            </div>
+          )}
+
           {/* Order Summary Details Box */}
           <div className="mt-6 rounded-2xl border border-white/10 bg-[#080F1C]/80 px-4 py-1 shadow-inner">
             <SummaryRow
@@ -335,11 +369,11 @@ function OrderSuccess() {
             />
 
             <SummaryRow
-              icon={<Calendar size={17} />}
+              icon={isAfterHours ? <Moon size={17} className="text-[#42D6E8]" /> : <Calendar size={17} />}
               label="Est. Delivery"
               value={
                 <span className="font-extrabold text-[#42D6E8]">
-                  60–90 mins
+                  {deliveryEtaText}
                 </span>
               }
               last
@@ -348,7 +382,11 @@ function OrderSuccess() {
 
           {/* Short Helper Notice */}
           <p className="mt-4 text-center text-xs font-medium leading-relaxed text-[#8FA4BE]">
-            Our local team will begin packing and dispatching your order shortly.
+            {needsDeliveryReview
+              ? "Payment is confirmed. Our store team will contact you to arrange fulfillment."
+              : isAfterHours
+              ? `Fulfillment begins when the store opens (${scheduledFulfillmentLabel}); delivery follows preparation.`
+              : "Our local team will begin packing and dispatching your order shortly."}
           </p>
 
           {/* Action Buttons */}

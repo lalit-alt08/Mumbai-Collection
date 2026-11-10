@@ -199,6 +199,7 @@ export const schemas = {
   }),
   paymentCreateOrder: z.object({
     order_id: positiveId.optional(),
+    expected_total_paise: z.number().int().nonnegative().safe().optional(),
     billing_address: z.object({
       first_name: boundedString(100).min(1, "Recipient first name is required"),
       last_name: boundedString(100).optional(),
@@ -270,6 +271,14 @@ export const schemas = {
     categoryId: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/),
   }),
   productIdParam: z.object({ productId: positiveId }),
+  categoryProductsQuery: z.object({
+    page: z.coerce.number().int().positive().max(500).optional(),
+    per_page: z.coerce.number().int().positive().max(100).optional(),
+    limit: z.coerce.number().int().positive().max(100).optional(),
+    sort: z.enum(["default", "price-asc", "price-desc", "rating", "newest"]).optional(),
+    price_range: z.enum(["all", "under-500", "500-1000", "1000-2000", "above-2000"]).optional(),
+    in_stock: z.enum(["0", "1"]).optional(),
+  }).strict(),
   reviewIdParam: z.object({ reviewId: positiveId }),
   analyticsReport: z.object({
     date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

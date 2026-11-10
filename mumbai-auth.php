@@ -1189,6 +1189,7 @@ function mumbai_sso(WP_REST_Request $request)
             'first_name'        => (string) get_user_meta($user->ID, 'first_name', true),
             'last_name'         => (string) get_user_meta($user->ID, 'last_name', true),
             'email'             => $user->user_email,
+            'phone'             => function_exists('mumbai_get_user_contact_phone') ? (string) mumbai_get_user_contact_phone($user->ID) : '',
             'username'          => $user->user_login,
             'roles'             => array_values((array) $user->roles),
             'is_phone_verified' => $is_phone_verified,
@@ -2559,9 +2560,20 @@ function mumbai_save_profile(WP_REST_Request $request)
     if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock))) {
         return new WP_Error('profile_busy', 'Profile update is in progress. Please retry.', ['status' => 429]);
     }
+    $phone_lock = '';
     try {
+        $phone = mumbai_normalize_phone($request->get_param('phone'));
+        if (preg_match('/^[6-9][0-9]{9}$/', $phone)) {
+            $phone_lock = 'mumbai_phone_' . hash('sha256', $phone);
+            $phone_lock = substr($phone_lock, 0, 64);
+            if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $phone_lock))) {
+                $phone_lock = '';
+                return new WP_Error('phone_busy', 'Mobile number is being updated. Please retry.', ['status' => 429]);
+            }
+        }
         return mumbai_save_profile_locked($request);
     } finally {
+        if ($phone_lock !== '') $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $phone_lock));
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
     }
 }
@@ -3200,6 +3212,21 @@ add_filter('woocommerce_get_country_locale', function ($locales) {
  * Delivery charges do NOT count toward this ₹500 minimum.
  */
 add_action('woocommerce_store_api_checkout_update_order_from_request', function ($order, $request) {
+    if ($request->get_method() === 'POST') {
+        if ($order->get_payment_method() === 'cod') {
+            throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException('PAYMENT_METHOD_UNAVAILABLE', 'Cash on delivery is no longer available. Please pay online.', 400);
+        }
+        $expected = $request->get_header('x_mumbai_expected_total');
+        if ($expected !== '' && $expected !== null) {
+            if (!preg_match('/^(0|[1-9][0-9]{0,11})$/D', (string) $expected)) {
+                throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException('invalid_checkout_total', 'Please review your cart before continuing.', 400);
+            }
+            $actual = (int) round((float) $order->get_total() * 100);
+            if ((int) $expected !== $actual) {
+                throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException('woocommerce_rest_checkout_total_mismatch', 'Your total changed. Please review your cart before continuing.', 409);
+            }
+        }
+    }
     $items_subtotal = 0;
     foreach ($order->get_items() as $item) {
         $items_subtotal += (float) $item->get_subtotal();
@@ -3234,6 +3261,21 @@ add_action('woocommerce_store_api_checkout_update_order_from_request', function 
         }
     }
 }, 10, 2);
+
+add_filter('woocommerce_available_payment_gateways', function ($gateways) {
+    if (defined('REST_REQUEST') && REST_REQUEST) {
+        unset($gateways['cod']);
+    }
+    return $gateways;
+});
+
+add_action('rest_api_init', function () {
+    register_rest_route('mumbai-auth/v1', '/checkout-total-capability', [
+        'methods' => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function () { return rest_ensure_response(['version' => 1]); },
+    ]);
+});
 
 add_action('woocommerce_check_cart_items', function () {
     if (WC()->cart) {
@@ -4275,6 +4317,14 @@ function mumbai_wc_v3_product_lowstock_collection_params($endpoints) {
 
 add_filter('woocommerce_rest_product_object_query', 'mumbai_wc_rest_product_object_query', 20, 2);
 function mumbai_wc_rest_product_object_query($args, $request) {
+    if ($request->get_param('mumbai_catalog_only') === '1' && $request->get_method() === 'GET') {
+        $args['tax_query'][] = [
+            'taxonomy' => 'product_visibility',
+            'field' => 'name',
+            'terms' => ['exclude-from-catalog'],
+            'operator' => 'NOT IN',
+        ];
+    }
     // 1. Server-side lowstock filter
     $stock_status = $request->get_param('stock_status');
     if ($stock_status === 'lowstock') {

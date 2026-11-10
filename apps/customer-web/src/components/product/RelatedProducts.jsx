@@ -45,15 +45,32 @@ function RelatedProducts({ product }) {
           }
         }
 
-        if (!primaryCategoryId) return;
-        const data = await getRelatedProducts(
-          primaryCategoryId,
-          productId,
-          { signal: controller.signal }
-        );
+        let data = [];
+        if (primaryCategoryId) {
+          data = await getRelatedProducts(
+            primaryCategoryId,
+            productId,
+            { signal: controller.signal }
+          );
+        }
+
+        let inStock = (Array.isArray(data) ? data : [])
+          .filter((item) => !getProductStock(item).isOutOfStock);
+
+        // Fallback: If category has no other in-stock products, fetch store recommendations
+        if (inStock.length === 0) {
+          const fallbackData = await getRelatedProducts(
+            undefined,
+            productId,
+            { signal: controller.signal }
+          );
+          if (isMounted && !controller.signal.aborted) {
+            inStock = (Array.isArray(fallbackData) ? fallbackData : [])
+              .filter((item) => !getProductStock(item).isOutOfStock);
+          }
+        }
+
         if (isMounted && !controller.signal.aborted) {
-          const inStock = (Array.isArray(data) ? data : [])
-            .filter((item) => !getProductStock(item).isOutOfStock);
           setProducts(inStock.slice(0, 6));
         }
       } catch (err) {
@@ -82,9 +99,9 @@ function RelatedProducts({ product }) {
         </span>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-2 pt-1 snap-x [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-2 lg:grid-cols-3 sm:gap-4 sm:overflow-visible">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         {products.map((item) => (
-          <div key={item.id} className="w-[178px] sm:w-auto flex-shrink-0 snap-start h-full flex flex-col">
+          <div key={item.id} className="min-w-0 h-full flex flex-col">
             <ProductCard product={item} />
           </div>
         ))}

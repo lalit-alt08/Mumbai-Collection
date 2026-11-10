@@ -341,6 +341,18 @@ export const createOrder = async (req, res) => {
       });
     }
 
+    // The client amount is only a review guard. The amount charged remains
+    // the total calculated by WooCommerce above.
+    if (req.body.expected_total_paise !== undefined && req.body.expected_total_paise !== amountInPaise) {
+      return res.status(409).json({
+        success: false,
+        code: "CHECKOUT_TOTAL_CHANGED",
+        expected_total_paise: req.body.expected_total_paise,
+        actual_total_paise: amountInPaise,
+        message: "Your cart total changed. Please review it before continuing.",
+      });
+    }
+
     const cartFingerprint = computeCartFingerprint(cart);
 
     // Acquire shared distributed mutex across servers (Redis / DB)
@@ -390,6 +402,23 @@ export const createOrder = async (req, res) => {
               message: "We could not confirm inventory. Please try again shortly.",
             });
           }
+          // Reuse the gateway intent, but refresh delivery scheduling from the
+          // authoritative store status checked for this checkout attempt.
+          existingIntent.checkout_payload = {
+            ...(existingIntent.checkout_payload || {}),
+            is_after_hours: Boolean(storeGuard.is_after_hours),
+            is_next_day_delivery: Boolean(storeGuard.is_next_day_delivery),
+            scheduled_delivery_date: storeGuard.scheduled_delivery_date || null,
+            scheduled_delivery_label: storeGuard.scheduled_delivery_label || null,
+          };
+          const refreshedIntent = await paymentIntentService.storePaymentIntent(existingRzpOrderId, existingIntent);
+          if (!refreshedIntent && process.env.NODE_ENV === "production") {
+            return res.status(503).json({
+              success: false,
+              code: "PAYMENT_SCHEDULE_UNAVAILABLE",
+              message: "We could not refresh the delivery schedule. Please try again shortly.",
+            });
+          }
           logger.info(
             { customer_id: userId, razorpay_order_id: existingRzpOrderId, cart_fingerprint: cartFingerprint },
             "[Payment] Reusing existing active unpaid payment intent for identical user & cart"
@@ -402,6 +431,10 @@ export const createOrder = async (req, res) => {
             currency: existingIntent.currency || "INR",
             key_id: getPublicKeyId(),
             reused: true,
+            is_after_hours: Boolean(storeGuard.is_after_hours),
+            is_next_day_delivery: Boolean(storeGuard.is_next_day_delivery),
+            scheduled_delivery_date: storeGuard.scheduled_delivery_date || null,
+            scheduled_delivery_label: storeGuard.scheduled_delivery_label || null,
           });
         }
       }
@@ -533,6 +566,10 @@ export const createOrder = async (req, res) => {
           line_items: lineItems,
           coupon_lines: couponLines,
           shipping_lines: shippingLines,
+          is_after_hours: Boolean(storeGuard.is_after_hours),
+          is_next_day_delivery: Boolean(storeGuard.is_next_day_delivery),
+          scheduled_delivery_date: storeGuard.scheduled_delivery_date || null,
+          scheduled_delivery_label: storeGuard.scheduled_delivery_label || null,
         },
       };
 
@@ -559,6 +596,10 @@ export const createOrder = async (req, res) => {
         amount: amountInPaise,
         currency: "INR",
         key_id: getPublicKeyId(),
+        is_after_hours: Boolean(storeGuard.is_after_hours),
+        is_next_day_delivery: Boolean(storeGuard.is_next_day_delivery),
+        scheduled_delivery_date: storeGuard.scheduled_delivery_date || null,
+        scheduled_delivery_label: storeGuard.scheduled_delivery_label || null,
       });
     } finally {
       await releaseCheckoutConcurrencyLock(lockHandle);
@@ -813,9 +854,25 @@ export const finalizePaymentAndCreateOrder = async ({
     }
 
     // 7. Revalidate Store Hours & Operating Constraints
+    let finalizedAfterHours = Boolean(intent.checkout_payload?.is_after_hours);
+    let finalizedDeliveryDate = intent.checkout_payload?.scheduled_delivery_date || null;
+    let finalizedDeliveryLabel = intent.checkout_payload?.scheduled_delivery_label || null;
+    let capturedDuringEmergencyWithoutSlot = false;
     try {
       const storeStatus = await storeHoursService.getStoreStatus();
       if (storeStatus && storeStatus.is_open === false) {
+        if (storeStatus.next_opening?.date && storeStatus.next_opening?.time && storeStatus.next_opening?.day) {
+          finalizedAfterHours = true;
+          finalizedDeliveryDate = storeStatus.next_opening.date;
+          finalizedDeliveryLabel = storeStatus.next_opening.label;
+        } else {
+          // A captured payment must still be finalized. Keep the order visible
+          // to staff with an explicit review note when no safe slot is known.
+          finalizedAfterHours = false;
+          finalizedDeliveryDate = null;
+          finalizedDeliveryLabel = null;
+          capturedDuringEmergencyWithoutSlot = true;
+        }
         logger.warn(
           { rzpOrderId, rzpPaymentId },
           "[Payment Finalize] Store closed during payment capture — proceeding with order creation to avoid stranded capture"
@@ -951,6 +1008,20 @@ export const finalizePaymentAndCreateOrder = async ({
     }
 
     // 9. CREATE ONE WOOCOMMERCE ORDER DIRECTLY IN "processing" STATUS
+    const isAfterHours = finalizedAfterHours;
+    const scheduledDeliveryLabel = finalizedDeliveryLabel || "Scheduled fulfillment";
+    const extraMeta = [];
+    if (isAfterHours) {
+      extraMeta.push(
+        { key: "_order_placed_after_hours", value: "yes" },
+        { key: "_delivery_slot", value: "scheduled" },
+        { key: "_scheduled_delivery_label", value: scheduledDeliveryLabel },
+        { key: "_scheduled_delivery_date", value: finalizedDeliveryDate || "" }
+      );
+    } else if (capturedDuringEmergencyWithoutSlot) {
+      extraMeta.push({ key: "_payment_captured_without_delivery_slot", value: "yes" });
+    }
+
     const wcOrderPayload = {
       ...intent.checkout_payload,
       status: "processing",
@@ -958,12 +1029,18 @@ export const finalizePaymentAndCreateOrder = async ({
       payment_method_title: "Online Payment",
       set_paid: true,
       transaction_id: rzpPaymentId,
+      customer_note: isAfterHours
+        ? `Order scheduled for fulfillment when the store opens: ${scheduledDeliveryLabel}.`
+        : capturedDuringEmergencyWithoutSlot
+          ? "Payment was captured during an emergency closure. The store team will contact you to confirm fulfillment."
+          : intent.checkout_payload?.customer_note || "",
       meta_data: [
         { key: "_razorpay_payment_id", value: rzpPaymentId },
         { key: "_razorpay_order_id", value: rzpOrderId },
         { key: "_payment_verified_at", value: new Date().toISOString() },
         { key: "_payment_method_detail", value: rzpPayment.method || "online" },
         { key: "_cart_fingerprint", value: intent.cart_fingerprint || "" },
+        ...extraMeta,
       ],
     };
 
@@ -1121,6 +1198,7 @@ export const finalizePaymentAndCreateOrder = async ({
       event: "ORDER_CREATED",
       orderId: createdOrder.id,
       total: createdOrder.total,
+      suppressPush: isAfterHours || capturedDuringEmergencyWithoutSlot,
     });
 
     serverCache.invalidatePrefix("employee:overview");
@@ -1129,6 +1207,7 @@ export const finalizePaymentAndCreateOrder = async ({
     serverCache.delete("product_stock_counts");
     serverCache.invalidatePrefix("admin_products:");
     serverCache.invalidatePrefix("catalog:products:");
+    serverCache.invalidatePrefix("catalog:category:");
     if (intent?.customer_id && intent?.cart_fingerprint) {
       await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
     }
@@ -1815,6 +1894,7 @@ export const reconcileOrder = async (req, res) => {
       serverCache.delete("product_stock_counts");
       serverCache.invalidatePrefix("admin_products:");
       serverCache.invalidatePrefix("catalog:products:");
+      serverCache.invalidatePrefix("catalog:category:");
 
       // Explicitly handle failed Redis distributed cache flush while preserving successful outcome
       let cachePropagationDegraded = false;

@@ -380,9 +380,16 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
   // Store is closed
   const nextOpening = calculateNextOpening(config, referenceDate);
   const msg = config.closed_message || config.notice_message || "Our store is currently closed for new orders.";
+  const nextDeliveryEta = nextOpening?.time_formatted
+    ? `Fulfillment starts ${nextOpening.label}`
+    : "No upcoming opening is scheduled";
   return {
     ...baseStatus,
     is_open: false,
+    is_after_hours: true,
+    is_next_day_delivery: Boolean(nextOpening && nextOpening.relative_day !== "today"),
+    scheduled_delivery_date: nextOpening?.date || null,
+    next_delivery_eta_text: nextDeliveryEta,
     reason: "schedule_closed",
     evaluation_reason: "schedule_closed",
     message: msg,
@@ -401,7 +408,7 @@ export const calculateNextOpening = (configInput, referenceDate = new Date()) =>
   const ist = getISTTimeComponents(referenceDate);
 
   // Look ahead up to 7 days to find the next opening slot
-  for (let offset = 0; offset < 7; offset++) {
+  for (let offset = 0; offset <= 7; offset++) {
     const targetDayIndex = (ist.dayIndex + offset) % 7;
     const targetDayName = DAYS_OF_WEEK[targetDayIndex];
     const targetSchedule = config.schedule[targetDayName];
@@ -417,6 +424,7 @@ export const calculateNextOpening = (configInput, referenceDate = new Date()) =>
       if (ist.currentMinutes < openM) {
         return {
           day: targetDayName,
+          date: shiftCalendarDate(ist.formattedDate, offset),
           time: targetSchedule.open,
           time_formatted: format12HourTime(targetSchedule.open),
           label: `Today at ${format12HourTime(targetSchedule.open)} IST`,
@@ -427,6 +435,7 @@ export const calculateNextOpening = (configInput, referenceDate = new Date()) =>
       const relative = offset === 1 ? "Tomorrow" : capitalizeFirstLetter(targetDayName);
       return {
         day: targetDayName,
+        date: shiftCalendarDate(ist.formattedDate, offset),
         time: targetSchedule.open,
         time_formatted: format12HourTime(targetSchedule.open),
         label: `${relative} at ${format12HourTime(targetSchedule.open)} IST`,
@@ -443,6 +452,12 @@ export const calculateNextOpening = (configInput, referenceDate = new Date()) =>
     relative_day: "unknown",
   };
 };
+
+function shiftCalendarDate(dateString, days) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
 
 function capitalizeFirstLetter(string) {
   if (!string) return "";
@@ -665,6 +680,22 @@ export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFall
     }
 
     if (!storeStatus.is_open) {
+      // Allow checkout for after-hours night orders (routine scheduled closure)
+      const isAfterHours = Boolean(storeStatus.is_after_hours || storeStatus.reason === "schedule_closed");
+      if (isAfterHours && storeStatus.manual_override !== "closed") {
+        if (!storeStatus.next_opening?.time || !storeStatus.next_opening?.day || !storeStatus.next_opening?.date) {
+          return { allowed: false, statusCode: 403, payload: { success: false, code: "STORE_CLOSED", message: "Our store is currently closed and not accepting scheduled orders.", manual_override: storeStatus.manual_override || "auto", next_opening: storeStatus.next_opening || null } };
+        }
+        return {
+          allowed: true,
+          storeStatus,
+          is_after_hours: true,
+          is_next_day_delivery: storeStatus.next_opening.relative_day !== "today",
+          scheduled_delivery_date: storeStatus.next_opening.date,
+          scheduled_delivery_label: storeStatus.next_opening.label || null,
+        };
+      }
+
       return {
         allowed: false,
         statusCode: 403,
@@ -673,6 +704,7 @@ export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFall
           code: "STORE_CLOSED",
           message: storeStatus.message || "Our store is currently closed for new orders.",
           next_opening: storeStatus.next_opening,
+          manual_override: storeStatus.manual_override || "auto",
           current_day: storeStatus.current_day,
           current_time_ist: storeStatus.current_time_ist,
           schedule_today: storeStatus.schedule_today,
@@ -693,6 +725,22 @@ export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFall
     if (hasValidFallback) {
       const fallback = fallbackRecord.status;
       if (!fallback || !fallback.is_open) {
+        const isFallbackAfterHours = Boolean(fallback?.is_after_hours || fallback?.reason === "schedule_closed");
+        if (fallback && isFallbackAfterHours && fallback.manual_override !== "closed") {
+          if (!fallback.next_opening?.time || !fallback.next_opening?.day || !fallback.next_opening?.date) {
+            return { allowed: false, statusCode: 403, payload: { success: false, code: "STORE_CLOSED", message: "Our store is currently closed and not accepting scheduled orders.", manual_override: fallback.manual_override || "auto", next_opening: fallback.next_opening || null } };
+          }
+          return {
+            allowed: true,
+            storeStatus: fallback,
+            isFallback: true,
+            is_after_hours: true,
+            is_next_day_delivery: fallback.next_opening.relative_day !== "today",
+            scheduled_delivery_date: fallback.next_opening.date,
+            scheduled_delivery_label: fallback.next_opening.label || null,
+          };
+        }
+
         return {
           allowed: false,
           statusCode: 403,
@@ -701,6 +749,8 @@ export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFall
             code: "STORE_CLOSED",
             message: fallback?.message || "Our store is currently closed for new orders.",
             next_opening: fallback?.next_opening || null,
+            manual_override: fallback?.manual_override || "auto",
+            manual_override: fallback?.manual_override || "auto",
             current_day: fallback?.current_day,
             current_time_ist: fallback?.current_time_ist,
             schedule_today: fallback?.schedule_today,

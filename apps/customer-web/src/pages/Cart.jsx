@@ -4,7 +4,7 @@ import { getProductsByIds, getLiveProductStockByIds } from "../services/productS
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { ArrowLeft, ChevronLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2, Moon } from "lucide-react";
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import CartCrossSells from "../components/cart/CartCrossSells";
@@ -28,8 +28,9 @@ function Cart() {
     cartMergeNotice,
     clearCartMergeNotice,
     retryCartMerge,
+    updateRecoveryQuantity,
   } = useCart();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, checkoutExpiredUserId } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
   const [storeHours, setStoreHours] = useState(null);
   const lastCartResumeRefreshAt = useRef(0);
@@ -80,12 +81,13 @@ function Cart() {
 
   // Check if a completed pending payment exists before declaring cart empty on hard refresh
   useEffect(() => {
-    const stored = getPendingPayment();
-    if (stored?.razorpay_order_id) {
+    let cancelled = false;
+    const stored = getPendingPayment(user?.id);
+    if (user?.id && stored?.razorpay_order_id) {
       checkPaymentStatus(stored.razorpay_order_id)
         .then((res) => {
-          if (res?.success && res?.order_id) {
-            clearPendingPayment();
+          if (!cancelled && res?.success && res?.order_id) {
+            clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             navigate(`/order-success/${res.order_id}`, {
               state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
@@ -95,7 +97,8 @@ function Cart() {
         })
         .catch(() => {});
     }
-  }, [navigate]);
+    return () => { cancelled = true; };
+  }, [navigate, user?.id]);
 
   const [shareFeedback, setShareFeedback] = useState(null);
   const shareTimerRef = useRef(null);
@@ -440,6 +443,7 @@ function Cart() {
   };
 
   const handleDecreaseQuantity = async (item) => {
+    if (!user?.id && checkoutExpiredUserId) { updateRecoveryQuantity(item.key, item.quantity - 1); return; }
     if (updatingKey) return;
     try {
       setUpdatingKey(item.key);
@@ -461,6 +465,7 @@ function Cart() {
   };
 
   const handleIncreaseQuantity = async (item) => {
+    if (!user?.id && checkoutExpiredUserId) { updateRecoveryQuantity(item.key, item.quantity + 1); return; }
     if (updatingKey) return;
     try {
       setUpdatingKey(item.key);
@@ -469,6 +474,23 @@ function Cart() {
         triggerHaptic("light");
         updateCart(updated);
       }
+    } catch {
+      await refreshCart().catch(() => {});
+    } finally {
+      setUpdatingKey(null);
+    }
+  };
+
+  const handleResolveStock = async (item, quantity) => {
+    if (!user?.id && checkoutExpiredUserId) { updateRecoveryQuantity(item.key, quantity); return; }
+    if (updatingKey) return;
+    try {
+      setUpdatingKey(item.key);
+      const updated = quantity > 0
+        ? await updateCartItem(item.key, quantity)
+        : await removeCartItem(item.key);
+      if (updated) updateCart(updated);
+      else await refreshCart();
     } catch {
       await refreshCart().catch(() => {});
     } finally {
@@ -500,6 +522,8 @@ function Cart() {
           for (const product of batch.value) productsById.set(Number(product.id), product);
         }
 
+        // A failed or incomplete lookup is unknown, not evidence that a
+        // previously reported stock problem has disappeared.
         const nextMap = {};
         for (const item of cart.items) {
           const prod = productsById.get(Number(item.id));
@@ -525,7 +549,20 @@ function Cart() {
             nextMap[item.id] = stockInfo;
           }
         }
-        setStockCheckMap(nextMap);
+        setStockCheckMap((previous) => {
+          for (const item of cart.items) {
+            if (!nextMap[item.key] && previous[item.key]) {
+              const old = previous[item.key];
+              const retained = {
+                ...old,
+                isQuantityShort: !old.backordersAllowed && Number.isFinite(old.availableStock) && item.quantity > old.availableStock,
+              };
+              nextMap[item.key] = retained;
+              nextMap[item.id] = retained;
+            }
+          }
+          return nextMap;
+        });
       })
       .finally(() => {
         if (isMounted) setStockChecking(false);
@@ -534,7 +571,7 @@ function Cart() {
     return () => {
       isMounted = false;
     };
-  }, [cart?.items]);
+  }, [cart?.items, user?.id]);
 
   const outOfStockItems = (cart?.items || []).filter((item) => {
     const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
@@ -706,6 +743,11 @@ function Cart() {
           <p className="mb-8 text-[#8FA4BE]">
             Looks like you haven&apos;t added anything to your cart yet.
           </p>
+          {(getPendingPayment(user?.id || checkoutExpiredUserId)?.razorpay_order_id || getPendingPayment()?.razorpay_order_id) && (
+            <div className="mb-5 text-sm text-amber-200">We haven’t confirmed your payment yet. Please don’t pay again.
+              <BillingForm storeHours={storeHours} standaloneBar />
+            </div>
+          )}
           <button
             onClick={() => navigate("/")}
             className="rounded-full bg-[#42D6E8] px-8 py-3.5 font-black text-[#061220] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 shadow-[0_4px_20px_rgba(66,214,232,0.3)] cursor-pointer"
@@ -715,6 +757,48 @@ function Cart() {
         </div>
       ) : (
         <div className="space-y-5">
+          {/* Night Order Notification Banner (Store Closed for the Night) */}
+          {storeHours && storeHours.next_opening?.day && storeHours.next_opening?.time && storeHours.next_opening?.date && (storeHours.is_after_hours || (storeHours.is_open === false && storeHours.manual_override !== "closed")) && (
+            <div className="rounded-[22px] bg-gradient-to-r from-[#0C1B33] via-[#0E2342] to-[#0C1B33] border border-[#42D6E8]/35 p-4 sm:p-5 shadow-[0_4px_24px_rgba(66,214,232,0.12)] flex items-start sm:items-center justify-between gap-3.5 animate-in fade-in duration-200">
+              <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/40 shadow-[0_0_12px_rgba(66,214,232,0.2)]">
+                  <Moon size={22} className="text-[#42D6E8]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-[13.5px] sm:text-[14.5px] font-black text-white leading-tight">
+                      {storeHours.next_opening?.label
+                        ? `Store Closed — Ordering Open for ${storeHours.next_opening.label.split(" at ")[0]}`
+                        : "Store Closed — Scheduled ordering unavailable"}
+                    </h3>
+                    <span className="rounded-full bg-[#42D6E8]/15 border border-[#42D6E8]/40 px-2.5 py-0.5 text-[10.5px] font-black text-[#42D6E8]">
+                      🌙 Fulfillment at next opening
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#CBD5E1] font-medium mt-1 leading-snug">
+                    We are closed right now. Place your order and our team will begin preparing it when the store opens {storeHours.next_opening?.label || "again"}. Delivery begins after preparation; 10:00 AM is not a guaranteed arrival time.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Emergency / Manual Closure Banner */}
+          {storeHours && storeHours.is_open === false && storeHours.manual_override === "closed" && (
+            <div className="rounded-[22px] bg-rose-950/40 border border-rose-800/60 p-4 sm:p-5 shadow-sm flex items-start gap-3.5 animate-in fade-in duration-200">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-900/50 text-rose-300 border border-rose-800/60">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-rose-200">
+                  Store Temporarily Closed for New Orders
+                </h3>
+                <p className="text-xs text-rose-300/90 mt-0.5">
+                  {storeHours.closed_message || storeHours.notice_message || "Our store is currently closed for new orders. Please check back later."}
+                </p>
+              </div>
+            </div>
+          )}
           {/* Cart Merge Failure Notice Banner */}
           {!cartMergeNotice?.retryable && cartMergeNotice?.failedItems?.length > 0 && (
             <div className="rounded-[22px] bg-amber-950/40 border border-amber-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
@@ -792,6 +876,7 @@ function Cart() {
                   updatingKey={updatingKey}
                   onDecrease={handleDecreaseQuantity}
                   onIncrease={handleIncreaseQuantity}
+                  onResolveStock={handleResolveStock}
                 />
               );
             })}
@@ -819,7 +904,10 @@ function Cart() {
             standaloneBar={true}
             hasOutOfStock={hasOutOfStockItems}
             stockChecking={stockChecking}
-            onStoreClosed={() => setStoreHours((prev) => ({ ...(prev || {}), is_open: false }))}
+            onStoreClosed={(closedStatus) => {
+              setStoreHours((prev) => ({ ...(prev || {}), ...closedStatus }));
+              getStoreHours().then((data) => { if (data) setStoreHours(data); }).catch(() => {});
+            }}
           />
         </div>
       )}

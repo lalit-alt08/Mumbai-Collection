@@ -2,8 +2,9 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getProductsByCategory, getCategories, getCachedCategories } from "../services/productService";
 import ProductCard from "../components/product/ProductCard";
-import { ChevronLeft, ChevronDown, ChevronRight, Share, ShoppingBag, Loader2, MapPin, Home, Building2, Phone, X } from "lucide-react";
-import { getSessionProductOrderSeed, orderProductsForSession, formatSubcategoryName } from "../utils/productUtils";
+import CategoryFilterBar from "../components/category/CategoryFilterBar";
+import { ChevronLeft, ChevronDown, ChevronRight, Share, ShoppingBag, Loader2, MapPin, Home, Building2, Phone, X, SlidersHorizontal } from "lucide-react";
+import { getSessionProductOrderSeed, orderProductsForSession, formatSubcategoryName, getProductStock } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 import { getCategoryImageUrl } from "../utils/categoryImage";
 import { safeStorage } from "../utils/safeStorage";
@@ -40,6 +41,17 @@ function Category() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [categoryTitle, setCategoryTitle] = useState("");
+
+  const [filters, setFilters] = useState({ sort: "default", price_range: "all", in_stock: "0" });
+  const { sort: sortBy, price_range: priceFilter, in_stock } = filters;
+  const inStockOnly = in_stock === "1";
+  const setSortBy = (sort) => setFilters((prev) => ({ ...prev, sort }));
+  const setPriceFilter = (price_range) => setFilters((prev) => ({ ...prev, price_range }));
+  const setInStockOnly = (value) => setFilters((prev) => ({ ...prev, in_stock: (typeof value === "function" ? value(prev.in_stock === "1") : value) ? "1" : "0" }));
+  const handleResetFilters = () => setFilters({ sort: "default", price_range: "all", in_stock: "0" });
+  const filteredProducts = products;
+  const [recommendations, setRecommendations] = useState([]);
+
   // Keep polling bounded as more pages are appended. Checkout and add-to-cart
   // still perform authoritative server validation for every item.
   const liveProducts = useMemo(() => products.slice(-40), [products]);
@@ -200,12 +212,12 @@ function Category() {
     };
   }, []);
 
-  // When switching subcategory or department, reset products scroll to top and show bar
+  // When switching subcategory or department, or applying filter/sort, reset products scroll to top and show bar
   useEffect(() => {
     productsContainerRef.current?.scrollTo({ top: 0, behavior: "instant" });
     lastScrollTopRef.current = 0;
     setIsSubcategoryBarVisible(true);
-  }, [effectiveCategoryId]);
+  }, [effectiveCategoryId, sortBy, priceFilter, in_stock]);
 
   // Scroll listener on products container: hide subcategory bar when scrolling down, show when scrolling up
   useEffect(() => {
@@ -270,7 +282,7 @@ function Category() {
         setPage(1);
         const data = await getProductsByCategory(
           effectiveCategoryId,
-          { page: 1, per_page: PER_PAGE },
+          { page: 1, per_page: PER_PAGE, ...filters },
           { signal: controller.signal }
         );
         if (isMounted && !controller.signal.aborted) {
@@ -292,7 +304,8 @@ function Category() {
             }
           }
 
-          setProducts(orderProductsForSession(uniqueProds, getSessionProductOrderSeed(), `category-${effectiveCategoryId}`, { retainUnseen: true }));
+          setProducts(sortBy === "default" ? orderProductsForSession(uniqueProds, getSessionProductOrderSeed(), `category-${effectiveCategoryId}`, { retainUnseen: true }) : uniqueProds);
+          setRecommendations(Array.isArray(data?.recommendations) ? data.recommendations : []);
           setTotalCount(count);
           setTotalPages(pages);
 
@@ -328,7 +341,7 @@ function Category() {
       loadMoreControllerRef.current?.abort();
       if (categoryRequestIdRef.current === requestId) categoryRequestIdRef.current += 1;
     };
-  }, [effectiveCategoryId, productRetryCount]);
+  }, [effectiveCategoryId, productRetryCount, sortBy, priceFilter, in_stock]);
 
   const handleLoadMore = async () => {
     if (loadingMore || page >= totalPages) return;
@@ -344,7 +357,7 @@ function Category() {
       const nextPage = page + 1;
       const data = await getProductsByCategory(
         requestedCategoryId,
-        { page: nextPage, per_page: PER_PAGE },
+        { page: nextPage, per_page: PER_PAGE, ...filters },
         { signal: controller.signal }
       );
       if (
@@ -357,7 +370,7 @@ function Category() {
         : Array.isArray(data?.products)
         ? data.products
         : [];
-      const nextProds = orderProductsForSession(pageProducts, getSessionProductOrderSeed(), `category-${effectiveCategoryId}`, { retainUnseen: true });
+      const nextProds = sortBy === "default" ? orderProductsForSession(pageProducts, getSessionProductOrderSeed(), `category-${effectiveCategoryId}`, { retainUnseen: true }) : pageProducts;
       const count = typeof data?.total === "number" ? data.total : totalCount;
       const pages = typeof data?.totalPages === "number" ? data.totalPages : totalPages;
 
@@ -534,7 +547,7 @@ function Category() {
         Retry
       </button>
     </div>
-  ) : products.length === 0 ? (
+  ) : products.length === 0 && priceFilter === "all" && !inStockOnly ? (
     <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] bg-[#111F36] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#1E3252]">
       <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#132B45] text-[#42D6E8]">
         <ShoppingBag size={24} />
@@ -550,10 +563,28 @@ function Category() {
         Browse Other Categories
       </button>
     </div>
+  ) : filteredProducts.length === 0 ? (
+    <div className="flex min-h-[35vh] flex-col items-center justify-center rounded-[24px] bg-[#111F36] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#1E3252]">
+      <div className="mb-3 flex h-13 w-13 items-center justify-center rounded-full bg-[#132B45] text-[#42D6E8]">
+        <SlidersHorizontal size={22} strokeWidth={2.4} />
+      </div>
+      <h3 className="text-base font-bold text-white">No matching products</h3>
+      <p className="text-xs text-[#8FA4BE] mt-1 mb-5">
+        No products in this category match your selected filter criteria.
+      </p>
+      <button
+        type="button"
+        onClick={handleResetFilters}
+        className="rounded-full bg-[#42D6E8] px-5 py-2 text-xs font-bold text-[#061220] shadow-xs hover:bg-[#2CC4D8] transition active:scale-95 cursor-pointer"
+      >
+        Reset All Filters
+      </button>
+      {recommendations.length > 0 && <div className="w-full mt-6"><h3 className="text-white font-bold mb-3">Similar products</h3><div className="grid grid-cols-2 gap-2">{recommendations.map((product) => <ProductCard key={product.id} product={product} />)}</div></div>}
+    </div>
   ) : (
     <>
       <div className="grid grid-cols-2 gap-2 sm:gap-3.5 md:grid-cols-3 lg:grid-cols-4">
-        {products.map((product) => (
+        {filteredProducts.map((product) => (
           <ProductCard key={product.id} product={product} />
         ))}
       </div>
@@ -790,6 +821,21 @@ function Category() {
           </button>
         </div>
       )}
+
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* FILTER & SORT PILL BAR (ABOVE SUBCATEGORY)                 */}
+      {/* ────────────────────────────────────────────────────────── */}
+      <CategoryFilterBar
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        priceFilter={priceFilter}
+        setPriceFilter={setPriceFilter}
+        inStockOnly={inStockOnly}
+        setInStockOnly={setInStockOnly}
+        onReset={handleResetFilters}
+        totalProducts={totalCount}
+        onApply={(draft) => setFilters({ sort: draft.sortBy, price_range: draft.priceFilter, in_stock: draft.inStockOnly ? "1" : "0" })}
+      />
 
       {/* ────────────────────────────────────────────────────────── */}
       {/* HORIZONTAL TOP SUBCATEGORY RAIL & FULL-WIDTH PRODUCTS AREA */}

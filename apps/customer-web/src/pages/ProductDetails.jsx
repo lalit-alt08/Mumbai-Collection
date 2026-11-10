@@ -164,8 +164,8 @@ function ProductDetails() {
           <div className="p-4 space-y-4 lg:p-0 z-20 w-full">
             <ProductInfo product={product} />
             <ProductDescription product={product} />
-            <ProductReviews productId={product.id} />
             <RelatedProducts product={product} />
+            <ProductReviews productId={product.id} />
           </div>
         </section>
       </div>

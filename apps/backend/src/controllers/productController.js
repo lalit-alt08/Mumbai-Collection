@@ -338,14 +338,30 @@ export const getProductsByCategory = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const perPage = parseInt(req.query.per_page || req.query.limit, 10) || 20;
 
-    const cacheKey = `catalog:category:${categoryId}:${page}:${perPage}`;
+    const sort = req.query.sort || "default";
+    const priceRange = req.query.price_range || "all";
+    const inStock = req.query.in_stock || "0";
+    const cacheKey = `catalog:category:v3:${String(categoryId).toLowerCase()}:${page}:${perPage}:${sort}:${priceRange}:${inStock}`;
     const result = await serverCache.getOrFetch(
       cacheKey,
-      () => fetchProductsByCategory(categoryId, { page, per_page: perPage }),
-      300000 // 5 minutes TTL
+      () => fetchProductsByCategory(categoryId, { page, per_page: perPage, sort, price_range: priceRange, in_stock: inStock }),
+      priceRange !== "all" || inStock === "1" ? 30000 : 300000
     );
 
     if (result && Array.isArray(result.products)) {
+      let recommendations = [];
+      if (page === 1 && result.total_confirmed && result.total === 0 && (priceRange !== "all" || inStock === "1")) {
+        try {
+          const fallback = await serverCache.getOrFetch(
+            `catalog:category:suggestions:v2:${result.category_id}`,
+            () => fetchProductsByCategory(result.category_id, { page: 1, per_page: 6, in_stock: "1", suggestions: true }),
+            30000
+          );
+          recommendations = fallback.products;
+        } catch (error) {
+          logger.warn({ err: error.message }, "Category suggestions unavailable");
+        }
+      }
       return res.json({
         success: true,
         page: result.page,
@@ -353,6 +369,7 @@ export const getProductsByCategory = async (req, res) => {
         total: result.total,
         totalPages: result.totalPages,
         products: transformMediaUrls(result.products, req),
+        recommendations: transformMediaUrls(recommendations, req),
       });
     }
 

@@ -18,6 +18,24 @@ const notifiedOrderIds = new Set();
 let alarmIntervalId = null;
 const subscribers = new Set();
 
+// Counter alarms are quiet overnight in the store's fixed operating window.
+// Keep orders unacknowledged so they resume sounding when the store opens.
+export const isOrderAlarmQuietHours = (now = new Date()) => {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(now);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const minutes = Number(values.hour) * 60 + Number(values.minute);
+    return minutes >= 23 * 60 + 30 || minutes < 10 * 60;
+  } catch (_) {
+    return false;
+  }
+};
+
 /**
  * Converts a base64 string into an ArrayBuffer for Web Audio decoding.
  */
@@ -190,6 +208,10 @@ const stopCustomAudio = stopAlarmAudio;
  * purely via Web Audio API without requiring external audio assets.
  */
 export const playOrderAlertChime = () => {
+  if (isOrderAlarmQuietHours()) {
+    stopAlarmAudio();
+    return;
+  }
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -270,6 +292,10 @@ const playVoiceBuffer = (ctx) => {
  * 3. Web Audio Synthesized Chime Fallback
  */
 export const playOrderAlertSound = () => {
+  if (isOrderAlarmQuietHours()) {
+    stopAlarmAudio();
+    return;
+  }
   currentPlaybackToken++;
   const token = currentPlaybackToken;
 
@@ -332,6 +358,7 @@ export const playOrderAlertSound = () => {
  * an audible confirmation sound so staff immediately knows sound is working.
  */
 export const armOrderAlarm = async ({ playTestSound = false } = {}) => {
+  const quietHours = isOrderAlarmQuietHours();
   let webAudioOk = false;
   let voiceOk = false;
   let voiceErr = null;
@@ -358,15 +385,16 @@ export const armOrderAlarm = async ({ playTestSound = false } = {}) => {
   const audio = getCustomAudio();
   if (audio) {
     try {
-      audio.volume = 1.0;
+      audio.volume = quietHours ? 0 : 1.0;
       audio.muted = false;
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         await playPromise;
-        if (!playTestSound) {
+        if (!playTestSound || quietHours) {
           audio.pause();
           audio.currentTime = 0;
         }
+        audio.volume = 1.0;
         voiceOk = true;
         isVoiceArmed = true;
       }
@@ -378,7 +406,7 @@ export const armOrderAlarm = async ({ playTestSound = false } = {}) => {
   }
 
   // Play test sound out loud so staff gets immediate audible proof!
-  if (playTestSound) {
+  if (playTestSound && !quietHours) {
     playOrderAlertSound();
   }
 
@@ -441,7 +469,7 @@ export const announceOrderCountChange = (count) => {
   playOrderAlertSound();
 
   try {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+    if (!isOrderAlarmQuietHours() && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
       new Notification(`🚨 ${numericCount} New Order${numericCount > 1 ? "s" : ""} Received!`, {
         body: "Store orders require packing and fulfillment.",
         icon: "/icon-192-v2.png",
@@ -488,7 +516,7 @@ export const triggerNewOrderNotification = ({ orderId, count } = {}) => {
 
   // System notification if permission is granted
   try {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+    if (!isOrderAlarmQuietHours() && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
       new Notification(`🚨 New Order #${cleanId} Received!`, {
         body: "New store order requires fulfillment. Tap to view and pack.",
         icon: "/icon-192-v2.png",

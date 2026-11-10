@@ -3,11 +3,13 @@ import { getCart, addToCart, updateCartItem, clearCartSession } from "../service
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
 import { orchestrateCartMerge } from "../utils/cartMerge";
+import { getCartItemIdentity } from "../utils/cartMerge";
+import { safeSessionStorage } from "../utils/safeStorage";
 
 const CartContext = createContext();
 
 export function CartProvider({ children }) {
-  const { user } = useAuth();
+  const { user, checkoutExpiredUserId, clearCheckoutRecovery } = useAuth();
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cartMergeNotice, setCartMergeNotice] = useState(null);
@@ -18,6 +20,25 @@ export function CartProvider({ children }) {
   const isInitialMountRef = useRef(true);
   const retryMergeRef = useRef(null);
   const mergingEpochRef = useRef(null);
+  const recoveryOwnerRef = useRef(checkoutExpiredUserId || null);
+
+  const saveRecoveryDraft = (owner, items) => {
+    if (!owner) return;
+    safeSessionStorage.setJSON("checkout_cart_draft", {
+      owner: String(owner), timestamp: Date.now(),
+      items: (items || []).map(({ id, variation_id, variation, quantity }) => ({ id, variation_id, variation, quantity })),
+    });
+  };
+
+  const updateRecoveryQuantity = useCallback((key, quantity) => {
+    if (!checkoutExpiredUserId || user?.id) return;
+    setCart((previous) => {
+      if (!previous?.items) return previous;
+      const items = previous.items.map((item) => item.key === key ? { ...item, quantity } : item).filter((item) => item.quantity > 0);
+      saveRecoveryDraft(checkoutExpiredUserId, items);
+      return { ...previous, items, recoveryDraft: true };
+    });
+  }, [checkoutExpiredUserId, user?.id]);
 
   const retryCartMerge = useCallback(() => {
     void retryMergeRef.current?.();
@@ -28,6 +49,10 @@ export function CartProvider({ children }) {
   }, []);
 
   const refreshCart = useCallback(async () => {
+    if (recoveryOwnerRef.current && !prevUserIdRef.current) {
+      setLoading(false);
+      return null;
+    }
     const requestEpoch = sessionEpochRef.current;
     try {
       const data = await getCart();
@@ -82,9 +107,41 @@ export function CartProvider({ children }) {
       if (!currentUserId) {
         retryMergeRef.current = null;
         clearCartSession();
+        if (checkoutExpiredUserId && String(prevUserId) === String(checkoutExpiredUserId)) {
+          recoveryOwnerRef.current = String(prevUserId);
+          saveRecoveryDraft(prevUserId, cart?.items);
+          setLoading(false);
+          return;
+        }
+        recoveryOwnerRef.current = null;
+        safeSessionStorage.removeItem("checkout_cart_draft");
         setCart(null);
         setLoading(false);
         setCartMergeNotice(null);
+        return;
+      }
+
+      const recoveryOwner = recoveryOwnerRef.current || checkoutExpiredUserId;
+      if (!prevUserId && recoveryOwner) {
+        recoveryOwnerRef.current = null;
+        clearCheckoutRecovery();
+        clearCartSession();
+        const draft = safeSessionStorage.getJSON("checkout_cart_draft", null);
+        if (String(currentUserId) !== String(recoveryOwner)) safeSessionStorage.removeItem("checkout_cart_draft");
+        setCart(null);
+        setLoading(true);
+        refreshCart().then((serverCart) => {
+          if (sessionEpochRef.current !== currentEpoch) return;
+          if (String(currentUserId) !== String(recoveryOwner) || !draft || Date.now() - draft.timestamp > 30 * 60 * 1000) return;
+          safeSessionStorage.removeItem("checkout_cart_draft");
+          const expected = new Map((draft.items || []).map((item) => [getCartItemIdentity(item), Number(item.quantity)]));
+          const actual = new Map((serverCart?.items || []).map((item) => [getCartItemIdentity(item), Number(item.quantity)]));
+          if (expected.size !== actual.size || [...expected].some(([key, quantity]) => actual.get(key) !== quantity)) {
+            setCartMergeNotice({ failedItems: [{ name: "Your cart changed while you were signed out. Please review it before checkout." }], retryable: false });
+          }
+        }).catch(() => {
+          if (sessionEpochRef.current === currentEpoch) setCartMergeNotice({ failedItems: [{ name: "We could not reload your cart. Please try again." }], retryable: false });
+        });
         return;
       }
 
@@ -153,7 +210,7 @@ export function CartProvider({ children }) {
       retryMergeRef.current = mergeAndRefresh;
       mergeAndRefresh();
     }
-  }, [user?.id, refreshCart, cart?.items]);
+  }, [user?.id, checkoutExpiredUserId, refreshCart, cart?.items]);
 
   return (
     <CartContext.Provider
@@ -168,6 +225,7 @@ export function CartProvider({ children }) {
         cartMergeNotice,
         clearCartMergeNotice,
         retryCartMerge,
+        updateRecoveryQuantity,
       }}
     >
       {children}

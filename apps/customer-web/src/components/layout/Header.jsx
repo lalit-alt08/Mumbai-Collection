@@ -1,13 +1,11 @@
 import SearchBar from "./SearchBar";
-import { ShoppingCart, User, ArrowLeft } from "lucide-react";
+import { User, ArrowLeft } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { useCart } from "../../context/CartContext";
 import { triggerHaptic } from "../../utils/haptics";
 import HapticTapTarget from "../common/HapticTapTarget";
 
 function Header() {
-  const { cart } = useCart();
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -19,11 +17,6 @@ function Header() {
     "/reset-password",
   ].some((p) => location.pathname.startsWith(p));
 
-  const totalQuantity =
-    cart?.items?.reduce(
-      (total, item) => total + Number(item.quantity || 0),
-      0
-    ) || 0;
 
   const isRecentlyViewedPage = location.pathname === "/recently-viewed";
   const isHomePage = location.pathname === "/";
@@ -77,39 +70,19 @@ function Header() {
             </div>
           )}
 
-        {/* ================= SHOPPING CART — SEPARATE CIRCULAR BUTTON OUTSIDE SEARCHBOX ================= */}
+        {/* ================= USER PROFILE — SEPARATE CIRCULAR BUTTON OUTSIDE SEARCHBOX ================= */}
         {!isRecentlyViewedPage && (
-          <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
-            <Link
-              to="/cart"
-              onClick={() => triggerHaptic("light")}
-              aria-label="Cart"
-              className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
-            >
-              <ShoppingCart size={21} strokeWidth={2.1} />
-
-              {totalQuantity > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-[#42D6E8] px-1 text-[9px] font-black text-[#061220] shadow-sm ring-2 ring-[#0B1425]">
-                  {totalQuantity > 99 ? "99+" : totalQuantity}
-                </span>
-              )}
-            </Link>
-          </HapticTapTarget>
-        )}
-
-        {/* ================= USER PROFILE BUTTON (Desktop Only) ================= */}
-        <div className="hidden md:flex">
           <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
             <Link
               to={user ? "/account" : "/login"}
               onClick={() => triggerHaptic("light")}
-              aria-label={user ? "Account" : "Login"}
-              className={`flex h-11 w-11 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
+              aria-label={user ? "Profile" : "Sign In"}
+              className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
             >
-              <User size={19} strokeWidth={2.2} />
+              <User size={20} strokeWidth={2.2} />
             </Link>
           </HapticTapTarget>
-        </div>
+        )}
 
 
       </div>

@@ -118,6 +118,7 @@ app.use(
       "Authorization",
       "X-Mumbai-Panel",
       "X-Idempotency-Key",
+      "X-Mumbai-Expected-Total",
       "Idempotency-Key",
       "X-Requested-With",
       "Nonce",

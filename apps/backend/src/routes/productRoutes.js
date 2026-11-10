@@ -32,7 +32,7 @@ router.get("/stock", catalogLimiter, validateRequest({ query: schemas.productSto
 router.get("/categories", catalogLimiter, validateRequest({ query: schemas.pagination }), getAllCategories);
 router.get("/search", catalogLimiter, validateRequest({ query: schemas.productSearch }), searchAllProducts);
 router.get("/related", catalogLimiter, validateRequest({ query: schemas.relatedProducts }), getRelatedProducts);
-router.get("/category/:categoryId", catalogLimiter, validateRequest({ params: schemas.categoryIdParam, query: schemas.pagination }), getProductsByCategory);
+router.get("/category/:categoryId", catalogLimiter, validateRequest({ params: schemas.categoryIdParam, query: schemas.categoryProductsQuery }), getProductsByCategory);
 router.get("/:id", catalogLimiter, validateRequest({ params: schemas.idParam, query: schemas.productDetailQuery }), getProductById);
 
 // Product Reviews

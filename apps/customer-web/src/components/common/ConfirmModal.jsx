@@ -54,7 +54,7 @@ function ConfirmModal({
       />
 
       {/* Modal Container */}
-      <div className="relative z-10 w-full max-w-[460px] overflow-hidden rounded-[26px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_25px_65px_rgba(0,0,0,0.5)] animate-[scaleUp_0.2s_ease-out] sm:p-8">
+      <div className="relative z-10 w-full max-w-[500px] sm:max-w-[520px] overflow-hidden rounded-[28px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_25px_70px_rgba(0,0,0,0.6)] animate-[scaleUp_0.2s_ease-out] sm:p-8 sm:px-9">
         
         {/* Close Button */}
         <button
@@ -62,7 +62,7 @@ function ConfirmModal({
           onClick={onClose}
           disabled={isLoading}
           aria-label="Close modal"
-          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-[#8FA4BE] transition hover:bg-[#162744] hover:text-[#F1F5F9] disabled:opacity-50 cursor-pointer"
+          className="absolute right-4.5 top-4.5 flex h-9 w-9 items-center justify-center rounded-full text-[#8FA4BE] transition hover:bg-[#162744] hover:text-[#F1F5F9] disabled:opacity-50 cursor-pointer"
         >
           <X size={20} />
         </button>
@@ -70,13 +70,13 @@ function ConfirmModal({
         {/* Icon Badge */}
         <div className="mx-auto flex justify-center">
           <div
-            className={`flex h-16 w-16 items-center justify-center rounded-2xl border ${
+            className={`flex h-16 w-16 sm:h-[68px] sm:w-[68px] items-center justify-center rounded-2xl border ${
               isDanger
                 ? "border-rose-900/60 bg-rose-950/40 text-rose-400"
                 : "border-[#1E3252] bg-[#132B45] text-[#42D6E8]"
             }`}
           >
-            <Icon size={30} strokeWidth={2.2} />
+            <Icon size={32} strokeWidth={2.2} />
           </div>
         </div>
 
@@ -84,13 +84,13 @@ function ConfirmModal({
         <div className="mt-4 text-center sm:mt-5">
           <h3
             id="confirm-modal-title"
-            className="text-xl font-black tracking-tight text-[#F1F5F9] sm:text-2xl"
+            className="text-xl sm:text-[23px] font-black tracking-tight text-[#F1F5F9]"
           >
             {title}
           </h3>
-          <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-[#8FA4BE] sm:text-sm">
+          <div className="mx-auto mt-2.5 w-full text-xs leading-relaxed text-[#CBD5E1] sm:text-sm">
             {message}
-          </p>
+          </div>
         </div>
 
         {/* Prominent Action Buttons */}
@@ -99,7 +99,7 @@ function ConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`flex h-[52px] sm:h-[54px] w-full items-center justify-center gap-2.5 rounded-2xl px-6 text-[15px] sm:text-base font-extrabold shadow-md transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer ${
+            className={`flex h-[52px] sm:h-[56px] w-full items-center justify-center gap-2.5 rounded-2xl px-6 text-[15px] sm:text-base font-extrabold shadow-md transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer ${
               isDanger
                 ? "bg-rose-600 text-white shadow-[0_6px_20px_rgba(225,29,72,0.28)] hover:bg-rose-700"
                 : "bg-[#42D6E8] text-[#061220] font-black shadow-[0_6px_20px_rgba(66,214,232,0.3)] hover:bg-[#2CC4D8]"
@@ -113,7 +113,7 @@ function ConfirmModal({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="flex h-[52px] sm:h-[54px] w-full items-center justify-center rounded-2xl border-2 border-[#1E3252] bg-[#080F1C] px-6 text-[15px] sm:text-base font-bold text-[#F1F5F9] shadow-sm transition hover:bg-[#162744] hover:border-[#42D6E8]/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+            className="flex h-[52px] sm:h-[56px] w-full items-center justify-center rounded-2xl border-2 border-[#1E3252] bg-[#080F1C] px-6 text-[15px] sm:text-base font-bold text-[#F1F5F9] shadow-sm transition hover:bg-[#162744] hover:border-[#42D6E8]/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
             {cancelText}
           </button>

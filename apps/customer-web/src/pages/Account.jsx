@@ -15,8 +15,11 @@ import {
   ChevronLeft,
   LogOut,
   Pencil,
+  Plus,
   Package,
   Home,
+  Phone,
+  Mail,
 } from "lucide-react";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
@@ -37,9 +40,16 @@ function Account() {
 
   const profile = profileState.userId === user?.id ? profileState.data : null;
 
+  const [isProfileFetching, setIsProfileFetching] = useState(() => {
+    if (!user?.id) return false;
+    const cached = safeSessionStorage.getJSON(`user_profile_${user.id}`, null);
+    return !cached && !user?.phone;
+  });
+
   useEffect(() => {
     if (!user?.id) {
       setProfileState({ data: null, userId: null });
+      setIsProfileFetching(false);
       return;
     }
 
@@ -48,6 +58,7 @@ function Account() {
     const cached = safeSessionStorage.getJSON(scopedKey, null);
     // Unconditionally reset state to current user's cache or null on account switch
     setProfileState({ data: cached || null, userId: currentUserId });
+    setIsProfileFetching(!cached && !user?.phone);
 
     let isMounted = true;
     const controller = new AbortController();
@@ -61,11 +72,12 @@ function Account() {
         if (isMounted && res.data?.profile && user?.id === currentUserId) {
           setProfileState({ data: res.data.profile, userId: currentUserId });
           safeSessionStorage.setJSON(scopedKey, res.data.profile);
-          if (updateUser && res.data.profile.full_name) {
+          if (updateUser) {
             updateUser({
               name: res.data.profile.full_name,
               full_name: res.data.profile.full_name,
               phone: res.data.profile.phone,
+              email: res.data.profile.email || user?.email,
               is_google_user: res.data.profile.is_google_user ?? res.data.is_google_user ?? user?.is_google_user,
             });
           }
@@ -73,6 +85,10 @@ function Account() {
       } catch (err) {
         if (controller.signal.aborted) return;
         // Fallback to user context
+      } finally {
+        if (isMounted) {
+          setIsProfileFetching(false);
+        }
       }
     };
     loadProfile();
@@ -95,12 +111,29 @@ function Account() {
     (!isStoreName(user?.username) ? user?.username?.trim() : "") ||
     "Customer";
 
-  const displayContact =
-    profile?.phone?.trim() ||
-    user?.phone?.trim() ||
-    profile?.email?.trim() ||
-    user?.email?.trim() ||
-    "";
+  const rawPhone = (profile?.phone || user?.phone || "").trim();
+
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return "";
+    const clean = String(phone).replace(/\D/g, "");
+    let national = clean;
+    if (clean.length === 12 && clean.startsWith("91")) {
+      national = clean.slice(2);
+    } else if (clean.length === 11 && clean.startsWith("0")) {
+      national = clean.slice(1);
+    } else if (clean.length > 10) {
+      national = clean.slice(-10);
+    }
+
+    if (national.length === 10) {
+      return `+91 ${national.slice(0, 5)} ${national.slice(5)}`;
+    }
+    return phone.startsWith("+") ? phone : `+91 ${phone}`;
+  };
+
+  const formattedPhone = formatPhoneNumber(rawPhone);
+
+  const displayEmail = (profile?.email || user?.email || "").trim();
 
   const isGoogleLinked =
     user?.is_google_user === true ||
@@ -170,7 +203,7 @@ function Account() {
         </div>
 
         {/* ────────────────────────────────────────────────────────── */}
-        {/* PROFILE HERO CARD (COMPACT & CLEAN)                        */}
+        {/* PROFILE HERO CARD (COMPACT & CLEAN - DUAL-ROW IDENTITY)    */}
         {/* ────────────────────────────────────────────────────────── */}
         <div className="relative overflow-hidden rounded-[24px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-lg">
           {/* Subtle Decorative Background Glow */}
@@ -183,22 +216,47 @@ function Account() {
                 {avatarInitials}
               </div>
 
-              {/* Name & Contact Details */}
-              <div className="min-w-0 flex-1">
-                <h2 className="text-[20px] sm:text-[22px] font-black text-white tracking-[-0.015em] leading-snug truncate capitalize antialiased">
+              {/* Name & Dual-Row Contact Details */}
+              <div className="min-w-0 flex-1 space-y-1 sm:space-y-1.5">
+                <h2 className="text-[19px] sm:text-[21px] font-black text-white tracking-[-0.015em] leading-snug truncate capitalize antialiased">
                   {displayName}
                 </h2>
-                {displayContact && (
-                  <p className="text-[13.5px] sm:text-[14.5px] font-medium text-[#94A3B8] tracking-[0.01em] truncate mt-0.5 leading-normal antialiased">
-                    {displayContact}
-                  </p>
+
+                {/* Primary Row: Phone Number or Add Phone CTA */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <Phone size={13.5} className="shrink-0 text-[#42D6E8]" strokeWidth={2.2} />
+                  {rawPhone ? (
+                    <span className="text-[13.5px] sm:text-[14px] font-semibold text-[#E2E8F0] tracking-[0.01em] truncate leading-tight antialiased">
+                      {formattedPhone}
+                    </span>
+                  ) : isProfileFetching ? (
+                    <div className="h-4 w-28 rounded bg-[#162744] animate-pulse" />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => navigate("/account/profile", { state: { edit: true, focusField: "phone" } })}
+                      className="inline-flex items-center text-[12.5px] sm:text-[13px] font-bold text-[#42D6E8] hover:text-[#67E8F9] hover:underline transition-colors cursor-pointer antialiased"
+                    >
+                      <span>Add mobile number</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Secondary Row: Account Email */}
+                {displayEmail && (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Mail size={13.5} className="shrink-0 text-[#8FA4BE]" strokeWidth={2.2} />
+                    <span className="text-[12.5px] sm:text-[13px] font-medium text-[#CBD5E1] tracking-[0.005em] truncate leading-tight antialiased">
+                      {displayEmail}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
 
             {/* Edit Action Pill */}
             <button
-              onClick={() => navigate("/account/profile")}
+              onClick={() => navigate("/account/profile", { state: { edit: true } })}
               className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#132B45] border border-[#1E3252] px-4 py-1.5 text-xs font-extrabold text-[#67E8F9] shadow-xs transition-all hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95 cursor-pointer"
             >
               <Pencil size={13} />

@@ -133,7 +133,7 @@ localBus.on("order_event", (payload) => {
  * @param {number|string} [params.total]
  * @param {number|string} [params.employeeId]
  */
-export const publishOrderEvent = async ({ event, orderId, status, total, employeeId } = {}) => {
+export const publishOrderEvent = async ({ event, orderId, status, total, employeeId, suppressPush = false } = {}) => {
   const cleanOrderId = Number(orderId);
   if (!cleanOrderId || isNaN(cleanOrderId) || !event) {
     logger.debug({ event, orderId }, "[OrderNotification] Ignored invalid order event parameters");
@@ -153,7 +153,7 @@ export const publishOrderEvent = async ({ event, orderId, status, total, employe
   let pushEnqueued = true;
   let pushError = null;
 
-  if (payload.event === "ORDER_CREATED") {
+  if (payload.event === "ORDER_CREATED" && !suppressPush) {
     try {
       await enqueuePushOutboxJob({ orderId: cleanOrderId, total: total || null });
     } catch (pushErr) {

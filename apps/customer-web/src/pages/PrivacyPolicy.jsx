@@ -47,7 +47,7 @@ function PrivacyPolicy() {
             <ul className="list-inside list-disc space-y-1.5 pl-2 text-[#8FA4BE]">
               <li><strong className="text-[#F1F5F9]">Contact Information:</strong> Full name, mobile phone number, email address.</li>
               <li><strong className="text-[#F1F5F9]">Delivery Information:</strong> Street address, flat/house number, landmark, city, state (e.g. Maharashtra), and 6-digit PIN code.</li>
-              <li><strong className="text-[#F1F5F9]">Order & Transaction History:</strong> Products purchased, order amounts, chosen payment method (Cash on Delivery / UPI), and fulfillment statuses.</li>
+              <li><strong className="text-[#F1F5F9]">Order & Transaction History:</strong> Products purchased, order amounts, chosen payment method, and fulfillment statuses.</li>
               <li><strong className="text-[#F1F5F9]">Technical Data:</strong> IP address, device type, browser information, and session cookies for cart management.</li>
             </ul>
           </section>
@@ -74,7 +74,7 @@ function PrivacyPolicy() {
             </h2>
             <p>
               We implement industry-standard SSL encryption and secure session tokens to protect your personal details. 
-              <strong className="text-[#F1F5F9]"> We do not store sensitive payment details such as debit/credit card numbers, CVVs, or UPI PINs.</strong> For Cash on Delivery (COD) orders, payment is collected physically upon delivery.
+              <strong className="text-[#F1F5F9]"> We do not store sensitive payment details such as debit/credit card numbers, CVVs, or UPI PINs.</strong>
             </p>
           </section>
 

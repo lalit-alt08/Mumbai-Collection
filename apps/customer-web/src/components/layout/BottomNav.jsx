@@ -1,12 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, LayoutGrid, Package, User } from "lucide-react";
+import { Home, LayoutGrid, Package, ShoppingCart } from "lucide-react";
 import { triggerHaptic } from "../../utils/haptics";
 import HapticTapTarget from "../common/HapticTapTarget";
+import { useCart } from "../../context/CartContext";
 
 function BottomNav() {
   const location = useLocation();
   const path = location.pathname;
+  const { cart } = useCart();
+
+  const totalQuantity =
+    cart?.items?.reduce(
+      (total, item) => total + Number(item.quantity || 0),
+      0
+    ) || 0;
 
   // 1. Determine whether BottomNav should be completely hidden on specific dedicated-action pages
   const hideOnPages = [
@@ -92,23 +100,19 @@ function BottomNav() {
       isActive: path.startsWith("/categor"),
     },
     {
+      id: "cart",
+      label: "Cart",
+      to: "/cart",
+      icon: ShoppingCart,
+      isActive: path.startsWith("/cart"),
+      badge: totalQuantity > 0 ? (totalQuantity > 99 ? "99+" : totalQuantity) : null,
+    },
+    {
       id: "orders",
       label: "Orders",
       to: "/orders",
       icon: Package,
       isActive: path.startsWith("/orders") || path.startsWith("/account/orders"),
-    },
-    {
-      id: "profile",
-      label: "Profile",
-      to: "/account",
-      icon: User,
-      isActive:
-        (path.startsWith("/account") ||
-          path.startsWith("/profile") ||
-          path.startsWith("/login") ||
-          path.startsWith("/register")) &&
-        !path.startsWith("/account/orders"),
     },
   ];
 
@@ -125,7 +129,7 @@ function BottomNav() {
         touchAction: "manipulation",
       }}
     >
-      <div className="mx-auto flex h-14 max-w-lg items-center justify-around px-3 select-none">
+      <div className="mx-auto flex h-[58px] max-w-lg items-center justify-around px-2 select-none">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = item.isActive;
@@ -144,27 +148,32 @@ function BottomNav() {
                   }
                 }}
                 style={{ touchAction: "manipulation" }}
-                className={`group flex flex-1 flex-col items-center justify-center gap-1 py-1 transition-all duration-150 active:scale-95 select-none ${
-                  active ? "text-[#42D6E8]" : "text-[#6E84A3] hover:text-[#42D6E8]"
+                className={`group flex flex-1 flex-col items-center justify-center py-1 transition-all duration-150 active:scale-95 select-none ${
+                  active ? "text-[#42D6E8]" : "text-[#9FB3CE] hover:text-[#42D6E8]"
                 }`}
               >
                 <div
-                  className={`relative flex items-center justify-center transition-transform duration-200 ${
+                  className={`relative flex h-6 w-6 items-center justify-center transition-transform duration-200 ${
                     active ? "scale-105" : "group-hover:scale-105"
                   }`}
                 >
                   <Icon
-                    size={20}
-                    strokeWidth={active ? 2.5 : 1.8}
-                    className={`transition-colors ${
-                      active ? "text-[#42D6E8] fill-[#42D6E8]/20" : "text-[#6E84A3]"
+                    size={21}
+                    strokeWidth={active ? 2.5 : 2.0}
+                    className={`transition-colors shrink-0 ${
+                      active ? "text-[#42D6E8] fill-[#42D6E8]/20" : "text-[#9FB3CE]"
                     }`}
                   />
+                  {item.badge && (
+                    <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#42D6E8] px-1 text-[9px] font-black text-[#061220] shadow-sm ring-2 ring-[#0B1425]">
+                      {item.badge}
+                    </span>
+                  )}
                 </div>
 
                 <span
-                  className={`text-[11px] tracking-tight transition-colors ${
-                    active ? "font-bold text-[#42D6E8]" : "font-medium text-[#6E84A3]"
+                  className={`mt-1 text-[12px] tracking-tight leading-none text-center transition-colors ${
+                    active ? "font-extrabold text-[#42D6E8]" : "font-semibold text-[#9FB3CE]"
                   }`}
                 >
                   {item.label}

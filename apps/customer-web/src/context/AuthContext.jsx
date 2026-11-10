@@ -24,6 +24,9 @@ const persistUserCache = (userData) => {
   safeSessionStorage.setJSON("user", {
     id: userData.id,
     name: userData.name || "",
+    full_name: userData.full_name || userData.name || "",
+    email: userData.email || "",
+    phone: userData.phone || "",
     roles: Array.isArray(userData.roles) ? userData.roles : [],
     is_google_user: userData.is_google_user === true,
   });
@@ -44,6 +47,11 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [checkoutExpiredUserId, setCheckoutExpiredUserId] = useState(() => safeSessionStorage.getItem("checkout_expired_user_id"));
+  const clearCheckoutRecovery = () => {
+    safeSessionStorage.removeItem("checkout_expired_user_id");
+    setCheckoutExpiredUserId(null);
+  };
 
   // ==========================================
   // RESTORE EXISTING LOGIN SESSION
@@ -196,8 +204,15 @@ export function AuthProvider({ children }) {
   // HANDLE EXPIRED SESSION (401)
   // ==========================================
 
-  const handleSessionExpired = () => {
+  const handleSessionExpired = (options = {}) => {
     const outgoingId = user?.id;
+    if (options.checkout && outgoingId) {
+      safeSessionStorage.setItem("checkout_expired_user_id", String(outgoingId));
+      setCheckoutExpiredUserId(String(outgoingId));
+    } else {
+      safeSessionStorage.removeItem("checkout_expired_user_id");
+      setCheckoutExpiredUserId(null);
+    }
     setIsReconnecting(false);
     setUser(null);
     safeSessionStorage.removeItem("user");
@@ -325,6 +340,8 @@ export function AuthProvider({ children }) {
         deleteAccount,
         isAuthenticated: !!user && !isReconnecting && !user?.isUnverified,
         isReconnecting,
+        checkoutExpiredUserId,
+        clearCheckoutRecovery,
         loading,
       }}
     >

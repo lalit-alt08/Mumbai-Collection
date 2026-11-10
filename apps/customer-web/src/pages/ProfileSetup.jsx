@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import API_URL from "../config/api.js";
 import {
@@ -1251,6 +1251,18 @@ function ProfileSetup() {
                       <span>{errors.city}</span>
                     </p>
                   )}
+                  <p className="mt-2 text-[11.5px] sm:text-xs text-[#8FA4BE] leading-relaxed">
+                    For delivery outside these 4 zones, please{" "}
+                    <Link
+                      to="/contact"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-bold text-[#42D6E8] underline hover:text-[#2CC4D8] transition-colors"
+                    >
+                      contact the store
+                    </Link>
+                    .
+                  </p>
                 </div>
 
                 {/* State / Store Zone Badge */}

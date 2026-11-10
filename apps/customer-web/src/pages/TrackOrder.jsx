@@ -15,10 +15,13 @@ import {
   Check,
   ChevronRight,
   HelpCircle,
+  Moon,
 } from "lucide-react";
 import { getOrderById } from "../services/orderService";
+import { getScheduledFulfillmentLabel, isPaymentAwaitingDeliveryReview, isScheduledFulfillmentOrder } from "../utils/scheduledDelivery.js";
 import { useAuth } from "../context/AuthContext";
 import { isValidPersonName } from "../utils/nameValidator";
+import { formatOrderPlacedDateTime } from "../utils/orderDateTime.js";
 
 function TrackOrder() {
   const { orderId } = useParams();
@@ -304,6 +307,9 @@ function TrackOrder() {
 
   const isCancelled = order?.status === "cancelled" || order?.status === "failed" || order?.status === "refunded";
   const isDelivered = order?.status === "completed";
+  const isAfterHoursOrder = isScheduledFulfillmentOrder(order);
+  const needsDeliveryReview = isPaymentAwaitingDeliveryReview(order);
+  const scheduledFulfillmentLabel = getScheduledFulfillmentLabel(order);
   const itemsSubtotal = (
     Number(order?.total || 0) -
     Number(order?.shipping_total || 0) +
@@ -426,15 +432,33 @@ function TrackOrder() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-[#8FA4BE] font-medium">
-                    Placed on {formatDateTime(order.date_created)}
+                    Placed on {formatOrderPlacedDateTime(order)}
                   </p>
                 </div>
 
                 {/* Quick ETA or Delivery Confirmation Pill */}
                 {!isCancelled && !isDelivered && (
-                  <div className="flex items-center gap-2 rounded-xl bg-[#42D6E8]/10 px-3.5 py-2 text-xs font-bold text-[#42D6E8] border border-[#42D6E8]/30 shadow-xs">
-                    <Truck size={16} className="animate-pulse shrink-0" />
-                    <span>Est. Delivery: 60–90 Mins</span>
+                  <div className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold border shadow-xs ${
+                    isAfterHoursOrder
+                      ? "bg-indigo-950/60 text-indigo-300 border-indigo-500/30"
+                      : "bg-[#42D6E8]/10 text-[#42D6E8] border-[#42D6E8]/30"
+                  }`}>
+                    {needsDeliveryReview ? (
+                      <>
+                        <AlertCircle size={16} className="shrink-0 text-amber-300" />
+                        <span>Delivery timing to be confirmed by the store</span>
+                      </>
+                    ) : isAfterHoursOrder ? (
+                      <>
+                        <Moon size={16} className="shrink-0 text-indigo-400" />
+                        <span>Fulfillment starts {scheduledFulfillmentLabel}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Truck size={16} className="animate-pulse shrink-0" />
+                        <span>Est. Delivery: 60–90 Mins</span>
+                      </>
+                    )}
                   </div>
                 )}
                 {isDelivered && (
@@ -457,6 +481,23 @@ function TrackOrder() {
                 </div>
               ) : (
                 <>
+                  {/* Night Order Banner */}
+                {needsDeliveryReview && ["pending", "processing", "on-hold"].includes(order.status) ? (
+                  <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-950/40 p-3.5 text-xs text-amber-100">
+                    <span className="font-bold text-white block">Payment received · Fulfillment confirmation pending</span>
+                    <span className="text-amber-200/90 text-[11.5px]">Your payment is safe. The store team will contact you to confirm delivery timing.</span>
+                  </div>
+                ) : isAfterHoursOrder && ["pending", "processing"].includes(order.status) && (
+                    <div className="mt-4 rounded-xl border border-indigo-400/30 bg-indigo-950/40 p-3.5 text-xs text-indigo-200 flex items-center gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-900/60 text-indigo-300 border border-indigo-700/40">
+                        <Moon size={16} />
+                      </div>
+                      <div>
+                        <span className="font-bold text-white block">Scheduled fulfillment · {scheduledFulfillmentLabel}</span>
+                        <span className="text-indigo-300/90 text-[11.5px]">Preparation begins when the store opens. Delivery follows packing and dispatch.</span>
+                      </div>
+                    </div>
+                  )}
                   {/* ────────────────────────────────────────────────────────── */}
                   {/* DESKTOP HORIZONTAL TIMELINE (>= 768px)                     */}
                   {/* ────────────────────────────────────────────────────────── */}
@@ -681,7 +722,7 @@ function TrackOrder() {
                   <div className="space-y-2 text-xs text-[#8FA4BE]">
                     <div className="flex justify-between">
                       <span>Payment Method</span>
-                      <span className="font-bold text-[#F1F5F9]">{order.payment_method_title || "Cash on Delivery"}</span>
+                      <span className="font-bold text-[#F1F5F9]">{order.payment_method_title || "Payment method unavailable"}</span>
                     </div>
                     <div className="flex justify-between items-start">
                       <div>

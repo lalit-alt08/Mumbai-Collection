@@ -20,15 +20,15 @@ function ProductWhatsAppSupport({ product }) {
     <div className="rounded-[22px] sm:rounded-[26px] border border-[#1E3252]/80 bg-[#111F36] p-5 sm:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-5">
         {/* Left: Icon & Text Info */}
-        <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
+        <div className="flex items-center gap-4 sm:gap-4.5 min-w-0">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#25D366]/15 text-[#25D366] border border-[#25D366]/30 shadow-xs">
             <WhatsAppIcon className="h-6 w-6 text-[#25D366]" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] sm:text-base font-bold text-[#F1F5F9] tracking-tight">
+            <h3 className="text-[15px] sm:text-base font-bold text-[#F1F5F9] leading-snug">
               Have questions about this product?
             </h3>
-            <p className="text-xs sm:text-[13px] text-[#8FA4BE] font-medium mt-0.5">
+            <p className="text-xs sm:text-[13px] text-[#8FA4BE] font-medium mt-1.5 sm:mt-2 leading-normal">
               Chat with us on WhatsApp
             </p>
           </div>

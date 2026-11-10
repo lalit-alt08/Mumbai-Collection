@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import API_URL from "../config/api.js";
 import axios from "axios";
 import {
@@ -583,11 +583,6 @@ function Addresses() {
                     ? "Edit Address"
                     : `Add ${form.type === "office" ? "Office" : "Home"} Address`}
                 </h2>
-                <p className="text-xs sm:text-sm text-[#8FA4BE] font-medium mt-0.5 truncate">
-                  {editingId
-                    ? "Update your saved delivery address details."
-                    : "Save your address for 1-click checkout."}
-                </p>
               </div>
             </div>
 
@@ -879,6 +874,18 @@ function Addresses() {
                     <span>{fieldErrors.city}</span>
                   </p>
                 )}
+                <p className="mt-2.5 text-[11.5px] sm:text-xs text-[#8FA4BE] leading-relaxed">
+                  For delivery outside these 4 zones, please{" "}
+                  <Link
+                    to="/contact"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-bold text-[#42D6E8] underline hover:text-[#2CC4D8] transition-colors"
+                  >
+                    contact the store
+                  </Link>
+                  .
+                </p>
               </div>
 
               {/* STATE (Permanently Locked To Maharashtra) */}
@@ -951,10 +958,6 @@ function Addresses() {
             <h2 className="text-xl font-bold text-[#F1F5F9]">
               No saved addresses
             </h2>
-
-            <p className="mt-2 text-[#8FA4BE]">
-              Add your Home or Office address for 1-click checkout.
-            </p>
           </div>
         ) : (
           <div className="grid gap-5 md:grid-cols-2">

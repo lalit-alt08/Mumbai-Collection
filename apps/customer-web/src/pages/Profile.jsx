@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
 import { useAuth } from "../context/AuthContext";
@@ -26,6 +26,7 @@ import { sendPasswordResetOtp, verifyPasswordResetOtp } from "../services/authSe
 
 function Profile() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, deleteAccount, updateUser, handleSessionExpired } = useAuth();
   const [profileState, setProfileState] = useState(() => {
     safeStorage.removeItem("user_profile");
@@ -37,8 +38,10 @@ function Profile() {
   const profile = profileState.userId === user?.id ? profileState.data : null;
   const [loading, setLoading] = useState(!profile);
   const requestGenRef = useRef(0);
+  const phoneInputRef = useRef(null);
+  const focusAttemptedRef = useRef(false);
 
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => Boolean(location.state?.edit));
   const [saving, setSaving] = useState(false);
 
   // Delete account state
@@ -48,17 +51,25 @@ function Profile() {
   const [deleteError, setDeleteError] = useState("");
   const [deleteCodeSent, setDeleteCodeSent] = useState(false);
   const [deleteCodeSending, setDeleteCodeSending] = useState(false);
-  const [deleteResendAt, setDeleteResendAt] = useState(0);
+  const [deleteResendSeconds, setDeleteResendSeconds] = useState(0);
   const passwordlessGoogle = user?.is_google_user === true && user?.has_usable_password === false;
 
+  useEffect(() => {
+    if (deleteResendSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setDeleteResendSeconds((sec) => (sec > 0 ? sec - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [deleteResendSeconds]);
+
   const sendDeleteCode = async () => {
-    if (deleteCodeSending || isDeleting || Date.now() < deleteResendAt) return;
+    if (deleteCodeSending || isDeleting || deleteResendSeconds > 0) return;
     setDeleteCodeSending(true);
     setDeleteError("");
     try {
       await sendPasswordResetOtp(user.email);
       setDeleteCodeSent(true);
-      setDeleteResendAt(Date.now() + 60000);
+      setDeleteResendSeconds(60);
       setDeletePassword("");
     } catch (err) {
       setDeleteError(err.response?.data?.message || "Unable to send the confirmation code.");
@@ -70,12 +81,37 @@ function Profile() {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [success, setSuccess] = useState("");
+  const [phoneAvailability, setPhoneAvailability] = useState("idle");
 
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
     phone: "",
   });
+
+  useEffect(() => {
+    const phone = String(form.phone || "").replace(/\D/g, "").slice(-10);
+    const current = String(profile?.phone || user?.phone || "").replace(/\D/g, "").slice(-10);
+    if (!editing || !isValidIndianPhone(phone) || phone === current) {
+      setPhoneAvailability("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setPhoneAvailability("checking");
+    const timer = setTimeout(async () => {
+      try {
+        const response = await axios.get(`${API_URL}/profile/check-phone`, {
+          params: { phone }, withCredentials: true, signal: controller.signal, timeout: 10000,
+        });
+        if (!controller.signal.aborted) {
+          setPhoneAvailability(response.data?.success === true && response.data?.available === true ? "available" : response.data?.exists === true ? "taken" : "unavailable");
+        }
+      } catch {
+        if (!controller.signal.aborted) setPhoneAvailability("unavailable");
+      }
+    }, 500);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [editing, form.phone, profile?.phone, user?.phone, user?.id]);
 
   const getCleanDisplayName = (fullName, firstName, lastName, fallback = "Your Name") => {
     const f = (firstName || "").trim();
@@ -122,11 +158,13 @@ function Profile() {
     const currentGen = ++requestGenRef.current;
     const controller = new AbortController();
 
-    // Reset editing and error states on identity switch
-    setEditing(false);
+    // Reset editing and error states on identity switch, but honor location.state?.edit
+    const shouldEdit = Boolean(location.state?.edit);
+    setEditing(shouldEdit);
     setSaving(false);
     setError("");
     setDeleteError("");
+    focusAttemptedRef.current = false;
 
     if (!user?.id) {
       setProfileState({ data: null, userId: null });
@@ -232,15 +270,27 @@ function Profile() {
     };
   }, [user?.id]);
 
+  // Focus the targeted phone input through a ref once the edit form mounts
+  useEffect(() => {
+    if (
+      !loading &&
+      editing &&
+      location.state?.focusField === "phone" &&
+      !focusAttemptedRef.current
+    ) {
+      if (phoneInputRef.current && !phoneInputRef.current.disabled) {
+        phoneInputRef.current.focus();
+        focusAttemptedRef.current = true;
+      }
+    }
+  }, [loading, editing, location.state?.focusField]);
+
   // ==============================
   // INPUT CHANGE (NAME & PHONE)
   // ==============================
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    // Primary phone is locked once set; allow editing only if user has no phone yet
-    if (name === "phone" && (profile?.phone || user?.phone)) return;
-
     let nextValue = value;
     if (name === "phone") {
       let digits = value.replace(/\D/g, "");
@@ -340,12 +390,14 @@ function Profile() {
       newFieldErrors.last_name = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
     }
 
-    // Validate primary phone only if user is setting it for the first time
-    if (!profile?.phone && (!form.phone || !isValidIndianPhone(form.phone))) {
+    const effectivePrimary = String(form.phone || "").replace(/\D/g, "").slice(-10);
+    if (!isValidIndianPhone(effectivePrimary)) {
       newFieldErrors.phone = "Please enter a valid 10-digit primary Indian mobile number.";
+    } else if (phoneAvailability === "taken") {
+      newFieldErrors.phone = "This mobile number is already registered to another account.";
+    } else if (phoneAvailability === "checking") {
+      newFieldErrors.phone = "Please wait while we check this number.";
     }
-
-    const effectivePrimary = (profile?.phone || form.phone || "").replace(/\D/g, "").slice(0, 10);
 
     if (Object.keys(newFieldErrors).length > 0) {
       setFieldErrors(newFieldErrors);
@@ -408,6 +460,8 @@ function Profile() {
           name: cleanFullName,
           full_name: cleanFullName,
           phone: cleanPhone,
+          is_phone_verified: response.data?.is_phone_verified === true,
+          verified_phone: response.data?.verified_phone || "",
         });
       }
 
@@ -722,17 +776,29 @@ function Profile() {
                     +91
                   </span>
                   <input
+                    ref={(el) => {
+                      phoneInputRef.current = el;
+                      if (
+                        el &&
+                        !el.disabled &&
+                        editing &&
+                        location.state?.focusField === "phone" &&
+                        !focusAttemptedRef.current
+                      ) {
+                        el.focus();
+                        focusAttemptedRef.current = true;
+                      }
+                    }}
                     type="tel"
                     inputMode="numeric"
                     name="phone"
-                    value={profile?.phone || user?.phone || form.phone}
+                    value={String(form.phone || "").replace(/\D/g, "").slice(-10)}
                     onChange={handleChange}
-                    disabled={Boolean(profile?.phone || user?.phone)}
+                    maxLength={10}
+                    disabled={saving}
                     className={`h-11 w-full rounded-xl border pl-11 pr-3.5 outline-none transition font-semibold text-sm ${
                       fieldErrors.phone
                         ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#F1F5F9]"
-                        : (profile?.phone || user?.phone)
-                        ? "cursor-not-allowed border-[#1E3252] bg-[#080F1C]/50 text-[#6E84A3]"
                         : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
                     }`}
                   />
@@ -742,9 +808,10 @@ function Profile() {
                     <AlertCircle size={12} className="shrink-0 text-rose-400" />
                     <span>{fieldErrors.phone}</span>
                   </p>
-                ) : (profile?.phone || user?.phone) ? (
-                  <p className="mt-1 text-[11px] text-[#6E84A3]">
-                    Primary mobile cannot be changed from this page.
+                ) : phoneAvailability !== "idle" ? (
+                  <p role="status" aria-live="polite" className={`mt-1 flex items-center gap-1 text-[11px] ${phoneAvailability === "taken" ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                    {phoneAvailability === "checking" && <Loader2 size={12} className="animate-spin" />}
+                    {phoneAvailability === "checking" ? "Checking availability…" : phoneAvailability === "available" ? "Number available" : phoneAvailability === "taken" ? "This number is already registered to another account." : "Couldn’t check availability. We’ll check when you save."}
                   </p>
                 ) : null}
               </div>
@@ -909,41 +976,91 @@ function Profile() {
             setDeletePassword("");
             setDeleteError("");
             setDeleteCodeSent(false);
+            setDeleteResendSeconds(0);
           }
         }}
         onConfirm={handleDeleteAccount}
         title="Delete Account Permanently?"
         message={
-          <span className="block text-left">
-            <span className="block text-center">
-              This permanently erases your profile, saved addresses, and favorites. {passwordlessGoogle ? "Confirm with a code sent to your account email." : "Enter your current password to continue."}
-            </span>
-            <label className="mt-4 block text-xs font-bold text-[#C9D6E8]">
-              {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
-              {passwordlessGoogle && <button type="button" disabled={deleteCodeSending || isDeleting} onClick={sendDeleteCode}
-                className="my-2 block text-[#42D6E8] disabled:opacity-50">
-                {deleteCodeSending ? "Sending..." : deleteCodeSent ? "Code sent. Resend after 60 seconds" : "Send confirmation code"}
-              </button>}
-              <input
-                type={passwordlessGoogle ? "text" : "password"}
-                inputMode={passwordlessGoogle ? "numeric" : undefined}
-                maxLength={passwordlessGoogle ? 6 : 256}
-                value={deletePassword}
-                onChange={(event) => {
-                  setDeletePassword(event.target.value);
-                  setDeleteError("");
-                }}
-                autoComplete={passwordlessGoogle ? "one-time-code" : "current-password"}
-                disabled={isDeleting}
-                className="mt-2 h-12 w-full rounded-xl border border-[#2A4265] bg-[#080F1C] px-4 text-sm text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] disabled:opacity-60"
-              />
-            </label>
+          <div className="block text-left">
+            <p className="text-center text-[13.5px] sm:text-[14.5px] font-medium text-[#CBD5E1] leading-relaxed">
+              This permanently erases your profile, saved addresses, and favorites.{" "}
+              <span className="text-[#94A3B8]">
+                {passwordlessGoogle
+                  ? "Click Send Code to receive a 6-digit confirmation code on your account email."
+                  : "Enter your current password to continue."}
+              </span>
+            </p>
+            <div className="mt-5">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[12.5px] sm:text-xs font-bold uppercase tracking-wider text-[#E2E8F0]">
+                  {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
+                </label>
+                {passwordlessGoogle && deleteCodeSent && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#42D6E8]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#42D6E8] animate-pulse" />
+                    Code sent to email
+                  </span>
+                )}
+              </div>
+              {passwordlessGoogle ? (
+                <div className="mt-2.5 flex items-center gap-2.5">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="Enter 6-digit code"
+                    value={deletePassword}
+                    onChange={(event) => {
+                      setDeletePassword(event.target.value.replace(/\D/g, "").slice(0, 6));
+                      setDeleteError("");
+                    }}
+                    autoComplete="one-time-code"
+                    disabled={isDeleting}
+                    className="h-12 sm:h-[50px] flex-1 rounded-2xl border border-[#2A4265] bg-[#080F1C] px-4 text-base font-bold tracking-widest text-[#F8FAFC] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#42D6E8] focus:ring-1 focus:ring-[#42D6E8]/30 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    disabled={deleteCodeSending || isDeleting || deleteResendSeconds > 0}
+                    onClick={sendDeleteCode}
+                    className="h-12 sm:h-[50px] shrink-0 flex items-center justify-center gap-2 rounded-2xl border border-[#42D6E8]/40 bg-[#132B45] px-4 sm:px-5 text-[13px] sm:text-sm font-black text-[#42D6E8] shadow-xs hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
+                  >
+                    {deleteCodeSending ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin shrink-0" />
+                        <span>Sending...</span>
+                      </>
+                    ) : deleteResendSeconds > 0 ? (
+                      `Resend (${deleteResendSeconds}s)`
+                    ) : deleteCodeSent ? (
+                      "Resend Code"
+                    ) : (
+                      "Send Code"
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <input
+                  type="password"
+                  placeholder="Enter your current password"
+                  value={deletePassword}
+                  onChange={(event) => {
+                    setDeletePassword(event.target.value);
+                    setDeleteError("");
+                  }}
+                  autoComplete="current-password"
+                  disabled={isDeleting}
+                  className="mt-2.5 h-12 sm:h-[50px] w-full rounded-2xl border border-[#2A4265] bg-[#080F1C] px-4 text-sm sm:text-base text-[#F8FAFC] placeholder:text-sm placeholder:text-[#64748B] outline-none transition focus:border-[#42D6E8] focus:ring-1 focus:ring-[#42D6E8]/30 disabled:opacity-60"
+                />
+              )}
+            </div>
             {deleteError && (
-              <span role="alert" className="mt-2 block text-xs font-semibold text-rose-400">
+              <span role="alert" className="mt-2.5 block text-xs sm:text-[13px] font-semibold text-rose-400">
                 {deleteError}
               </span>
             )}
-          </span>
+          </div>
         }
         confirmText="Yes, Delete Account"
         cancelText="Keep Account"

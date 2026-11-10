@@ -260,13 +260,43 @@ export const fetchRelatedProducts = async (
   if (targetCategory) queryParams.category = targetCategory;
   if (currentProductId) queryParams.exclude = currentProductId;
 
-  const response = await api.get("products", queryParams);
-
-  if (!Array.isArray(response.data)) {
-    throw new Error("Invalid WooCommerce related products response");
+  let related = [];
+  try {
+    const response = await api.get("products", queryParams);
+    if (Array.isArray(response.data)) {
+      related = response.data;
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, "Primary related products query failed");
   }
 
-  return response.data;
+  // If the category returned fewer than 6 items (e.g. solitary product or low catalog depth),
+  // supplement with other published store products so recommendations are never empty.
+  if (related.length < 6) {
+    try {
+      const fallbackParams = {
+        status: "publish",
+        per_page: 12,
+        _fields: CATALOG_PRODUCT_FIELDS,
+      };
+      if (currentProductId) fallbackParams.exclude = currentProductId;
+      const fallbackRes = await api.get("products", fallbackParams);
+      if (Array.isArray(fallbackRes.data)) {
+        const existingIds = new Set(related.map((p) => Number(p.id)));
+        for (const item of fallbackRes.data) {
+          if (!existingIds.has(Number(item.id)) && Number(item.id) !== Number(currentProductId)) {
+            related.push(item);
+            existingIds.add(Number(item.id));
+            if (related.length >= 10) break;
+          }
+        }
+      }
+    } catch (fallbackErr) {
+      logger.warn({ err: fallbackErr.message }, "Fallback related products query failed");
+    }
+  }
+
+  return related;
 };
 
 export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) => {
@@ -345,7 +375,7 @@ export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) =
 
 export const fetchProductsByCategory = async (
   categoryId,
-  { page = 1, per_page = 20 } = {}
+  { page = 1, per_page = 20, sort = "default", price_range = "all", in_stock = "0", suggestions = false } = {}
 ) => {
   let targetCategory = categoryId;
 
@@ -371,32 +401,71 @@ export const fetchProductsByCategory = async (
       }
       targetCategory = catRes.data[0].id;
       serverCache.set(slugKey, targetCategory, 5 * 60 * 1000);
+      serverCache.set(`category:verified_id:${targetCategory}`, true, 5 * 60 * 1000);
     }
   }
 
+  const verifiedKey = `category:verified_id:${targetCategory}`;
+  await serverCache.getOrFetch(verifiedKey, async () => {
+    let category;
+    try {
+      category = await api.get(`products/categories/${targetCategory}`, { _fields: "id" });
+    } catch (error) {
+      if (error.response?.status === 404) error.status = 404;
+      throw error;
+    }
+    if (String(category.data?.id) !== String(targetCategory)) {
+      throw new Error("Invalid WooCommerce category response");
+    }
+    return true;
+  }, 5 * 60 * 1000);
+
+  const sortOptions = {
+    "price-asc": { orderby: "price", order: "asc" },
+    "price-desc": { orderby: "price", order: "desc" },
+    rating: { orderby: "rating", order: "desc" },
+    newest: { orderby: "date", order: "desc" },
+  };
+  const priceOptions = {
+    "under-500": { max_price: "499.99" },
+    "500-1000": { min_price: "500", max_price: "1000" },
+    "1000-2000": { min_price: "1000", max_price: "2000" },
+    "above-2000": { min_price: "2000.01" },
+  };
   const response = await api.get("products", {
     status: "publish",
+    mumbai_catalog_only: "1",
     category: targetCategory,
     page: Number(page) || 1,
     per_page: Number(per_page) || 20,
-    _fields: CATALOG_PRODUCT_FIELDS,
-  });
+    _fields: suggestions ? `${CATALOG_PRODUCT_FIELDS},catalog_visibility` : CATALOG_PRODUCT_FIELDS,
+    ...(sortOptions[sort] || {}),
+    ...(priceOptions[price_range] || {}),
+    ...(in_stock === "1" ? { stock_status: "instock" } : {}),
+  }, suggestions ? { timeout: 5000 } : {});
 
   if (!Array.isArray(response.data)) {
     throw new Error("Invalid WooCommerce category products response");
   }
 
-  const total = parseInt(response.headers?.["x-wp-total"], 10) || response.data.length;
+  const rawTotal = response.headers?.["x-wp-total"];
+  const totalConfirmed = rawTotal !== undefined && /^\d+$/.test(String(rawTotal));
+  if (!totalConfirmed && (price_range !== "all" || in_stock === "1" || sort !== "default")) {
+    throw new Error("WooCommerce did not return a valid filtered product count");
+  }
+  const total = totalConfirmed ? Number(rawTotal) : response.data.length;
   const totalPages =
     parseInt(response.headers?.["x-wp-totalpages"], 10) ||
     (response.data.length > 0 ? 1 : 0);
 
   return {
-    products: response.data,
+    products: suggestions ? response.data.filter((product) => ["visible", "catalog"].includes(product.catalog_visibility)) : response.data,
     total,
     totalPages,
     page: Number(page) || 1,
     per_page: Number(per_page) || 20,
+    category_id: targetCategory,
+    total_confirmed: totalConfirmed,
   };
 };
 

@@ -64,6 +64,7 @@ import {
   restoreOrderAlarm,
   restoreOrderAlarms,
   muteAllOrderAlarms,
+  isOrderAlarmQuietHours,
 } from "../utils/orderNotification.js";
 import {
   resolveTabFromStatusParam,
@@ -104,6 +105,17 @@ const DATE_FILTERS = [
   { id: "all", label: "All Time" },
   { id: "custom", label: "Custom Range..." },
 ];
+
+const getScheduledOrderMeta = (order) => {
+  const meta = order?.meta_data || [];
+  const scheduledDate = meta.find((entry) => entry.key === "_scheduled_delivery_date")?.value;
+  const scheduledLabel = meta.find((entry) => entry.key === "_scheduled_delivery_label")?.value;
+  if (meta.some((entry) => entry.key === "_payment_captured_without_delivery_slot" && entry.value === "yes")) {
+    return { review: true, date: null, label: "Payment captured; delivery slot needs confirmation" };
+  }
+  const isScheduled = meta.some((entry) => entry.key === "_order_placed_after_hours" && ["yes", "true"].includes(String(entry.value).toLowerCase())) || Boolean(scheduledDate || scheduledLabel);
+  return isScheduled ? { review: false, date: scheduledDate, label: scheduledLabel } : null;
+};
 
 /**
  * Determines whether a delivered order's fulfillment status change is locked.
@@ -1398,7 +1410,7 @@ function Orders() {
       )}
 
       {/* Active Alarm Siren Banner */}
-      {alarmState.isAlarming && (
+      {alarmState.isAlarming && !isOrderAlarmQuietHours() && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-rose-600 p-4 text-white shadow-lg animate-pulse">
           <div className="flex items-center gap-3">
             <span className="text-2xl animate-bounce">🚨</span>
@@ -1409,7 +1421,9 @@ function Orders() {
                   : `${alarmState.unacknowledgedOrders.length} NEW ORDERS (${alarmState.unacknowledgedOrders.map((id) => `#${id}`).join(", ")})!`}
               </p>
               <p className="text-xs text-rose-100 font-semibold">
-                Immediate packing required. Repeating alarm will sound until acknowledged.
+                {isOrderAlarmQuietHours()
+                  ? "Orders remain queued for the next opening. The overnight siren is muted."
+                  : "Orders need packing. The repeating alarm will sound until acknowledged."}
               </p>
             </div>
           </div>
@@ -1846,6 +1860,14 @@ function Orders() {
                       <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                         <input aria-label={"Select order " + order.id} type="checkbox" disabled={bulkBusy || !isOrderEligibleForDispatch(order, updatingIds)} checked={activeSelectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
                         <span className="font-extrabold text-gray-900 text-sm">#{order.id}</span>
+                        {getScheduledOrderMeta(order) && (
+                          <span
+                            className={getScheduledOrderMeta(order).review ? "inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800" : "inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"}
+                            title={`Scheduled fulfillment: ${getScheduledOrderMeta(order).label || getScheduledOrderMeta(order).date || "next store opening"}`}
+                          >
+                            {getScheduledOrderMeta(order).review ? "⚠ Delivery review" : `🌙 Scheduled${getScheduledOrderMeta(order).date ? ` · ${getScheduledOrderMeta(order).date}` : ""}`}
+                          </span>
+                        )}
                         <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${getLocationBadgeClass(locationInfo.location_key)}`}>
                           <MapPin size={10} className="shrink-0" />
                           <span>{locationInfo.location}</span>
@@ -1931,6 +1953,14 @@ function Orders() {
                         <td className="px-5 py-3.5">
                           <input aria-label={"Select order " + order.id} type="checkbox" className="mr-2" disabled={bulkBusy || !isOrderEligibleForDispatch(order, updatingIds)} checked={activeSelectedIds.has(order.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleDispatch(order.id)} />
                           <span className="font-extrabold text-gray-900">#{order.id}</span>
+                          {getScheduledOrderMeta(order) && (
+                            <span
+                              className={getScheduledOrderMeta(order).review ? "ml-2 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800" : "ml-2 inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"}
+                              title={`Scheduled fulfillment: ${getScheduledOrderMeta(order).label || getScheduledOrderMeta(order).date || "next store opening"}`}
+                            >
+                              {getScheduledOrderMeta(order).review ? "⚠ Delivery review" : `🌙 Scheduled${getScheduledOrderMeta(order).date ? ` · ${getScheduledOrderMeta(order).date}` : ""}`}
+                            </span>
+                          )}
                           <p className="text-[11px] text-gray-400 mt-0.5">
                             {(() => {
                               const d = getOrderTimestampDate(order);

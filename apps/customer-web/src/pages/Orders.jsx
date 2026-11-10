@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { getScheduledFulfillmentLabel, isPaymentAwaitingDeliveryReview, isScheduledFulfillmentOrder } from "../utils/scheduledDelivery.js";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -14,6 +15,7 @@ import {
   MapPin,
   Receipt,
   AlertCircle,
+  Moon,
 } from "lucide-react";
 import { triggerHaptic } from "../utils/haptics";
 import { getMyOrders } from "../services/orderService";
@@ -123,7 +125,7 @@ function Orders() {
 
   useEffect(() => {
     const checkStoredPending = () => {
-      const stored = getPendingPayment();
+      const stored = getPendingPayment(user?.id);
       if (stored?.razorpay_order_id && Date.now() - (stored.timestamp || 0) < 30 * 60 * 1000) {
         setPendingPayment(stored);
       } else {
@@ -134,7 +136,7 @@ function Orders() {
     checkStoredPending();
     window.addEventListener("focus", checkStoredPending);
     return () => window.removeEventListener("focus", checkStoredPending);
-  }, []);
+  }, [user?.id]);
 
   const handleCheckPending = async (rzpOrderId) => {
     const idToCheck = rzpOrderId || pendingPayment?.razorpay_order_id;
@@ -145,7 +147,7 @@ function Orders() {
       setPendingFeedback("");
       const res = await checkPaymentStatus(idToCheck);
       if (res?.success && res?.order_id) {
-        clearPendingPayment();
+        clearPendingPayment(user?.id);
         clearCheckoutIdempotencyKey();
         setPendingPayment(null);
         navigate(`/order-success/${res.order_id}`, {
@@ -154,9 +156,9 @@ function Orders() {
         return;
       }
       if (res?.refunded || res?.terminal) {
-        clearPendingPayment();
+        clearPendingPayment(user?.id);
         setPendingPayment(null);
-        setPendingFeedback(res.message || "Your payment was refunded.");
+        setPendingFeedback(res.message || (res.refunded ? "Your payment was refunded." : "This payment attempt has ended."));
         fetchOrders(1, false);
         return;
       }
@@ -431,7 +433,18 @@ function Orders() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      {isPaymentAwaitingDeliveryReview(order) ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/35 bg-amber-950/50 px-2.5 py-0.5 text-[10.5px] font-bold text-amber-200">
+                          <AlertCircle size={11} />
+                          <span>Delivery timing to be confirmed</span>
+                        </span>
+                      ) : isScheduledFulfillmentOrder(order) && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-indigo-400/35 bg-indigo-950/50 px-2.5 py-0.5 text-[10.5px] font-bold text-indigo-300 shadow-xs">
+                          <Moon size={11} className="text-indigo-400" />
+                          <span>Scheduled · {getScheduledFulfillmentLabel(order)}</span>
+                        </span>
+                      )}
                       {getStatusBadge(order.status, order.display_status)}
                     </div>
                   </div>

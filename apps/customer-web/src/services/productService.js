@@ -172,9 +172,13 @@ export const searchProducts = async (query, options = {}) => {
 };
 
 export const getProductsByCategory = async (categoryId, params = {}, options = {}) => {
+  const { page, per_page, limit, sort, price_range, in_stock } = params;
+  const query = { ...(page && { page }), ...((per_page || limit) && { per_page: per_page || limit }),
+    ...(sort && sort !== "default" && { sort }), ...(price_range && price_range !== "all" && { price_range }),
+    ...((in_stock === true || in_stock === "1") && { in_stock: "1" }) };
   const response = await catalogClient.get(
     `/products/category/${categoryId}`,
-    { ...options, params }
+    { ...options, params: query }
   );
 
   return response.data;

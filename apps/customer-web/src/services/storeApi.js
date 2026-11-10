@@ -115,6 +115,9 @@ storeClient.interceptors.request.use(
 // Response Interceptor: extract tokens, retry network blips, auto-recover from missing/expired nonces
 storeClient.interceptors.response.use(
   (response) => {
+    if (response.config?._cartSessionEpoch !== cartSessionEpoch && response.config?.method?.toLowerCase() !== "get") {
+      throw new axios.CanceledError("Cart session changed");
+    }
     if (response.config?._cartSessionEpoch === cartSessionEpoch) updateTokens(response);
     return response;
   },

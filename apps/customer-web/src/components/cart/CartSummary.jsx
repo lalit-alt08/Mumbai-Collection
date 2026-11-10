@@ -11,6 +11,15 @@ function CartSummary({
   storeHours,
   onCheckout,
 }) {
+  const isManualClosed = storeHours?.manual_override === "closed";
+  const hasScheduledOpening = Boolean(
+    storeHours?.next_opening?.day && storeHours?.next_opening?.time && storeHours?.next_opening?.date
+  );
+  const isAfterHours = Boolean(
+    storeHours &&
+    (storeHours.is_after_hours || (storeHours.is_open === false && !isManualClosed)) && hasScheduledOpening
+  );
+
   return (
     <div className="space-y-5">
       {/* Savings Card */}
@@ -57,49 +66,57 @@ function CartSummary({
         </div>
       )}
 
-      {/* Delivery Card */}
-      <div
-        className={`rounded-[18px] bg-[#111F36] border border-[#1E3252]/80 p-4 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all ${
-          storeHours?.is_peak_hours
-            ? "border-amber-800/60 bg-amber-950/20"
-            : ""
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
-              storeHours?.is_peak_hours
-                ? "bg-amber-950/50 text-amber-400 border border-amber-800/60"
-                : "bg-[#132B45] text-[#42D6E8] border border-[#1E3252]"
-            }`}
-          >
-            <Truck size={20} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-[14px] font-bold text-[#F1F5F9] leading-tight">
-                {storeHours?.delivery_eta_text ||
-                  (storeHours?.is_peak_hours
-                    ? "Delivery in 2–3 hours"
-                    : "Delivery in 60–90 mins")}
-              </h3>
+      {/* Delivery Card (Daytime standard / peak ETA) */}
+      {!isAfterHours && (
+        <div
+          className={`rounded-[18px] bg-[#111F36] border p-4 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all ${
+            storeHours?.is_peak_hours
+              ? "border-amber-800/60 bg-amber-950/20"
+              : "border-[#1E3252]/80"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
+                storeHours?.is_peak_hours
+                  ? "bg-amber-950/50 text-amber-400 border border-amber-800/60"
+                  : "bg-[#132B45] text-[#42D6E8] border border-[#1E3252]"
+              }`}
+            >
+              <Truck size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-[14px] font-bold text-[#F1F5F9] leading-tight">
+                  {storeHours?.delivery_eta_text ||
+                    (storeHours?.is_peak_hours
+                      ? "Delivery in 2–3 hours"
+                      : "Delivery in 60–90 mins")}
+                </h3>
+                {storeHours?.is_peak_hours && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/50 px-2.5 py-0.5 text-[11px] font-black text-amber-300 border border-amber-800/60">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    ⚡ High Demand
+                  </span>
+                )}
+              </div>
               {storeHours?.is_peak_hours && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/50 px-2.5 py-0.5 text-[11px] font-black text-amber-300 border border-amber-800/60">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  ⚡ High Demand
-                </span>
+                <p className="mt-1 text-xs font-semibold text-amber-300 leading-snug">
+                  {storeHours?.peak_notice ||
+                    storeHours?.peak_notice_message ||
+                    "High order volume in progress. Deliveries may take 2–3 hours today."}
+                </p>
               )}
             </div>
-            {storeHours?.is_peak_hours && (
-              <p className="mt-1 text-xs font-semibold text-amber-300 leading-snug">
-                {storeHours?.peak_notice ||
-                  storeHours?.peak_notice_message ||
-                  "High order volume in progress. Deliveries may take 2–3 hours today."}
-              </p>
-            )}
           </div>
         </div>
-      </div>
+      )}
+
+      {storeHours?.is_open === false && !isManualClosed && !hasScheduledOpening && (
+        <div className="rounded-xl border border-rose-800/60 bg-rose-950/30 px-4 py-3 text-xs font-semibold text-rose-200">
+          The store has no upcoming opening slot and is not accepting scheduled orders.
+        </div>
+      )}
 
       {/* Bill Details */}
       <div className="rounded-[22px] bg-[#111F36] border border-[#1E3252]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">

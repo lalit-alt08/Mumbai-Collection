@@ -68,6 +68,21 @@ async function proxyStoreApi(req, res) {
 
   // Server-side enforcement for checkout order creation
   if (req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout") {
+    if (!req.body?.payment_method || String(req.body.payment_method).toLowerCase() === "cod") {
+      return res.status(400).json({ success: false, code: "PAYMENT_METHOD_UNAVAILABLE", message: "Cash on delivery is no longer available. Please pay online." });
+    }
+    const expectedTotal = req.headers["x-mumbai-expected-total"];
+    if (expectedTotal !== undefined) {
+      if (!/^(0|[1-9][0-9]{0,11})$/.test(String(expectedTotal))) {
+        return res.status(400).json({ success: false, code: "INVALID_CHECKOUT_TOTAL", message: "Please review your cart before continuing." });
+      }
+      try {
+        const capability = await axios.get(`${WP_BASE_URL}/wp-json/mumbai-auth/v1/checkout-total-capability`, { httpsAgent, timeout: 4000 });
+        if (capability.data?.version !== 1) throw new Error("Checkout total validation unavailable");
+      } catch (_) {
+        return res.status(503).json({ success: false, code: "CHECKOUT_TOTAL_UNAVAILABLE", message: "Checkout is temporarily unavailable. Please try again shortly." });
+      }
+    }
     const customerAuth =
       req.cookies?.mumbai_customer_auth ||
       req.cookies?.mumbai_wp_auth;
@@ -224,6 +239,9 @@ async function proxyStoreApi(req, res) {
   if (req.headers.nonce) forwardHeaders["Nonce"] = req.headers.nonce;
   if (req.headers["cart-token"]) forwardHeaders["Cart-Token"] = req.headers["cart-token"];
   if (req.headers["content-type"]) forwardHeaders["Content-Type"] = req.headers["content-type"];
+  if (req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout" && req.headers["x-mumbai-expected-total"]) {
+    forwardHeaders["X-Mumbai-Expected-Total"] = req.headers["x-mumbai-expected-total"];
+  }
 
   // Map customer auth cookie to native WordPress auth cookie so WooCommerce Store API resolves the logged-in customer
   const customerAuth =
@@ -276,6 +294,7 @@ async function proxyStoreApi(req, res) {
       serverCache.delete("product_stock_counts");
       serverCache.invalidatePrefix("admin_products:");
       serverCache.invalidatePrefix("catalog:products:");
+      serverCache.invalidatePrefix("catalog:category:");
 
       // Selectively invalidate detail caches for ordered products without wiping browse catalog
       const orderItems = response.data?.items || response.data?.line_items || [];

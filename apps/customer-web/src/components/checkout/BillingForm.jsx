@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
-import { updateCheckout, updateCartItem, removeCartItem } from "../../services/storeApi";
+import { updateCartItem, removeCartItem } from "../../services/storeApi";
 import { createPaymentOrder, verifyPayment, checkPaymentStatus, cancelPaymentOrder } from "../../services/paymentService.js";
 import { useNavigate, useLocation } from "react-router-dom";
 import API_URL from "../../config/api.js";
@@ -9,14 +9,10 @@ import StockNotificationModal from "./StockNotificationModal";
 import {
   MapPin,
   CreditCard,
-  Loader2,
   Home,
   Building2,
   Plus,
-  ShieldCheck,
-  Banknote,
   ChevronRight,
-  ChevronUp,
   X,
   Check,
   Clock,
@@ -83,11 +79,10 @@ function BillingForm({
   totalAmount,
   standaloneBar = false,
   hasOutOfStock = false,
-  stockChecking = false,
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, handleSessionExpired, checkoutExpiredUserId, loading: authLoading, isReconnecting } = useAuth();
   const { cart, refreshCart } = useCart();
 
   const [addresses, setAddresses] = useState(() => {
@@ -113,16 +108,15 @@ function BillingForm({
       return null;
     }
   });
-  const [paymentMethod, setPaymentMethod] = useState("cod"); // "cod" | "online"
   const [paymentStep, setPaymentStep] = useState(""); // "" | "preparing" | "opening_gateway" | "verifying"
 
   const [showAddressModal, setShowAddressModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
   const [addressLoadFailed, setAddressLoadFailed] = useState(false);
   const [addressRetry, setAddressRetry] = useState(0);
+  const [addressSignInRequired, setAddressSignInRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [stockAlertOpen, setStockAlertOpen] = useState(false);
@@ -135,7 +129,6 @@ function BillingForm({
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
         setShowAddressModal(false);
-        setShowPaymentModal(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -193,22 +186,28 @@ function BillingForm({
   const [isPersistentPending, setIsPersistentPending] = useState(false);
   const [checkingPendingStatus, setCheckingPendingStatus] = useState(false);
   const pollTimerRef = useRef(null);
+  const activeUserRef = useRef(user?.id);
+  activeUserRef.current = user?.id;
 
   const verifyPendingOrder = useCallback(async (isManualOrTrigger = false) => {
-    const stored = getPendingPayment();
+    const stored = getPendingPayment(user?.id || checkoutExpiredUserId);
     if (!stored || !stored.razorpay_order_id) {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       setIsPersistentPending(false);
       return;
     }
 
+    if (!isAuthenticated || !user?.id) return;
+    const requestUserId = user.id;
+
     // Query payment finalization state by Razorpay order ID FIRST
     try {
       setCheckingPendingStatus(true);
       const res = await checkPaymentStatus(stored.razorpay_order_id);
+      if (String(activeUserRef.current) !== String(requestUserId)) return;
       if (res?.success && res?.order_id) {
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-        clearPendingPayment();
+        clearPendingPayment(user?.id);
         clearCheckoutIdempotencyKey();
         await refreshCart().catch(() => {});
         navigate(`/order-success/${res.order_id}`, {
@@ -219,19 +218,23 @@ function BillingForm({
       }
       if (res?.refunded || res?.terminal) {
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-        clearPendingPayment();
+        clearPendingPayment(user?.id);
         clearCheckoutIdempotencyKey();
         await refreshCart().catch(() => {});
-        setError(res.message || "An item in your order went out of stock during checkout. Your payment was automatically refunded.");
+        setError(res.message || (res.refunded
+          ? "Your payment was refunded."
+          : "This payment attempt has ended. Please review your cart before trying again."));
         setIsPersistentPending(false);
         return;
       }
     } catch (err) {
+      if (String(activeUserRef.current) !== String(requestUserId)) return;
       if (err?.response?.status === 401) {
         // Session expired mid-payment: NEVER clear pendingPayment!
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         setSessionExpiredPending(true);
-        setError("Your session expired while confirming your payment. Please sign in to resume your order.");
+        setError("");
+        handleSessionExpired({ checkout: true });
         return;
       }
     } finally {
@@ -254,7 +257,7 @@ function BillingForm({
       }
       return nextAttempt;
     });
-  }, [cart, navigate, refreshCart]);
+  }, [cart, navigate, refreshCart, user?.id, isAuthenticated, checkoutExpiredUserId]);
 
   useEffect(() => {
     idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
@@ -295,6 +298,7 @@ function BillingForm({
     }
 
     let isMounted = true;
+    const controller = new AbortController();
     const currentUserId = user.id;
     const addressCacheKey = `saved_addresses_cache_${currentUserId}`;
     const selectedAddressKey = `selected_address_id_${currentUserId}`;
@@ -307,11 +311,15 @@ function BillingForm({
 
         const response = await axios.get(`${API_URL}/addresses`, {
           withCredentials: true,
+          signal: controller.signal,
+          timeout: 12000,
         });
 
         if (!isMounted || user?.id !== currentUserId) return;
 
-        const savedAddresses = response.data.addresses || [];
+        if (!Array.isArray(response.data?.addresses)) throw new Error("Invalid address response");
+        const savedAddresses = response.data.addresses;
+        setAddressSignInRequired(false);
 
         setAddresses(savedAddresses);
         safeStorage.setJSON(addressCacheKey, savedAddresses);
@@ -344,11 +352,15 @@ function BillingForm({
         // On load failure, clear address list and disable checkout until addresses are verified
         setAddresses([]);
         setSelectedAddressId(null);
-        setAddressLoadFailed(true);
-        setError(
-          error.response?.data?.message ||
-            "Unable to load your saved addresses. Please retry.",
-        );
+        setShowAddressModal(false);
+        if (error.response?.status === 401) {
+          setAddressSignInRequired(true);
+          setAddressLoadFailed(false);
+          setError("");
+          handleSessionExpired({ checkout: true });
+        } else {
+          setAddressLoadFailed(true);
+        }
       } finally {
         if (isMounted && user?.id === currentUserId) {
           setLoadingAddresses(false);
@@ -360,6 +372,7 @@ function BillingForm({
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [isAuthenticated, user?.id, location.state?.selectedAddressId, addressRetry]);
 
@@ -370,12 +383,13 @@ function BillingForm({
   const handlePlaceOrder = async () => {
     if (isSubmittingRef.current) return;
 
-    if (!isAuthenticated) {
+    if (!isAuthenticated || addressSignInRequired) {
       navigate("/login", { state: { from: "/cart" } });
       return;
     }
 
-    if (loadingAddresses || addressLoadFailed) return;
+    if (loadingAddresses) return;
+    if (addressLoadFailed) { setAddressRetry((value) => value + 1); return; }
 
     if (addresses.length === 0) {
       navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
@@ -403,8 +417,8 @@ function BillingForm({
           0,
         ) / 100;
 
-    const isStoreClosed = storeHours && storeHours.is_open === false;
-    if (isStoreClosed) {
+    const isManualClosed = storeHours?.manual_override === "closed";
+    if (isManualClosed) {
       const msg = storeHours?.closed_message || "We are currently closed for new orders.";
       const resumeTime = storeHours?.next_opening?.label ? ` Ordering resumes ${storeHours.next_opening.label}.` : "";
       setError(`${msg}${resumeTime}`);
@@ -446,6 +460,8 @@ function BillingForm({
       const userEmail = (user?.email || selectedAddress.email || cachedEmail || "").trim();
       if (!userEmail) {
         setError("Please ensure your account has a valid email address before placing an order.");
+        isSubmittingRef.current = false;
+        setLoading(false);
         return;
       }
 
@@ -453,14 +469,20 @@ function BillingForm({
       const cleanPhone = rawPhone.length === 12 && rawPhone.startsWith("91") ? rawPhone.slice(2) : rawPhone;
       if (!cleanPhone || cleanPhone.length < 10) {
         setError("Please enter a valid 10-digit mobile number on your delivery address so our courier can deliver your order.");
+        isSubmittingRef.current = false;
+        setLoading(false);
         return;
       }
       const userPhone = cleanPhone;
+      const rawPrimaryPhone = String(user?.phone || "").replace(/\D/g, "");
+      const primaryPhone = rawPrimaryPhone.length === 12 && rawPrimaryPhone.startsWith("91") ? rawPrimaryPhone.slice(2) : rawPrimaryPhone;
       const cleanPincode =
         (selectedAddress.pincode || "").replace(/\D/g, "") || "";
 
       if (!selectedAddress.address_line1?.trim() || !selectedAddress.city?.trim()) {
         setError("Please update your delivery address before placing your order.");
+        isSubmittingRef.current = false;
+        setLoading(false);
         return;
       }
 
@@ -468,7 +490,7 @@ function BillingForm({
         first_name: firstName,
         last_name: lastName,
         email: userEmail,
-        phone: userPhone,
+        phone: /^[6-9]\d{9}$/.test(primaryPhone) ? primaryPhone : userPhone,
         address_1: selectedAddress.address_line1.trim(),
         address_2: selectedAddress.address_line2 || "",
         city: selectedAddress.city.trim(),
@@ -489,38 +511,6 @@ function BillingForm({
         country: "IN",
       };
 
-      if (paymentMethod === "cod") {
-        setPaymentStep("processing");
-        const response = await updateCheckout(
-          {
-            billing_address: billingAddress,
-            shipping_address: shippingAddress,
-            payment_method: "cod",
-            create_account: false,
-          },
-          {
-            headers: {
-              "X-Idempotency-Key": idempotencyKeyRef.current,
-            },
-            timeout: 30000,
-          }
-        );
-        // Clear persisted idempotency key and pending payment on successful order completion
-        clearCheckoutIdempotencyKey();
-        clearPendingPayment();
-
-        // Refresh cart state to clear items and badges
-        await refreshCart().catch(() => {});
-
-        navigate(`/order-success/${response.order_id}`, {
-          state: { paymentMethod: "Cash on Delivery", status: "Processing" },
-        });
-        isSubmittingRef.current = false;
-        setLoading(false);
-        setPaymentStep("");
-        return;
-      }
-
       // ── Pay Online (Razorpay) Flow ──────────────────────────────
       setPaymentStep("preparing");
       const scriptLoaded = await loadRazorpayScript();
@@ -536,6 +526,7 @@ function BillingForm({
       const paymentOrderPayload = {
         billing_address: billingAddress,
         shipping_address: shippingAddress,
+        expected_total_paise: Math.round(Number(finalTotal) * 100),
       };
 
       const orderRes = await createPaymentOrder(paymentOrderPayload, {
@@ -549,7 +540,7 @@ function BillingForm({
         // redirect to the success page rather than opening the gateway again.
         if (orderRes?.already_paid) {
           clearCheckoutIdempotencyKey();
-          clearPendingPayment();
+          clearPendingPayment(user?.id);
           await refreshCart().catch(() => {});
           navigate(`/order-success/${orderRes.order_id}`, {
             state: { paymentMethod: "Online Payment", status: orderRes.orderStatus || "Processing" },
@@ -567,7 +558,7 @@ function BillingForm({
         cartFingerprint: computeCartFingerprint(cart),
         itemsFingerprint: computeCartItemsFingerprint(cart),
         timestamp: Date.now(),
-      });
+      }, user?.id);
 
       const options = {
         key: orderRes.key_id,
@@ -596,7 +587,7 @@ function BillingForm({
               if (orderRes.razorpay_order_id) {
                 const checkRes = await checkPaymentStatus(orderRes.razorpay_order_id);
                 if (checkRes?.success && checkRes?.order_id) {
-                  clearPendingPayment();
+                  clearPendingPayment(user?.id);
                   clearCheckoutIdempotencyKey();
                   await refreshCart().catch(() => {});
                   navigate(`/order-success/${checkRes.order_id}`, {
@@ -605,7 +596,7 @@ function BillingForm({
                   return;
                 }
                 if (checkRes?.refunded || checkRes?.terminal) {
-                  clearPendingPayment();
+                  clearPendingPayment(user?.id);
                   clearCheckoutIdempotencyKey();
                   await refreshCart().catch(() => {});
                   setError(checkRes.message || "An item in your order went out of stock. Your payment has been refunded.");
@@ -624,7 +615,7 @@ function BillingForm({
                 return;
               }
             }
-            clearPendingPayment();
+            clearPendingPayment(user?.id);
             setIsPersistentPending(false);
             setError("Payment was cancelled. You can retry paying anytime.");
           },
@@ -643,7 +634,7 @@ function BillingForm({
 
             if (verifyRes.success && verifyRes.order_id) {
               clearCheckoutIdempotencyKey();
-              clearPendingPayment();
+              clearPendingPayment(user?.id);
               await refreshCart().catch(() => {});
               navigate(`/order-success/${verifyRes.order_id}`, {
                 state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing" },
@@ -653,7 +644,7 @@ function BillingForm({
 
             if (verifyRes.refunded || verifyRes.terminal) {
               clearCheckoutIdempotencyKey();
-              clearPendingPayment();
+              clearPendingPayment(user?.id);
               await refreshCart().catch(() => {});
               setError(
                 verifyRes.message ||
@@ -673,14 +664,8 @@ function BillingForm({
               errMsg.toLowerCase().includes("signature mismatch");
 
             if (isExplicitSignatureFailure) {
-              // Definitive invalid signature: clear storage and allow fresh retry
-              clearCheckoutIdempotencyKey();
-              clearPendingPayment();
-              await refreshCart().catch(() => {});
-              setError(
-                verifyErr.response?.data?.message ||
-                "Payment verification failed: invalid signature. Please try again or contact support."
-              );
+              setIsPersistentPending(true);
+              setError("We couldn’t confirm your payment. Please don’t pay again. Check payment status or contact the store.");
               return;
             }
 
@@ -696,7 +681,7 @@ function BillingForm({
                 if (checkRes?.success && checkRes?.order_id) {
                   pollSucceeded = true;
                   clearCheckoutIdempotencyKey();
-                  clearPendingPayment();
+                  clearPendingPayment(user?.id);
                   await refreshCart().catch(() => {});
                   navigate(`/order-success/${checkRes.order_id}`, {
                     state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
@@ -706,7 +691,7 @@ function BillingForm({
                 if (checkRes?.refunded || checkRes?.terminal) {
                   pollSucceeded = true;
                   clearCheckoutIdempotencyKey();
-                  clearPendingPayment();
+                  clearPendingPayment(user?.id);
                   await refreshCart().catch(() => {});
                   setError(
                     checkRes.message ||
@@ -751,7 +736,7 @@ function BillingForm({
         isSubmittingRef.current = false;
         setLoading(false);
         setPaymentStep("");
-        clearPendingPayment();
+        clearPendingPayment(user?.id);
         setIsPersistentPending(false);
         const desc = failedRes?.error?.description || "Payment attempt failed. You can retry paying.";
         setError(desc);
@@ -766,7 +751,11 @@ function BillingForm({
         (errData?.message?.includes("currently being processed") ||
           errData?.code === "ORDER_PROCESSING");
 
-      if (errData?.code === "CUSTOMER_SUSPENDED") {
+      if (errStatus === 401) {
+        handleSessionExpired({ checkout: true });
+        setAddressSignInRequired(true);
+        setError("");
+      } else if (errData?.code === "CUSTOMER_SUSPENDED") {
         setError(
           errData?.message ||
             "Your account is currently suspended and you cannot place new orders.",
@@ -776,7 +765,12 @@ function BillingForm({
         const resumeTime = errData?.next_opening?.label ? ` Ordering resumes ${errData.next_opening.label}.` : "";
         setError(`${msg}${resumeTime}`);
         if (typeof onStoreClosed === "function") {
-          onStoreClosed();
+          onStoreClosed({
+            is_open: false,
+            manual_override: errData?.manual_override || "closed",
+            closed_message: errData?.message || "Our store is currently closed.",
+            next_opening: errData?.next_opening || null,
+          });
         }
       } else if (
         errData?.code === "ITEM_OUT_OF_STOCK" ||
@@ -795,6 +789,9 @@ function BillingForm({
 
         if (shortageDetails.length === 0) {
           setError(errData?.message || "Stock changed while you were checking out. Please review your cart before trying again.");
+          isSubmittingRef.current = false;
+          setLoading(false);
+          setPaymentStep("");
           navigate("/cart");
           return;
         }
@@ -802,14 +799,13 @@ function BillingForm({
         setStockAlertItems(shortageDetails);
         setStockAlertOpen(true);
         setError("");
-      } else if (errData?.code === "woocommerce_rest_checkout_total_mismatch") {
+      } else if (errData?.code === "CHECKOUT_TOTAL_CHANGED" || errData?.code === "woocommerce_rest_checkout_total_mismatch") {
         clearCheckoutIdempotencyKey();
         idempotencyKeyRef.current = generateUUID();
         await refreshCart().catch(() => {});
-        setError(
-          errData?.message ||
-            "Cart totals have updated. Please review your order summary and try placing your order again.",
-        );
+        setError(errData?.code === "CHECKOUT_TOTAL_CHANGED"
+          ? `Your total changed from ₹${(errData.expected_total_paise / 100).toFixed(2)} to ₹${(errData.actual_total_paise / 100).toFixed(2)}. Please review your cart before continuing.`
+          : (errData?.message || "Cart totals have updated. Please review your order summary and try placing your order again."));
       } else if (isProcessingConflict) {
         // Retain current idempotency key to prevent duplicate orders while request is in flight
         setError(
@@ -829,8 +825,6 @@ function BillingForm({
             "Minimum product order value of ₹500 is required.",
         );
       } else {
-        clearCheckoutIdempotencyKey();
-        idempotencyKeyRef.current = generateUUID();
         setError(
           errData?.message ||
             error.message ||
@@ -876,21 +870,56 @@ function BillingForm({
     }
   }, [error, hasOutOfStock, isBelowMin, itemsSubtotal]);
 
-  const isStoreClosed = storeHours && storeHours.is_open === false;
-  const pending = getPendingPayment();
+  const isManualClosed = storeHours?.manual_override === "closed";
+  const isAfterHours = Boolean(
+    storeHours &&
+    (storeHours.is_after_hours || (storeHours.is_open === false && !isManualClosed))
+  );
+  const hasScheduledOpening = Boolean(
+    storeHours?.next_opening?.day && storeHours?.next_opening?.time && storeHours?.next_opening?.date
+  );
+  const isStoreClosed = isManualClosed || (isAfterHours && !hasScheduledOpening);
+  const pending = getPendingPayment(user?.id || checkoutExpiredUserId);
+  // Old releases stored pending payments without an owner. Preserve the
+  // reference and do not start another payment until staff can verify it.
+  const unownedPending = Boolean(user?.id && getPendingPayment()?.razorpay_order_id);
   const hasActivePendingPayment = Boolean(
     pending?.razorpay_order_id
   );
-  const isDisabled =
-    loading ||
-    (isAuthenticated && loadingAddresses) ||
-    (isAuthenticated && addressLoadFailed) ||
-    stockChecking ||
-    isStoreClosed ||
-    hasOutOfStock ||
-    isBelowMin ||
-    hasActivePendingPayment ||
-    (isAuthenticated && addresses.length > 0 && !selectedAddress);
+  const requiresSignIn = !isAuthenticated || addressSignInRequired;
+  const checkoutAction = unownedPending ? "legacy_payment"
+    : hasActivePendingPayment
+    ? (requiresSignIn || sessionExpiredPending ? "payment_signin" : "payment_status")
+    : authLoading || isReconnecting ? "auth_loading"
+    : requiresSignIn ? "signin"
+    : loadingAddresses ? "loading_addresses"
+    : addressLoadFailed ? "retry_addresses"
+    : addresses.length === 0 ? "add_address"
+    : hasOutOfStock ? "review_cart"
+    : isBelowMin || isStoreClosed ? "keep_shopping"
+    : "checkout";
+  const isDisabled = loading || checkoutAction === "loading_addresses" || checkoutAction === "auth_loading" ||
+    (checkoutAction === "checkout" && !selectedAddress) ||
+    (checkoutAction === "payment_status" && checkingPendingStatus);
+  const handlePrimaryAction = () => {
+    if (checkoutAction === "payment_signin" || checkoutAction === "signin") {
+      navigate("/login", { state: { from: "/cart" } });
+    } else if (checkoutAction === "payment_status") {
+      verifyPendingOrder(true);
+    } else if (checkoutAction === "legacy_payment") {
+      setError("An earlier payment needs verification. Please don’t pay again; contact the store for help.");
+    } else if (checkoutAction === "retry_addresses") {
+      setAddressRetry((value) => value + 1);
+    } else if (checkoutAction === "review_cart") {
+      const item = document.querySelector('[data-stock-issue="true"]');
+      item?.scrollIntoView({ behavior: "smooth", block: "center" });
+      item?.focus({ preventScroll: true });
+    } else if (checkoutAction === "keep_shopping") {
+      navigate("/");
+    } else {
+      handlePlaceOrder();
+    }
+  };
 
   if (loadingAddresses && !standaloneBar) {
     return (
@@ -902,9 +931,9 @@ function BillingForm({
 
   return (
     <div className="space-y-4">
-      {stockChecking && (
-        <div className="rounded-xl border border-[#42D6E8]/30 bg-[#132B45] px-3.5 py-2.5 text-xs font-bold text-[#A9EAF2]">
-          Checking current availability…
+      {addressSignInRequired && (
+        <div className="rounded-xl border border-[#1E3252] bg-[#132B45] px-3.5 py-2.5 text-xs text-[#A9EAF2]">
+          Please sign in again to continue with this cart.
         </div>
       )}
       {/* Error Banner */}
@@ -922,7 +951,7 @@ function BillingForm({
           </span>
           <button
             type="button"
-            onClick={() => navigate("/login?redirect=/cart")}
+            onClick={() => navigate("/login", { state: { from: "/cart" } })}
             className="rounded-lg bg-[#42D6E8] px-3 py-1 font-bold text-[#061220] hover:bg-[#2CC4D8] hover:text-[#061220] cursor-pointer"
           >
             Sign In
@@ -1075,46 +1104,30 @@ function BillingForm({
                     Payment Method
                   </h2>
                   <p className="text-[11px] font-medium text-[#8FA4BE]">
-                    Select how you wish to pay
+                    Pay securely online
                   </p>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={() => !loading && setShowPaymentModal(true)}
-                disabled={loading}
-                className="text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer disabled:opacity-50"
-              >
-                Change
-              </button>
             </div>
 
             <div
-              onClick={() => !loading && setShowPaymentModal(true)}
-              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#1E3252] bg-[#0B1425] p-3 sm:p-3.5 hover:border-[#42D6E8]/60 transition cursor-pointer"
+              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#1E3252] bg-[#0B1425] p-3 sm:p-3.5"
             >
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
-                  {paymentMethod === "online" ? (
-                    <CreditCard size={18} />
-                  ) : (
-                    <Banknote size={18} className="text-[#42D6E8]" />
-                  )}
+                  <CreditCard size={18} />
                 </div>
                 <div className="min-w-0">
                   <h4 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9]">
-                    {paymentMethod === "online" ? "Pay Online" : "Cash on Delivery (COD)"}
+                    Pay Online
                   </h4>
                   <p className="text-[11px] font-medium text-[#8FA4BE] truncate">
-                    {paymentMethod === "online" ? "UPI, Cards, NetBanking, Wallets" : "Pay with cash upon delivery"}
+                    UPI, Cards, NetBanking, Wallets
                   </p>
                 </div>
               </div>
 
-              <span className="text-xs font-bold text-[#42D6E8] shrink-0">
-                Switch
-              </span>
+
             </div>
           </div>
         </>
@@ -1272,119 +1285,6 @@ function BillingForm({
         </div>
       )}
 
-      {/* Payment Method Selection Modal / Bottom Sheet */}
-      {showPaymentModal && (
-        <div
-          onClick={() => setShowPaymentModal(false)}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="flex w-full max-w-[500px] flex-col rounded-t-[28px] sm:rounded-[24px] bg-[#111F36] border border-[#1E3252] p-5 sm:p-6 shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
-              <div>
-                <h3 className="text-base font-extrabold text-[#F1F5F9]">
-                  Select Payment Method
-                </h3>
-                <p className="text-xs font-medium text-[#8FA4BE]">
-                  How would you like to pay?
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPaymentModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[#8FA4BE] hover:bg-[#162744] hover:text-white transition cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {/* Pay Online */}
-              <div
-                onClick={() => {
-                  setPaymentMethod("online");
-                  setShowPaymentModal(false);
-                }}
-                className={`flex items-start gap-3 rounded-2xl border p-4 transition-all cursor-pointer ${
-                  paymentMethod === "online"
-                    ? "border-[#42D6E8] bg-[#132B45]/70 ring-2 ring-[#42D6E8]/20 shadow-xs"
-                    : "border-[#1E3252] bg-[#0B1425] hover:border-[#42D6E8]/50"
-                }`}
-              >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                    paymentMethod === "online"
-                      ? "bg-[#111F36] text-[#42D6E8] border-[#42D6E8]/50"
-                      : "bg-[#111F36] text-[#6E84A3] border-[#1E3252]"
-                  }`}
-                >
-                  <CreditCard size={18} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-extrabold text-[#F1F5F9]">
-                      Pay Online
-                    </h4>
-                    {paymentMethod === "online" && (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220]">
-                        <Check size={12} strokeWidth={3} />
-                      </div>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs font-medium text-[#8FA4BE]">
-                    UPI (Google Pay, PhonePe, Paytm), Cards, NetBanking, Wallets
-                  </p>
-                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-[#42D6E8] bg-[#132B45] px-2 py-0.5 rounded-md w-fit border border-[#1E3252]">
-                    <ShieldCheck size={12} />
-                    <span>Instant &amp; 100% Secure via Razorpay</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cash on Delivery */}
-              <div
-                onClick={() => {
-                  setPaymentMethod("cod");
-                  setShowPaymentModal(false);
-                }}
-                className={`flex items-start gap-3 rounded-2xl border p-4 transition-all cursor-pointer ${
-                  paymentMethod === "cod"
-                    ? "border-[#42D6E8] bg-[#132B45]/70 ring-2 ring-[#42D6E8]/20 shadow-xs"
-                    : "border-[#1E3252] bg-[#0B1425] hover:border-[#42D6E8]/50"
-                }`}
-              >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                    paymentMethod === "cod"
-                      ? "bg-[#111F36] text-[#42D6E8] border-[#42D6E8]/50"
-                      : "bg-[#111F36] text-[#6E84A3] border-[#1E3252]"
-                  }`}
-                >
-                  <Banknote size={18} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-extrabold text-[#F1F5F9]">
-                      Cash on Delivery (COD)
-                    </h4>
-                    {paymentMethod === "cod" && (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220]">
-                        <Check size={12} strokeWidth={3} />
-                      </div>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-xs font-medium text-[#8FA4BE]">
-                    Pay with cash upon delivery at your doorstep
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Sticky Quick-Commerce Bottom Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0B1425]/95 backdrop-blur-md border-t border-[#1E3252] rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-8px_25px_rgba(0,0,0,0.5)] transform-gpu will-change-transform">
         <div className="mx-auto w-full max-w-[700px] px-3.5 sm:px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -1411,8 +1311,10 @@ function BillingForm({
                 <button
                   type="button"
                   onClick={() => {
-                    if (!isAuthenticated) {
+                    if (requiresSignIn) {
                       navigate("/login", { state: { from: "/cart" } });
+                    } else if (addressLoadFailed) {
+                      setAddressRetry((value) => value + 1);
                     } else if (addresses.length === 0) {
                       navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                     } else {
@@ -1431,16 +1333,18 @@ function BillingForm({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 leading-tight">
                       <span className="font-black text-xs sm:text-[13px] text-[#F1F5F9] tracking-tight">
-                        {!isAuthenticated
-                          ? "Delivering to"
+                        {requiresSignIn
+                          ? "Sign in to continue"
+                          : addressLoadFailed ? "Address unavailable"
                           : selectedAddress
                           ? `Delivering to ${selectedAddress.type ? (selectedAddress.type.charAt(0).toUpperCase() + selectedAddress.type.slice(1)) : "Home"}`
                           : "No delivery address"}
                       </span>
                     </div>
                     <p className="text-[11px] font-medium text-[#8FA4BE] truncate leading-tight mt-0.5">
-                      {!isAuthenticated
-                        ? "Login to select delivery address"
+                      {requiresSignIn
+                        ? "Sign in to select a delivery address"
+                        : addressLoadFailed ? "We couldn’t load your saved addresses."
                         : selectedAddress
                         ? `${selectedAddress.address_line1 || ""}${selectedAddress.city ? `, ${selectedAddress.city}` : ""}${selectedAddress.pincode ? ` - ${selectedAddress.pincode}` : ""}`
                         : "Click to add your delivery address"}
@@ -1448,11 +1352,13 @@ function BillingForm({
                   </div>
                 </button>
 
-                <button
+                {!requiresSignIn && <button
                   type="button"
                   onClick={() => {
-                    if (!isAuthenticated) {
+                    if (requiresSignIn) {
                       navigate("/login", { state: { from: "/cart" } });
+                    } else if (addressLoadFailed) {
+                      setAddressRetry((value) => value + 1);
                     } else if (addresses.length === 0) {
                       navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                     } else {
@@ -1461,80 +1367,77 @@ function BillingForm({
                   }}
                   className="shrink-0 text-[11px] sm:text-xs font-black text-[#42D6E8] bg-[#132B45] border border-[#1E3252] hover:bg-[#42D6E8] hover:text-[#061220] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
                 >
-                  {!isAuthenticated
-                    ? "Login"
+                  {addressLoadFailed ? "Try again"
                     : addresses.length === 0
                     ? "+ Add"
                     : "Change"}
-                </button>
+                </button>}
               </>
             )}
           </div>
 
-          {/* Row 2: Payment Selector & Main Action Button */}
-          <div className="flex items-center justify-between gap-2.5 sm:gap-3">
-            {/* Payment Method Selector */}
-            <button
-              type="button"
-              onClick={() => setShowPaymentModal(true)}
-              disabled={loading}
-              className="flex items-center gap-2 sm:gap-2.5 p-1.5 sm:p-2 rounded-xl hover:bg-[#162744] active:scale-95 transition-all cursor-pointer max-w-[42%] min-w-0 disabled:opacity-50 text-left"
-            >
-              <div
-                className={`flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl border shadow-xs bg-[#132B45] border-[#1E3252] text-[#42D6E8]`}
-              >
-                {paymentMethod === "online" ? (
-                  <CreditCard size={15} strokeWidth={2.2} />
-                ) : (
-                  <Banknote size={16} strokeWidth={2.2} />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="flex items-center gap-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-[#6E84A3] leading-tight">
-                  PAY USING <ChevronUp size={11} className="text-[#42D6E8] stroke-[2.8]" />
-                </span>
-                <span className="block text-xs sm:text-[13px] font-black text-[#F1F5F9] truncate leading-tight mt-0.5">
-                  {paymentMethod === "online" ? "Pay Online" : "Cash on Delivery"}
+          {/* Row 2: Main Action Button */}
+          <div className="w-full">
+            {isAfterHours && (
+              <div className="mb-2 flex items-center justify-center gap-1.5 text-center text-[11px] font-bold text-[#A5E3EC]">
+                <span>
+                  {hasScheduledOpening
+                    ? `🌙 Fulfillment starts ${storeHours.next_opening.label}. Delivery follows preparation.`
+                    : "The store has no upcoming opening slot and is not accepting orders."}
                 </span>
               </div>
-            </button>
-
-            {/* Main Action Button */}
-            <button
-              type="button"
-              onClick={handlePlaceOrder}
-              disabled={isDisabled}
-              className={`group flex items-center justify-between gap-3 sm:gap-4 h-[56px] sm:h-[60px] px-4 sm:px-5 rounded-[20px] font-black transition-all shadow-[0_7px_24px_rgba(66,214,232,0.3)] active:scale-[0.98] cursor-pointer flex-1 max-w-[250px] sm:max-w-[280px] ${
-                isStoreClosed
-                  ? "bg-amber-600 text-white shadow-none cursor-not-allowed opacity-90"
-                  : hasActivePendingPayment
-                  ? "bg-cyan-800 text-white cursor-wait opacity-90"
-                  : hasOutOfStock || isBelowMin
-                  ? "bg-[#0E1A2E] text-[#6E84A3] border border-[#1E3252] shadow-none cursor-not-allowed opacity-80"
-                  : "bg-gradient-to-r from-[#42D6E8] to-[#2CC4D8] text-[#061220] hover:from-[#2CC4D8] hover:to-[#1FBAD0] hover:text-[#061220] disabled:cursor-not-allowed disabled:opacity-60"
-              }`}
-            >
-              {/* Total Price & Label */}
-              <div className="flex shrink-0 flex-col items-center justify-center text-center leading-none">
-                <div className="flex items-baseline gap-0.5">
-                  <span className="text-xs sm:text-sm font-black opacity-90 leading-none">₹</span>
-                  <span className="text-[17px] sm:text-lg font-black tracking-tight leading-none">
+            )}
+            {/* Row 2: Two Separate Pills (Price Pill + Place Order Pill) */}
+            <div className="flex items-center gap-2.5 sm:gap-3 w-full">
+              {/* Pill 1: Price Pill */}
+              <div className="flex flex-col items-center justify-center h-[50px] sm:h-[52px] min-w-[125px] sm:min-w-[140px] px-5 sm:px-6 rounded-full bg-[#111F36] border border-[#1E3252]/80 shadow-[0_1px_3px_rgba(0,0,0,0.2)] select-none shrink-0 gap-0.5">
+                <span className="text-[9px] sm:text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-[#8FA4BE] leading-none">
+                  TOTAL
+                </span>
+                <div className="flex items-baseline gap-0.5 leading-none">
+                  <span className="text-[14px] sm:text-[16px] font-black text-[#42D6E8] leading-none">₹</span>
+                  <span className="text-[19px] sm:text-[21px] font-black text-[#F1F5F9] tracking-tight leading-none">
                     {Number(finalTotal).toLocaleString("en-IN")}
                   </span>
                 </div>
-                <span className="text-[9px] font-bold uppercase tracking-[0.14em] opacity-75 mt-1 leading-none">
-                  TOTAL
-                </span>
               </div>
 
-              {/* Vertical divider */}
-              <div className="h-8 w-px bg-black/20 rounded-full shrink-0" />
-
-              {/* Action text & chevron */}
-              <div className="flex min-h-10 min-w-0 items-center gap-1 rounded-full border border-black/10 bg-black/10 px-3 text-[13px] sm:text-sm font-black whitespace-nowrap">
+              {/* Pill 2: Main Action Button (Place Order Pill - sleek pill shape) */}
+              <button
+                type="button"
+                onClick={handlePrimaryAction}
+                disabled={isDisabled}
+                className={`group flex-1 flex items-center justify-center gap-2 h-[50px] sm:h-[52px] px-4 sm:px-5 rounded-full font-black text-[13.5px] sm:text-[14.5px] transition-all shadow-[0_6px_20px_rgba(66,214,232,0.28)] active:scale-[0.98] ${
+                  loading
+                    ? "bg-[#0B1728] text-white border border-[#42D6E8]/40 shadow-[0_0_24px_rgba(66,214,232,0.25)] cursor-wait"
+                    : isDisabled
+                    ? "bg-[#0E1A2E] text-[#6E84A3] border border-[#1E3252] shadow-none cursor-not-allowed opacity-80"
+                    : "bg-gradient-to-r from-[#42D6E8] to-[#2CC4D8] text-[#061220] hover:from-[#2CC4D8] hover:to-[#1FBAD0] hover:text-[#061220] cursor-pointer"
+                }`}
+              >
                 {loading ? (
                   <>
-                    <Loader2 size={15} className="animate-spin shrink-0" />
+                    <svg
+                      className="h-4.5 w-4.5 sm:h-5 sm:w-5 animate-spin text-[#42D6E8] shrink-0"
+                      style={{ animation: "spin 0.85s linear infinite" }}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden="true"
+                    >
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="1.0" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.92" transform="rotate(30 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.84" transform="rotate(60 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.75" transform="rotate(90 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.67" transform="rotate(120 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.58" transform="rotate(150 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.5" transform="rotate(180 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.42" transform="rotate(210 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.33" transform="rotate(240 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.25" transform="rotate(270 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.17" transform="rotate(300 12 12)" />
+                      <rect x="11" y="1.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.1" transform="rotate(330 12 12)" />
+                    </svg>
                     <span className="truncate">
                       {paymentStep === "preparing"
                         ? "Preparing..."
@@ -1545,40 +1448,38 @@ function BillingForm({
                         : "Processing..."}
                     </span>
                   </>
-                ) : hasActivePendingPayment ? (
+                ) : checkoutAction === "auth_loading" ? (
+                  <span>Checking account…</span>
+                ) : checkoutAction === "legacy_payment" ? (
+                  <span>Payment needs review</span>
+                ) : checkoutAction === "payment_signin" ? (
+                  <span>Sign in to check payment</span>
+                ) : checkoutAction === "payment_status" ? (
+                  <span>Check payment status</span>
+                ) : checkoutAction === "retry_addresses" ? (
+                  <span>Try again</span>
+                ) : checkoutAction === "review_cart" ? (
+                  <span>Review cart</span>
+                ) : checkoutAction === "keep_shopping" ? (
+                  <span>Keep shopping</span>
+                ) : checkoutAction === "signin" ? (
                   <>
-                    <Loader2 size={15} className="animate-spin shrink-0" />
-                    <span className="truncate">Verifying...</span>
-                  </>
-                ) : isStoreClosed ? (
-                  <span className="truncate">Store Closed</span>
-                ) : hasOutOfStock ? (
-                  <span className="truncate">Review quantities</span>
-                ) : isBelowMin ? (
-                  <span className="truncate">Min. ₹500 Order</span>
-                ) : !isAuthenticated ? (
-                  <>
-                    <span className="truncate">Login to Order</span>
-                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                    <span className="truncate">Sign in to continue</span>
+                    <ChevronRight size={17} strokeWidth={2.8} className="shrink-0" />
                   </>
                 ) : addresses.length === 0 ? (
                   <>
                     <span className="truncate">Add Address</span>
-                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
-                  </>
-                ) : paymentMethod === "online" ? (
-                  <>
-                    <span className="truncate">Pay Online</span>
-                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                    <ChevronRight size={17} strokeWidth={2.8} className="shrink-0" />
                   </>
                 ) : (
                   <>
                     <span className="truncate">Place Order</span>
-                    <ChevronRight size={16} strokeWidth={2.8} className="shrink-0" />
+                    <ChevronRight size={17} strokeWidth={2.8} className="shrink-0" />
                   </>
                 )}
-              </div>
-            </button>
+              </button>
+            </div>
           </div>
         </div>
       </div>
