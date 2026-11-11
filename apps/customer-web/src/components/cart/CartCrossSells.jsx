@@ -42,10 +42,10 @@ function CartCrossSells({ items = [] }) {
   if (products.length === 0) return null;
 
   return (
-    <section className="rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] p-4 shadow-[0_6px_22px_rgba(0,0,0,0.2)] sm:p-5">
+    <section className="rounded-[22px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 shadow-[0_6px_22px_rgba(0,0,0,0.2)] sm:p-5">
       <div className="mb-4">
-        <h2 className="text-sm font-extrabold text-[#F1F5F9] sm:text-base">Goes well with your cart</h2>
-        <p className="mt-1 text-xs font-medium text-[#8FA4BE]">Store-selected additions you can add in one tap</p>
+        <h2 className="text-sm font-extrabold text-[#1E293B] sm:text-base">Goes well with your cart</h2>
+        <p className="mt-1 text-xs font-medium text-[#64748B]">Store-selected additions you can add in one tap</p>
       </div>
       <div className="flex snap-x gap-3 overflow-x-auto pb-2 pt-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible lg:grid-cols-4">
         {products.map((product) => (

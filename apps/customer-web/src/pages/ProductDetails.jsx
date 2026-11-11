@@ -126,11 +126,11 @@ function ProductDetails() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0B1425] pb-24">
-        <div className="h-[450px] w-full animate-pulse bg-[#111F36] border-b border-[#1E3252]/60 lg:rounded-b-[32px]"></div>
+      <div className="min-h-screen bg-[#F0F8E8] pb-24">
+        <div className="h-[450px] w-full animate-pulse bg-[#FFFFFF] border-b border-[#E2E8F0]/60 lg:rounded-b-[32px]"></div>
         <div className="mx-auto max-w-3xl p-4 space-y-4 lg:max-w-7xl lg:px-8 mt-6">
-          <div className="h-10 w-3/4 animate-pulse rounded-2xl bg-[#111F36] border border-[#1E3252]/60 shadow-sm"></div>
-          <div className="h-40 w-full animate-pulse rounded-[24px] bg-[#111F36] border border-[#1E3252]/60 shadow-sm"></div>
+          <div className="h-10 w-3/4 animate-pulse rounded-2xl bg-[#FFFFFF] border border-[#E2E8F0]/60 shadow-sm"></div>
+          <div className="h-40 w-full animate-pulse rounded-[24px] bg-[#FFFFFF] border border-[#E2E8F0]/60 shadow-sm"></div>
         </div>
       </div>
     );
@@ -138,15 +138,15 @@ function ProductDetails() {
 
   if (!product) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center bg-[#0B1425] px-4 text-center">
-        <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-[#111F36] border border-[#1E3252] shadow-sm">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center bg-[#F0F8E8] px-4 text-center">
+        <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-[#FFFFFF] border border-[#E2E8F0] shadow-sm">
           <span className="text-4xl">🛍️</span>
         </div>
-        <h2 className="mb-2 text-2xl font-bold text-white">Product Not Found</h2>
-        <p className="mb-8 text-[#8FA4BE]">The product you are looking for does not exist or has been removed.</p>
+        <h2 className="mb-2 text-2xl font-bold text-[#1E293B]">Product Not Found</h2>
+        <p className="mb-8 text-[#64748B]">The product you are looking for does not exist or has been removed.</p>
         <button
           onClick={() => navigate("/")}
-          className="rounded-full bg-[#42D6E8] px-8 py-3 font-semibold text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.25)] transition-all hover:bg-[#2CC4D8] active:scale-95 cursor-pointer font-extrabold"
+          className="rounded-full bg-[#22499F] px-8 py-3 font-semibold text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.25)] transition-all hover:bg-[#1B3B82] active:scale-95 cursor-pointer font-extrabold"
         >
           Return Home
         </button>
@@ -155,7 +155,7 @@ function ProductDetails() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0B1425] text-white">
+    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B]">
       <div className="mx-auto w-full max-w-3xl pb-32 lg:max-w-7xl lg:px-8 lg:pb-12">
         <section key={product.id} className="lg:grid lg:grid-cols-[45%_1fr] lg:gap-10 lg:pt-8">
           <div className="lg:sticky lg:top-8 h-fit z-10 w-full">

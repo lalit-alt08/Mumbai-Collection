@@ -98,15 +98,15 @@ function ResetPassword() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0B1425] font-sans">
-      <div className="flex w-full flex-col px-6 pb-24 pt-8 md:w-[480px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-10 md:py-12 md:shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-[#F0F8E8] font-sans">
+      <div className="flex w-full flex-col px-6 pb-24 pt-8 md:w-[480px] md:rounded-[24px] md:bg-[#FFFFFF] md:border md:border-[#E2E8F0]/80 md:px-10 md:py-12 md:shadow-lg">
 
         {/* Back */}
 
         <button
           type="button"
           onClick={() => navigate("/login")}
-          className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-[#8FA4BE] transition hover:text-[#42D6E8] cursor-pointer"
+          className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-[#64748B] transition hover:text-[#22499F] cursor-pointer"
         >
           <ArrowLeft size={18} />
           Back to Sign In
@@ -115,11 +115,11 @@ function ResetPassword() {
         {/* Heading */}
 
         <div className="mb-8">
-          <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[32px]">
+          <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E293B] md:text-[32px]">
             Create New Password
           </h1>
 
-          <p className="mt-2 text-[15px] leading-relaxed text-[#8FA4BE] md:text-[16px]">
+          <p className="mt-2 text-[15px] leading-relaxed text-[#64748B] md:text-[16px]">
             Choose a new password for your Mumbai Collection account.
           </p>
         </div>
@@ -134,7 +134,7 @@ function ResetPassword() {
             <button
               type="button"
               onClick={() => navigate("/forgot-password")}
-              className="flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[15px] font-bold text-[#061220] shadow-md transition-all hover:bg-[#2CC4D8] active:scale-[0.98] cursor-pointer"
+              className="flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] text-[15px] font-bold text-[#FFFFFF] shadow-md transition-all hover:bg-[#1B3B82] active:scale-[0.98] cursor-pointer"
             >
               Reset with Email OTP
               <ArrowRight size={18} />
@@ -148,12 +148,12 @@ function ResetPassword() {
             {/* Password */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
+              <label className="mb-2 block text-[13px] font-bold text-[#64748B]">
                 New Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#6E84A3]">
+                <div className="absolute left-4 text-[#64748B]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -166,10 +166,10 @@ function ResetPassword() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#F0F8E8] pl-12 pr-12 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                     passwordError
                       ? "border-rose-400 focus:border-rose-400"
-                      : "border-[#1E3252] focus:border-[#42D6E8]"
+                      : "border-[#E2E8F0] focus:border-[#22499F]"
                   }`}
                   required
                 />
@@ -179,7 +179,7 @@ function ResetPassword() {
                   onClick={() =>
                     setShowPassword(!showPassword)
                   }
-                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
+                  className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                 >
                   {showPassword ? (
                     <EyeOff size={20} />
@@ -190,20 +190,20 @@ function ResetPassword() {
               </div>
 
               {password.length > 0 && (
-                <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#1E3252]/60 bg-[#080F1C]/80 p-2.5 text-xs text-[#8FA4BE]">
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/80 p-2.5 text-xs text-[#64748B]">
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
                   </span>
-                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-400 font-medium" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special character (!@#$%^&*)
                   </span>
                 </div>
@@ -219,12 +219,12 @@ function ResetPassword() {
             {/* Confirm Password */}
 
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
+              <label className="mb-2 block text-[13px] font-bold text-[#64748B]">
                 Confirm New Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#6E84A3]">
+                <div className="absolute left-4 text-[#64748B]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -237,10 +237,10 @@ function ResetPassword() {
                     setConfirmPasswordError("");
                     setError("");
                   }}
-                  className={`h-[56px] w-full rounded-2xl border bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15 ${
+                  className={`h-[56px] w-full rounded-2xl border bg-[#F0F8E8] pl-12 pr-12 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                     confirmPasswordError
                       ? "border-rose-400 focus:border-rose-400"
-                      : "border-[#1E3252] focus:border-[#42D6E8]"
+                      : "border-[#E2E8F0] focus:border-[#22499F]"
                   }`}
                   required
                 />
@@ -250,7 +250,7 @@ function ResetPassword() {
                   onClick={() =>
                     setShowConfirmPassword(!showConfirmPassword)
                   }
-                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
+                  className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                 >
                   {showConfirmPassword ? (
                     <EyeOff size={20} />
@@ -278,8 +278,8 @@ function ResetPassword() {
             {/* Success */}
 
             {success && (
-              <div className="flex items-center gap-3 rounded-xl border border-[#1E3252] bg-[#132B45] p-4 text-[13px] font-medium text-[#67E8F9]">
-                <CheckCircle size={20} className="text-[#42D6E8]" />
+              <div className="flex items-center gap-3 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] p-4 text-[13px] font-medium text-[#22499F]">
+                <CheckCircle size={20} className="text-[#22499F]" />
                 <span>{success}</span>
               </div>
             )}
@@ -289,7 +289,7 @@ function ResetPassword() {
             <button
               type="submit"
               disabled={loading || !!success}
-              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
+              className="mt-2 flex h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] text-[16px] font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Updating..." : "Reset Password"}
 

@@ -4,6 +4,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { triggerHaptic } from "../../utils/haptics";
 import HapticTapTarget from "../common/HapticTapTarget";
+import { useState, useEffect } from "react";
+import CategoryIconBar from "../home/CategoryIconBar";
+import { getCachedCategories, getCategoriesSWR } from "../../services/productService";
 
 function Header() {
   const { user } = useAuth();
@@ -17,17 +20,30 @@ function Header() {
     "/reset-password",
   ].some((p) => location.pathname.startsWith(p));
 
-
   const isRecentlyViewedPage = location.pathname === "/recently-viewed";
   const isHomePage = location.pathname === "/";
   const isSearchPage = location.pathname.startsWith("/search");
+
+  const [categories, setCategories] = useState(() => getCachedCategories() || []);
+
+  useEffect(() => {
+    if (isHomePage) {
+      const cached = getCategoriesSWR((fresh) => {
+        if (Array.isArray(fresh) && fresh.length > 0) setCategories(fresh);
+      });
+      if (Array.isArray(cached) && cached.length > 0) {
+        setCategories(cached);
+      }
+    }
+  }, [isHomePage]);
+
   // Seamlessly mix the page color all the way to the top status bar with no visible border
   const headerBgClass = isHomePage
-    ? "bg-gradient-to-b from-[#1B3459] via-[#162A48] to-[#132238]"
-    : "bg-[#0B1425]";
+    ? "bg-gradient-to-b from-[#F0F8E8] via-[#F0F8E8] to-[#F0F8E8]"
+    : "bg-[#F0F8E8]";
 
-  // Clean, razor-sharp, solid midnight surface with crisp high-contrast border
-  const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
+  // Clean, razor-sharp, solid surface with crisp border
+  const surfaceClasses = "bg-[#FFFFFF] border border-[#E2E8F0] shadow-xs";
 
   if (isAuthPage) {
     return null;
@@ -35,7 +51,8 @@ function Header() {
 
   return (
     <header
-      className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 pb-2.5 sm:px-4 sm:pt-5 sm:pb-3 md:px-8 md:pt-6 md:pb-3.5 transition-[top] duration-200`}
+      id="storefront-header"
+      className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top,padding,box-shadow] duration-200`}
       style={{
         paddingTop: "max(12px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 8px))",
       }}
@@ -57,7 +74,7 @@ function Header() {
                   }
                 }}
                 aria-label="Back"
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#F1F5F9] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:text-[#42D6E8] hover:border-[#42D6E8]/70 active:scale-95 cursor-pointer`}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#1E293B] shadow-xs transition-all hover:bg-[#F0F8E8] hover:text-[#22499F] hover:border-[#22499F]/70 active:scale-95 cursor-pointer`}
               >
                 <ArrowLeft size={20} strokeWidth={2.2} />
               </button>
@@ -70,22 +87,27 @@ function Header() {
             </div>
           )}
 
-        {/* ================= USER PROFILE — SEPARATE CIRCULAR BUTTON OUTSIDE SEARCHBOX ================= */}
-        {!isRecentlyViewedPage && (
-          <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
-            <Link
-              to={user ? "/account" : "/login"}
-              onClick={() => triggerHaptic("light")}
-              aria-label={user ? "Profile" : "Sign In"}
-              className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#42D6E8] shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all hover:bg-[#162744] hover:border-[#42D6E8]/70 hover:shadow-[0_4px_16px_rgba(66,214,232,0.25)] active:scale-95 cursor-pointer`}
-            >
-              <User size={20} strokeWidth={2.2} />
-            </Link>
-          </HapticTapTarget>
+          {/* ================= USER PROFILE — SEPARATE CIRCULAR BUTTON OUTSIDE SEARCHBOX ================= */}
+          {!isRecentlyViewedPage && (
+            <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
+              <Link
+                to={user ? "/account" : "/login"}
+                onClick={() => triggerHaptic("light")}
+                aria-label={user ? "Profile" : "Sign In"}
+                className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#22499F] shadow-xs transition-all hover:bg-[#F0F8E8] hover:border-[#22499F]/70 active:scale-95 cursor-pointer`}
+              >
+                <User size={20} strokeWidth={2.2} />
+              </Link>
+            </HapticTapTarget>
+          )}
+        </div>
+
+        {/* ================= CATEGORY BAR UNDER SEARCH ON HOMEPAGE (Always visible & sticks on scroll) ================= */}
+        {isHomePage && (
+          <div className="mt-1.5 pt-0.5">
+            <CategoryIconBar categories={categories} />
+          </div>
         )}
-
-
-      </div>
       </div>
     </header>
   );

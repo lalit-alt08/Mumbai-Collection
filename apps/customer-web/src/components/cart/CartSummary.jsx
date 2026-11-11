@@ -24,9 +24,9 @@ function CartSummary({
     <div className="space-y-5">
       {/* Savings Card */}
       {discount > 0 && (
-        <div className="flex items-center gap-3 rounded-[22px] bg-[#132B45] border border-[#1E3252] p-4 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
-          <Gift className="text-[#42D6E8]" size={20} />
-          <span className="text-[14px] font-semibold text-[#42D6E8]">
+        <div className="flex items-center gap-3 rounded-[22px] bg-[#FFFFFF] border border-[#E2E8F0] p-4 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+          <Gift className="text-[#22499F]" size={20} />
+          <span className="text-[14px] font-semibold text-[#22499F]">
             You saved ₹{discount} on this order
           </span>
         </div>
@@ -57,7 +57,7 @@ function CartSummary({
               {/* Dynamic progress bar */}
               <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-amber-950/80 border border-amber-800/40">
                 <div
-                  className="h-full rounded-full bg-[#42D6E8] transition-all duration-300"
+                  className="h-full rounded-full bg-[#22499F] transition-all duration-300"
                   style={{ width: `${Math.min(100, (itemsTotal / minOrderValue) * 100)}%` }}
                 />
               </div>
@@ -69,10 +69,10 @@ function CartSummary({
       {/* Delivery Card (Daytime standard / peak ETA) */}
       {!isAfterHours && (
         <div
-          className={`rounded-[18px] bg-[#111F36] border p-4 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all ${
+          className={`rounded-[18px] bg-[#FFFFFF] border p-4 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all ${
             storeHours?.is_peak_hours
               ? "border-amber-800/60 bg-amber-950/20"
-              : "border-[#1E3252]/80"
+              : "border-[#E2E8F0]/80"
           }`}
         >
           <div className="flex items-center gap-3">
@@ -80,14 +80,14 @@ function CartSummary({
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
                 storeHours?.is_peak_hours
                   ? "bg-amber-950/50 text-amber-400 border border-amber-800/60"
-                  : "bg-[#132B45] text-[#42D6E8] border border-[#1E3252]"
+                  : "bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]"
               }`}
             >
               <Truck size={20} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-[14px] font-bold text-[#F1F5F9] leading-tight">
+                <h3 className="text-[14px] font-bold text-[#1E293B] leading-tight">
                   {storeHours?.delivery_eta_text ||
                     (storeHours?.is_peak_hours
                       ? "Delivery in 2–3 hours"
@@ -119,22 +119,22 @@ function CartSummary({
       )}
 
       {/* Bill Details */}
-      <div className="rounded-[22px] bg-[#111F36] border border-[#1E3252]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
-        <h3 className="mb-4 text-[16px] font-bold text-[#F1F5F9]">
+      <div className="rounded-[22px] bg-[#FFFFFF] border border-[#E2E8F0]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+        <h3 className="mb-4 text-[17px] font-bold text-[#1E293B]">
           Bill Details
         </h3>
 
-        <div className="space-y-3.5 text-[14px] text-[#8FA4BE]">
+        <div className="space-y-3.5 text-[15px] font-medium text-[#64748B]">
           <div className="flex justify-between items-center">
             <div>
-              <span className="block text-[#F1F5F9]">Items Total</span>
-              <span className="block text-[11px] font-medium text-[#6E84A3]">Inclusive of all taxes</span>
+              <span className="block font-semibold text-[#1E293B]">Items Total</span>
+              <span className="block text-xs font-medium text-[#64748B]">Inclusive of all taxes</span>
             </div>
-            <span className="font-medium text-[#F1F5F9]">₹{itemsTotal}</span>
+            <span className="font-bold text-[#1E293B]">₹{itemsTotal}</span>
           </div>
 
           {discount > 0 && (
-            <div className="flex justify-between items-center text-[#42D6E8]">
+            <div className="flex justify-between items-center text-[#22499F]">
               <span>Discount</span>
               <span className="font-medium">-₹{discount}</span>
             </div>
@@ -143,30 +143,30 @@ function CartSummary({
           <div className="flex justify-between items-center">
             <span>Delivery Charge</span>
             {delivery === 0 ? (
-              <span className="font-bold text-[#42D6E8]">FREE</span>
+              <span className="font-bold text-[#22499F]">FREE</span>
             ) : (
-              <span className="font-medium text-[#F1F5F9]">₹{delivery}</span>
+              <span className="font-bold text-[#1E293B]">₹{delivery}</span>
             )}
           </div>
 
-          <hr className="my-4 border-[#1E3252]/70" />
+          <hr className="my-4 border-[#E2E8F0]/70" />
 
-          <div className="flex justify-between items-center text-[16px] font-black text-white">
+          <div className="flex justify-between items-center text-[16px] font-black text-[#1E293B]">
             <div>
               <span>Grand Total</span>
-              <span className="block text-[11px] font-medium text-[#6E84A3]">Inclusive of all taxes (GST)</span>
+              <span className="block text-xs font-medium text-[#64748B]">Inclusive of all taxes (GST)</span>
             </div>
-            <span className="text-[18px] text-[#42D6E8]">₹{total}</span>
+            <span className="text-[18px] text-[#22499F]">₹{total}</span>
           </div>
         </div>
       </div>
 
       {/* Policy Card */}
-      <div className="rounded-[22px] bg-[#111F36] border border-[#1E3252]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
-        <h3 className="mb-2 text-[14px] font-bold text-[#F1F5F9]">
+      <div className="rounded-[22px] bg-[#FFFFFF] border border-[#E2E8F0]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+        <h3 className="mb-2 text-[16px] font-bold text-[#1E293B]">
           Cancellation Policy
         </h3>
-        <p className="text-[14px] font-medium text-[#8FA4BE] leading-relaxed">
+        <p className="text-[15px] font-medium text-[#64748B] leading-relaxed">
           Orders cannot be cancelled once packed for delivery. In case of
           unexpected delays, a refund will be provided, if applicable.
         </p>

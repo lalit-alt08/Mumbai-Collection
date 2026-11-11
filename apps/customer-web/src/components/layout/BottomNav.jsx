@@ -119,9 +119,9 @@ function BottomNav() {
   return (
     <nav
       aria-label="Mobile Navigation"
-      className={`fixed bottom-0 left-0 right-0 z-40 rounded-t-[24px] border-t border-[#1E3252]/80 ${
-        path === "/" ? "bg-[#0E1A2E]/95" : "bg-[#0B1425]/95"
-      } backdrop-blur-md shadow-[0_-4px_25px_rgba(0,0,0,0.6)] transition-transform duration-300 ease-in-out lg:hidden ${
+      className={`fixed bottom-0 left-0 right-0 z-40 rounded-t-[24px] border-t border-[#E2E8F0] ${
+        path === "/" ? "bg-[#FFFFFF]/95" : "bg-[#FFFFFF]/95"
+      } backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.08)] transition-transform duration-300 ease-in-out lg:hidden ${
         isVisible ? "translate-y-0" : "translate-y-[120%]"
       }`}
       style={{
@@ -149,7 +149,7 @@ function BottomNav() {
                 }}
                 style={{ touchAction: "manipulation" }}
                 className={`group flex flex-1 flex-col items-center justify-center py-1 transition-all duration-150 active:scale-95 select-none ${
-                  active ? "text-[#42D6E8]" : "text-[#9FB3CE] hover:text-[#42D6E8]"
+                  active ? "text-[#22499F]" : "text-[#64748B] hover:text-[#22499F]"
                 }`}
               >
                 <div
@@ -161,11 +161,11 @@ function BottomNav() {
                     size={21}
                     strokeWidth={active ? 2.5 : 2.0}
                     className={`transition-colors shrink-0 ${
-                      active ? "text-[#42D6E8] fill-[#42D6E8]/20" : "text-[#9FB3CE]"
+                      active ? "text-[#22499F] fill-[#22499F]/20" : "text-[#64748B]"
                     }`}
                   />
                   {item.badge && (
-                    <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#42D6E8] px-1 text-[9px] font-black text-[#061220] shadow-sm ring-2 ring-[#0B1425]">
+                    <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F4B54B] px-1 text-[9px] font-black text-[#1E293B] shadow-sm ring-2 ring-[#FFFFFF]">
                       {item.badge}
                     </span>
                   )}
@@ -173,7 +173,7 @@ function BottomNav() {
 
                 <span
                   className={`mt-1 text-[12px] tracking-tight leading-none text-center transition-colors ${
-                    active ? "font-extrabold text-[#42D6E8]" : "font-semibold text-[#9FB3CE]"
+                    active ? "font-extrabold text-[#22499F]" : "font-semibold text-[#64748B]"
                   }`}
                 >
                   {item.label}

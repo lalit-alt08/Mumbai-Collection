@@ -52,7 +52,7 @@ function HeroBanner() {
 
   if (loading) {
     return (
-      <div className="w-full aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] rounded-[18px] sm:rounded-[22px] bg-[#111F36] border border-[#1E3252]/60 animate-pulse" />
+      <div className="w-full aspect-[16/7] sm:aspect-[16/6] md:max-h-[300px] lg:max-h-[340px] rounded-[18px] sm:rounded-[22px] bg-[#FFFFFF] border border-[#E2E8F0]/60 animate-pulse" />
     );
   }
 

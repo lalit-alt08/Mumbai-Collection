@@ -1,6 +1,99 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap');
 @import "tailwindcss";
 
+/* Dark appearance: slate surfaces with tangerine actions and highlights. */
+.store-theme-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #E2E8F0;
+  border-radius: 18px;
+  background: #FFFFFF;
+  color: #1E293B;
+}
+.store-theme-picker h2 { font-size: 0.95rem; font-weight: 700; margin: 0; }
+.store-theme-picker p { color: #64748B; font-size: 0.75rem; margin: 4px 0 0; }
+.store-theme-options { display: flex; gap: 2px; padding: 3px; background: #F0F8E8; border-radius: 999px; }
+.store-theme-options button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; color: #1E293B; font-size: 0.875rem; font-weight: 700; cursor: pointer; }
+.store-theme-options button[aria-pressed="true"] { background: #22499F; color: #FFFFFF; }
+.store-low-stock { background: #FFF3E6; border: 1px solid #D99851; color: #88420C; }
+.account-delete { background: #FFF6F5; border-color: #E7B8B7; }
+.account-delete-title { color: #A32E3D; }
+.account-delete-button { background: #FFFFFF; border-color: #C8737A; color: #A32E3D; }
+.account-delete-button:hover { background: #A32E3D; border-color: #A32E3D; color: #FFFFFF; }
+html[data-store-theme="dark"] .store-low-stock { background: #493826; border-color: #C68042; color: #FFBF80; }
+html[data-store-theme="dark"] .account-delete { background: #3C2D32; border-color: #A05A66; }
+html[data-store-theme="dark"] .account-delete-title { color: #FFB2B7; }
+html[data-store-theme="dark"] .account-delete-button { background: #49353B; border-color: #D0808A; color: #FFD2D4; }
+html[data-store-theme="dark"] .account-delete-button:hover { background: #A32E3D; color: #FFFFFF; }
+
+html[data-store-theme="dark"] { color-scheme: dark; }
+html[data-store-theme="dark"], html[data-store-theme="dark"] body { background: #1F272E; color: #FAF8F4; }
+html[data-store-theme="dark"] :is([class~="bg-[#F0F8E8]"],[class~="bg-[#F0F8E8]/50"],[class~="bg-[#F0F8E8]/60"],[class~="bg-[#F0F8E8]/70"],[class~="bg-[#F0F8E8]/75"],[class~="bg-[#F0F8E8]/80"],[class~="bg-[#F0F8E8]/90"],[class~="bg-[#F0F8E8]/95"]) { background-color: #1F272E; }
+html[data-store-theme="dark"] :is([class~="bg-[#FFFFFF]"],[class~="bg-[#FFFFFF]/30"],[class~="bg-[#FFFFFF]/50"],[class~="bg-[#FFFFFF]/60"],[class~="bg-[#FFFFFF]/70"],[class~="bg-[#FFFFFF]/80"],[class~="bg-[#FFFFFF]/90"],[class~="bg-[#FFFFFF]/95"],[class~="bg-[#F8FAF6]"],[class~="bg-[#E2E8F0]"],[class~="bg-[#E2E8F0]/40"],[class~="bg-[#E2E8F0]/60"]) { background-color: #3A434C; }
+html[data-store-theme="dark"] :is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"]) { background-color: #FF942F; color: #1F272E; }
+html[data-store-theme="dark"] :is([class~="bg-[#22499F]/10"],[class~="bg-[#22499F]/15"],[class~="bg-[#22499F]/20"]) { background-color: #4B535C; }
+html[data-store-theme="dark"] :is([class~="text-[#1E293B]"],[class~="text-[#334155]"],[class~="text-[#475569]"]) { color: #FAF8F4; }
+html[data-store-theme="dark"] :is([class~="text-[#64748B]"],[class~="text-[#64748B]/50"],[class~="text-[#94A3B8]"],[class~="text-[#CBD5E1]"]) { color: #D1D5D8; }
+html[data-store-theme="dark"] :is([class~="text-[#22499F]"],[class~="text-[#1B3B82]"]) { color: #FFBF80; }
+html[data-store-theme="dark"] [class~="text-[#F4B54B]"] { color: #FFBF80; }
+html[data-store-theme="dark"] [class~="fill-[#F4B54B]"] { fill: #FFBF80; }
+html[data-store-theme="dark"] [class~="bg-[#F4B54B]"] { background-color: #FF942F; color: #1F272E; }
+html[data-store-theme="dark"] [class~="fill-[#22499F]/20"] { fill: rgb(255 172 92 / 20%); }
+html[data-store-theme="dark"] [class~="border-t-[#22499F]"] { border-top-color: #FFAC5C; }
+html[data-store-theme="dark"] [class~="ring-[#FFFFFF]"] { --tw-ring-color: #3A434C; }
+html[data-store-theme="dark"] :is([class~="ring-[#22499F]"],[class~="ring-[#22499F]/15"],[class~="ring-[#22499F]/20"],[class~="ring-[#22499F]/25"],[class~="ring-[#22499F]/30"],[class~="ring-[#22499F]/40"],[class~="ring-[#22499F]/60"]) { --tw-ring-color: rgb(255 148 47 / 40%); }
+html[data-store-theme="dark"] :is([class~="border-[#E2E8F0]"],[class~="border-[#E2E8F0]/50"],[class~="border-[#E2E8F0]/60"],[class~="border-[#E2E8F0]/70"],[class~="border-[#E2E8F0]/80"],[class~="border-[#FFFFFF]"],[class~="border-[#FFFFFF]/30"],[class~="border-[#FFFFFF]/70"],[class~="border-[#FFFFFF]/80"]) { border-color: #66717A; }
+html[data-store-theme="dark"] :is([class~="border-[#22499F]"],[class~="border-[#22499F]/20"],[class~="border-[#22499F]/30"],[class~="border-[#22499F]/35"],[class~="border-[#22499F]/40"],[class~="border-[#22499F]/50"],[class~="border-[#22499F]/60"],[class~="border-[#22499F]/70"]) { border-color: #C68042; }
+html[data-store-theme="dark"] :is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"]) :is([class~="text-[#FFFFFF]"],[class~="text-white"],[class~="text-[#F4B54B]"]) { color: #1F272E; }
+html[data-store-theme="dark"] :is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"]):is([class~="text-[#FFFFFF]"],[class~="text-white"]) { color: #1F272E; }
+html[data-store-theme="dark"] :is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"]):is([class~="text-[#1E293B]"],[class~="text-[#22499F]"],[class~="text-[#1B3B82]"]) { color: #1F272E; }
+html[data-store-theme="dark"] :is(button, a):is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"]):not(:disabled):hover { background-color: #FFAC5C; }
+html[data-store-theme="dark"] :is([class~="bg-[#112440]"],[class~="bg-[#0E1B30]/60"],[class~="bg-[#0E223D]"],[class~="bg-[#0B1728]"]) { background-color: #303A43; }
+html[data-store-theme="dark"] [class~="from-[#F0F8E8]"] { --tw-gradient-from: #1F272E; --tw-gradient-via: #1F272E; --tw-gradient-to: #1F272E; }
+html[data-store-theme="dark"] [class~="from-[#FFFFFF]"] { --tw-gradient-from: #3A434C; --tw-gradient-via: #3A434C; --tw-gradient-to: #3A434C; }
+html[data-store-theme="dark"] [class~="from-[#22499F]"] { --tw-gradient-from: #515B65; --tw-gradient-to: #323C46; }
+html[data-store-theme="dark"] .store-theme-picker { background: #3A434C; border-color: #66717A; color: #FAF8F4; }
+html[data-store-theme="dark"] .store-theme-picker p { color: #D1D5D8; }
+html[data-store-theme="dark"] .store-theme-options { background: #1F272E; }
+html[data-store-theme="dark"] .store-theme-options button { color: #FAF8F4; }
+html[data-store-theme="dark"] .store-theme-options button[aria-pressed="true"] { background: #FF942F; color: #1F272E; }
+html[data-store-theme="dark"] :focus-visible { outline-color: #FF942F; }
+html[data-store-theme="dark"] :is(button, a):is([aria-label="Back"], [aria-label="Go back"], [aria-label="Go Back"], [aria-label="Back to Account"], [aria-label="Back to My Orders"]) { color: #FFBF80; }
+html[data-store-theme="dark"] #store-search-input:focus-visible { outline: 2px solid #FFBF80 !important; outline-offset: 2px; }
+html[data-store-theme="dark"] :is(input, textarea)::placeholder { color: #C4C9CE; opacity: 1; }
+html[data-store-theme="dark"] .store-primary-action:not(:disabled) { background: #FF942F; color: #1F272E; }
+html[data-store-theme="dark"] .store-primary-action:not(:disabled):hover { background: #FFAC5C; color: #1F272E; }
+html[data-store-theme="dark"] .account-hero { background: linear-gradient(135deg, #404952, #303840); border-color: #68727A; }
+html[data-store-theme="dark"] .account-avatar { background: #FF942F; color: #1F272E; --tw-ring-color: #FFBF80; }
+html[data-store-theme="dark"] .account-edit { background: #FF942F; border-color: #FF942F; color: #1F272E; opacity: 1; }
+html[data-store-theme="dark"] .account-edit:hover { background: #FFAC5C; color: #1F272E; }
+html[data-store-theme="dark"] .account-menu > button > div > div:first-child { background: #303941; border-color: #59656E; }
+html[data-store-theme="dark"] .account-menu > button:hover { background: #46515B; }
+/* Keep catalog photography neutral even when surrounding cards are dark. */
+html[data-store-theme="dark"] .store-product-image { background-color: #F4F1ED; border-color: #DFD8D0; }
+/* Light account header uses white capsules and needs dark text. */
+html:not([data-store-theme="dark"]) :is([class~="bg-[#FFFFFF]/90"],[class~="bg-[#FFFFFF]/95"])[class~="text-white"],
+html:not([data-store-theme="dark"]) [class~="bg-[#FFFFFF]/95"] > [class~="text-white"] { color: #1E293B; }
+/* Text on light surfaces must remain readable; saturated status and action colors stay intact. */
+html:not([data-store-theme="dark"]) :is([class~="border-[#E2E8F0]"],[class~="border-[#E2E8F0]/50"],[class~="border-[#E2E8F0]/60"],[class~="border-[#E2E8F0]/70"],[class~="border-[#E2E8F0]/80"]) { border-color: #B8C0C5; }
+html:not([data-store-theme="dark"]) :is(div, section, footer, button, a, input, select, textarea):is([class~="border"]):is([class~="border-[#E2E8F0]"],[class~="border-[#E2E8F0]/50"],[class~="border-[#E2E8F0]/60"],[class~="border-[#E2E8F0]/70"],[class~="border-[#E2E8F0]/80"]):not(.store-product-image, .store-product-card) { box-shadow: 0 2px 7px rgb(0 0 0 / 18%); }
+html:not([data-store-theme="dark"]) .store-product-card { border-color: transparent; box-shadow: 0 3px 12px rgb(0 0 0 / 14%); }
+html:not([data-store-theme="dark"]) .store-product-card:hover { border-color: transparent; box-shadow: 0 6px 18px rgb(0 0 0 / 14%); }
+html:not([data-store-theme="dark"]) .store-product-card .store-product-image { border-color: #E2E8F0; box-shadow: none; }
+html:not([data-store-theme="dark"]) .store-product-card :is(button, a):is([class~="border"]):is([class~="border-[#E2E8F0]"],[class~="border-[#E2E8F0]/50"],[class~="border-[#E2E8F0]/60"],[class~="border-[#E2E8F0]/70"],[class~="border-[#E2E8F0]/80"]) { box-shadow: none; }
+html:not([data-store-theme="dark"]) [class~="text-[#CBD5E1]"] { color: #475569; }
+html:not([data-store-theme="dark"]) :is([class~="bg-[#FFFFFF]"],[class~="bg-[#FFFFFF]/90"],[class~="bg-[#FFFFFF]/95"],[class~="bg-[#F0F8E8]"],[class~="bg-[#E2E8F0]"])[class~="text-white"] { color: #1E293B; }
+html:not([data-store-theme="dark"]) :is([class~="bg-[#FFFFFF]"],[class~="bg-[#FFFFFF]/90"],[class~="bg-[#FFFFFF]/95"]) > :is(h1, h2, h3, span)[class~="text-white"] { color: #1E293B; }
+html:not([data-store-theme="dark"]) :is(button, a)[class~="hover:bg-[#FFFFFF]"]:hover { color: #22499F; }
+html:not([data-store-theme="dark"]) .support-whatsapp { background: #EFFAF2; border-color: #9CCDA8; }
+html:not([data-store-theme="dark"]) .support-whatsapp:hover { background: #E2F5E7; }
+html:not([data-store-theme="dark"]) .support-whatsapp [class~="text-[#25D366]"]:not([class~="bg-[#051C10]"]) { color: #176C37; }
+html:not([data-store-theme="dark"]) .support-whatsapp h3 { color: #1E293B; }
+
 @theme {
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-heading: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
@@ -8,7 +101,7 @@
 
 :root {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: dark;
+  color-scheme: light;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -37,14 +130,15 @@ html.is-standalone,
 html,
 body {
   margin: 0;
-  background-color: #0B1425;
-  background-image: radial-gradient(1200px 900px at 15% 95%, #132440 0%, #0B1425 65%, #060C18 100%);
+  background-color: #F0F8E8;
+  background-image: none;
   background-attachment: fixed;
-  color: #F1F5F9;
+  color: #1E293B;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   width: 100%;
-  overflow-x: hidden;
+  /* Clip horizontal overflow without creating a scrolling ancestor for sticky headers. */
+  overflow-x: clip;
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -52,18 +146,18 @@ body {
 
 /* Custom selection in Electric Cyan */
 ::selection {
-  background-color: #42D6E8;
-  color: #061220;
+  background-color: #22499F;
+  color: #FFFFFF;
 }
 
 /* Tactile tap highlight for touchscreens so users see what was selected */
 * {
-  -webkit-tap-highlight-color: rgba(66, 214, 232, 0.15);
+  -webkit-tap-highlight-color: rgba(34, 73, 159, 0.15);
 }
 
 /* Accessible focus ring for interactive controls */
 :focus-visible {
-  outline: 2px solid #42D6E8;
+  outline: 2px solid #22499F;
   outline-offset: 2px;
 }
 
@@ -131,12 +225,12 @@ img {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1E3252;
+  background: #E2E8F0;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #42D6E8;
+  background: #22499F;
 }
 
 @keyframes fadeIn {

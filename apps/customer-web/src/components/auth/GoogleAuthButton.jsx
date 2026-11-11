@@ -105,12 +105,12 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
           login();
         }}
         disabled={loading}
-        className="flex h-[46px] sm:h-[50px] md:h-[52px] w-full items-center justify-center gap-2.5 rounded-xl sm:rounded-2xl border border-[#1E3252] bg-[#080F1C] px-4 text-[14px] sm:text-[15px] font-bold text-[#F1F5F9] shadow-sm transition-all hover:border-[#42D6E8]/60 hover:bg-[#0D1C33] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+        className="flex h-[46px] sm:h-[50px] md:h-[52px] w-full items-center justify-center gap-2.5 rounded-xl sm:rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-[14px] sm:text-[15px] font-bold text-[#1E293B] shadow-sm transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
       >
         {loading ? (
           <>
-            <Loader2 size={16} className="animate-spin text-[#42D6E8]" />
-            <span className="text-[#8FA4BE] text-xs sm:text-sm">Connecting to Google...</span>
+            <Loader2 size={16} className="animate-spin text-[#22499F]" />
+            <span className="text-[#64748B] text-xs sm:text-sm">Connecting to Google...</span>
           </>
         ) : (
           <>

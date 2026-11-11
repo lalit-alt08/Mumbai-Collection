@@ -28,6 +28,7 @@ import {
   generateUUID,
   getOrCreateCheckoutIdempotencyKey,
   clearCheckoutIdempotencyKey,
+  retireCheckoutIdempotencyKey,
   PENDING_PAYMENT_STORAGE_KEY,
   getPendingPayment,
   setPendingPayment,
@@ -83,7 +84,7 @@ function BillingForm({
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAuthenticated, handleSessionExpired, checkoutExpiredUserId, loading: authLoading, isReconnecting } = useAuth();
-  const { cart, refreshCart } = useCart();
+  const { cart, refreshCart, updateCart } = useCart();
 
   const [addresses, setAddresses] = useState(() => {
     try {
@@ -123,7 +124,23 @@ function BillingForm({
   const [stockAlertItems, setStockAlertItems] = useState([]);
   const [removingStockItems, setRemovingStockItems] = useState(false);
   const isSubmittingRef = useRef(false);
-  const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart));
+  const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart, user?.id));
+  const activeOrderRef = useRef(null);
+  const [cancellingPending, setCancellingPending] = useState(false);
+  const [unconfirmedQuote, setUnconfirmedQuote] = useState(null);
+
+  // Bind review to the quoted cart contents and selected address.
+  // Clear it on an actual customer change, while preserving it when installing the quote being reviewed.
+  useEffect(() => {
+    if (!unconfirmedQuote) return;
+    const currentFingerprint = computeCartItemsFingerprint(cart);
+    if (
+      String(selectedAddressId) !== String(unconfirmedQuote.addressId) ||
+      currentFingerprint !== unconfirmedQuote.itemsFingerprint
+    ) {
+      setUnconfirmedQuote(null);
+    }
+  }, [selectedAddressId, cart?.items, unconfirmedQuote]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -194,21 +211,24 @@ function BillingForm({
     if (!stored || !stored.razorpay_order_id) {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       setIsPersistentPending(false);
+      activeOrderRef.current = null;
       return;
     }
 
     if (!isAuthenticated || !user?.id) return;
     const requestUserId = user.id;
+    const requestOrderId = stored.razorpay_order_id;
+    activeOrderRef.current = requestOrderId;
 
     // Query payment finalization state by Razorpay order ID FIRST
     try {
       setCheckingPendingStatus(true);
-      const res = await checkPaymentStatus(stored.razorpay_order_id);
-      if (String(activeUserRef.current) !== String(requestUserId)) return;
+      const res = await checkPaymentStatus(requestOrderId);
+      if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
       if (res?.success && res?.order_id) {
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         clearPendingPayment(user?.id);
-        clearCheckoutIdempotencyKey();
+        clearCheckoutIdempotencyKey(user?.id);
         await refreshCart().catch(() => {});
         navigate(`/order-success/${res.order_id}`, {
           state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
@@ -216,14 +236,15 @@ function BillingForm({
         });
         return;
       }
-      if (res?.refunded || res?.terminal) {
+      if (res?.refunded || res?.terminal || res?.cancelled) {
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         clearPendingPayment(user?.id);
-        clearCheckoutIdempotencyKey();
+        retireCheckoutIdempotencyKey(user?.id);
+        idempotencyKeyRef.current = generateUUID();
         await refreshCart().catch(() => {});
         setError(res.message || (res.refunded
           ? "Your payment was refunded."
-          : "This payment attempt has ended. Please review your cart before trying again."));
+          : "This payment attempt has ended. You can start a fresh checkout."));
         setIsPersistentPending(false);
         return;
       }
@@ -237,6 +258,7 @@ function BillingForm({
         handleSessionExpired({ checkout: true });
         return;
       }
+      setError("Could not verify payment status with gateway. Please tap 'Check Payment Status' to retry.");
     } finally {
       setCheckingPendingStatus(false);
     }
@@ -259,9 +281,42 @@ function BillingForm({
     });
   }, [cart, navigate, refreshCart, user?.id, isAuthenticated, checkoutExpiredUserId]);
 
+  const handleCancelUnpaidCheckout = async () => {
+    const stored = getPendingPayment(user?.id || checkoutExpiredUserId);
+    if (!stored?.razorpay_order_id || cancellingPending) return;
+    const requestUserId = user?.id;
+    const requestOrderId = stored.razorpay_order_id;
+    try {
+      setCancellingPending(true);
+      setError("");
+      const res = await cancelPaymentOrder(requestOrderId);
+      if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
+      if (res?.cancelled || res?.terminal) {
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        clearPendingPayment(user?.id);
+        retireCheckoutIdempotencyKey(user?.id);
+        idempotencyKeyRef.current = generateUUID();
+        setIsPersistentPending(false);
+        setUnconfirmedQuote(null);
+        setError("Checkout session cancelled. You can retry paying anytime.");
+        await refreshCart().catch(() => {});
+      } else if (res?.status === 409 || res?.code === "PAYMENT_ALREADY_CAPTURED" || res?.code === "PAYMENT_PROCESSING") {
+        setError(res.message || "A payment is processing. Please check status before paying again.");
+        setIsPersistentPending(true);
+      } else {
+        setError(res?.message || "Unable to confirm cancellation. Please retry.");
+      }
+    } catch (err) {
+      if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
+      setError(err.response?.data?.message || err.message || "Failed to cancel checkout session. Please retry.");
+    } finally {
+      setCancellingPending(false);
+    }
+  };
+
   useEffect(() => {
-    idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart);
-  }, [cart]);
+    idempotencyKeyRef.current = getOrCreateCheckoutIdempotencyKey(cart, user?.id);
+  }, [cart, user?.id]);
 
   // Check pending order status on mount (load), when tab becomes visible, and when network reconnects
   useEffect(() => {
@@ -560,6 +615,10 @@ function BillingForm({
         timestamp: Date.now(),
       }, user?.id);
 
+      // Explicitly set active order and user refs BEFORE opening Razorpay modal
+      activeOrderRef.current = orderRes.razorpay_order_id;
+      activeUserRef.current = user?.id;
+
       const options = {
         key: orderRes.key_id,
         amount: orderRes.amount,
@@ -574,7 +633,7 @@ function BillingForm({
         },
         notes: {},
         theme: {
-          color: "#42D6E8",
+          color: "#22499F",
         },
         modal: {
           ondismiss: async () => {
@@ -582,13 +641,23 @@ function BillingForm({
             setLoading(false);
             setPaymentStep("");
 
+            const requestUserId = user?.id;
+            const requestOrderId = orderRes?.razorpay_order_id;
+
+            // Guard against stale callbacks from switched user or previous checkout attempt
+            if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) {
+              return;
+            }
+
             // Check whether order was already completed in backend (e.g. via webhook while in UPI app)
             try {
-              if (orderRes.razorpay_order_id) {
-                const checkRes = await checkPaymentStatus(orderRes.razorpay_order_id);
+              if (requestOrderId) {
+                const checkRes = await checkPaymentStatus(requestOrderId);
+                if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
                 if (checkRes?.success && checkRes?.order_id) {
-                  clearPendingPayment(user?.id);
-                  clearCheckoutIdempotencyKey();
+                  clearPendingPayment(requestUserId);
+                  clearCheckoutIdempotencyKey(requestUserId);
+                  activeOrderRef.current = null;
                   await refreshCart().catch(() => {});
                   navigate(`/order-success/${checkRes.order_id}`, {
                     state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
@@ -596,31 +665,63 @@ function BillingForm({
                   return;
                 }
                 if (checkRes?.refunded || checkRes?.terminal) {
-                  clearPendingPayment(user?.id);
-                  clearCheckoutIdempotencyKey();
+                  clearPendingPayment(requestUserId);
+                  retireCheckoutIdempotencyKey(requestUserId);
+                  activeOrderRef.current = null;
+                  idempotencyKeyRef.current = generateUUID();
                   await refreshCart().catch(() => {});
-                  setError(checkRes.message || "An item in your order went out of stock. Your payment has been refunded.");
+                  setError(checkRes.message || "Checkout attempt completed or cancelled.");
+                  return;
+                }
+                // Keep captured, authorized, and processing attempts in recovery
+                if (checkRes?.captured || checkRes?.authorized || checkRes?.processing) {
+                  setIsPersistentPending(true);
+                  setError("Payment is processing or confirmed. Please check payment status before trying again.");
                   return;
                 }
               }
-            } catch (_) {}
+            } catch (_) {
+              // Status check failure: preserve recovery
+            }
 
-            if (orderRes?.razorpay_order_id) {
+            if (requestOrderId) {
               try {
-                const cancelled = await cancelPaymentOrder(orderRes.razorpay_order_id);
-                if (!cancelled?.cancelled) throw new Error('Cancellation not confirmed');
-              } catch {
+                const cancelRes = await cancelPaymentOrder(requestOrderId);
+                if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
+                if (!cancelRes?.cancelled && !cancelRes?.terminal) {
+                  setIsPersistentPending(true);
+                  setError("Payment status is still being checked. Please do not pay again.");
+                  return;
+                }
+              } catch (cancelErr) {
+                if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
                 setIsPersistentPending(true);
-                setError('Payment status is still being checked. Please do not pay again.');
+                setError(cancelErr?.response?.data?.message || 'Payment status is still being checked. Please do not pay again.');
                 return;
               }
             }
-            clearPendingPayment(user?.id);
+            if (String(activeUserRef.current) !== String(requestUserId) || activeOrderRef.current !== requestOrderId) return;
+            clearPendingPayment(requestUserId);
+            retireCheckoutIdempotencyKey(requestUserId);
+            activeOrderRef.current = null;
+            idempotencyKeyRef.current = generateUUID();
             setIsPersistentPending(false);
             setError("Payment was cancelled. You can retry paying anytime.");
           },
         },
         handler: async (paymentResponse) => {
+          const requestUserId = user?.id;
+          const requestOrderId = orderRes?.razorpay_order_id;
+
+          // Scope check: verify user and order match the current active attempt
+          if (
+            String(activeUserRef.current) !== String(requestUserId) ||
+            activeOrderRef.current !== requestOrderId ||
+            paymentResponse.razorpay_order_id !== requestOrderId
+          ) {
+            return;
+          }
+
           try {
             setPaymentStep("verifying");
             setLoading(true);
@@ -633,8 +734,11 @@ function BillingForm({
             });
 
             if (verifyRes.success && verifyRes.order_id) {
-              clearCheckoutIdempotencyKey();
-              clearPendingPayment(user?.id);
+              if (String(activeUserRef.current) === String(requestUserId) && activeOrderRef.current === requestOrderId) {
+                clearCheckoutIdempotencyKey(requestUserId);
+                clearPendingPayment(requestUserId);
+                activeOrderRef.current = null;
+              }
               await refreshCart().catch(() => {});
               navigate(`/order-success/${verifyRes.order_id}`, {
                 state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing" },
@@ -643,8 +747,11 @@ function BillingForm({
             }
 
             if (verifyRes.refunded || verifyRes.terminal) {
-              clearCheckoutIdempotencyKey();
-              clearPendingPayment(user?.id);
+              if (String(activeUserRef.current) === String(requestUserId) && activeOrderRef.current === requestOrderId) {
+                clearCheckoutIdempotencyKey(requestUserId);
+                clearPendingPayment(requestUserId);
+                activeOrderRef.current = null;
+              }
               await refreshCart().catch(() => {});
               setError(
                 verifyRes.message ||
@@ -680,8 +787,11 @@ function BillingForm({
                 const checkRes = await checkPaymentStatus(paymentResponse.razorpay_order_id);
                 if (checkRes?.success && checkRes?.order_id) {
                   pollSucceeded = true;
-                  clearCheckoutIdempotencyKey();
-                  clearPendingPayment(user?.id);
+                  if (String(activeUserRef.current) === String(requestUserId) && activeOrderRef.current === requestOrderId) {
+                    clearCheckoutIdempotencyKey(requestUserId);
+                    clearPendingPayment(requestUserId);
+                    activeOrderRef.current = null;
+                  }
                   await refreshCart().catch(() => {});
                   navigate(`/order-success/${checkRes.order_id}`, {
                     state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
@@ -690,8 +800,11 @@ function BillingForm({
                 }
                 if (checkRes?.refunded || checkRes?.terminal) {
                   pollSucceeded = true;
-                  clearCheckoutIdempotencyKey();
-                  clearPendingPayment(user?.id);
+                  if (String(activeUserRef.current) === String(requestUserId) && activeOrderRef.current === requestOrderId) {
+                    clearCheckoutIdempotencyKey(requestUserId);
+                    clearPendingPayment(requestUserId);
+                    activeOrderRef.current = null;
+                  }
                   await refreshCart().catch(() => {});
                   setError(
                     checkRes.message ||
@@ -706,6 +819,7 @@ function BillingForm({
 
             if (!pollSucceeded) {
               // Retain pendingPayment in safeStorage so auto-recovery works upon refresh or reopening the app
+              setIsPersistentPending(true);
               setError(
                 "Payment was received by the bank, but order confirmation is taking longer than usual. Please do not pay again — refresh this page shortly or check 'My Orders'."
               );
@@ -720,23 +834,57 @@ function BillingForm({
 
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", async (failedRes) => {
-        if (failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id) {
+        const requestUserId = user?.id;
+        const requestOrderId = orderRes?.razorpay_order_id;
+        const failedOrderId = failedRes?.error?.metadata?.order_id || requestOrderId;
+
+        if (
+          String(activeUserRef.current) !== String(requestUserId) ||
+          activeOrderRef.current !== requestOrderId
+        ) {
+          return;
+        }
+
+        if (failedOrderId) {
           try {
-            const cancelled = await cancelPaymentOrder(failedRes?.error?.metadata?.order_id || orderRes?.razorpay_order_id);
-            if (!cancelled?.cancelled) throw new Error('Cancellation not confirmed');
+            const cancelled = await cancelPaymentOrder(failedOrderId);
+            if (
+              String(activeUserRef.current) !== String(requestUserId) ||
+              activeOrderRef.current !== requestOrderId
+            ) {
+              return;
+            }
+            if (!cancelled?.cancelled && !cancelled?.terminal) throw new Error("Cancellation not confirmed");
           } catch {
+            if (
+              String(activeUserRef.current) !== String(requestUserId) ||
+              activeOrderRef.current !== requestOrderId
+            ) {
+              return;
+            }
             isSubmittingRef.current = false;
             setLoading(false);
-            setPaymentStep('');
+            setPaymentStep("");
             setIsPersistentPending(true);
-            setError('Payment status is uncertain. Please check status before paying again.');
+            setError("Payment status is uncertain. Please check status before paying again.");
             return;
           }
         }
+
+        if (
+          String(activeUserRef.current) !== String(requestUserId) ||
+          activeOrderRef.current !== requestOrderId
+        ) {
+          return;
+        }
+
         isSubmittingRef.current = false;
         setLoading(false);
         setPaymentStep("");
-        clearPendingPayment(user?.id);
+        clearPendingPayment(requestUserId);
+        retireCheckoutIdempotencyKey(requestUserId);
+        activeOrderRef.current = null;
+        idempotencyKeyRef.current = generateUUID();
         setIsPersistentPending(false);
         const desc = failedRes?.error?.description || "Payment attempt failed. You can retry paying.";
         setError(desc);
@@ -800,12 +948,38 @@ function BillingForm({
         setStockAlertOpen(true);
         setError("");
       } else if (errData?.code === "CHECKOUT_TOTAL_CHANGED" || errData?.code === "woocommerce_rest_checkout_total_mismatch") {
-        clearCheckoutIdempotencyKey();
+        retireCheckoutIdempotencyKey(user?.id);
         idempotencyKeyRef.current = generateUUID();
-        await refreshCart().catch(() => {});
+        const authoritativeCart = errData.cart || null;
+        const actualPaise = errData.actual_total_paise || (authoritativeCart?.totals?.total_price ? Number(authoritativeCart.totals.total_price) : null);
+        if (authoritativeCart && typeof updateCart === "function") {
+          updateCart(authoritativeCart);
+        } else if (actualPaise && cart && typeof updateCart === "function") {
+          updateCart({
+            ...cart,
+            totals: {
+              ...(cart.totals || {}),
+              total_price: String(actualPaise),
+            },
+          });
+        }
+        const newTotalStr = actualPaise ? (Number(actualPaise) / 100).toFixed(2) : null;
+        const quoteFingerprint = computeCartItemsFingerprint(authoritativeCart || cart);
+        setUnconfirmedQuote({
+          expected_total_paise: errData.expected_total_paise,
+          actual_total_paise: actualPaise || Math.round(Number(finalTotal) * 100),
+          itemsFingerprint: quoteFingerprint,
+          addressId: selectedAddressId,
+        });
         setError(errData?.code === "CHECKOUT_TOTAL_CHANGED"
-          ? `Your total changed from ₹${(errData.expected_total_paise / 100).toFixed(2)} to ₹${(errData.actual_total_paise / 100).toFixed(2)}. Please review your cart before continuing.`
-          : (errData?.message || "Cart totals have updated. Please review your order summary and try placing your order again."));
+          ? `Your cart total changed from ₹${(errData.expected_total_paise / 100).toFixed(2)} to ₹${newTotalStr}. Please review and confirm the updated total to continue.`
+          : (errData?.message || "Cart totals have updated. Please review and confirm before placing your order."));
+      } else if (errData?.code === "ADDRESS_PRICING_FAILED") {
+        setError(errData?.message || "Unable to calculate pricing for the selected delivery address. Please tap Place Order to retry.");
+        isSubmittingRef.current = false;
+        setLoading(false);
+        setPaymentStep("");
+        return;
       } else if (isProcessingConflict) {
         // Retain current idempotency key to prevent duplicate orders while request is in flight
         setError(
@@ -838,7 +1012,9 @@ function BillingForm({
   };
 
   const finalTotal =
-    totalAmount !== undefined && totalAmount !== null
+    unconfirmedQuote?.actual_total_paise !== undefined
+      ? Number(unconfirmedQuote.actual_total_paise) / 100
+      : totalAmount !== undefined && totalAmount !== null
       ? totalAmount
       : Number(cart?.totals?.total_price || 0) / 100;
 
@@ -890,6 +1066,8 @@ function BillingForm({
   const checkoutAction = unownedPending ? "legacy_payment"
     : hasActivePendingPayment
     ? (requiresSignIn || sessionExpiredPending ? "payment_signin" : "payment_status")
+    : unconfirmedQuote
+    ? "confirm_quote"
     : authLoading || isReconnecting ? "auth_loading"
     : requiresSignIn ? "signin"
     : loadingAddresses ? "loading_addresses"
@@ -898,12 +1076,17 @@ function BillingForm({
     : hasOutOfStock ? "review_cart"
     : isBelowMin || isStoreClosed ? "keep_shopping"
     : "checkout";
-  const isDisabled = loading || checkoutAction === "loading_addresses" || checkoutAction === "auth_loading" ||
+  const isDisabled = loading || cancellingPending || checkoutAction === "loading_addresses" || checkoutAction === "auth_loading" ||
     (checkoutAction === "checkout" && !selectedAddress) ||
+    (checkoutAction === "confirm_quote" && !selectedAddress) ||
     (checkoutAction === "payment_status" && checkingPendingStatus);
   const handlePrimaryAction = () => {
     if (checkoutAction === "payment_signin" || checkoutAction === "signin") {
       navigate("/login", { state: { from: "/cart" } });
+    } else if (checkoutAction === "confirm_quote") {
+      setUnconfirmedQuote(null);
+      setError("");
+      handlePlaceOrder();
     } else if (checkoutAction === "payment_status") {
       verifyPendingOrder(true);
     } else if (checkoutAction === "legacy_payment") {
@@ -923,8 +1106,8 @@ function BillingForm({
 
   if (loadingAddresses && !standaloneBar) {
     return (
-      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-[#1E3252] bg-[#111F36] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
+      <div className="flex min-h-[160px] items-center justify-center rounded-[22px] border border-[#E2E8F0] bg-[#FFFFFF] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#22499F]/20 border-t-[#22499F]" />
       </div>
     );
   }
@@ -932,7 +1115,7 @@ function BillingForm({
   return (
     <div className="space-y-4">
       {addressSignInRequired && (
-        <div className="rounded-xl border border-[#1E3252] bg-[#132B45] px-3.5 py-2.5 text-xs text-[#A9EAF2]">
+        <div className="rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-2.5 text-xs text-[#22499F]">
           Please sign in again to continue with this cart.
         </div>
       )}
@@ -952,7 +1135,7 @@ function BillingForm({
           <button
             type="button"
             onClick={() => navigate("/login", { state: { from: "/cart" } })}
-            className="rounded-lg bg-[#42D6E8] px-3 py-1 font-bold text-[#061220] hover:bg-[#2CC4D8] hover:text-[#061220] cursor-pointer"
+            className="rounded-lg bg-[#22499F] px-3 py-1 font-bold text-[#FFFFFF] hover:bg-[#1B3B82] hover:text-[#FFFFFF] cursor-pointer"
           >
             Sign In
           </button>
@@ -977,10 +1160,18 @@ function BillingForm({
                 <button
                   type="button"
                   onClick={() => verifyPendingOrder(true)}
-                  disabled={checkingPendingStatus}
-                  className="rounded-xl bg-[#42D6E8] px-3.5 py-1.5 font-bold text-[#061220] shadow-xs hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 cursor-pointer disabled:opacity-50"
+                  disabled={checkingPendingStatus || cancellingPending}
+                  className="rounded-xl bg-[#22499F] px-3.5 py-1.5 font-bold text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelUnpaidCheckout}
+                  disabled={cancellingPending || checkingPendingStatus}
+                  className="rounded-xl border border-rose-800/60 bg-rose-950/50 px-3.5 py-1.5 font-bold text-rose-300 hover:bg-rose-900/60 active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {cancellingPending ? "Cancelling..." : "Cancel unpaid checkout"}
                 </button>
                 <a
                   href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
@@ -999,17 +1190,17 @@ function BillingForm({
       {!standaloneBar && (
         <>
           {/* Delivery Address Card (Compact) */}
-          <div className="rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
-            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
+          <div className="rounded-[22px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0]/70 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
                   <MapPin size={16} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
                     Delivery Address
                   </h2>
-                  <p className="text-[11px] font-medium text-[#8FA4BE]">
+                  <p className="text-[11px] font-medium text-[#64748B]">
                     Where your order will be delivered
                   </p>
                 </div>
@@ -1025,7 +1216,7 @@ function BillingForm({
                   }
                 }}
                 disabled={loading}
-                className="flex items-center gap-1 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1 text-xs font-bold text-[#22499F] hover:underline cursor-pointer disabled:opacity-50"
               >
                 {addresses.length === 0 ? (
                   <>
@@ -1040,13 +1231,13 @@ function BillingForm({
 
             {/* Selected Address Preview or Empty State */}
             {addresses.length === 0 ? (
-              <div className="mt-3 rounded-2xl border border-dashed border-[#1E3252] bg-[#0B1425] p-4 text-center">
-                <p className="text-xs font-bold text-[#F1F5F9]">No saved address found</p>
-                <p className="mt-0.5 text-[11px] text-[#8FA4BE] font-medium">Please add a delivery address to proceed.</p>
+              <div className="mt-3 rounded-2xl border border-dashed border-[#E2E8F0] bg-[#F0F8E8] p-4 text-center">
+                <p className="text-xs font-bold text-[#1E293B]">No saved address found</p>
+                <p className="mt-0.5 text-[11px] text-[#64748B] font-medium">Please add a delivery address to proceed.</p>
                 <button
                   type="button"
                   onClick={() => navigate("/account/addresses", { state: { from: "/cart", selectNew: true } })}
-                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-3.5 py-1.5 text-xs font-black text-[#061220] shadow-xs hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 transition cursor-pointer"
+                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-[#22499F] px-3.5 py-1.5 text-xs font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-95 transition cursor-pointer"
                 >
                   <Plus size={13} />
                   <span>Add Address</span>
@@ -1055,9 +1246,9 @@ function BillingForm({
             ) : selectedAddress ? (
               <div
                 onClick={() => !loading && setShowAddressModal(true)}
-                className="mt-3 flex items-start gap-3 rounded-2xl border border-[#1E3252] bg-[#0B1425] p-3 sm:p-3.5 hover:border-[#42D6E8]/60 transition cursor-pointer"
+                className="mt-3 flex items-start gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] p-3 sm:p-3.5 hover:border-[#22499F]/60 transition cursor-pointer"
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] shadow-xs">
                   {selectedAddress.type === "office" || selectedAddress.type === "work" ? (
                     <Building2 size={16} />
                   ) : (
@@ -1067,15 +1258,15 @@ function BillingForm({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] truncate">
+                    <span className="text-xs sm:text-sm font-extrabold text-[#1E293B] truncate">
                       {selectedAddress.first_name || ""} {selectedAddress.last_name || ""}
                     </span>
-                    <span className="rounded-full bg-[#132B45] px-2 py-0.5 text-[9px] font-extrabold uppercase text-[#42D6E8] border border-[#1E3252]">
+                    <span className="rounded-full bg-[#FFFFFF] px-2 py-0.5 text-[9px] font-extrabold uppercase text-[#22499F] border border-[#E2E8F0]">
                       {selectedAddress.type ? selectedAddress.type.toUpperCase() : "HOME"}
                     </span>
                   </div>
 
-                  <p className="mt-1 text-xs font-medium text-[#8FA4BE] line-clamp-2">
+                  <p className="mt-1 text-xs font-medium text-[#64748B] line-clamp-2">
                     {selectedAddress.address_line1 || ""}
                     {selectedAddress.address_line2 ? `, ${selectedAddress.address_line2}` : ""}
                     , {selectedAddress.city || ""}, {selectedAddress.state || "MH"}
@@ -1083,7 +1274,7 @@ function BillingForm({
                   </p>
 
                   {selectedAddress.phone && (
-                    <p className="mt-1 text-xs font-semibold text-[#42D6E8]">
+                    <p className="mt-1 text-xs font-semibold text-[#22499F]">
                       📞 {selectedAddress.phone}
                     </p>
                   )}
@@ -1093,17 +1284,17 @@ function BillingForm({
           </div>
 
           {/* Payment Method Card (Compact) */}
-          <div className="rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
-            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
+          <div className="rounded-[22px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.2)]">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0]/70 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
                   <CreditCard size={16} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
                     Payment Method
                   </h2>
-                  <p className="text-[11px] font-medium text-[#8FA4BE]">
+                  <p className="text-[11px] font-medium text-[#64748B]">
                     Pay securely online
                   </p>
                 </div>
@@ -1111,17 +1302,17 @@ function BillingForm({
             </div>
 
             <div
-              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#1E3252] bg-[#0B1425] p-3 sm:p-3.5"
+              className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] p-3 sm:p-3.5"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] shadow-xs">
                   <CreditCard size={18} />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9]">
+                  <h4 className="text-xs sm:text-sm font-extrabold text-[#1E293B]">
                     Pay Online
                   </h4>
-                  <p className="text-[11px] font-medium text-[#8FA4BE] truncate">
+                  <p className="text-[11px] font-medium text-[#64748B] truncate">
                     UPI, Cards, NetBanking, Wallets
                   </p>
                 </div>
@@ -1134,21 +1325,21 @@ function BillingForm({
       )}
 
       {/* Checkout policy notice */}
-      <p className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-[11px] font-medium leading-5 text-[#8FA4BE]">
+      <p className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-[11px] font-medium leading-5 text-[#64748B]">
         <span>By placing your order, you agree to our</span>
-        <a href="/terms" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
+        <a href="/terms" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#22499F] hover:underline">
           Terms and Conditions
         </a>
         <span aria-hidden="true">·</span>
-        <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
+        <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#22499F] hover:underline">
           Privacy Policy
         </a>
         <span aria-hidden="true">·</span>
-        <a href="/shipping-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
+        <a href="/shipping-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#22499F] hover:underline">
           Shipping Policy
         </a>
         <span aria-hidden="true">·</span>
-        <a href="/return-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#42D6E8] hover:underline">
+        <a href="/return-policy" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap font-semibold text-[#22499F] hover:underline">
           Returns &amp; Refund Policy
         </a>
       </p>
@@ -1166,7 +1357,7 @@ function BillingForm({
 
       {/* Address Selection Modal / Bottom Sheet */}
       {addressLoadFailed && (
-        <div role="alert" className="mx-auto my-3 max-w-[700px] rounded-xl border border-amber-600 bg-[#111F36] p-3 text-sm text-amber-200">
+        <div role="alert" className="mx-auto my-3 max-w-[700px] rounded-xl border border-amber-600 bg-[#FFFFFF] p-3 text-sm text-amber-200">
           Unable to load delivery addresses. <button type="button" className="font-bold underline" onClick={() => setAddressRetry((count) => count + 1)}>Retry</button>
         </div>
       )}
@@ -1177,21 +1368,21 @@ function BillingForm({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="flex w-full max-w-[520px] max-h-[85vh] flex-col rounded-t-[28px] sm:rounded-[24px] bg-[#111F36] border border-[#1E3252] p-5 sm:p-6 shadow-2xl"
+            className="flex w-full max-w-[520px] max-h-[85vh] flex-col rounded-t-[28px] sm:rounded-[24px] bg-[#FFFFFF] border border-[#E2E8F0] p-5 sm:p-6 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-[#1E3252]/70 pb-3">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0]/70 pb-3">
               <div>
-                <h3 className="text-base font-extrabold text-[#F1F5F9]">
+                <h3 className="text-base font-extrabold text-[#1E293B]">
                   Select Delivery Address
                 </h3>
-                <p className="text-xs font-medium text-[#8FA4BE]">
+                <p className="text-xs font-medium text-[#64748B]">
                   Where should we send your order?
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddressModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[#8FA4BE] hover:bg-[#162744] hover:text-white transition cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[#64748B] hover:bg-[#FFFFFF] hover:text-white transition cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -1214,15 +1405,15 @@ function BillingForm({
                     }}
                     className={`flex items-start gap-3 rounded-2xl border p-3.5 transition-all cursor-pointer ${
                       isSelected
-                        ? "border-[#42D6E8] bg-[#132B45]/70 ring-2 ring-[#42D6E8]/20 shadow-xs"
-                        : "border-[#1E3252] bg-[#0B1425] hover:border-[#42D6E8]/50"
+                        ? "border-[#22499F] bg-[#FFFFFF]/70 ring-2 ring-[#22499F]/20 shadow-xs"
+                        : "border-[#E2E8F0] bg-[#F0F8E8] hover:border-[#22499F]/50"
                     }`}
                   >
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${
                         isSelected
-                          ? "bg-[#111F36] text-[#42D6E8] border-[#42D6E8]/50"
-                          : "bg-[#111F36] text-[#6E84A3] border-[#1E3252]"
+                          ? "bg-[#FFFFFF] text-[#22499F] border-[#22499F]/50"
+                          : "bg-[#FFFFFF] text-[#64748B] border-[#E2E8F0]"
                       }`}
                     >
                       {isHome ? <Home size={15} /> : <Building2 size={15} />}
@@ -1230,21 +1421,21 @@ function BillingForm({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] truncate">
+                        <span className="text-xs sm:text-sm font-extrabold text-[#1E293B] truncate">
                           {addr.first_name || ""} {addr.last_name || ""}
                         </span>
                         <span
                           className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide border ${
                             isSelected
-                              ? "bg-[#132B45] text-[#42D6E8] border-[#1E3252]"
-                              : "bg-[#0E1A2E] text-[#8FA4BE] border-[#1E3252]"
+                              ? "bg-[#FFFFFF] text-[#22499F] border-[#E2E8F0]"
+                              : "bg-[#FFFFFF] text-[#64748B] border-[#E2E8F0]"
                           }`}
                         >
                           {addr.type ? addr.type.toUpperCase() : "HOME"}
                         </span>
                       </div>
 
-                      <p className="mt-1 text-xs font-medium text-[#8FA4BE] line-clamp-2">
+                      <p className="mt-1 text-xs font-medium text-[#64748B] line-clamp-2">
                         {addr.address_line1 || ""}
                         {addr.address_line2 ? `, ${addr.address_line2}` : ""}
                         , {addr.city || ""}, {addr.state || "MH"}
@@ -1252,14 +1443,14 @@ function BillingForm({
                       </p>
 
                       {addr.phone && (
-                        <p className="mt-1 text-xs font-semibold text-[#42D6E8]">
+                        <p className="mt-1 text-xs font-semibold text-[#22499F]">
                           📞 {addr.phone}
                         </p>
                       )}
                     </div>
 
                     {isSelected && (
-                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220] self-center">
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#22499F] text-[#FFFFFF] self-center">
                         <Check size={12} strokeWidth={3} />
                       </div>
                     )}
@@ -1268,14 +1459,14 @@ function BillingForm({
               })}
             </div>
 
-            <div className="mt-4 pt-3 border-t border-[#1E3252]/70">
+            <div className="mt-4 pt-3 border-t border-[#E2E8F0]/70">
               <button
                 type="button"
                 onClick={() => {
                   setShowAddressModal(false);
                   navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#42D6E8]/40 bg-[#132B45]/30 py-3 text-xs font-extrabold text-[#42D6E8] hover:bg-[#132B45]/50 active:scale-[0.99] transition cursor-pointer"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#22499F]/40 bg-[#FFFFFF]/30 py-3 text-xs font-extrabold text-[#22499F] hover:bg-[#FFFFFF]/50 active:scale-[0.99] transition cursor-pointer"
               >
                 <Plus size={15} />
                 <span>Add New Address</span>
@@ -1286,25 +1477,25 @@ function BillingForm({
       )}
 
       {/* Sticky Quick-Commerce Bottom Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0B1425]/95 backdrop-blur-md border-t border-[#1E3252] rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-8px_25px_rgba(0,0,0,0.5)] transform-gpu will-change-transform">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#F0F8E8]/95 backdrop-blur-md border-t border-[#E2E8F0] rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-8px_25px_rgba(0,0,0,0.5)] transform-gpu will-change-transform">
         <div className="mx-auto w-full max-w-[700px] px-3.5 sm:px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {/* Subtle Pull Indicator Pill */}
-          <div className="mx-auto w-9 h-1 rounded-full bg-[#1E3252] mb-2 opacity-80" />
+          <div className="mx-auto w-9 h-1 rounded-full bg-[#E2E8F0] mb-2 opacity-80" />
 
           {/* Row 1: Unified Address Capsule */}
-          <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#111F36] border border-[#1E3252]/80 px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+          <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#FFFFFF] border border-[#E2E8F0]/80 px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
             {loadingAddresses && !selectedAddress ? (
               <div className="flex items-center justify-between w-full">
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
+                  <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] shadow-xs">
                     <Home size={16} strokeWidth={2.4} className="animate-pulse" />
                   </div>
                   <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="h-3 w-24 bg-[#1E3252] rounded animate-pulse" />
-                    <div className="h-2.5 w-40 bg-[#162744] rounded animate-pulse" />
+                    <div className="h-3 w-24 bg-[#E2E8F0] rounded animate-pulse" />
+                    <div className="h-2.5 w-40 bg-[#FFFFFF] rounded animate-pulse" />
                   </div>
                 </div>
-                <div className="h-7 w-14 bg-[#162744] rounded-xl animate-pulse shrink-0" />
+                <div className="h-7 w-14 bg-[#FFFFFF] rounded-xl animate-pulse shrink-0" />
               </div>
             ) : (
               <>
@@ -1323,7 +1514,7 @@ function BillingForm({
                   }}
                   className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer hover:opacity-85 transition-opacity select-none"
                 >
-                  <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252] shadow-xs">
+                  <div className="flex h-8 w-8 sm:h-8.5 sm:w-8.5 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] shadow-xs">
                     {selectedAddress?.type === "office" || selectedAddress?.type === "work" ? (
                       <Building2 size={16} strokeWidth={2.4} />
                     ) : (
@@ -1332,7 +1523,7 @@ function BillingForm({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 leading-tight">
-                      <span className="font-black text-xs sm:text-[13px] text-[#F1F5F9] tracking-tight">
+                      <span className="font-black text-xs sm:text-[13px] text-[#1E293B] tracking-tight">
                         {requiresSignIn
                           ? "Sign in to continue"
                           : addressLoadFailed ? "Address unavailable"
@@ -1341,7 +1532,7 @@ function BillingForm({
                           : "No delivery address"}
                       </span>
                     </div>
-                    <p className="text-[11px] font-medium text-[#8FA4BE] truncate leading-tight mt-0.5">
+                    <p className="text-xs font-medium text-[#64748B] truncate leading-tight mt-0.5">
                       {requiresSignIn
                         ? "Sign in to select a delivery address"
                         : addressLoadFailed ? "We couldn’t load your saved addresses."
@@ -1365,7 +1556,7 @@ function BillingForm({
                       setShowAddressModal(true);
                     }
                   }}
-                  className="shrink-0 text-[11px] sm:text-xs font-black text-[#42D6E8] bg-[#132B45] border border-[#1E3252] hover:bg-[#42D6E8] hover:text-[#061220] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
+                  className="shrink-0 text-[11px] sm:text-xs font-black text-[#22499F] bg-[#FFFFFF] border border-[#E2E8F0] hover:bg-[#22499F] hover:text-[#FFFFFF] px-3 py-1.5 rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
                 >
                   {addressLoadFailed ? "Try again"
                     : addresses.length === 0
@@ -1378,8 +1569,23 @@ function BillingForm({
 
           {/* Row 2: Main Action Button */}
           <div className="w-full">
+            {hasActivePendingPayment && (
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <span className="text-[11.5px] font-semibold text-amber-300/90 truncate">
+                  Unpaid checkout attempt in progress
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCancelUnpaidCheckout}
+                  disabled={cancellingPending}
+                  className="text-[11.5px] font-bold text-rose-400 hover:text-rose-300 underline underline-offset-2 cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  {cancellingPending ? "Cancelling..." : "Cancel unpaid checkout"}
+                </button>
+              </div>
+            )}
             {isAfterHours && (
-              <div className="mb-2 flex items-center justify-center gap-1.5 text-center text-[11px] font-bold text-[#A5E3EC]">
+              <div className="mb-2 flex items-center justify-center gap-1.5 text-center text-[11px] font-bold text-[#22499F]">
                 <span>
                   {hasScheduledOpening
                     ? `🌙 Fulfillment starts ${storeHours.next_opening.label}. Delivery follows preparation.`
@@ -1390,13 +1596,13 @@ function BillingForm({
             {/* Row 2: Two Separate Pills (Price Pill + Place Order Pill) */}
             <div className="flex items-center gap-2.5 sm:gap-3 w-full">
               {/* Pill 1: Price Pill */}
-              <div className="flex flex-col items-center justify-center h-[50px] sm:h-[52px] min-w-[125px] sm:min-w-[140px] px-5 sm:px-6 rounded-full bg-[#111F36] border border-[#1E3252]/80 shadow-[0_1px_3px_rgba(0,0,0,0.2)] select-none shrink-0 gap-0.5">
-                <span className="text-[9px] sm:text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-[#8FA4BE] leading-none">
+              <div className="flex flex-col items-center justify-center h-[50px] sm:h-[52px] min-w-[125px] sm:min-w-[140px] px-5 sm:px-6 rounded-full bg-[#FFFFFF] border border-[#E2E8F0]/80 shadow-[0_1px_3px_rgba(0,0,0,0.2)] select-none shrink-0 gap-0.5">
+                <span className="text-[9px] sm:text-[9.5px] font-extrabold uppercase tracking-[0.14em] text-[#64748B] leading-none">
                   TOTAL
                 </span>
                 <div className="flex items-baseline gap-0.5 leading-none">
-                  <span className="text-[14px] sm:text-[16px] font-black text-[#42D6E8] leading-none">₹</span>
-                  <span className="text-[19px] sm:text-[21px] font-black text-[#F1F5F9] tracking-tight leading-none">
+                  <span className="text-[14px] sm:text-[16px] font-black text-[#22499F] leading-none">₹</span>
+                  <span className="text-[19px] sm:text-[21px] font-black text-[#1E293B] tracking-tight leading-none">
                     {Number(finalTotal).toLocaleString("en-IN")}
                   </span>
                 </div>
@@ -1407,18 +1613,18 @@ function BillingForm({
                 type="button"
                 onClick={handlePrimaryAction}
                 disabled={isDisabled}
-                className={`group flex-1 flex items-center justify-center gap-2 h-[50px] sm:h-[52px] px-4 sm:px-5 rounded-full font-black text-[13.5px] sm:text-[14.5px] transition-all shadow-[0_6px_20px_rgba(66,214,232,0.28)] active:scale-[0.98] ${
+                className={`store-primary-action group flex-1 flex items-center justify-center gap-2 h-[50px] sm:h-[52px] px-4 sm:px-5 rounded-full font-black text-[13.5px] sm:text-[14.5px] transition-all shadow-[0_6px_20px_rgba(66, 214, 232,0.28)] active:scale-[0.98] ${
                   loading
-                    ? "bg-[#0B1728] text-white border border-[#42D6E8]/40 shadow-[0_0_24px_rgba(66,214,232,0.25)] cursor-wait"
+                    ? "bg-[#0B1728] text-white border border-[#22499F]/40 shadow-[0_0_24px_rgba(66, 214, 232,0.25)] cursor-wait"
                     : isDisabled
-                    ? "bg-[#0E1A2E] text-[#6E84A3] border border-[#1E3252] shadow-none cursor-not-allowed opacity-80"
-                    : "bg-gradient-to-r from-[#42D6E8] to-[#2CC4D8] text-[#061220] hover:from-[#2CC4D8] hover:to-[#1FBAD0] hover:text-[#061220] cursor-pointer"
+                    ? "bg-[#FFFFFF] text-[#64748B] border border-[#E2E8F0] shadow-none cursor-not-allowed opacity-80"
+                    : "bg-gradient-to-r from-[#22499F] to-[#1B3B82] text-[#FFFFFF] hover:from-[#1B3B82] hover:to-[#1B3B82] hover:text-[#FFFFFF] cursor-pointer"
                 }`}
               >
                 {loading ? (
                   <>
                     <svg
-                      className="h-4.5 w-4.5 sm:h-5 sm:w-5 animate-spin text-[#42D6E8] shrink-0"
+                      className="h-4.5 w-4.5 sm:h-5 sm:w-5 animate-spin text-[#22499F] shrink-0"
                       style={{ animation: "spin 0.85s linear infinite" }}
                       viewBox="0 0 24 24"
                       fill="none"
@@ -1462,6 +1668,11 @@ function BillingForm({
                   <span>Review cart</span>
                 ) : checkoutAction === "keep_shopping" ? (
                   <span>Keep shopping</span>
+                ) : checkoutAction === "confirm_quote" ? (
+                  <>
+                    <span className="truncate">Confirm ₹{Number(finalTotal).toLocaleString("en-IN")} & Place Order</span>
+                    <ChevronRight size={17} strokeWidth={2.8} className="shrink-0" />
+                  </>
                 ) : checkoutAction === "signin" ? (
                   <>
                     <span className="truncate">Sign in to continue</span>

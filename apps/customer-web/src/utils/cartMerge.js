@@ -92,6 +92,7 @@ export async function orchestrateCartMerge({
   guestItems = [],
   api,
   isSessionValid,
+  initialCart = null,
 }) {
   if (typeof isSessionValid !== "function") {
     throw new Error("isSessionValid check is required for cart merge");
@@ -101,10 +102,15 @@ export async function orchestrateCartMerge({
     return { cancelled: true, failedItems: [], serverCart: null };
   }
 
-  // 1. Refresh server cart for authenticated customer
-  let serverCart = null;
+  // 1. Refresh server cart for authenticated customer if not already provided
+  let serverCart = initialCart;
   try {
-    serverCart = await api.refreshCart();
+    while (isSessionValid() && !serverCart) {
+      serverCart = await api.refreshCart();
+      if (!serverCart && isSessionValid()) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }
   } catch (err) {
     if (!isSessionValid()) {
       return { cancelled: true, failedItems: [], serverCart: null };

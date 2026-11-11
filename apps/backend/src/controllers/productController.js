@@ -14,7 +14,7 @@ import { serverCache } from "../utils/memoryCache.js";
 import { searchIndexService } from "../services/searchIndexService.js";
 
 const HOME_SHELF_COUNT = 6;
-const HOME_PRODUCTS_PER_SHELF = 6;
+const HOME_PRODUCTS_PER_SHELF = 12;
 const HOME_SHELF_BACKFILL = 4;
 const HOME_CACHE_TTL_MS = 300_000;
 const CATEGORY_CACHE_KEY = "catalog:categories:all";
@@ -470,8 +470,8 @@ export const getHomeShelves = async (req, res) => {
       : (page - 1) * HOME_SHELF_COUNT;
     const currentPage = Math.floor(offset / HOME_SHELF_COUNT) + 1;
     const result = await serverCache.getOrFetch(
-      // Cache with 6-shelf / 6-product boundaries
-      `catalog:home_shelves:v5:offset:${offset}:c${HOME_SHELF_COUNT}:p${HOME_PRODUCTS_PER_SHELF}`,
+      // Cache with 6-shelf / 12-product boundaries
+      `catalog:home_shelves:v6:offset:${offset}:c${HOME_SHELF_COUNT}:p${HOME_PRODUCTS_PER_SHELF}`,
       async () => {
         const categories = await getCategoriesWithStaleFallback();
         const categoryList = Array.isArray(categories) ? categories : [];
@@ -534,9 +534,20 @@ export const getHomeShelves = async (req, res) => {
                 () => fetchProductsByCategory(department.id, { page: 1, per_page: HOME_PRODUCTS_PER_SHELF }),
                 HOME_CACHE_TTL_MS
               );
+              const rawProducts = Array.isArray(shelf?.products) ? shelf.products : [];
+              const inStock = rawProducts.filter(
+                (p) =>
+                  p?.stock_status !== "outofstock" &&
+                  (!p?.manage_stock || p?.stock_quantity === null || p?.stock_quantity === undefined || p?.stock_quantity > 0)
+              );
+              const outOfStock = rawProducts.filter(
+                (p) =>
+                  p?.stock_status === "outofstock" ||
+                  (p?.manage_stock && p?.stock_quantity !== null && p?.stock_quantity !== undefined && p?.stock_quantity <= 0)
+              );
               shelves[index] = {
                 ...department,
-                products: Array.isArray(shelf?.products) ? shelf.products.slice(0, HOME_PRODUCTS_PER_SHELF) : [],
+                products: [...inStock, ...outOfStock].slice(0, HOME_PRODUCTS_PER_SHELF),
               };
             } catch (error) {
               logger.warn(

@@ -120,12 +120,35 @@ export const requireIdempotency = async (req, res, next) => {
         (req.path && req.path.includes("create-order")) ||
         (req.originalUrl && req.originalUrl.includes("create-order"));
 
+      if (cached.body?.code === "CHECKOUT_CANCELLED") {
+        return res.status(409).json({
+          ...cached.body,
+          _idempotent: true,
+        });
+      }
+
       if (cachedRzpOrderId && isCreateOrderRoute) {
         let intent = null;
         try {
-          intent = await paymentIntentService.getPaymentIntent(cachedRzpOrderId);
+          intent = await paymentIntentService.getPaymentIntent(cachedRzpOrderId, { fresh: true });
         } catch (intentErr) {
           logger.warn({ rzpOrderId: cachedRzpOrderId, err: intentErr.message }, "[Idempotency] Failed to load intent for cache hit");
+          return res.status(503).json({
+            success: false,
+            code: "PAYMENT_STATE_UNVERIFIED",
+            message: "Unable to verify payment state. Please retry.",
+            retryable: true,
+          });
+        }
+
+        if (!intent) {
+          logger.warn({ rzpOrderId: cachedRzpOrderId }, "[Idempotency] Intent missing for cache hit");
+          return res.status(503).json({
+            success: false,
+            code: "PAYMENT_STATE_UNVERIFIED",
+            message: "Unable to verify payment state. Please retry.",
+            retryable: true,
+          });
         }
 
         // If intent reached terminal fulfillment (order_created or paid), return cached response to prevent duplicate orders
@@ -141,6 +164,25 @@ export const requireIdempotency = async (req, res, next) => {
           });
         }
 
+        // Ensure idempotency replay cannot reopen a cancelled attempt
+        // Retain the cancelled result for the lifetime of the old key
+        if (intent && (intent.status === "cancelled" || intent.status === "abandoned")) {
+          logger.info(
+            { rzpOrderId: cachedRzpOrderId, intentStatus: intent.status },
+            "[Idempotency] Rejecting replay of cancelled checkout attempt"
+          );
+          cached.statusCode = 409;
+          cached.body = {
+            success: false,
+            code: "CHECKOUT_CANCELLED",
+            message: "This checkout attempt was cancelled. Please start a fresh checkout.",
+          };
+          return res.status(409).json({
+            ...cached.body,
+            _idempotent: true,
+          });
+        }
+
         // If intent is active and unpaid (created), return active cached response
         if (intent && intent.status === "created") {
           logger.info({ route: req.route?.path || req.path, method: req.method }, "Returning active cached idempotent response");
@@ -150,10 +192,10 @@ export const requireIdempotency = async (req, res, next) => {
           });
         }
 
-        // Only discard cache if intent explicitly failed, cancelled, or was abandoned so user can retry with fresh checkout
+        // Discard cache if intent missing or expired so user can retry with fresh checkout
         logger.info(
           { rzpOrderId: cachedRzpOrderId, intentStatus: intent?.status },
-          "[Idempotency] Discarding inactive create-order cache: intent failed, cancelled, or missing"
+          "[Idempotency] Discarding inactive create-order cache: intent failed or missing"
         );
         idempotencyStore.delete(key);
       } else {
@@ -268,6 +310,10 @@ export const requireIdempotency = async (req, res, next) => {
 
 export const _clearIdempotencyStoreForTesting = () => {
   idempotencyStore.clear();
+};
+
+export const _setIdempotencyEntryForTesting = (key, entry) => {
+  idempotencyStore.set(key, entry);
 };
 
 export default requireIdempotency;

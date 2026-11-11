@@ -82,13 +82,13 @@ function ProductCard({ product }) {
   };
 
   return (
-    <div className="flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-3 sm:p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#42D6E8]/60 hover:shadow-[0_10px_30px_rgba(66,214,232,0.15)]">
+    <div className="store-product-card flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3 sm:p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#22499F]/60 hover:shadow-[0_8px_24px_rgba(34,73,159,0.12)]">
       <div
         onClick={() => navigate(`/product/${product.id}`)}
         className="cursor-pointer flex flex-col"
       >
         {/* Fixed Aspect Image Viewport */}
-        <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[14px] sm:rounded-[16px] p-2 bg-[#080F1C] border border-[#1E3252]">
+        <div className="store-product-image relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[14px] sm:rounded-[16px] p-2 bg-[#F8FAF6] border border-[#E2E8F0]">
           <img
             src={cardImageUrl}
             alt={cardImageAlt}
@@ -107,7 +107,7 @@ function ProductCard({ product }) {
 
           {/* Discount Badge */}
           {isOnSale && discountPercent > 0 && (
-            <div className="absolute top-1.5 left-1.5 z-10 rounded-md bg-[#42D6E8] px-1.5 sm:px-2 py-0.5 text-[10.5px] sm:text-[11.5px] font-black text-[#061220] shadow-xs">
+            <div className="absolute top-1.5 left-1.5 z-10 rounded-md bg-[#F4B54B] px-1.5 sm:px-2 py-0.5 text-xs font-black text-[#1E293B] shadow-xs">
               {discountPercent}% OFF
             </div>
           )}
@@ -116,14 +116,14 @@ function ProductCard({ product }) {
           <button
             onClick={handleToggleFav}
             aria-label={favorited ? "Remove from wishlist" : "Add to wishlist"}
-            className="absolute top-1.5 right-1.5 z-10 flex h-7.5 w-7.5 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-xs border border-[#1E3252] backdrop-blur-xs transition-all hover:scale-110 active:scale-125 cursor-pointer"
+            className="absolute top-1.5 right-1.5 z-10 flex h-7.5 w-7.5 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-[#FFFFFF]/90 text-[#64748B] shadow-xs border border-[#E2E8F0] backdrop-blur-xs transition-all hover:scale-110 active:scale-125 cursor-pointer"
           >
             <Heart
               size={15}
               className={`transition-colors ${
                 favorited
-                  ? "fill-[#42D6E8] text-[#42D6E8]"
-                  : "text-gray-400 hover:text-[#42D6E8]"
+                  ? "fill-[#F4B54B] text-[#F4B54B]"
+                  : "text-gray-400 hover:text-[#22499F]"
               }`}
             />
           </button>
@@ -138,7 +138,7 @@ function ProductCard({ product }) {
         </div>
 
         {/* Product Title with Locked 2-Line Height */}
-        <h2 className="mt-2.5 line-clamp-2 min-h-[40px] sm:min-h-[44px] h-[40px] sm:h-[44px] text-[14px] sm:text-[15px] font-semibold leading-snug text-white group-hover:text-[#42D6E8] transition-colors">
+        <h2 className="mt-2.5 line-clamp-2 min-h-[40px] sm:min-h-[44px] h-[40px] sm:h-[44px] text-[14px] sm:text-[15px] font-semibold leading-snug text-[#1E293B] group-hover:text-[#22499F] transition-colors">
           {cleanProductTitle(product.name)}
         </h2>
       </div>
@@ -148,15 +148,15 @@ function ProductCard({ product }) {
         {/* Low Stock Indicator with Locked Height */}
         <div className="min-h-[18px] flex items-center">
           {cartError ? (
-            <span role="alert" className="line-clamp-2 text-[11px] sm:text-xs font-medium text-rose-400 leading-tight">
+            <span role="alert" className="line-clamp-2 text-xs font-medium text-rose-400 leading-tight">
               {cartError}
             </span>
           ) : isOutOfStock || isMaxReached ? (
-            <span className="text-[11px] sm:text-xs font-semibold text-amber-400 leading-none">
+            <span className="text-xs font-semibold text-amber-400 leading-tight">
               Out of stock
             </span>
           ) : remainingStock <= 5 && remainingStock > 0 ? (
-            <span className="text-[11px] sm:text-xs font-semibold text-orange-400 leading-none">
+            <span className="text-xs font-semibold text-orange-400 leading-tight">
               ⚡ Only {remainingStock} left
             </span>
           ) : null}
@@ -165,11 +165,11 @@ function ProductCard({ product }) {
         {/* Pricing & Add to Cart Action Row */}
         <div className="flex items-center justify-between gap-1 h-[36px] sm:h-[38px]">
           <div className="flex items-baseline gap-1.5 min-w-0">
-            <span className="text-[16px] sm:text-[18px] font-extrabold text-white">
+            <span className="text-[16px] sm:text-[18px] font-extrabold text-[#1E293B]">
               ₹{currentPrice}
             </span>
             {isOnSale && (
-              <span className="text-[11.5px] sm:text-xs text-[#8FA4BE] line-through font-medium truncate">
+              <span className="text-[11.5px] sm:text-xs text-[#64748B] line-through font-medium truncate">
                 ₹{regularPrice}
               </span>
             )}
@@ -208,7 +208,7 @@ function ProductCard({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="h-[32px] sm:h-[34px] min-w-[60px] sm:min-w-[66px] rounded-full border border-[#1E3252] bg-[#0E1A2E] px-2.5 sm:px-3 text-xs sm:text-[13px] font-semibold text-[#8FA4BE] cursor-not-allowed select-none"
+                  className="h-[32px] sm:h-[34px] min-w-[60px] sm:min-w-[66px] rounded-full border border-[#E2E8F0] bg-[#FFFFFF] px-2.5 sm:px-3 text-xs sm:text-[13px] font-semibold text-[#64748B] cursor-not-allowed select-none"
                 >
                   Sold Out
                 </button>
@@ -254,12 +254,12 @@ function ProductCard({ product }) {
                       setUpdatingCart(false);
                     }
                   }}
-                  className="h-[32px] sm:h-[34px] min-w-[64px] sm:min-w-[70px] rounded-full border border-[#42D6E8]/70 bg-[#10243C] px-2.5 sm:px-3 text-xs sm:text-[13px] font-extrabold tracking-wide text-[#42D6E8] transition-all duration-200 hover:bg-[#42D6E8] hover:text-[#061220] hover:shadow-[0_4px_14px_rgba(66,214,232,0.35)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                  className="h-[32px] sm:h-[34px] min-w-[64px] sm:min-w-[70px] rounded-full border border-[#22499F] bg-[#22499F] px-2.5 sm:px-3 text-xs sm:text-[13px] font-extrabold tracking-wide text-white transition-all duration-200 hover:bg-[#1B3B82] hover:shadow-[0_4px_14px_rgba(34,73,159,0.35)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs"
                 >
                   ADD
                 </button>
             ) : (
-              <div className="flex h-[32px] sm:h-[34px] items-center rounded-full bg-[#42D6E8] text-[#061220] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
+              <div className="flex h-[32px] sm:h-[34px] items-center rounded-full bg-[#22499F] text-[#FFFFFF] shadow-[0_4px_14px_rgba(66,214,232,0.3)]">
                   <button
                     onClick={async () => {
                       if (updatingCart) return;
@@ -284,12 +284,12 @@ function ProductCard({ product }) {
                       }
                     }}
                     disabled={updatingCart}
-                    className="flex h-full w-7 sm:w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-50 cursor-pointer text-sm font-black text-[#061220]"
+                    className="flex h-full w-7 sm:w-8 items-center justify-center rounded-l-full transition-colors hover:bg-[#1B3B82] disabled:opacity-50 cursor-pointer text-sm font-black text-[#FFFFFF]"
                   >
                     −
                   </button>
 
-                <span className="flex w-4 sm:w-5 items-center justify-center text-[13px] sm:text-sm font-extrabold text-[#061220]">
+                <span className="flex w-4 sm:w-5 items-center justify-center text-[13px] sm:text-sm font-extrabold text-[#FFFFFF]">
                   {cartItem.quantity}
                 </span>
 
@@ -323,7 +323,7 @@ function ProductCard({ product }) {
                     }}
                     disabled={updatingCart || isMaxReached || isOutOfStock}
                     title={isOutOfStock || isMaxReached ? "Out of stock" : `Only ${remainingStock} more available`}
-                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#2CC4D8] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm font-black text-[#061220]"
+                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#1B3B82] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm font-black text-[#FFFFFF]"
                   >
                     +
                   </button>

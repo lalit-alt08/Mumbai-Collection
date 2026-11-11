@@ -7,6 +7,7 @@ import { serverCache } from "../src/utils/memoryCache.js";
 import { MemoryCache } from "../src/utils/memoryCache.js";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const counts = { all: 10, instock: 4, onbackorder: 2, outofstock: 3, lowstock: 2 };
 const response = (data, total = data.length) => ({
@@ -261,9 +262,8 @@ test("slow stock counts do not delay product lists beyond the per-response budge
 });
 
 test("checkout stock mutations invalidate employee product pages and stock summaries", () => {
-  const root = path.resolve(process.cwd(), "../..");
-  const paymentPath = path.join(root, "apps/backend/src/controllers/paymentController.js");
-  const storePath = path.join(root, "apps/backend/src/routes/storeRoutes.js");
+  const paymentPath = fileURLToPath(new URL("../src/controllers/paymentController.js", import.meta.url));
+  const storePath = fileURLToPath(new URL("../src/routes/storeRoutes.js", import.meta.url));
   for (const file of [paymentPath, storePath]) {
     const source = fs.readFileSync(file, "utf8");
     assert.match(source, /delete\(["']product_stock_counts["']\)[\s\S]{0,160}invalidatePrefix\(["']admin_products:["']\)/);

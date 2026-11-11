@@ -52,6 +52,15 @@ export const safeStorage = {
     memoryStore.delete(key);
   },
 
+  clear() {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.clear();
+      }
+    } catch (_) {}
+    memoryStore.clear();
+  },
+
   removeByPrefix(prefix) {
     if (!prefix || typeof prefix !== "string") return;
     try {
@@ -120,6 +129,15 @@ export const safeSessionStorage = {
       }
     } catch (_) {}
     sessionMemoryStore.delete(key);
+  },
+
+  clear() {
+    try {
+      if (typeof window !== "undefined" && window.sessionStorage) {
+        window.sessionStorage.clear();
+      }
+    } catch (_) {}
+    sessionMemoryStore.clear();
   },
 
   removeByPrefix(prefix) {

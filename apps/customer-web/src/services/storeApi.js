@@ -43,8 +43,55 @@ export const invalidateCartRequests = () => {
   cartSessionEpoch += 1;
 };
 
+const sessionTrackingMap = new Map();
+
+const getSessionTracking = (epoch = cartSessionEpoch) => {
+  let t = sessionTrackingMap.get(epoch);
+  if (!t) {
+    t = {
+      totalWritesInitiated: 0,
+      activeWritesCount: 0,
+      latestCompletedWriteId: 0,
+      latestTokenWriteId: 0,
+    };
+    sessionTrackingMap.set(epoch, t);
+  }
+  return t;
+};
+
+let cartWriteQueue = Promise.resolve();
+
+const serializeCartWrite = (fn) => {
+  // Capture the session when a write is queued
+  const queuedEpoch = cartSessionEpoch;
+  const result = cartWriteQueue.then(
+    () => {
+      // Check it again before sending
+      if (queuedEpoch !== cartSessionEpoch) {
+        throw new axios.CanceledError("Cart session changed while write was queued");
+      }
+      return fn(queuedEpoch);
+    },
+    () => {
+      if (queuedEpoch !== cartSessionEpoch) {
+        throw new axios.CanceledError("Cart session changed while write was queued");
+      }
+      return fn(queuedEpoch);
+    }
+  );
+  cartWriteQueue = result.catch(() => {});
+  return result;
+};
+
+export const getCartMutationVersion = () => getSessionTracking(cartSessionEpoch).latestCompletedWriteId;
+export const isCartWriteInFlight = () => getSessionTracking(cartSessionEpoch).activeWritesCount > 0;
+export const waitForCartWrites = () => cartWriteQueue;
+
 export const clearCartSession = () => {
   invalidateCartRequests();
+  const tracking = getSessionTracking(cartSessionEpoch);
+  tracking.activeWritesCount = 0;
+  cartWriteQueue = Promise.resolve();
   nonce = "";
   cartToken = "";
   safeStorage.removeItem("wc_nonce");
@@ -86,9 +133,19 @@ storeClient.interceptors.request.use(
       cartToken = safeStorage.getItem("wc_cart_token") || "";
     }
 
+    const tracking = getSessionTracking(config._cartSessionEpoch);
+    const isMutation = config.method && config.method.toLowerCase() !== "get";
+    if (isMutation) {
+      tracking.totalWritesInitiated += 1;
+      tracking.activeWritesCount += 1;
+      config._writeId = tracking.totalWritesInitiated;
+    } else {
+      config._readStartWriteId = tracking.latestCompletedWriteId;
+      config._hadActiveWritesAtStart = tracking.activeWritesCount > 0;
+    }
+
     // WooCommerce Store API requires a valid Nonce for all mutations and checkout endpoints.
     // If nonce is completely missing, fetch the cart first to initialize session and acquire a nonce.
-    const isMutation = config.method && config.method.toLowerCase() !== "get";
     const urlStr = config.url || "";
     const isCheckout = urlStr === "/checkout" || urlStr === `${STORE_API}/checkout` || urlStr.includes("/checkout");
     const isCartGet = urlStr === "/cart" || urlStr === `${STORE_API}/cart`;
@@ -115,14 +172,53 @@ storeClient.interceptors.request.use(
 // Response Interceptor: extract tokens, retry network blips, auto-recover from missing/expired nonces
 storeClient.interceptors.response.use(
   (response) => {
+    const epoch = response.config?._cartSessionEpoch;
+    if (epoch !== undefined) {
+      const tracking = getSessionTracking(epoch);
+      if (response.config?._writeId) {
+        tracking.latestCompletedWriteId = Math.max(tracking.latestCompletedWriteId, response.config._writeId);
+        tracking.activeWritesCount = Math.max(0, tracking.activeWritesCount - 1);
+        if (epoch === cartSessionEpoch && response.config._writeId >= tracking.latestTokenWriteId) {
+          tracking.latestTokenWriteId = response.config._writeId;
+          updateTokens(response);
+        }
+      }
+    }
+
     if (response.config?._cartSessionEpoch !== cartSessionEpoch && response.config?.method?.toLowerCase() !== "get") {
       throw new axios.CanceledError("Cart session changed");
     }
-    if (response.config?._cartSessionEpoch === cartSessionEpoch) updateTokens(response);
+
+    if (response.config?._cartSessionEpoch === cartSessionEpoch) {
+      const currentTracking = getSessionTracking(cartSessionEpoch);
+      if (!response.config?._writeId && response.config?._readStartWriteId !== undefined) {
+        // Reject reads that overlap a write and return an older snapshot
+        const isStale =
+          response.config._hadActiveWritesAtStart ||
+          currentTracking.latestCompletedWriteId > response.config._readStartWriteId ||
+          currentTracking.activeWritesCount > 0;
+
+        if (isStale) {
+          const staleErr = new Error("Cart read overlapped an active or newer cart write; discarding stale snapshot");
+          staleErr.code = "ERR_STALE_CART_READ";
+          staleErr.isStaleCartRead = true;
+          staleErr.config = response.config;
+          return Promise.reject(staleErr);
+        }
+
+        updateTokens(response);
+      } else if (!response.config?._writeId) {
+        updateTokens(response);
+      }
+    }
     return response;
   },
   async (error) => {
     const config = error.config;
+    if (config?._writeId && config._cartSessionEpoch !== undefined) {
+      const tracking = getSessionTracking(config._cartSessionEpoch);
+      tracking.activeWritesCount = Math.max(0, tracking.activeWritesCount - 1);
+    }
     if (!config) return Promise.reject(error);
     if (config._cartSessionEpoch !== cartSessionEpoch) return Promise.reject(error);
 
@@ -180,38 +276,66 @@ export const getStoreProductById = async (id) => {
   return response.data;
 };
 
-export const addToCart = async (id, quantity = 1, variation = []) => {
-  const payload = {
-    id,
-    quantity,
-  };
-  if (Array.isArray(variation) && variation.length > 0) {
-    payload.variation = variation;
-  }
-  const response = await storeClient.post("/cart/add-item", payload);
-  return response.data;
+export const addToCart = (id, quantity = 1, variation = []) => {
+  return serializeCartWrite(async (queuedEpoch) => {
+    const payload = {
+      id,
+      quantity,
+    };
+    if (Array.isArray(variation) && variation.length > 0) {
+      payload.variation = variation;
+    }
+    const response = await storeClient.post("/cart/add-item", payload, {
+      _cartSessionEpoch: queuedEpoch,
+    });
+    return response.data;
+  });
 };
 
-export const updateCartItem = async (key, quantity) => {
-  const response = await storeClient.post("/cart/update-item", {
-    key,
-    quantity,
+export const updateCartItem = (key, quantity) => {
+  return serializeCartWrite(async (queuedEpoch) => {
+    const response = await storeClient.post(
+      "/cart/update-item",
+      {
+        key,
+        quantity,
+      },
+      {
+        _cartSessionEpoch: queuedEpoch,
+      }
+    );
+    return response.data;
   });
-  return response.data;
 };
 
-export const removeCartItem = async (key) => {
-  const response = await storeClient.post("/cart/remove-item", {
-    key,
+export const removeCartItem = (key) => {
+  return serializeCartWrite(async (queuedEpoch) => {
+    const response = await storeClient.post(
+      "/cart/remove-item",
+      {
+        key,
+      },
+      {
+        _cartSessionEpoch: queuedEpoch,
+      }
+    );
+    return response.data;
   });
-  return response.data;
 };
 
-export const applyCoupon = async (code) => {
-  const response = await storeClient.post("/cart/apply-coupon", {
-    code,
+export const applyCoupon = (code) => {
+  return serializeCartWrite(async (queuedEpoch) => {
+    const response = await storeClient.post(
+      "/cart/apply-coupon",
+      {
+        code,
+      },
+      {
+        _cartSessionEpoch: queuedEpoch,
+      }
+    );
+    return response.data;
   });
-  return response.data;
 };
 
 export const getCheckout = async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
+import BackToTopButton from "../components/home/BackToTopButton";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
 import { getHomeShelves } from "../services/productService";
@@ -43,7 +44,7 @@ function Home() {
 
   useEffect(() => {
     const prevBg = document.body.style.backgroundColor;
-    document.body.style.backgroundColor = "#132238";
+    document.body.style.backgroundColor = "#F0F8E8";
     return () => {
       document.body.style.backgroundColor = prevBg;
     };
@@ -150,7 +151,7 @@ function Home() {
     <div className="space-y-5 sm:space-y-6 md:space-y-8">
       {/* Toast Feedback */}
       {flashMessage && (
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-[#132B45] border border-emerald-500 p-3 sm:p-3.5 text-xs sm:text-sm font-semibold text-emerald-300 shadow-xs animate-[slideUp_0.25s_ease-out]">
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-[#FFFFFF] border border-emerald-500 p-3 sm:p-3.5 text-xs sm:text-sm font-semibold text-emerald-300 shadow-xs animate-[slideUp_0.25s_ease-out]">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
             <span>{flashMessage}</span>
@@ -158,7 +159,7 @@ function Home() {
           <button
             type="button"
             onClick={() => setFlashMessage(null)}
-            className="p-1 text-[#8FA4BE] hover:text-white transition cursor-pointer"
+            className="p-1 text-[#64748B] hover:text-white transition cursor-pointer"
           >
             <X size={15} />
           </button>
@@ -179,18 +180,18 @@ function Home() {
             {[1, 2].map((s) => (
               <div key={s} className="space-y-2.5 md:space-y-4 animate-pulse">
                 <div className="flex items-center justify-between">
-                  <div className="h-5 md:h-6 w-28 md:w-36 bg-[#162744] rounded-md" />
-                  <div className="h-4 md:h-5 w-16 md:w-20 bg-[#162744] rounded-md" />
+                  <div className="h-5 md:h-6 w-28 md:w-36 bg-[#FFFFFF] rounded-md" />
+                  <div className="h-4 md:h-5 w-16 md:w-20 bg-[#FFFFFF] rounded-md" />
                 </div>
                 <div className="flex md:grid md:grid-cols-6 gap-3.5 sm:gap-4 md:gap-3.5 lg:gap-4 overflow-hidden md:overflow-visible -mx-3.5 px-3.5 sm:-mx-5 sm:px-5 md:mx-0 md:px-0">
                   {[1, 2, 3, 4, 5, 6].map((card) => (
                     <div
                       key={card}
-                      className="w-[178px] sm:w-[195px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-[#111F36] p-2.5 md:p-3.5 border border-[#1E3252]/50 shadow-xs"
+                      className="w-[178px] sm:w-[195px] md:w-full h-52 md:h-64 shrink-0 md:shrink rounded-[18px] md:rounded-[20px] bg-[#FFFFFF] p-2.5 md:p-3.5 border border-[#E2E8F0]/50 shadow-xs"
                     >
-                      <div className="aspect-square w-full rounded-[12px] md:rounded-[14px] bg-[#080F1C] mb-2 md:mb-3" />
-                      <div className="h-3 md:h-4 w-3/4 bg-[#162744] rounded mb-1.5 md:mb-2" />
-                      <div className="h-4 w-1/2 bg-[#162744] rounded" />
+                      <div className="aspect-square w-full rounded-[12px] md:rounded-[14px] bg-[#F0F8E8] mb-2 md:mb-3" />
+                      <div className="h-3 md:h-4 w-3/4 bg-[#FFFFFF] rounded mb-1.5 md:mb-2" />
+                      <div className="h-4 w-1/2 bg-[#FFFFFF] rounded" />
                     </div>
                   ))}
                 </div>
@@ -198,13 +199,13 @@ function Home() {
             ))}
           </div>
         ) : loadError && categorySections.length === 0 ? (
-          <div className="rounded-[18px] border border-amber-400/40 bg-[#111F36] p-6 text-center shadow-xs">
+          <div className="rounded-[18px] border border-amber-400/40 bg-[#FFFFFF] p-6 text-center shadow-xs">
             <AlertCircle className="mx-auto mb-2 text-amber-300" size={24} />
-            <p className="text-sm font-semibold text-[#D8E5F3]">{loadError}</p>
+            <p className="text-sm font-semibold text-[#334155]">{loadError}</p>
             <button
               type="button"
               onClick={() => setReloadKey((value) => value + 1)}
-              className="mt-4 rounded-full border border-[#42D6E8]/60 px-5 py-2 text-sm font-extrabold text-[#67E8F9] transition hover:bg-[#162744]"
+              className="mt-4 rounded-full border border-[#42D6E8]/60 px-5 py-2 text-sm font-extrabold text-[#67E8F9] transition hover:bg-[#FFFFFF]"
             >
               Retry
             </button>
@@ -216,21 +217,21 @@ function Home() {
                 {/* Category Header with Responsive View All Link */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 sm:gap-2.5">
-                    <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
-                    <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
+                    <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-[#22499F] shrink-0" />
+                    <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-normal text-[#1E293B]">
                       {section.name}
                     </h2>
                   </div>
 
                   <Link
                     to={`/category/${section.id || section.slug}`}
-                    className="group inline-flex h-[30px] sm:h-[34px] min-w-[84px] sm:min-w-[94px] items-center justify-center gap-1.5 rounded-full bg-[#111F36] hover:bg-[#162B4A] border border-[#1E365A] hover:border-[#42D6E8]/70 px-3.5 sm:px-4 text-[11.5px] sm:text-xs font-bold text-[#42D6E8] hover:text-[#67E8F9] shadow-[0_2px_8px_rgba(0,0,0,0.2)] transition-all duration-200 active:scale-95 shrink-0"
+                    className="group inline-flex h-[30px] sm:h-[34px] min-w-[84px] sm:min-w-[94px] items-center justify-center gap-1.5 rounded-full bg-[#FFFFFF] hover:bg-[#F0F8E8] border border-[#E2E8F0] hover:border-[#22499F]/70 px-3.5 sm:px-4 text-[11.5px] sm:text-xs font-bold text-[#22499F] shadow-xs transition-all duration-200 active:scale-95 shrink-0"
                   >
                     <span className="leading-none">View All</span>
                     <ChevronRight
                       size={13}
                       strokeWidth={2.8}
-                      className="transition-transform duration-200 group-hover:translate-x-0.5 text-[#42D6E8] shrink-0"
+                      className="transition-transform duration-200 group-hover:translate-x-0.5 text-[#22499F] shrink-0"
                     />
                   </Link>
                 </div>
@@ -250,14 +251,14 @@ function Home() {
             ))}
 
             {/* Explore All Categories Banner */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-[#1E3252] bg-gradient-to-r from-[#111F36] via-[#13253D] to-[#0D192B] p-5 sm:p-6 shadow-md mt-6 sm:mt-8">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] p-5 sm:p-6 shadow-xs mt-6 sm:mt-8">
               <div className="text-center sm:text-left">
-                <h3 className="text-base sm:text-lg font-bold text-white">Looking for more categories?</h3>
-                <p className="text-xs sm:text-sm text-[#8FA4BE] mt-0.5">Explore every department and collection in one place</p>
+                <h3 className="text-base sm:text-lg font-bold text-[#1E293B]">Looking for more categories?</h3>
+                <p className="text-sm sm:text-base font-semibold text-[#64748B] mt-0.5">Explore every department and collection in one place</p>
               </div>
               <Link
                 to="/categories"
-                className="inline-flex items-center gap-2 rounded-xl bg-[#42D6E8] px-5 py-2.5 text-xs sm:text-sm font-extrabold text-[#061220] transition hover:bg-[#67E8F9] active:scale-95 shadow-md shadow-[#42D6E8]/20 shrink-0"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#22499F] px-5 py-2.5 text-sm sm:text-base font-extrabold text-[#FFFFFF] transition hover:bg-[#22499F] active:scale-95 shadow-md shadow-[#22499F]/20 shrink-0"
               >
                 <span>All Categories</span>
                 <ChevronRight size={16} />
@@ -265,11 +266,14 @@ function Home() {
             </div>
           </>
         ) : (
-          <div className="rounded-[18px] md:rounded-[20px] bg-[#111F36] p-6 md:p-8 text-center border border-[#1E3252] shadow-xs">
+          <div className="rounded-[18px] md:rounded-[20px] bg-[#FFFFFF] p-6 md:p-8 text-center border border-[#E2E8F0] shadow-xs">
             <p className="text-sm md:text-base font-semibold text-[#8FA4BE]">No products available at the moment.</p>
           </div>
         )}
       </div>
+
+      {/* Floating Capsule Back to Top Button */}
+      <BackToTopButton threshold={250} />
     </div>
   );
 }

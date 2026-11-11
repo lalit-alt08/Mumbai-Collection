@@ -210,35 +210,52 @@ function hashProductOrderKey(value) {
 export function orderProductsForSession(items, seed = getSessionProductOrderSeed(), scope = "catalog", { retainUnseen = false } = {}) {
   if (!Array.isArray(items) || items.length === 0) return items ? [...items] : [];
 
-  const scopeKey = `${PRODUCT_ORDER_SESSION_KEY}:${scope}`;
-  let savedIds = [];
-  try {
-    const parsed = JSON.parse(window.sessionStorage.getItem(scopeKey) || "[]");
-    if (Array.isArray(parsed)) savedIds = parsed.map(String);
-    if (savedIds.length === 0) savedIds = fallbackProductOrders.get(scope) || [];
-  } catch {
-    savedIds = fallbackProductOrders.get(scope) || [];
+  const inStock = [];
+  const outOfStock = [];
+
+  for (const product of items) {
+    const { isOutOfStock } = getProductStock(product);
+    if (isOutOfStock) {
+      outOfStock.push(product);
+    } else {
+      inStock.push(product);
+    }
   }
 
-  const productById = new Map();
-  items.forEach((product, index) => {
-    const id = product?.id == null ? `index-${index}` : String(product.id);
-    if (!productById.has(id)) productById.set(id, product);
-  });
+  const orderGroup = (groupItems, groupScope) => {
+    if (groupItems.length === 0) return [];
+    const scopeKey = `${PRODUCT_ORDER_SESSION_KEY}:${groupScope}`;
+    let savedIds = [];
+    try {
+      const parsed = JSON.parse(window.sessionStorage.getItem(scopeKey) || "[]");
+      if (Array.isArray(parsed)) savedIds = parsed.map(String);
+      if (savedIds.length === 0) savedIds = fallbackProductOrders.get(groupScope) || [];
+    } catch {
+      savedIds = fallbackProductOrders.get(groupScope) || [];
+    }
 
-  const nextIds = retainUnseen ? [...savedIds] : savedIds.filter((id) => productById.has(id));
-  const knownIds = new Set(nextIds);
-  const newIds = [...productById.keys()]
-    .filter((id) => !knownIds.has(id))
-    .sort((a, b) => hashProductOrderKey(`${seed}:${a}`) - hashProductOrderKey(`${seed}:${b}`) || a.localeCompare(b));
-  nextIds.push(...newIds);
+    const productById = new Map();
+    groupItems.forEach((product, index) => {
+      const id = product?.id == null ? `index-${index}` : String(product.id);
+      if (!productById.has(id)) productById.set(id, product);
+    });
 
-  try {
-    window.sessionStorage.setItem(scopeKey, JSON.stringify(nextIds));
-  } catch {}
-  fallbackProductOrders.set(scope, nextIds);
+    const nextIds = retainUnseen ? [...savedIds] : savedIds.filter((id) => productById.has(id));
+    const knownIds = new Set(nextIds);
+    const newIds = [...productById.keys()]
+      .filter((id) => !knownIds.has(id))
+      .sort((a, b) => hashProductOrderKey(`${seed}:${a}`) - hashProductOrderKey(`${seed}:${b}`) || a.localeCompare(b));
+    nextIds.push(...newIds);
 
-  return nextIds.map((id) => productById.get(id)).filter(Boolean);
+    try {
+      window.sessionStorage.setItem(scopeKey, JSON.stringify(nextIds));
+    } catch {}
+    fallbackProductOrders.set(groupScope, nextIds);
+
+    return nextIds.map((id) => productById.get(id)).filter(Boolean);
+  };
+
+  return [...orderGroup(inStock, `${scope}:in_stock`), ...orderGroup(outOfStock, `${scope}:out_of_stock`)];
 }
 
 /**
@@ -247,9 +264,10 @@ export function orderProductsForSession(items, seed = getSessionProductOrderSeed
  * gets equal visibility, while placing out-of-stock items at the tail of the list.
  *
  * @param {Array<Object>} products
+ * @param {string|null} [seed=null]
  * @returns {Array<Object>}
  */
-export function reshuffleCategoryProducts(products) {
+export function reshuffleCategoryProducts(products, seed = null) {
   if (!Array.isArray(products) || products.length <= 1) return products ? [...products] : [];
 
   const inStock = [];
@@ -264,7 +282,16 @@ export function reshuffleCategoryProducts(products) {
     }
   }
 
-  return [...shuffleProducts(inStock), ...shuffleProducts(outOfStock)];
+  const shuffle = (list) => {
+    if (!seed) return shuffleProducts(list);
+    return [...list].sort(
+      (a, b) =>
+        hashProductOrderKey(`${seed}:${a?.id}`) - hashProductOrderKey(`${seed}:${b?.id}`) ||
+        String(a?.id).localeCompare(String(b?.id))
+    );
+  };
+
+  return [...shuffle(inStock), ...shuffle(outOfStock)];
 }
 
 /**
@@ -322,7 +349,7 @@ export function formatSubcategoryName(rawName, parentName = "") {
 
   if (parent) {
     const escapedParent = parent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const prefixRegex = new RegExp("^" + escapedParent + "\\s*[-–—/:]\\s*", "i");
+    const prefixRegex = new RegExp("^" + escapedParent + "\\s*[-â€“â€”/:]\\s*", "i");
     if (prefixRegex.test(name)) {
       const stripped = name.replace(prefixRegex, "").trim();
       if (stripped.length > 0) return stripped;

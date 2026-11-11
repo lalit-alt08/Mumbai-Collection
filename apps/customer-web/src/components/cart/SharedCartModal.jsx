@@ -62,31 +62,31 @@ function SharedCartModal({
       />
 
       {/* Modal Container */}
-      <div className="relative z-10 w-full max-w-[500px] overflow-hidden rounded-[26px] border border-[#1E3252] bg-[#111F36] p-5 shadow-[0_25px_65px_rgba(0,0,0,0.6)] animate-[scaleUp_0.2s_ease-out] sm:p-7 max-h-[90vh] flex flex-col">
+      <div className="relative z-10 w-full max-w-[500px] overflow-hidden rounded-[26px] border border-[#E2E8F0] bg-[#FFFFFF] p-5 shadow-[0_25px_65px_rgba(0,0,0,0.6)] animate-[scaleUp_0.2s_ease-out] sm:p-7 max-h-[90vh] flex flex-col">
         {/* Close Button */}
         <button
           type="button"
           onClick={onClose}
           disabled={submitting}
           aria-label="Close modal"
-          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-[#8FA4BE] transition hover:bg-[#162744] hover:text-white disabled:opacity-50 cursor-pointer"
+          className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition hover:bg-[#FFFFFF] hover:text-white disabled:opacity-50 cursor-pointer"
         >
           <X size={20} />
         </button>
 
         {/* Icon & Title */}
-        <div className="flex items-center gap-3.5 pb-3 border-b border-[#1E3252]/70">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+        <div className="flex items-center gap-3.5 pb-3 border-b border-[#E2E8F0]/70">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
             <ShoppingBag size={24} />
           </div>
           <div>
             <h3
               id="shared-cart-title"
-              className="text-lg font-black tracking-tight text-[#F1F5F9] sm:text-xl"
+              className="text-lg font-black tracking-tight text-[#1E293B] sm:text-xl"
             >
               Shared Cart
             </h3>
-            <p className="text-xs text-[#8FA4BE] font-medium">
+            <p className="text-xs text-[#64748B] font-medium">
               Someone shared {sharedItems.length} item{sharedItems.length === 1 ? "" : "s"} with you
             </p>
           </div>
@@ -101,7 +101,7 @@ function SharedCartModal({
         )}
 
         {actionSuccess && (
-          <div className="mt-3 rounded-xl bg-[#132B45] p-3 text-xs font-semibold text-[#42D6E8] border border-[#1E3252] flex items-center gap-2">
+          <div className="mt-3 rounded-xl bg-[#FFFFFF] p-3 text-xs font-semibold text-[#22499F] border border-[#E2E8F0] flex items-center gap-2">
             <CheckCircle2 size={15} className="shrink-0" />
             <span>{actionSuccess}</span>
           </div>
@@ -110,14 +110,14 @@ function SharedCartModal({
         {/* Items List (Validated from live catalog) */}
         <div className="my-4 flex-1 overflow-y-auto space-y-2.5 pr-1">
           {loading ? (
-            <div className="py-12 text-center text-xs text-[#8FA4BE] flex flex-col items-center justify-center gap-2">
-              <Loader2 size={24} className="animate-spin text-[#42D6E8]" />
+            <div className="py-12 text-center text-xs text-[#64748B] flex flex-col items-center justify-center gap-2">
+              <Loader2 size={24} className="animate-spin text-[#22499F]" />
               <span>Verifying product availability...</span>
             </div>
           ) : catalogProducts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#1E3252] p-6 text-center bg-[#0B1425]">
-              <p className="text-xs font-bold text-[#F1F5F9]">No items available</p>
-              <p className="text-[11px] text-[#8FA4BE] mt-0.5">
+            <div className="rounded-2xl border border-dashed border-[#E2E8F0] p-6 text-center bg-[#F0F8E8]">
+              <p className="text-xs font-bold text-[#1E293B]">No items available</p>
+              <p className="text-[11px] text-[#64748B] mt-0.5">
                 The shared items may have been discontinued or are currently out of stock.
               </p>
             </div>
@@ -130,11 +130,11 @@ function SharedCartModal({
                   key={product.id + (variation && variation.length ? JSON.stringify(variation) : "")}
                   className={`flex items-center gap-3 rounded-xl border p-2.5 transition ${
                     isAvailable
-                      ? "border-[#1E3252]/80 bg-[#0B1425]"
+                      ? "border-[#E2E8F0]/80 bg-[#F0F8E8]"
                       : "border-amber-800/40 bg-amber-950/20 opacity-70"
                   }`}
                 >
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[#1E3252]/60 bg-[#080F1C] p-1">
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[#E2E8F0]/60 bg-[#F0F8E8] p-1">
                     <img
                       src={getCatalogImageUrl(product)}
                       alt={product.name}
@@ -149,7 +149,7 @@ function SharedCartModal({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-xs font-bold text-[#F1F5F9] truncate">
+                    <h4 className="text-xs font-bold text-[#1E293B] truncate">
                       {product.name}
                     </h4>
                     {/* Variation Attributes Badge */}
@@ -158,7 +158,7 @@ function SharedCartModal({
                         {variation.map((v, i) => (
                           <span
                             key={i}
-                            className="inline-block rounded-md bg-[#132B45] px-1.5 py-0.2 text-[10px] font-semibold text-[#42D6E8] border border-[#1E3252]"
+                            className="inline-block rounded-md bg-[#FFFFFF] px-1.5 py-0.2 text-[10px] font-semibold text-[#22499F] border border-[#E2E8F0]"
                           >
                             {v.attribute?.replace(/^pa_/, "")}: {v.value}
                           </span>
@@ -166,10 +166,10 @@ function SharedCartModal({
                       </div>
                     )}
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs font-extrabold text-[#42D6E8]">
+                      <span className="text-xs font-extrabold text-[#22499F]">
                         ₹{livePrice}
                       </span>
-                      <span className="text-[11px] font-medium text-[#8FA4BE]">
+                      <span className="text-[11px] font-medium text-[#64748B]">
                         Qty: {quantity}
                       </span>
                     </div>
@@ -187,8 +187,8 @@ function SharedCartModal({
 
         {/* Existing Cart Notice & Choice */}
         {hasExistingCart && (
-          <div className="mb-4 rounded-xl bg-[#132B45]/50 border border-[#1E3252] p-3 text-xs text-[#8FA4BE] space-y-2">
-            <p className="font-semibold text-[#F1F5F9]">
+          <div className="mb-4 rounded-xl bg-[#FFFFFF]/50 border border-[#E2E8F0] p-3 text-xs text-[#64748B] space-y-2">
+            <p className="font-semibold text-[#1E293B]">
               You already have {existingCartCount} item{existingCartCount === 1 ? "" : "s"} in your cart.
             </p>
             <div className="flex flex-col gap-1.5 text-[11px]">
@@ -198,7 +198,7 @@ function SharedCartModal({
                   name="cartAction"
                   checked={!replaceExisting}
                   onChange={() => setReplaceExisting(false)}
-                  className="accent-[#42D6E8]"
+                  className="accent-[#22499F]"
                 />
                 <span>Merge with my existing items (Keep both)</span>
               </label>
@@ -208,7 +208,7 @@ function SharedCartModal({
                   name="cartAction"
                   checked={replaceExisting}
                   onChange={() => setReplaceExisting(true)}
-                  className="accent-[#42D6E8]"
+                  className="accent-[#22499F]"
                 />
                 <span>Replace my current cart items</span>
               </label>
@@ -217,12 +217,12 @@ function SharedCartModal({
         )}
 
         {/* Actions */}
-        <div className="flex flex-col gap-2.5 pt-2 border-t border-[#1E3252]/70">
+        <div className="flex flex-col gap-2.5 pt-2 border-t border-[#E2E8F0]/70">
           <button
             type="button"
             onClick={handleConfirmAdd}
             disabled={submitting || loading || catalogProducts.filter((p) => p.isAvailable).length === 0}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#42D6E8] px-5 text-xs font-black text-[#061220] shadow-md transition hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#22499F] px-5 text-xs font-black text-[#FFFFFF] shadow-md transition hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
             {submitting ? (
               <>
@@ -238,7 +238,7 @@ function SharedCartModal({
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="flex h-10 w-full items-center justify-center rounded-xl border border-[#1E3252] bg-transparent px-4 text-xs font-bold text-[#8FA4BE] hover:bg-[#162744] transition cursor-pointer"
+            className="flex h-10 w-full items-center justify-center rounded-xl border border-[#E2E8F0] bg-transparent px-4 text-xs font-bold text-[#64748B] hover:bg-[#FFFFFF] transition cursor-pointer"
           >
             Dismiss
           </button>

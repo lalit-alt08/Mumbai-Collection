@@ -188,9 +188,9 @@ function ProductInfo({ product }) {
   return (
     <>
       {/* Main Product Info Card */}
-      <div className="rounded-[24px] bg-[#111F36] border border-[#1E3252]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] md:p-6 space-y-4">
+      <div className="rounded-[24px] bg-[#FFFFFF] border border-[#E2E8F0]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] md:p-6 space-y-4">
         <div>
-          <h1 className="text-[22px] font-bold leading-snug text-[#F1F5F9] md:text-[26px]">
+          <h1 className="text-[22px] font-bold leading-snug text-[#1E293B] md:text-[26px]">
             {cleanProductTitle(product.name)}
           </h1>
 
@@ -205,15 +205,15 @@ function ProductInfo({ product }) {
                     el.scrollIntoView({ behavior: "smooth" });
                   }
                 }}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#8FA4BE] hover:text-[#42D6E8] transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#64748B] hover:text-[#22499F] transition cursor-pointer"
               >
-                <div className="inline-flex items-center gap-1 rounded-md bg-[#132B45] px-2 py-0.5 border border-[#1E3252]">
+                <div className="inline-flex items-center gap-1 rounded-md bg-[#FFFFFF] px-2 py-0.5 border border-[#E2E8F0]">
                   <Star size={13} className="fill-amber-400 text-amber-400" />
-                  <span className="font-extrabold text-[#42D6E8] text-xs">
+                  <span className="font-extrabold text-[#22499F] text-xs">
                     {Number(product.average_rating) > 0 ? Number(product.average_rating).toFixed(1) : "5.0"}
                   </span>
                 </div>
-                <span className="text-[#8FA4BE] hover:underline">
+                <span className="text-[#64748B] hover:underline">
                   ({product.rating_count} review{Number(product.rating_count) > 1 ? "s" : ""})
                 </span>
               </button>
@@ -226,9 +226,9 @@ function ProductInfo({ product }) {
                     el.scrollIntoView({ behavior: "smooth" });
                   }
                 }}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6E84A3] hover:text-[#42D6E8] transition cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-[#475569] hover:text-[#22499F] transition cursor-pointer"
               >
-                <Star size={12} className="text-[#4B6282]" />
+                <Star size={12} className="text-[#64748B]" />
                 <span>No reviews yet • Be the first to review</span>
               </button>
             )}
@@ -241,12 +241,12 @@ function ProductInfo({ product }) {
                 <ShieldAlert size={14} /> Out of Stock
               </span>
             ) : remainingStock <= 5 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-950/40 px-3 py-1 text-xs font-bold text-orange-400 border border-orange-500/40">
-                <AlertTriangle size={14} className="text-orange-400 animate-pulse" />
-                ⚡ Only {remainingStock} left in stock - Order soon!
+              <span className="store-low-stock inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">
+                <AlertTriangle size={14} aria-hidden="true" />
+                Only {remainingStock} left in stock
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#42D6E8] border border-[#1E3252]">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
                 <CheckCircle2 size={14} /> {stockProduct.manage_stock ? `In Stock (${remainingStock} available in Vasai shop)` : "In Stock"}
               </span>
             )}
@@ -258,24 +258,24 @@ function ProductInfo({ product }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#1E3252]/70 pt-4">
+        <div className="flex items-center justify-between border-t border-[#E2E8F0]/70 pt-4">
           <div>
             <div className="mb-1 flex items-end gap-3">
-              <span className="text-[32px] font-extrabold leading-none text-white">
+              <span className="text-[32px] font-extrabold leading-none text-[#1E293B]">
                 ₹{product.price}
               </span>
               {isOnSale && (
                 <>
-                  <span className="mb-1.5 text-[16px] font-medium text-[#6E84A3] line-through">
+                  <span className="mb-1.5 text-[16px] font-medium text-[#64748B] line-through">
                     ₹{product.regular_price}
                   </span>
-                  <span className="mb-1.5 rounded-md bg-[#42D6E8] px-1.5 py-0.5 text-[11px] font-black text-[#061220]">
+                  <span className="mb-1.5 rounded-md bg-[#22499F] px-1.5 py-0.5 text-[11px] font-black text-[#FFFFFF]">
                     {discountPercent}% OFF
                   </span>
                 </>
               )}
             </div>
-            <p className="text-[11px] text-[#6E84A3]">(Inclusive of all taxes)</p>
+            <p className="text-[11px] text-[#64748B]">(Inclusive of all taxes)</p>
           </div>
 
           {/* Action Area: Desktop Add/Stepper + Buy Now Button */}
@@ -298,7 +298,7 @@ function ProductInfo({ product }) {
                   <button
                     type="button"
                     disabled
-                    className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#0E1A2E] text-[14px] font-bold text-[#6E84A3] cursor-not-allowed border border-[#1E3252] select-none"
+                    className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#FFFFFF] text-[14px] font-bold text-[#64748B] cursor-not-allowed border border-[#E2E8F0] select-none"
                   >
                     Out of Stock
                   </button>
@@ -308,14 +308,14 @@ function ProductInfo({ product }) {
                   <button
                     onClick={handleAddToCart}
                     disabled={loading}
-                    className="flex h-[40px] px-6 items-center justify-center rounded-xl border border-[#42D6E8]/70 bg-[#10243C] text-[14px] font-bold text-[#42D6E8] shadow-xs transition-all duration-100 ease-out hover:bg-[#42D6E8] hover:text-[#061220] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
+                    className="flex h-[40px] px-6 items-center justify-center rounded-xl border border-[#22499F]/70 bg-[#F0F8E8] text-[14px] font-bold text-[#22499F] shadow-xs transition-all duration-100 ease-out hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                   >
                     ADD
                   </button>
                 </HapticTapTarget>
               ) : (
                 <div className="flex flex-col items-end gap-1">
-                  <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#42D6E8] px-1.5 text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)]">
+                  <div className="flex h-[40px] w-[120px] items-center justify-between rounded-xl bg-[#22499F] px-1.5 text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.3)]">
                     <HapticTapTarget radius="8px">
                       <button
                         disabled={loading}
@@ -353,7 +353,7 @@ function ProductInfo({ product }) {
                   type="button"
                   onClick={handleBuyNow}
                   disabled={loading}
-                  className="flex h-[40px] sm:h-[42px] items-center justify-center gap-1.5 rounded-[11px] bg-[#42D6E8] px-4 sm:px-4.5 text-[13.5px] sm:text-[14px] font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
+                  className="flex h-[40px] sm:h-[42px] items-center justify-center gap-1.5 rounded-[11px] bg-[#22499F] px-4 sm:px-4.5 text-[13.5px] sm:text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
                   <Zap size={14} className="fill-current shrink-0" />
                   <span>Buy Now</span>
@@ -363,7 +363,7 @@ function ProductInfo({ product }) {
               <button
                 type="button"
                 disabled
-                className="lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-[11px] bg-[#0E1A2E] px-4 text-[12.5px] font-bold text-[#6E84A3] cursor-not-allowed border border-[#1E3252] select-none"
+                className="lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-[11px] bg-[#FFFFFF] px-4 text-[12.5px] font-bold text-[#64748B] cursor-not-allowed border border-[#E2E8F0] select-none"
               >
                 Out of Stock
               </button>
@@ -376,14 +376,14 @@ function ProductInfo({ product }) {
       <div className="grid grid-cols-2 gap-2.5">
         <Link
           to="/return-policy"
-          className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#1E3252]/80 bg-[#111F36] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744] cursor-pointer group"
+          className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] cursor-pointer group"
         >
-          <PackageX size={24} className="text-[#42D6E8] transition-transform group-hover:scale-105" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#F1F5F9] group-hover:text-[#42D6E8] transition-colors">No Return or Exchange</span>
+          <PackageX size={24} className="text-[#22499F] transition-transform group-hover:scale-105" strokeWidth={1.75} />
+          <span className="text-xs font-bold text-[#1E293B] group-hover:text-[#22499F] transition-colors">No Return or Exchange</span>
         </Link>
-        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#1E3252]/80 bg-[#111F36] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744]">
-          <Truck size={24} className="text-[#42D6E8]" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#F1F5F9]">Local Delivery</span>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF]">
+          <Truck size={24} className="text-[#22499F]" strokeWidth={1.75} />
+          <span className="text-xs font-bold text-[#1E293B]">Local Delivery</span>
         </div>
       </div>
 
@@ -392,12 +392,12 @@ function ProductInfo({ product }) {
 
       {/* Sticky Bottom Purchase Bar (Mobile & Split-Screen < lg) */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-[100] w-full rounded-t-[24px] sm:rounded-t-[28px] border-t border-[#1E3252] bg-[#0B1425]/95 backdrop-blur-md px-4 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-[100] w-full rounded-t-[24px] sm:rounded-t-[28px] border-t border-[#E2E8F0] bg-[#F0F8E8]/95 backdrop-blur-md px-4 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] lg:hidden"
         style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))", marginBottom: "0" }}
       >
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
           <div className="flex flex-col flex-shrink-0 pl-2 sm:pl-3">
-            <span className="mb-0.5 text-[22px] font-black leading-none tracking-tight text-white">
+            <span className="mb-0.5 text-[22px] font-black leading-none tracking-tight text-[#1E293B]">
               ₹{product.price}
             </span>
             {isOutOfStock ? (
@@ -409,7 +409,7 @@ function ProductInfo({ product }) {
                 ⚡ Only {remainingStock} left
               </span>
             ) : (
-              <span className="text-[10px] font-medium leading-none text-[#42D6E8]">
+              <span className="text-[10px] font-medium leading-none text-[#22499F]">
                 In stock
               </span>
             )}
@@ -432,7 +432,7 @@ function ProductInfo({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="flex h-[42px] w-full items-center justify-center rounded-full bg-[#0E1A2E] text-[14px] font-bold text-[#6E84A3] cursor-not-allowed border border-[#1E3252] select-none"
+                  className="flex h-[42px] w-full items-center justify-center rounded-full bg-[#FFFFFF] text-[14px] font-bold text-[#64748B] cursor-not-allowed border border-[#E2E8F0] select-none"
                 >
                   Out of Stock
                 </button>
@@ -442,13 +442,13 @@ function ProductInfo({ product }) {
                 <button
                   onClick={handleAddToCart}
                   disabled={loading}
-                  className="flex h-[42px] w-full items-center justify-center gap-2 rounded-full bg-[#42D6E8] text-[14px] font-black text-[#061220] transition-transform duration-100 ease-out hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#42D6E8]"
+                  className="flex h-[42px] w-full items-center justify-center gap-2 rounded-full bg-[#22499F] text-[14px] font-black text-[#FFFFFF] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
                   Add to Cart
                 </button>
               </HapticTapTarget>
             ) : (
-              <div className="flex h-[42px] w-full items-center justify-between rounded-full bg-[#42D6E8] px-1 text-[#061220] shadow-sm">
+              <div className="flex h-[42px] w-full items-center justify-between rounded-full bg-[#22499F] px-1 text-[#FFFFFF] shadow-sm">
                 <HapticTapTarget radius="9999px">
                   <button
                     disabled={loading}

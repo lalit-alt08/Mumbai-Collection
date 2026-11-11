@@ -13,22 +13,22 @@ function Terms() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] pb-24 lg:pb-16">
+    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] pb-24 lg:pb-16">
       {/* ================= STICKY APP-BAR ================= */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#1E3252]/80 bg-[#0B1425]/95 px-4 py-3 backdrop-blur-md sm:px-6 md:px-8">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E2E8F0]/80 bg-[#F0F8E8]/95 px-4 py-3 backdrop-blur-md sm:px-6 md:px-8">
         <div className="flex items-center gap-3">
           <button
             onClick={handleBack}
             aria-label="Go back"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] border border-[#1E3252] transition hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FFFFFF] text-[#1E293B] border border-[#E2E8F0] transition hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer"
           >
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-[#F1F5F9] sm:text-lg leading-tight">
+            <h1 className="text-base font-bold text-[#1E293B] sm:text-lg leading-tight">
               Terms & Conditions
             </h1>
-            <p className="text-[11px] font-medium text-[#8FA4BE]">
+            <p className="text-[11px] font-medium text-[#64748B]">
               Mumbai Collection • Legal & Terms of Use
             </p>
           </div>
@@ -37,28 +37,28 @@ function Terms() {
 
       {/* ================= CONTENT CONTAINER ================= */}
       <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6">
-        <div className="rounded-[24px] border border-[#1E3252]/80 bg-[#111F36] p-6 shadow-lg sm:p-8 md:p-10 space-y-6">
+        <div className="rounded-[24px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-6 shadow-lg sm:p-8 md:p-10 space-y-6">
           {/* Header Introduction */}
-          <div className="border-b border-[#1E3252]/60 pb-6 space-y-2">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] border border-[#1E3252] px-3.5 py-1 text-xs font-bold text-[#67E8F9]">
+          <div className="border-b border-[#E2E8F0]/60 pb-6 space-y-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-3.5 py-1 text-xs font-bold text-[#22499F]">
               <FileText size={14} /> Legal Agreement
             </div>
-            <h1 className="text-2xl font-extrabold text-[#F1F5F9] sm:text-3xl tracking-tight">
+            <h1 className="text-2xl font-extrabold text-[#1E293B] sm:text-3xl tracking-tight">
               Terms & Conditions
             </h1>
-            <p className="text-xs font-semibold text-[#8FA4BE]">
+            <p className="text-xs font-semibold text-[#64748B]">
               Last Updated: September 2026
             </p>
-            <p className="pt-2 text-xs sm:text-sm leading-relaxed text-[#8FA4BE]">
-              Welcome to <strong className="text-[#F1F5F9]">Mumbai Collection</strong>. These Terms & Conditions govern your access to and use of our website and your purchase of products through our platform. By using our website or placing an order, you agree to these Terms & Conditions.
+            <p className="pt-2 text-xs sm:text-sm leading-relaxed text-[#64748B]">
+              Welcome to <strong className="text-[#1E293B]">Mumbai Collection</strong>. These Terms & Conditions govern your access to and use of our website and your purchase of products through our platform. By using our website or placing an order, you agree to these Terms & Conditions.
             </p>
           </div>
 
           {/* 24 Sections */}
-          <div className="space-y-6 text-xs sm:text-sm leading-relaxed text-[#8FA4BE]">
+          <div className="space-y-6 text-xs sm:text-sm leading-relaxed text-[#64748B]">
             {/* 1 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 1. About Mumbai Collection
               </h2>
               <p>
@@ -68,7 +68,7 @@ function Terms() {
 
             {/* 2 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 2. Eligibility
               </h2>
               <p>
@@ -78,7 +78,7 @@ function Terms() {
 
             {/* 3 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 3. Products and Product Information
               </h2>
               <p>
@@ -94,7 +94,7 @@ function Terms() {
 
             {/* 4 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 4. Pricing
               </h2>
               <p>
@@ -110,11 +110,11 @@ function Terms() {
 
             {/* 5 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 5. Minimum Order Value
               </h2>
               <p>
-                The minimum order value for purchases on Mumbai Collection is <strong className="text-[#F1F5F9]">₹500</strong>.
+                The minimum order value for purchases on Mumbai Collection is <strong className="text-[#1E293B]">₹500</strong>.
               </p>
               <p>
                 Orders with a product subtotal below ₹500 cannot be placed through the website.
@@ -126,7 +126,7 @@ function Terms() {
 
             {/* 6 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 6. Orders
               </h2>
               <p>
@@ -138,7 +138,7 @@ function Terms() {
               <p>
                 We reserve the right to refuse, cancel, or limit an order where reasonably necessary, including in cases involving:
               </p>
-              <ul className="list-inside list-disc space-y-1 pl-2 text-[#8FA4BE]">
+              <ul className="list-inside list-disc space-y-1 pl-2 text-[#64748B]">
                 <li>Product unavailability</li>
                 <li>Incorrect pricing or product information</li>
                 <li>Payment failure</li>
@@ -154,7 +154,7 @@ function Terms() {
 
             {/* 7 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 7. Payment
               </h2>
               <p>
@@ -170,7 +170,7 @@ function Terms() {
 
             {/* 8 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 8. Delivery
               </h2>
               <p>
@@ -189,7 +189,7 @@ function Terms() {
 
             {/* 9 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 9. Delivery Charges
               </h2>
               <p>
@@ -202,7 +202,7 @@ function Terms() {
 
             {/* 10 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 10. Order Cancellation
               </h2>
               <p>
@@ -218,7 +218,7 @@ function Terms() {
 
             {/* 11 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 11. Returns, Exchanges and Replacements
               </h2>
               <p>
@@ -227,7 +227,7 @@ function Terms() {
               <p>
                 Where a return or replacement is permitted, the product may be required to:
               </p>
-              <ul className="list-inside list-disc space-y-1 pl-2 text-[#8FA4BE]">
+              <ul className="list-inside list-disc space-y-1 pl-2 text-[#64748B]">
                 <li>Be unused and in its original condition</li>
                 <li>Include original packaging, tags, accessories, and other included items</li>
                 <li>Be returned within the applicable return period</li>
@@ -243,7 +243,7 @@ function Terms() {
 
             {/* 12 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 12. Damaged, Defective or Incorrect Products
               </h2>
               <p>
@@ -259,7 +259,7 @@ function Terms() {
 
             {/* 13 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 13. Refunds
               </h2>
               <p>
@@ -275,7 +275,7 @@ function Terms() {
 
             {/* 14 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 14. Promotions and Discounts
               </h2>
               <p>
@@ -291,7 +291,7 @@ function Terms() {
 
             {/* 15 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 15. Customer Accounts
               </h2>
               <p>
@@ -307,11 +307,11 @@ function Terms() {
 
             {/* 16 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 16. Website Use
               </h2>
               <p>You agree not to:</p>
-              <ul className="list-inside list-disc space-y-1 pl-2 text-[#8FA4BE]">
+              <ul className="list-inside list-disc space-y-1 pl-2 text-[#64748B]">
                 <li>Use the website for unlawful or fraudulent purposes</li>
                 <li>Attempt unauthorized access to our systems</li>
                 <li>Interfere with the operation or security of the website</li>
@@ -323,7 +323,7 @@ function Terms() {
 
             {/* 17 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 17. Intellectual Property
               </h2>
               <p>
@@ -336,7 +336,7 @@ function Terms() {
 
             {/* 18 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 18. Third-Party Services
               </h2>
               <p>
@@ -349,7 +349,7 @@ function Terms() {
 
             {/* 19 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 19. Privacy
               </h2>
               <p>
@@ -362,7 +362,7 @@ function Terms() {
 
             {/* 20 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 20. Availability and Technical Issues
               </h2>
               <p>
@@ -372,7 +372,7 @@ function Terms() {
 
             {/* 21 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 21. Limitation of Liability
               </h2>
               <p>
@@ -388,7 +388,7 @@ function Terms() {
 
             {/* 22 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 22. Changes to These Terms
               </h2>
               <p>
@@ -404,7 +404,7 @@ function Terms() {
 
             {/* 23 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 23. Governing Law
               </h2>
               <p>
@@ -416,21 +416,21 @@ function Terms() {
             </section>
 
             {/* 24 */}
-            <section className="space-y-3 rounded-2xl border border-[#1E3252] bg-[#080F1C] p-5 sm:p-6">
-              <h2 className="text-sm sm:text-base font-bold text-[#F1F5F9]">
+            <section className="space-y-3 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] p-5 sm:p-6">
+              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
                 24. Contact Us
               </h2>
-              <p className="text-[#8FA4BE]">
+              <p className="text-[#64748B]">
                 For questions regarding orders, cancellations, returns, refunds, delivery, or these Terms & Conditions, please contact Mumbai Collection through the contact information below:
               </p>
-              <div className="space-y-2 text-xs sm:text-sm font-medium text-[#F1F5F9] pt-1">
-                <p className="font-bold text-[#F1F5F9]">Mumbai Collection</p>
+              <div className="space-y-2 text-xs sm:text-sm font-medium text-[#1E293B] pt-1">
+                <p className="font-bold text-[#1E293B]">Mumbai Collection</p>
                 <p className="flex items-center gap-2">
-                  <Phone size={15} className="text-[#42D6E8] shrink-0" />
+                  <Phone size={15} className="text-[#22499F] shrink-0" />
                   <span><strong>Phone:</strong> +91 87936 01567</span>
                 </p>
                 <p className="flex items-start gap-2">
-                  <MapPin size={15} className="text-[#42D6E8] shrink-0 mt-0.5" />
+                  <MapPin size={15} className="text-[#22499F] shrink-0 mt-0.5" />
                   <span><strong>Address:</strong> Mumbai Collection Retail Store, Vasai West, Maharashtra – 401202, India</span>
                 </p>
               </div>

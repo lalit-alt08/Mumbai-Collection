@@ -152,13 +152,53 @@ const deleteActiveCartIntentId = async (userId, cartFingerprint) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Reads the customer's live WooCommerce Store API cart using their auth cookie.
+ * Reads the customer's live WooCommerce Store API cart using their auth cookie,
+ * Cart-Token, and delivery addresses (to calculate accurate shipping and totals).
  */
-const getCustomerCart = async (wpAuthCookie) => {
+const getCustomerCart = async (wpAuthCookie, cartToken = null, addresses = null, nonce = null) => {
+  const headers = {};
+  if (wpAuthCookie) {
+    headers.Cookie = wpAuthCookie;
+  }
+  if (cartToken) {
+    headers["Cart-Token"] = cartToken;
+  }
+  if (nonce) {
+    headers.Nonce = nonce;
+  }
+
+  // If shipping/billing address is provided, sync it with Store API to ensure authoritative shipping calculation
+  if (addresses?.shipping_address || addresses?.billing_address) {
+    try {
+      const updateRes = await axios.post(
+        `${WP_BASE_URL}/wp-json/wc/store/v1/cart/update-customer`,
+        {
+          billing_address: addresses.billing_address || addresses.shipping_address,
+          shipping_address: addresses.shipping_address || addresses.billing_address,
+        },
+        {
+          headers,
+          httpsAgent,
+          timeout: 10000,
+        }
+      );
+      if (updateRes.data?.totals) {
+        return updateRes.data;
+      }
+      throw new Error("Invalid response from cart/update-customer");
+    } catch (updateErr) {
+      logger.error({ err: updateErr.message }, "[Payment] cart/update-customer failed for address pricing");
+      const err = new Error("Unable to calculate address-based pricing for delivery. Please retry.");
+      err.code = "ADDRESS_PRICING_FAILED";
+      err.statusCode = 502;
+      throw err;
+    }
+  }
+
   const response = await axios.get(
     `${WP_BASE_URL}/wp-json/wc/store/v1/cart`,
     {
-      headers: { Cookie: wpAuthCookie },
+      headers,
       httpsAgent,
       timeout: 10000,
     }
@@ -264,15 +304,62 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // ── 5. Get customer's cart from WooCommerce Store API ──────────────────
+    // ── 5. Validate Cart-Token ownership & fetch live WooCommerce cart ──────
+    const rawCartToken = req.headers["cart-token"] || req.body?.cart_token;
+    let validatedCartToken = null;
+    if (rawCartToken && typeof rawCartToken === "string") {
+      try {
+        const parts = rawCartToken.split(".");
+        if (parts.length === 3) {
+          const payloadJson = Buffer.from(parts[1], "base64url").toString("utf8");
+          const payload = JSON.parse(payloadJson);
+          const tokenUserId = payload.user_id !== undefined && payload.user_id !== null ? Number(payload.user_id) : NaN;
+          if (isNaN(tokenUserId) || tokenUserId <= 0 || tokenUserId !== Number(userId)) {
+            logger.warn(
+              { tokenUserId: payload.user_id, authenticatedUserId: userId },
+              "[Payment] Cart token ownership mismatch: token belongs to different user or guest"
+            );
+            return res.status(403).json({
+              success: false,
+              code: "CART_TOKEN_MISMATCH",
+              message: "Cart session does not belong to this account.",
+            });
+          }
+          validatedCartToken = rawCartToken;
+        } else {
+          return res.status(403).json({
+            success: false,
+            code: "CART_TOKEN_MISMATCH",
+            message: "Invalid cart session token.",
+          });
+        }
+      } catch (tokenErr) {
+        logger.warn({ err: tokenErr.message }, "[Payment] Failed to parse cart-token header");
+        return res.status(403).json({
+          success: false,
+          code: "CART_TOKEN_MISMATCH",
+          message: "Invalid cart session token.",
+        });
+      }
+    }
+
     let cart;
     try {
-      cart = await getCustomerCart(req.wpAuthCookie);
+      cart = await getCustomerCart(
+        req.wpAuthCookie,
+        validatedCartToken,
+        { billing_address, shipping_address },
+        req.headers.nonce
+      );
     } catch (cartErr) {
       logError(req, cartErr, "[Payment] Failed to fetch customer cart");
-      return res.status(502).json({
+      const statusCode = cartErr.statusCode || 502;
+      const code = cartErr.code || "CART_FETCH_FAILED";
+      return res.status(statusCode).json({
         success: false,
-        message: "Unable to load your cart. Please try again.",
+        code,
+        message: cartErr.message || "Unable to load your cart. Please try again.",
+        retryable: true,
       });
     }
 
@@ -349,6 +436,7 @@ export const createOrder = async (req, res) => {
         code: "CHECKOUT_TOTAL_CHANGED",
         expected_total_paise: req.body.expected_total_paise,
         actual_total_paise: amountInPaise,
+        cart,
         message: "Your cart total changed. Please review it before continuing.",
       });
     }
@@ -1450,6 +1538,8 @@ export const checkPaymentStatus = async (req, res) => {
     return res.json({
       success: false,
       paid: false,
+      terminal: false,
+      can_cancel: !processing,
       message: "Payment not completed or still processing.",
     });
   } catch (error) {
@@ -2022,25 +2112,41 @@ export const cancelPaymentOrder = async (req, res) => {
     }
 
     // 4. Safe Cancellation & Stock Release
+    const isUnpaidAttempt = intent.status === "created" || ['cancelled', 'abandoned'].includes(intent.status);
+    if (!isUnpaidAttempt) {
+      return res.status(409).json({
+        success: false,
+        message: "Payment state changed. Please check status.",
+      });
+    }
+
     if (intent.status === "created") {
-      const cancelled = await updatePaymentIntentStatus({ rzpOrderId: razorpay_order_id, fromStatus: "created", toStatus: "cancelled", errorReason: "Customer dismissed checkout; late captures remain recoverable." });
-      if (!cancelled) return res.status(409).json({ success: false, message: "Payment state changed. Please check status." });
-      const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id;
-      if (reservationId) {
+      const cancelled = await updatePaymentIntentStatus({
+        rzpOrderId: razorpay_order_id,
+        fromStatus: "created",
+        toStatus: "cancelled",
+        errorReason: "Customer dismissed checkout; late captures remain recoverable.",
+      });
+      if (!cancelled) {
+        return res.status(409).json({ success: false, message: "Payment state changed. Please check status." });
+      }
+    }
+
+    const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id;
+    if (reservationId) {
+      try {
         await (paymentIntentService.releaseCheckoutStock || releaseCheckoutStock)(reservationId);
-      }
+      } catch (_) {}
+    }
 
-
-
-      if (intent.customer_id && intent.cart_fingerprint) {
-        await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
-      }
+    if (intent.customer_id && intent.cart_fingerprint) {
+      await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
     }
 
     return res.status(200).json({
       success: true,
-      cancelled: intent.status === 'created',
-      terminal: intent.status === 'created',
+      cancelled: true,
+      terminal: true,
       message: "Checkout session cancelled and reserved stock released.",
     });
   } catch (err) {

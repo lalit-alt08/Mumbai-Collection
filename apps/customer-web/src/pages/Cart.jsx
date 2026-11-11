@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours } from "../services/storeApi";
+import { updateCartItem, removeCartItem, addToCart, getStoreProductById, getStoreHours, isCartWriteInFlight } from "../services/storeApi";
 import { getProductsByIds, getLiveProductStockByIds } from "../services/productService";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
@@ -23,12 +23,17 @@ function Cart() {
   const {
     cart,
     loading,
+    cartLoadError,
+    setCartLoadError,
+    cartConfirmed,
     refreshCart,
+    setLoading,
     updateCart,
     cartMergeNotice,
     clearCartMergeNotice,
     retryCartMerge,
     updateRecoveryQuantity,
+    hasPendingMerge,
   } = useCart();
   const { isAuthenticated, user, checkoutExpiredUserId } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
@@ -617,15 +622,71 @@ function Cart() {
     !sharedModalOpen && sharedItems.length > 0 && location.search.includes("items=")
   );
 
-  if (loading) {
+  const hasItems = Boolean(cart?.items && cart.items.length > 0);
+  const isRequestInFlight = loading || isCartWriteInFlight();
+
+  // 1. Show loading while a request or write is actively in flight (and no confirmed items exist)
+  if (isRequestInFlight && !hasItems) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#22499F]/20 border-t-[#22499F]" />
       </div>
     );
   }
 
-  const isCartEmpty = !cart || !cart.items || cart.items.length === 0;
+  // 2. Checkout session expired recovery state:
+  const isRecoveryRequired = Boolean(!user?.id && checkoutExpiredUserId);
+  if (isRecoveryRequired && !hasItems) {
+    return (
+      <div className="mx-auto flex max-w-[700px] flex-col items-center justify-center px-6 py-20 text-center">
+        <h1 className="mb-4 text-[24px] font-bold text-[#1E293B]">
+          Sign in to recover your checkout
+        </h1>
+        <p className="mb-8 text-[#64748B]">
+          Your checkout session expired. Please sign in to recover your cart and payment status.
+        </p>
+        <button
+          onClick={() => navigate("/login", { state: { from: "/cart" } })}
+          className="rounded-full bg-[#22499F] px-8 py-3.5 font-black text-[#FFFFFF] transition-all hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-95 shadow-[0_4px_20px_rgba(66, 214, 232,0.3)] cursor-pointer"
+        >
+          Sign in to recover your checkout
+        </button>
+      </div>
+    );
+  }
+
+  // 3. Once a request fails, OR when there is no confirmed cart and no request in flight, show Retry
+  if ((cartLoadError || !cartConfirmed) && !hasItems) {
+    const handleRetry = () => {
+      setLoading(true);
+      setCartLoadError(null);
+      if (hasPendingMerge || cartMergeNotice?.retryable) {
+        retryCartMerge();
+      } else {
+        refreshCart().catch(() => {});
+      }
+    };
+
+    return (
+      <div className="mx-auto flex max-w-[700px] flex-col items-center justify-center px-6 py-20 text-center">
+        <h1 className="mb-4 text-[24px] font-bold text-[#1E293B]">
+          Couldn't load your cart
+        </h1>
+        <p className="mb-8 text-[#64748B]">
+          There was a problem loading your cart. Please try again.
+        </p>
+        <button
+          onClick={handleRetry}
+          className="rounded-full bg-[#22499F] px-8 py-3.5 font-black text-[#FFFFFF] transition-all hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-95 shadow-[0_4px_20px_rgba(66, 214, 232,0.3)] cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  // 3. Show Your Cart is Empty only after a successful read confirms zero items
+  const isCartEmpty = !hasItems;
 
   // Calculate values safely
   const discount = cart?.totals?.total_discount
@@ -659,14 +720,14 @@ function Cart() {
             navigate(-1);
           }}
           aria-label="Go back"
-          className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+          className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#22499F] border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 active:scale-95 cursor-pointer"
         >
           <ChevronLeft size={23} strokeWidth={2.5} />
         </button>
 
         {/* Center: Capsule utilizing available space with full descender clearance */}
-        <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
-          <h1 className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
+        <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#FFFFFF]/95 backdrop-blur-md border border-[#E2E8F0] px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+          <h1 className="text-[19px] sm:text-[20px] font-extrabold text-[#1E293B] tracking-[-0.01em] leading-normal antialiased select-none">
             My Cart
           </h1>
         </div>
@@ -679,17 +740,17 @@ function Cart() {
               handleShareCart();
             }}
             aria-label="Share cart"
-            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-[#42D6E8] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-[#42D6E8]/40 hover:text-white active:scale-95 cursor-pointer"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#22499F] border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 hover:text-white active:scale-95 cursor-pointer"
           >
             {shareFeedback ? (
-              <Check size={20} className="text-[#42D6E8]" />
+              <Check size={20} className="text-[#22499F]" />
             ) : (
               <Share size={20} strokeWidth={2.2} />
             )}
           </button>
           {shareFeedback && (
-            <div className="absolute right-0 top-14 z-20 whitespace-nowrap rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out] flex items-center gap-1.5 border border-[#1E3252]">
-              <Check size={13} className="text-[#42D6E8]" />
+            <div className="absolute right-0 top-14 z-20 whitespace-nowrap rounded-xl bg-gray-900/90 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out] flex items-center gap-1.5 border border-[#E2E8F0]">
+              <Check size={13} className="text-[#22499F]" />
               <span>{shareFeedback}</span>
             </div>
           )}
@@ -698,16 +759,16 @@ function Cart() {
 
       {/* Shared Cart Top Prompt Banner (When modal closed but URL still has query) */}
       {hasSharedBanner && (
-        <div className="mb-4 rounded-2xl bg-[#111F36] border border-[#42D6E8]/30 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+        <div className="mb-4 rounded-2xl bg-[#FFFFFF] border border-[#22499F]/30 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
               <ShoppingBag size={20} />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#F1F5F9]">
+              <p className="text-xs font-bold text-[#1E293B]">
                 Someone shared a cart with you
               </p>
-              <p className="text-[11px] text-[#8FA4BE] font-medium">
+              <p className="text-[11px] text-[#64748B] font-medium">
                 {sharedItems.length} item{sharedItems.length === 1 ? "" : "s"} ready to review
               </p>
             </div>
@@ -715,13 +776,13 @@ function Cart() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSharedModalOpen(true)}
-              className="rounded-xl bg-[#42D6E8] px-3.5 py-1.5 text-xs font-black text-[#061220] hover:bg-[#2CC4D8] hover:text-[#061220] transition active:scale-95 cursor-pointer"
+              className="rounded-xl bg-[#22499F] px-3.5 py-1.5 text-xs font-black text-[#FFFFFF] hover:bg-[#1B3B82] hover:text-[#FFFFFF] transition active:scale-95 cursor-pointer"
             >
               View Items
             </button>
             <button
               onClick={() => navigate("/cart", { replace: true })}
-              className="rounded-xl border border-[#1E3252] bg-transparent px-2.5 py-1.5 text-xs font-medium text-[#8FA4BE] hover:bg-[#162744] transition cursor-pointer"
+              className="rounded-xl border border-[#E2E8F0] bg-transparent px-2.5 py-1.5 text-xs font-medium text-[#64748B] hover:bg-[#FFFFFF] transition cursor-pointer"
             >
               Dismiss
             </button>
@@ -737,10 +798,10 @@ function Cart() {
       )}
       {isCartEmpty ? (
         <div className="mx-auto flex max-w-[700px] flex-col items-center justify-center px-6 py-20 text-center">
-          <h1 className="mb-4 text-[24px] font-bold text-[#F1F5F9]">
+          <h1 className="mb-4 text-[24px] font-bold text-[#1E293B]">
             Your Cart is Empty
           </h1>
-          <p className="mb-8 text-[#8FA4BE]">
+          <p className="mb-8 text-[#64748B]">
             Looks like you haven&apos;t added anything to your cart yet.
           </p>
           {(getPendingPayment(user?.id || checkoutExpiredUserId)?.razorpay_order_id || getPendingPayment()?.razorpay_order_id) && (
@@ -750,7 +811,7 @@ function Cart() {
           )}
           <button
             onClick={() => navigate("/")}
-            className="rounded-full bg-[#42D6E8] px-8 py-3.5 font-black text-[#061220] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-95 shadow-[0_4px_20px_rgba(66,214,232,0.3)] cursor-pointer"
+            className="rounded-full bg-[#22499F] px-8 py-3.5 font-black text-[#FFFFFF] transition-all hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-95 shadow-[0_4px_20px_rgba(66, 214, 232,0.3)] cursor-pointer"
           >
             Start Shopping
           </button>
@@ -759,19 +820,19 @@ function Cart() {
         <div className="space-y-5">
           {/* Night Order Notification Banner (Store Closed for the Night) */}
           {storeHours && storeHours.next_opening?.day && storeHours.next_opening?.time && storeHours.next_opening?.date && (storeHours.is_after_hours || (storeHours.is_open === false && storeHours.manual_override !== "closed")) && (
-            <div className="rounded-[22px] bg-gradient-to-r from-[#0C1B33] via-[#0E2342] to-[#0C1B33] border border-[#42D6E8]/35 p-4 sm:p-5 shadow-[0_4px_24px_rgba(66,214,232,0.12)] flex items-start sm:items-center justify-between gap-3.5 animate-in fade-in duration-200">
+            <div className="rounded-[22px] bg-gradient-to-r from-[#FFFFFF] via-[#FFFFFF] to-[#FFFFFF] border border-[#22499F]/35 p-4 sm:p-5 shadow-[0_4px_24px_rgba(66, 214, 232,0.12)] flex items-start sm:items-center justify-between gap-3.5 animate-in fade-in duration-200">
               <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/40 shadow-[0_0_12px_rgba(66,214,232,0.2)]">
-                  <Moon size={22} className="text-[#42D6E8]" />
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_0_12px_rgba(66, 214, 232,0.2)]">
+                  <Moon size={22} className="text-[#22499F]" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[13.5px] sm:text-[14.5px] font-black text-white leading-tight">
+                    <h3 className="text-[13.5px] sm:text-[14.5px] font-black text-[#1E293B] leading-tight">
                       {storeHours.next_opening?.label
                         ? `Store Closed — Ordering Open for ${storeHours.next_opening.label.split(" at ")[0]}`
                         : "Store Closed — Scheduled ordering unavailable"}
                     </h3>
-                    <span className="rounded-full bg-[#42D6E8]/15 border border-[#42D6E8]/40 px-2.5 py-0.5 text-[10.5px] font-black text-[#42D6E8]">
+                    <span className="rounded-full bg-[#22499F]/15 border border-[#22499F]/40 px-2.5 py-0.5 text-[10.5px] font-black text-[#22499F]">
                       🌙 Fulfillment at next opening
                     </span>
                   </div>
@@ -854,7 +915,7 @@ function Cart() {
 
           {/* Product Items List */}
           <div className="space-y-4">
-            {cart.items.map((item) => {
+            {(cart?.items || []).map((item) => {
               const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
               const isItemOutOfStock =
                 liveStock && typeof liveStock.isOutOfStock === "boolean"
@@ -882,7 +943,7 @@ function Cart() {
             })}
           </div>
 
-          <CartCrossSells items={cart.items} />
+          <CartCrossSells items={cart?.items || []} />
 
           {/* Bill Summary, Policies */}
           <CartSummary

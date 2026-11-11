@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://accessing-conditional-bar-unknown.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://mortality-soc-sean-trackback.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://accessing-conditional-bar-unknown.trycloudflare.com/sitemap.xml"
+      "destination": "https://mortality-soc-sean-trackback.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://accessing-conditional-bar-unknown.trycloudflare.com/api/:path*"
+      "destination": "https://mortality-soc-sean-trackback.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

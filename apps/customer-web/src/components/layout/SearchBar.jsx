@@ -28,7 +28,7 @@ function HighlightMatch({ text = "", query = "" }) {
         const isMatch = tokens.some((t) => new RegExp(`^${t}$`, "i").test(part));
         if (isMatch) {
           return (
-            <span key={index} className="text-[#42D6E8] font-black">
+            <span key={index} className="text-[#22499F] font-black">
               {part}
             </span>
           );
@@ -244,20 +244,20 @@ function SearchBar() {
     setImageErrors((prev) => ({ ...prev, [id]: true }));
   };
 
-  const surfaceClasses = "bg-[#111F36] border border-[#263E63]";
+  const surfaceClasses = "bg-[#FFFFFF] border border-[#E2E8F0]";
 
   return (
     <div ref={searchRef} className="static md:relative w-full">
       {/* Search Input Capsule */}
       <div
-        className={`w-full rounded-full ${surfaceClasses} shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all duration-200 hover:border-[#385A8A] focus-within:border-[#42D6E8] focus-within:ring-2 focus-within:ring-[#42D6E8]/20`}
+        className={`w-full rounded-full ${surfaceClasses} shadow-[0_2px_8px_rgba(0,0,0,0.45)] transition-all duration-200 hover:border-[#E2E8F0] focus-within:border-[#22499F] focus-within:ring-2 focus-within:ring-[#22499F]/20`}
       >
         <div className="relative flex items-center w-full h-11 px-3.5 sm:px-4">
           {/* Cyan Outline Search Icon */}
           <Search
             size={18}
             strokeWidth={2.3}
-            className="text-[#42D6E8] shrink-0 pointer-events-none transition-colors"
+            className="text-[#22499F] shrink-0 pointer-events-none transition-colors"
             aria-hidden="true"
           />
 
@@ -316,7 +316,7 @@ function SearchBar() {
               sm:text-sm
               md:text-[14.5px]
               font-semibold
-              text-white
+              text-[#1E293B]
               placeholder:text-[#94A3B8]
               focus:outline-none
               focus:ring-0
@@ -328,7 +328,7 @@ function SearchBar() {
             {isLoading && (
               <Loader2
                 size={16}
-                className="animate-spin text-[#42D6E8] motion-reduce:animate-none"
+                className="animate-spin text-[#22499F] motion-reduce:animate-none"
                 aria-label="Loading suggestions"
               />
             )}
@@ -337,7 +337,7 @@ function SearchBar() {
                 type="button"
                 onClick={clearInput}
                 aria-label="Clear search text"
-                className="flex h-6 w-6 items-center justify-center rounded-full text-[#8FA4BE] hover:bg-[#1A2E4E] hover:text-white transition-colors"
+                className="flex h-6 w-6 items-center justify-center rounded-full text-[#64748B] hover:bg-[#F0F8E8] hover:text-[#1E293B] transition-colors"
               >
                 <X size={14} strokeWidth={2.5} />
               </button>
@@ -353,13 +353,13 @@ function SearchBar() {
           id="search-autocomplete-listbox"
           role="listbox"
           aria-label="Product suggestions"
-          className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(65vh,480px)] overflow-y-auto overflow-x-hidden rounded-[22px] border border-[#1E3252] bg-[#111F36] shadow-[0_16px_50px_rgba(0,0,0,0.6)] animate-[fadeIn_0.15s_ease-out] motion-reduce:animate-none"
+          className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(65vh,480px)] overflow-y-auto overflow-x-hidden rounded-[22px] border border-[#E2E8F0] bg-[#FFFFFF] shadow-[0_12px_40px_rgba(0,0,0,0.1)] animate-[fadeIn_0.15s_ease-out] motion-reduce:animate-none"
         >
           {/* Dropdown Header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1E3252] bg-[#111F36]/95 px-4 py-2.5 text-[12.5px] sm:text-[13px] font-extrabold text-[#94A3B8] tracking-tight backdrop-blur-sm">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#E2E8F0] bg-[#FFFFFF]/95 px-4 py-2.5 text-[12.5px] sm:text-[13px] font-extrabold text-[#94A3B8] tracking-tight backdrop-blur-sm">
             <span>Product suggestions</span>
             {!isLoading && !hasError && (
-              <span className="text-[#42D6E8] font-black text-[12.5px] sm:text-[13px]">{totalResults} found</span>
+              <span className="text-[#22499F] font-black text-[12.5px] sm:text-[13px]">{totalResults} found</span>
             )}
           </div>
 
@@ -369,15 +369,15 @@ function SearchBar() {
               <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-rose-500/10 text-rose-400">
                 <AlertCircle size={18} />
               </div>
-              <p className="text-xs sm:text-sm font-bold text-white">Couldn’t load suggestions</p>
-              <p className="text-[11px] text-[#8FA4BE] mt-0.5">Please check your connection</p>
+              <p className="text-xs sm:text-sm font-bold text-[#1E293B]">Couldn’t load suggestions</p>
+              <p className="text-[11px] text-[#64748B] mt-0.5">Please check your connection</p>
               <button
                 type="button"
                 onClick={() => {
                   isDismissedRef.current = false;
                   executeSearch(query);
                 }}
-                className="mt-3 rounded-full bg-[#1A2E4E] border border-[#263E63] px-3.5 py-1 text-xs font-bold text-[#42D6E8] hover:bg-[#203960] transition-colors"
+                className="mt-3 rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-3.5 py-1 text-xs font-bold text-[#22499F] hover:bg-[#E2E8F0] transition-colors"
               >
                 Retry
               </button>
@@ -387,14 +387,14 @@ function SearchBar() {
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <Loader2
                 size={22}
-                className="animate-spin text-[#42D6E8] mb-2 motion-reduce:animate-none"
+                className="animate-spin text-[#22499F] mb-2 motion-reduce:animate-none"
               />
-              <p className="text-xs text-[#8FA4BE]">Searching products...</p>
+              <p className="text-xs text-[#64748B]">Searching products...</p>
             </div>
           ) : products.length > 0 ? (
             /* Suggestions List */
             <>
-              <div className="flex flex-col divide-y divide-[#1E3252]">
+              <div className="flex flex-col divide-y divide-[#E2E8F0]">
                 {products.map((product, index) => {
                   const categoryName = product.categories?.[0]?.name;
                   const isSelected = activeIndex === index;
@@ -415,12 +415,12 @@ function SearchBar() {
                       }}
                       onMouseEnter={() => setActiveIndex(index)}
                       className={`group flex cursor-pointer items-center justify-between px-4 py-3 transition-colors ${
-                        isSelected ? "bg-[#162744]" : "bg-[#111F36] hover:bg-[#162744]"
+                        isSelected ? "bg-[#FFFFFF]" : "bg-[#FFFFFF] hover:bg-[#FFFFFF]"
                       }`}
                     >
                       <div className="flex flex-1 items-center gap-3 pr-2 min-w-0">
                         {/* Thumbnail Image */}
-                        <div className="flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#080F1C] p-1 border border-[#1E3252]">
+                        <div className="flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#F0F8E8] p-1 border border-[#E2E8F0]">
                           {imgUrl && !hasImgError ? (
                             <img
                               src={imgUrl}
@@ -430,7 +430,7 @@ function SearchBar() {
                               loading="lazy"
                             />
                           ) : (
-                            <Search size={16} className="text-[#8FA4BE]/50" />
+                            <Search size={16} className="text-[#64748B]/50" />
                           )}
                         </div>
 
@@ -438,7 +438,7 @@ function SearchBar() {
                         <div className="flex flex-col justify-center min-w-0">
                           <h3
                             className={`line-clamp-2 text-[13.5px] sm:text-[14.5px] font-extrabold leading-[1.3] tracking-tight transition-colors ${
-                              isSelected ? "text-[#42D6E8]" : "text-[#F1F5F9] group-hover:text-[#42D6E8]"
+                              isSelected ? "text-[#22499F]" : "text-[#1E293B] group-hover:text-[#22499F]"
                             }`}
                           >
                             <HighlightMatch
@@ -449,7 +449,7 @@ function SearchBar() {
 
                           {categoryName && (
                             <div className="mt-1 flex items-center">
-                              <span className="rounded-md bg-[#132B45] px-2 py-0.5 text-[11px] font-extrabold text-[#42D6E8] border border-[#1E3E63]/80 tracking-wide">
+                              <span className="rounded-md bg-[#FFFFFF] px-2 py-0.5 text-[11px] font-extrabold text-[#22499F] border border-[#E2E8F0]/80 tracking-wide">
                                 {categoryName}
                               </span>
                             </div>
@@ -459,14 +459,14 @@ function SearchBar() {
 
                       {/* Price & Navigation Indicator */}
                       <div className="flex flex-col items-end shrink-0 pl-2">
-                        <span className="text-[14px] sm:text-[15px] font-black text-white tabular-nums tracking-tight">
+                        <span className="text-[14px] sm:text-[15px] font-black text-[#1E293B] tabular-nums tracking-tight">
                           ₹{product.price}
                         </span>
                         <div
                           className={`mt-1.5 flex h-6.5 w-6.5 items-center justify-center rounded-full transition-colors ${
                             isSelected
-                              ? "bg-[#42D6E8] text-[#061220]"
-                              : "bg-[#132B45] text-[#42D6E8] group-hover:bg-[#42D6E8] group-hover:text-[#061220]"
+                              ? "bg-[#22499F] text-[#FFFFFF]"
+                              : "bg-[#FFFFFF] text-[#22499F] group-hover:bg-[#22499F] group-hover:text-[#FFFFFF]"
                           }`}
                           aria-hidden="true"
                         >
@@ -482,7 +482,7 @@ function SearchBar() {
               <button
                 type="button"
                 onClick={openFullResults}
-                className="w-full border-t border-[#1E3252] bg-[#0E1A2E] px-4 py-3 text-left text-[13px] sm:text-sm font-extrabold text-[#42D6E8] hover:bg-[#162744] transition-colors flex items-center justify-between cursor-pointer"
+                className="w-full border-t border-[#E2E8F0] bg-[#FFFFFF] px-4 py-3 text-left text-[13px] sm:text-sm font-extrabold text-[#22499F] hover:bg-[#FFFFFF] transition-colors flex items-center justify-between cursor-pointer"
               >
                 <span>View all {totalResults} results for “{query.trim()}”</span>
                 <ChevronRight size={15} strokeWidth={2.5} className="shrink-0" />
@@ -491,11 +491,11 @@ function SearchBar() {
           ) : (
             /* Empty State */
             <div className="flex flex-col items-center justify-center p-6 text-center">
-              <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-[#162744] text-[#8FA4BE]">
+              <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-[#FFFFFF] text-[#64748B]">
                 <Search size={18} />
               </div>
-              <p className="text-xs sm:text-sm font-bold text-white">No products found</p>
-              <p className="text-[11px] text-[#8FA4BE] mt-0.5">
+              <p className="text-xs sm:text-sm font-bold text-[#1E293B]">No products found</p>
+              <p className="text-[11px] text-[#64748B] mt-0.5">
                 Try searching with a different keyword
               </p>
             </div>

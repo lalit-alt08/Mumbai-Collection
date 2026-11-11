@@ -48,6 +48,8 @@ export function generateUUID() {
   return `ord_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
+const idempStorageKey = (userId) => (userId ? `${CHECKOUT_IDEMP_STORAGE_KEY}_${String(userId)}` : CHECKOUT_IDEMP_STORAGE_KEY);
+
 /**
  * Returns the existing persisted idempotency key if the cart fingerprint matches.
  * If the cart has changed, or no key exists, generates and persists a new one.
@@ -56,21 +58,37 @@ export function generateUUID() {
  * Razorpay redirect-based payment flows (netbanking, UPI) that cause full page navigations.
  * The key resets whenever the cart fingerprint changes or the order completes successfully.
  */
-export function getOrCreateCheckoutIdempotencyKey(cart) {
+export function getOrCreateCheckoutIdempotencyKey(cart, userId = null) {
   const fingerprint = computeCartFingerprint(cart);
-  const stored = safeStorage.getJSON(CHECKOUT_IDEMP_STORAGE_KEY, null);
+  const keyName = idempStorageKey(userId);
+  const stored = safeStorage.getJSON(keyName, null);
   if (stored && stored.fingerprint === fingerprint && stored.key) {
     return stored.key;
   }
   const newKey = generateUUID();
-  safeStorage.setJSON(CHECKOUT_IDEMP_STORAGE_KEY, { fingerprint, key: newKey });
+  safeStorage.setJSON(keyName, { fingerprint, key: newKey });
   return newKey;
+}
+
+/**
+ * Retires the current checkout idempotency key upon confirmed cancellation or quote change.
+ * Ensures any subsequent attempt begins under a fresh idempotency key.
+ */
+export function retireCheckoutIdempotencyKey(userId = null) {
+  if (userId) {
+    safeStorage.removeItem(idempStorageKey(userId));
+  }
+  safeStorage.removeItem(CHECKOUT_IDEMP_STORAGE_KEY);
+  return generateUUID();
 }
 
 /**
  * Clears the persisted idempotency key upon successful order completion.
  */
-export function clearCheckoutIdempotencyKey() {
+export function clearCheckoutIdempotencyKey(userId = null) {
+  if (userId) {
+    safeStorage.removeItem(idempStorageKey(userId));
+  }
   safeStorage.removeItem(CHECKOUT_IDEMP_STORAGE_KEY);
 }
 

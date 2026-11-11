@@ -527,59 +527,59 @@ function Category() {
       {[1, 2, 3, 4, 5, 6].map((n) => (
         <div
           key={n}
-          className="h-72 rounded-[20px] bg-[#111F36] p-3.5 shadow-xs border border-[#1E3252]/60 animate-pulse"
+          className="h-72 rounded-[20px] bg-[#FFFFFF] p-3.5 shadow-xs border border-[#E2E8F0]/60 animate-pulse"
         >
-          <div className="aspect-square w-full rounded-[14px] bg-[#080F1C] mb-3" />
-          <div className="h-4 w-3/4 bg-[#162744] rounded mb-2" />
-          <div className="h-4 w-1/2 bg-[#162744] rounded" />
+          <div className="aspect-square w-full rounded-[14px] bg-[#F0F8E8] mb-3" />
+          <div className="h-4 w-3/4 bg-[#FFFFFF] rounded mb-2" />
+          <div className="h-4 w-1/2 bg-[#FFFFFF] rounded" />
         </div>
       ))}
     </div>
   ) : loadError ? (
-    <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] border border-rose-400/30 bg-[#111F36] p-8 text-center">
-      <h3 className="text-base font-bold text-white">Products couldn’t be loaded</h3>
-      <p role="alert" className="mt-2 mb-5 text-xs text-[#8FA4BE]">{loadError}</p>
+    <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] border border-rose-400/30 bg-[#FFFFFF] p-8 text-center">
+      <h3 className="text-base font-bold text-[#1E293B]">Products couldn’t be loaded</h3>
+      <p role="alert" className="mt-2 mb-5 text-xs text-[#64748B]">{loadError}</p>
       <button
         type="button"
         onClick={() => setProductRetryCount((count) => count + 1)}
-        className="rounded-full bg-[#42D6E8] px-5 py-2 text-xs font-bold text-[#061220] hover:bg-[#2CC4D8]"
+        className="rounded-full bg-[#22499F] px-5 py-2 text-xs font-bold text-[#FFFFFF] hover:bg-[#1B3B82]"
       >
         Retry
       </button>
     </div>
   ) : products.length === 0 && priceFilter === "all" && !inStockOnly ? (
-    <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] bg-[#111F36] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#1E3252]">
-      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#132B45] text-[#42D6E8]">
+    <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-[24px] bg-[#FFFFFF] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#E2E8F0]">
+      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#FFFFFF] text-[#22499F]">
         <ShoppingBag size={24} />
       </div>
-      <h3 className="text-base font-bold text-white">No products found</h3>
-      <p className="text-xs text-[#8FA4BE] mt-1 mb-5">
+      <h3 className="text-base font-bold text-[#1E293B]">No products found</h3>
+      <p className="text-xs text-[#64748B] mt-1 mb-5">
         Check back soon for new arrivals in this department.
       </p>
       <button
         onClick={() => navigate("/categories")}
-        className="rounded-full bg-[#42D6E8] px-5 py-2 text-xs font-bold text-[#061220] shadow-xs hover:bg-[#2CC4D8] transition active:scale-95 cursor-pointer"
+        className="rounded-full bg-[#22499F] px-5 py-2 text-xs font-bold text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] transition active:scale-95 cursor-pointer"
       >
         Browse Other Categories
       </button>
     </div>
   ) : filteredProducts.length === 0 ? (
-    <div className="flex min-h-[35vh] flex-col items-center justify-center rounded-[24px] bg-[#111F36] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#1E3252]">
-      <div className="mb-3 flex h-13 w-13 items-center justify-center rounded-full bg-[#132B45] text-[#42D6E8]">
+    <div className="flex min-h-[35vh] flex-col items-center justify-center rounded-[24px] bg-[#FFFFFF] p-8 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] border border-[#E2E8F0]">
+      <div className="mb-3 flex h-13 w-13 items-center justify-center rounded-full bg-[#FFFFFF] text-[#22499F]">
         <SlidersHorizontal size={22} strokeWidth={2.4} />
       </div>
-      <h3 className="text-base font-bold text-white">No matching products</h3>
-      <p className="text-xs text-[#8FA4BE] mt-1 mb-5">
+      <h3 className="text-base font-bold text-[#1E293B]">No matching products</h3>
+      <p className="text-xs text-[#64748B] mt-1 mb-5">
         No products in this category match your selected filter criteria.
       </p>
       <button
         type="button"
         onClick={handleResetFilters}
-        className="rounded-full bg-[#42D6E8] px-5 py-2 text-xs font-bold text-[#061220] shadow-xs hover:bg-[#2CC4D8] transition active:scale-95 cursor-pointer"
+        className="rounded-full bg-[#22499F] px-5 py-2 text-xs font-bold text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] transition active:scale-95 cursor-pointer"
       >
         Reset All Filters
       </button>
-      {recommendations.length > 0 && <div className="w-full mt-6"><h3 className="text-white font-bold mb-3">Similar products</h3><div className="grid grid-cols-2 gap-2">{recommendations.map((product) => <ProductCard key={product.id} product={product} />)}</div></div>}
+      {recommendations.length > 0 && <div className="w-full mt-6"><h3 className="text-[#1E293B] font-bold mb-3">Similar products</h3><div className="grid grid-cols-2 gap-2">{recommendations.map((product) => <ProductCard key={product.id} product={product} />)}</div></div>}
     </div>
   ) : (
     <>
@@ -594,17 +594,17 @@ function Category() {
           <button
             onClick={handleLoadMore}
             disabled={loadingMore}
-            className="w-full max-w-sm flex items-center justify-center gap-2 rounded-2xl bg-[#132238] hover:bg-[#182C4A] border border-[#1F365A] py-3.5 px-6 text-xs sm:text-sm font-bold text-[#E2E8F0] shadow-sm transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full max-w-sm flex items-center justify-center gap-2 rounded-2xl bg-[#FFFFFF] hover:bg-[#F0F8E8] border border-[#E2E8F0] py-3.5 px-6 text-sm font-bold text-[#22499F] shadow-sm transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
             {loadingMore ? (
               <>
-                <Loader2 size={16} className="animate-spin text-[#42D6E8]" />
+                <Loader2 size={16} className="animate-spin text-[#22499F]" />
                 <span>Loading products...</span>
               </>
             ) : (
               <>
                 <span>See all products</span>
-                <ChevronRight size={16} strokeWidth={2.4} className="text-[#8FA4BE]" />
+                <ChevronRight size={16} strokeWidth={2.4} className="text-[#22499F]" />
               </>
             )}
           </button>
@@ -616,17 +616,17 @@ function Category() {
   );
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-var(--safe-area-top,env(safe-area-inset-top,0px)))] max-h-[calc(100dvh-var(--safe-area-top,env(safe-area-inset-top,0px)))] bg-[#0B1425] text-white overflow-hidden">
+    <div className="flex flex-col h-[calc(100dvh-var(--safe-area-top,env(safe-area-inset-top,0px)))] max-h-[calc(100dvh-var(--safe-area-top,env(safe-area-inset-top,0px)))] bg-[#F0F8E8] text-[#1E293B] overflow-hidden">
       {/* ────────────────────────────────────────────────────────── */}
       {/* FIXED TOP BAR / NAVIGATION (Exact Blinkit-style)            */}
       {/* ────────────────────────────────────────────────────────── */}
-      <header className="shrink-0 z-30 bg-[#0B1425] px-2.5 sm:px-4 py-2 sm:py-2.5">
+      <header className="shrink-0 z-30 bg-[#F0F8E8] px-2.5 sm:px-4 py-2 sm:py-2.5">
         <div className="mx-auto max-w-7xl flex items-center justify-between gap-2 sm:gap-2.5">
           {/* Left: Circular Back Button */}
           <button
             onClick={handleBack}
             aria-label="Back"
-            className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+            className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#1E293B] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#FFFFFF] hover:border-white/20 active:scale-95 cursor-pointer"
           >
             <ChevronLeft size={22} strokeWidth={2.5} />
           </button>
@@ -635,16 +635,16 @@ function Category() {
           <button
             onClick={() => setShowAddressModal(true)}
             aria-label="View complete delivery address"
-            className="flex-1 min-w-0 flex flex-col justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-4 sm:px-5 py-1.5 sm:py-2 min-h-[46px] sm:min-h-[48px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-[0.99] text-left cursor-pointer"
+            className="flex-1 min-w-0 flex flex-col justify-center rounded-full bg-[#FFFFFF]/95 backdrop-blur-md border border-white/12 px-4 sm:px-5 py-1.5 sm:py-2 min-h-[46px] sm:min-h-[48px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)] transition-all hover:bg-[#FFFFFF] hover:border-white/20 active:scale-[0.99] text-left cursor-pointer"
           >
-            <span className="text-[17px] sm:text-[18px] font-bold text-white truncate leading-tight tracking-[0.01em] antialiased">
+            <span className="text-[17px] sm:text-[18px] font-bold text-[#1E293B] truncate leading-tight tracking-[0.01em] antialiased">
               {departmentName}
             </span>
             <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
-              <span className="text-[12px] sm:text-[12.5px] font-semibold text-[#42D6E8] truncate leading-tight">
+              <span className="text-[12px] sm:text-[12.5px] font-semibold text-[#22499F] truncate leading-tight">
                 {deliveryLocationText}
               </span>
-              <ChevronDown size={13} strokeWidth={2.6} className="text-[#42D6E8] shrink-0" />
+              <ChevronDown size={13} strokeWidth={2.6} className="text-[#22499F] shrink-0" />
             </div>
           </button>
 
@@ -653,7 +653,7 @@ function Category() {
             onClick={handleShare}
             aria-label="Share category"
             title={copiedShare ? "Link copied!" : "Share"}
-            className="relative flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+            className="relative flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#1E293B] border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#FFFFFF] hover:border-white/20 active:scale-95 cursor-pointer"
           >
             <Share size={18} strokeWidth={2.2} />
             {copiedShare && (
@@ -678,23 +678,23 @@ function Category() {
           onClick={() => setShowAddressModal(false)}
         >
           <div
-            className="w-full max-w-md rounded-t-[28px] sm:rounded-3xl bg-[#0F1C31] border border-[#1E365A] p-5 sm:p-6 text-white shadow-2xl relative animate-in slide-in-from-bottom-4 duration-200"
+            className="w-full max-w-md rounded-t-[28px] sm:rounded-3xl bg-[#FFFFFF] border border-[#E2E8F0] p-5 sm:p-6 text-[#1E293B] shadow-2xl relative animate-in slide-in-from-bottom-4 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Mobile Drag Pill */}
             <div className="mx-auto mb-3.5 h-1.5 w-10 rounded-full bg-white/20 sm:hidden" />
 
             {/* Header */}
-            <div className="flex items-center justify-between pb-3.5 border-b border-[#1A2E4C]">
+            <div className="flex items-center justify-between pb-3.5 border-b border-[#FFFFFF]">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#42D6E8]/15 text-[#42D6E8] border border-[#42D6E8]/30">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#22499F]/15 text-[#22499F] border border-[#22499F]/30">
                   <MapPin size={18} strokeWidth={2.4} />
                 </div>
                 <div>
-                  <h3 id="delivery-info-title" className="text-base font-bold text-white leading-tight">
+                  <h3 id="delivery-info-title" className="text-base font-bold text-[#1E293B] leading-tight">
                     Delivery Address
                   </h3>
-                  <p className="text-[11px] text-[#8FA4BE] mt-0.5">
+                  <p className="text-[11px] text-[#64748B] mt-0.5">
                     Order destination details
                   </p>
                 </div>
@@ -703,7 +703,7 @@ function Category() {
                 type="button"
                 onClick={() => setShowAddressModal(false)}
                 aria-label="Close"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/80 hover:bg-white/20 hover:text-white transition active:scale-95 cursor-pointer"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F0F8E8] text-[#1E293B] hover:bg-[#FFFFFF] hover:text-[#22499F] transition active:scale-95 cursor-pointer"
               >
                 <X size={16} strokeWidth={2.4} />
               </button>
@@ -712,10 +712,10 @@ function Category() {
             {/* Address Details Body */}
             <div className="mt-4 space-y-3">
               {activeAddress ? (
-                <div className="rounded-2xl bg-[#091322] border border-[#1A3154] p-4">
+                <div className="rounded-2xl bg-[#F0F8E8] border border-[#FFFFFF] p-4">
                   {/* Tag & Recipient Name */}
                   <div className="flex items-center justify-between gap-2 mb-2.5">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-[#42D6E8]/15 text-[#42D6E8] border border-[#42D6E8]/30">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-[#22499F]/15 text-[#22499F] border border-[#22499F]/30">
                       {activeAddress.type?.toLowerCase() === "office" ? (
                         <Building2 size={12} strokeWidth={2.4} />
                       ) : (
@@ -732,7 +732,7 @@ function Category() {
 
                   {/* Complete Address Lines */}
                   <div className="text-xs sm:text-[13px] text-[#CBD5E1] space-y-1">
-                    <p className="font-semibold text-white text-sm">
+                    <p className="font-semibold text-[#1E293B] text-sm">
                       {activeAddress.address_line1}
                     </p>
                     {activeAddress.address_line2 && (
@@ -747,20 +747,20 @@ function Category() {
 
                   {/* Phone */}
                   {activeAddress.phone && (
-                    <div className="mt-3 pt-2.5 border-t border-[#162744] flex items-center gap-2 text-xs text-[#8FA4BE]">
-                      <Phone size={13} className="text-[#42D6E8] shrink-0" />
-                      <span>Contact: <span className="text-white font-medium">{activeAddress.phone}</span></span>
+                    <div className="mt-3 pt-2.5 border-t border-[#FFFFFF] flex items-center gap-2 text-xs text-[#64748B]">
+                      <Phone size={13} className="text-[#22499F] shrink-0" />
+                      <span>Contact: <span className="text-[#1E293B] font-medium">{activeAddress.phone}</span></span>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="rounded-2xl bg-[#091322] border border-[#1A3154] p-4 space-y-2">
+                <div className="rounded-2xl bg-[#F0F8E8] border border-[#FFFFFF] p-4 space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-[#42D6E8]/15 text-[#42D6E8] border border-[#42D6E8]/30">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-[#22499F]/15 text-[#22499F] border border-[#22499F]/30">
                       <Home size={12} strokeWidth={2.4} /> Home
                     </span>
                   </div>
-                  <p className="text-sm font-semibold text-white">Mumbai, Maharashtra</p>
+                  <p className="text-sm font-semibold text-[#1E293B]">Mumbai, Maharashtra</p>
                   <p className="text-xs text-[#94A3B8] leading-relaxed">
                     Active delivery region: Delivering toys, stationery, games & gifts across Mumbai with fast standard & express dispatch.
                   </p>
@@ -770,7 +770,7 @@ function Category() {
               {/* If user has multiple saved addresses (Home & Office), allow selecting between them in-place */}
               {savedAddresses.length > 1 && (
                 <div className="pt-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8FA4BE] mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B] mb-2">
                     Switch Saved Address
                   </p>
                   <div className="grid grid-cols-2 gap-2">
@@ -786,14 +786,14 @@ function Category() {
                           }}
                           className={`flex items-center gap-2 rounded-xl p-2.5 text-left border text-xs transition cursor-pointer ${
                             isSelected
-                              ? "bg-[#10233D] border-[#42D6E8] text-white shadow-xs"
-                              : "bg-[#091424] border-[#182C4A] text-[#8FA4BE] hover:text-white"
+                              ? "bg-[#E2E8F0] border-[#22499F] text-[#1E293B] shadow-xs"
+                              : "bg-[#E2E8F0] border-[#FFFFFF] text-[#64748B] hover:text-white"
                           }`}
                         >
                           {addr.type?.toLowerCase() === "office" ? (
-                            <Building2 size={14} className={isSelected ? "text-[#42D6E8]" : "text-[#8FA4BE]"} />
+                            <Building2 size={14} className={isSelected ? "text-[#22499F]" : "text-[#64748B]"} />
                           ) : (
-                            <Home size={14} className={isSelected ? "text-[#42D6E8]" : "text-[#8FA4BE]"} />
+                            <Home size={14} className={isSelected ? "text-[#22499F]" : "text-[#64748B]"} />
                           )}
                           <span className="truncate font-semibold capitalize">
                             {addr.type || "Address"}
@@ -846,7 +846,7 @@ function Category() {
           <div
             ref={subcategoryRailRef}
             aria-label={`${departmentName} subcategories`}
-            className={`shrink-0 w-full overflow-x-auto overscroll-contain border-b border-x border-[#162744]/80 bg-[#0B1425] rounded-b-2xl sm:rounded-b-3xl px-3 sm:px-4 shadow-md [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] touch-pan-x select-none transition-all duration-300 ease-in-out ${
+            className={`shrink-0 w-full overflow-x-auto overscroll-contain border border-[#E2E8F0] bg-[#F0F8E8] rounded-2xl sm:rounded-3xl px-3 sm:px-4 shadow-md [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] touch-pan-x select-none transition-all duration-300 ease-in-out ${
               isSubcategoryBarVisible
                 ? "max-h-28 opacity-100 pt-2 pb-2.5 translate-y-0"
                 : "max-h-0 opacity-0 py-0 -translate-y-2 pointer-events-none border-transparent"
@@ -862,8 +862,8 @@ function Category() {
               >
                 <span className={`flex h-12 w-12 sm:h-13 sm:w-13 items-center justify-center overflow-hidden rounded-full border p-1 transition-all ${
                   activeSubcategoryId === null
-                    ? "border-2 border-[#42D6E8] bg-[#122238] shadow-[0_0_12px_rgba(66,214,232,0.25)] scale-105"
-                    : "border border-[#1A2E4C] bg-[#0E1B2E] group-hover:border-[#2B4772]"
+                    ? "border-2 border-[#22499F] bg-[#FFFFFF] shadow-[0_0_12px_rgba(66,214,232,0.25)] scale-105"
+                    : "border border-[#E2E8F0] bg-[#FFFFFF] group-hover:border-[#22499F]/50"
                 }`}>
                   <img
                     src={getCategoryImageUrl(currentCategoryInfo.department)}
@@ -877,13 +877,13 @@ function Category() {
                 </span>
 
                 <span className={`w-full line-clamp-2 text-[11px] sm:text-[11.5px] leading-tight mt-1.5 ${
-                  activeSubcategoryId === null ? "font-black text-[#42D6E8]" : "font-semibold text-[#8FA4BE] group-hover:text-white"
+                  activeSubcategoryId === null ? "font-black text-[#22499F]" : "font-semibold text-[#64748B] group-hover:text-white"
                 }`}>
                   All
                 </span>
 
                 {activeSubcategoryId === null && (
-                  <span className="w-5 h-[2px] rounded-full bg-[#42D6E8] mt-1 shadow-[0_0_6px_rgba(66,214,232,0.6)]" />
+                  <span className="w-5 h-[2px] rounded-full bg-[#22499F] mt-1 shadow-[0_0_6px_rgba(66,214,232,0.6)]" />
                 )}
               </button>
 
@@ -903,8 +903,8 @@ function Category() {
                   >
                     <span className={`flex h-12 w-12 sm:h-13 sm:w-13 items-center justify-center overflow-hidden rounded-full border p-1 transition-all ${
                       isSelected
-                        ? "border-2 border-[#42D6E8] bg-[#122238] shadow-[0_0_12px_rgba(66,214,232,0.25)] scale-105"
-                        : "border border-[#1A2E4C] bg-[#0E1B2E] group-hover:border-[#2B4772]"
+                        ? "border-2 border-[#22499F] bg-[#FFFFFF] shadow-[0_0_12px_rgba(66,214,232,0.25)] scale-105"
+                        : "border border-[#E2E8F0] bg-[#FFFFFF] group-hover:border-[#22499F]/50"
                     }`}>
                       <img
                         src={getCategoryImageUrl(sub)}
@@ -926,13 +926,13 @@ function Category() {
                     </span>
 
                     <span className={`w-full line-clamp-2 text-[11px] sm:text-[11.5px] leading-tight mt-1.5 ${
-                      isSelected ? "font-black text-[#42D6E8]" : "font-semibold text-[#8FA4BE] group-hover:text-white"
+                      isSelected ? "font-black text-[#22499F]" : "font-semibold text-[#64748B] group-hover:text-white"
                     }`}>
                       {subName}
                     </span>
 
                     {isSelected && (
-                      <span className="w-5 h-[2px] rounded-full bg-[#42D6E8] mt-1 shadow-[0_0_6px_rgba(66,214,232,0.6)]" />
+                      <span className="w-5 h-[2px] rounded-full bg-[#22499F] mt-1 shadow-[0_0_6px_rgba(66,214,232,0.6)]" />
                     )}
                   </button>
                 );

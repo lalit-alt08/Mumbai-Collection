@@ -105,17 +105,17 @@ function Login() {
   };
 
   return (
-    <div className="bg-[#0B1425] font-sans md:flex md:min-h-[calc(100vh-80px)] md:items-center md:justify-center md:py-8 lg:py-12">
+    <div className="bg-[#F0F8E8] font-sans md:flex md:min-h-[calc(100vh-80px)] md:items-center md:justify-center md:py-8 lg:py-12">
       {/* Login Form Container */}
-      <div className="mx-auto my-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[460px] md:rounded-[24px] md:bg-[#111F36] md:border md:border-[#1E3252]/80 md:px-8 md:py-8 md:shadow-2xl">
+      <div className="mx-auto my-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[460px] md:rounded-[24px] md:bg-[#FFFFFF] md:border md:border-[#E2E8F0]/80 md:px-8 md:py-8 md:shadow-2xl">
         <div className="w-full">
           {/* Header */}
           <div className="mb-6 md:mb-5">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-[#F1F5F9] md:text-[30px]">
+            <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E293B] md:text-[30px]">
               Sign In
             </h1>
 
-            <p className="mt-2 text-[15px] text-[#8FA4BE] md:text-[15px]">
+            <p className="mt-2 text-[15px] text-[#64748B] md:text-[15px]">
               Please enter your details to access your account.
             </p>
           </div>
@@ -123,12 +123,12 @@ function Login() {
           <form onSubmit={handleLogin} className="flex flex-col gap-5 md:gap-4">
             {/* Email Field */}
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
+              <label className="mb-2 block text-[13px] font-bold text-[#64748B]">
                 Email Address
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#6E84A3]">
+                <div className="absolute left-4 text-[#64748B]">
                   <Mail size={20} strokeWidth={2} />
                 </div>
 
@@ -142,7 +142,7 @@ function Login() {
                     setEmailError("");
                     setError("");
                   }}
-                  className="h-[56px] md:h-[50px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-4 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
+                  className="h-[56px] md:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] pl-12 pr-4 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:border-[#22499F] focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15"
                   required
                 />
               </div>
@@ -154,12 +154,12 @@ function Login() {
 
             {/* Password Field */}
             <div>
-              <label className="mb-2 block text-[13px] font-bold text-[#8FA4BE]">
+              <label className="mb-2 block text-[13px] font-bold text-[#64748B]">
                 Password
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#6E84A3]">
+                <div className="absolute left-4 text-[#64748B]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -173,14 +173,14 @@ function Login() {
                     setPasswordError("");
                     setError("");
                   }}
-                  className="h-[56px] md:h-[50px] w-full rounded-2xl border border-[#1E3252] bg-[#080F1C] pl-12 pr-12 text-[15px] text-[#F1F5F9] placeholder-[#6E84A3] outline-none transition-all focus:border-[#42D6E8] focus:bg-[#080F1C] focus:ring-4 focus:ring-[#42D6E8]/15"
+                  className="h-[56px] md:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] pl-12 pr-12 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:border-[#22499F] focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15"
                   required
                 />
 
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 text-[#6E84A3] transition-colors hover:text-[#42D6E8] cursor-pointer"
+                  className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
@@ -194,7 +194,7 @@ function Login() {
                 <button
                   type="button"
                   onClick={() => navigate("/forgot-password")}
-                  className="text-[13px] font-semibold text-[#42D6E8] hover:underline cursor-pointer"
+                  className="text-[13px] font-semibold text-[#22499F] hover:underline cursor-pointer"
                 >
                   Forgot password?
                 </button>
@@ -212,7 +212,7 @@ function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-1 md:mt-2 flex h-[56px] md:h-[50px] w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] text-[16px] font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
+              className="mt-1 md:mt-2 flex h-[56px] md:h-[50px] w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] text-[16px] font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Signing in..." : "Sign In"}
 
@@ -222,8 +222,8 @@ function Login() {
 
           {/* Divider */}
           <div className="relative my-5 md:my-4 flex items-center justify-center">
-            <div className="w-full border-t border-[#1E3252]/80" />
-            <span className="absolute bg-[#0B1425] md:bg-[#111F36] px-3 text-[11px] font-bold uppercase tracking-wider text-[#6E84A3]">
+            <div className="w-full border-t border-[#E2E8F0]/80" />
+            <span className="absolute bg-[#F0F8E8] md:bg-[#FFFFFF] px-3 text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
               or sign in with Google
             </span>
           </div>
@@ -237,12 +237,12 @@ function Login() {
           </div>
 
           {/* Footer */}
-          <p className="mt-6 md:mt-5 text-center text-[14px] text-[#8FA4BE]">
+          <p className="mt-6 md:mt-5 text-center text-[14px] text-[#64748B]">
             Don't have an account?
             <button
               type="button"
               onClick={() => navigate("/register", { state: { from: location.state?.from } })}
-              className="ml-1.5 font-bold text-[#42D6E8] transition-colors hover:text-[#67E8F9] cursor-pointer"
+              className="ml-1.5 font-bold text-[#22499F] transition-colors hover:text-[#22499F] cursor-pointer"
             >
               Create one now
             </button>

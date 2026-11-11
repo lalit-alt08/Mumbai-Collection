@@ -186,7 +186,7 @@ function ProductGallery({ product }) {
           type="button"
           onClick={handleBack}
           aria-label="Go back"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111F36]/95 text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#1E3252] backdrop-blur-md transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFFFFF]/95 text-[#1E293B] shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#E2E8F0] backdrop-blur-md transition-transform hover:scale-105 active:scale-95 cursor-pointer"
         >
           <ArrowLeft size={20} strokeWidth={2.5} />
         </button>
@@ -195,14 +195,14 @@ function ProductGallery({ product }) {
           <button
             onClick={handleToggleFav}
             aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111F36]/95 text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#1E3252] backdrop-blur-md transition-all hover:scale-110 active:scale-125 cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFFFFF]/95 text-[#1E293B] shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#E2E8F0] backdrop-blur-md transition-all hover:scale-110 active:scale-125 cursor-pointer"
           >
             <Heart
               size={20}
               className={`transition-all duration-300 ${
                 favorited
-                  ? "fill-[#42D6E8] text-[#42D6E8] scale-110"
-                  : "text-white hover:text-[#42D6E8]"
+                  ? "fill-[#22499F] text-[#22499F] scale-110"
+                  : "text-[#1E293B] hover:text-[#22499F]"
               }`}
             />
           </button>
@@ -211,17 +211,17 @@ function ProductGallery({ product }) {
           <button
             onClick={handleShare}
             aria-label="Share product"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111F36]/95 text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#1E3252] backdrop-blur-md transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FFFFFF]/95 text-[#1E293B] shadow-[0_4px_12px_rgba(0,0,0,0.4)] border border-[#E2E8F0] backdrop-blur-md transition-transform hover:scale-105 active:scale-95 cursor-pointer"
           >
-            {shareFeedback ? <Check size={18} className="text-[#42D6E8]" /> : <Share2 size={19} />}
+            {shareFeedback ? <Check size={18} className="text-[#22499F]" /> : <Share2 size={19} />}
           </button>
         </div>
       </div>
 
       {/* Share Toast Notification */}
       {shareFeedback && (
-        <div className="absolute top-16 right-4 z-30 flex items-center gap-1.5 rounded-xl bg-[#111F36] border border-[#1E3252] px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
-          <Check size={13} className="text-[#42D6E8]" />
+        <div className="absolute top-16 right-4 z-30 flex items-center gap-1.5 rounded-xl bg-[#FFFFFF] border border-[#E2E8F0] px-3 py-1.5 text-[11px] font-semibold text-[#1E293B] shadow-lg backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
+          <Check size={13} className="text-[#22499F]" />
           <span>{shareFeedback}</span>
         </div>
       )}
@@ -268,12 +268,12 @@ function ProductGallery({ product }) {
 
         {/* Floating Indicator Dots on Mobile */}
         {images.length > 1 && (
-          <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-[#0B1425]/75 px-2.5 py-1 backdrop-blur-xs z-10">
+          <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-[#F0F8E8]/75 px-2.5 py-1 backdrop-blur-xs z-10">
             {images.map((_, dotIdx) => (
               <span
                 key={dotIdx}
                 className={`h-1.5 rounded-full transition-all duration-300 ${
-                  safeIndex === dotIdx ? "w-4 bg-[#42D6E8]" : "w-1.5 bg-white/40"
+                  safeIndex === dotIdx ? "w-4 bg-[#22499F]" : "w-1.5 bg-white/40"
                 }`}
               />
             ))}
@@ -286,14 +286,14 @@ function ProductGallery({ product }) {
             <button
               onClick={handlePrev}
               aria-label="Previous image"
-              className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-md border border-[#1E3252] backdrop-blur-xs transition-all hover:bg-[#162744] hover:scale-110 active:scale-95 cursor-pointer"
+              className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#FFFFFF]/90 text-[#1E293B] shadow-md border border-[#E2E8F0] backdrop-blur-xs transition-all hover:bg-[#FFFFFF] hover:scale-110 active:scale-95 cursor-pointer"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               onClick={handleNext}
               aria-label="Next image"
-              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#111F36]/90 text-white shadow-md border border-[#1E3252] backdrop-blur-xs transition-all hover:bg-[#162744] hover:scale-110 active:scale-95 cursor-pointer"
+              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#FFFFFF]/90 text-[#1E293B] shadow-md border border-[#E2E8F0] backdrop-blur-xs transition-all hover:bg-[#FFFFFF] hover:scale-110 active:scale-95 cursor-pointer"
             >
               <ChevronRight size={20} />
             </button>
@@ -317,10 +317,10 @@ function ProductGallery({ product }) {
                   }
                 }}
                 aria-label={`View image ${index + 1}`}
-                className={`relative flex h-16 w-16 sm:h-18 sm:w-18 items-center justify-center rounded-xl overflow-hidden bg-[#080F1C] p-1 transition-all duration-300 cursor-pointer ${
+                className={`relative flex h-16 w-16 sm:h-18 sm:w-18 items-center justify-center rounded-xl overflow-hidden bg-[#F0F8E8] p-1 transition-all duration-300 cursor-pointer ${
                   isSelected
-                    ? "border-2 border-[#42D6E8] ring-2 ring-[#42D6E8]/25 shadow-xs scale-105"
-                    : "border border-[#1E3252] opacity-60 hover:opacity-100 hover:border-[#42D6E8]/60"
+                    ? "border-2 border-[#22499F] ring-2 ring-[#22499F]/25 shadow-xs scale-105"
+                    : "border border-[#E2E8F0] opacity-60 hover:opacity-100 hover:border-[#22499F]/60"
                 }`}
               >
                 <img

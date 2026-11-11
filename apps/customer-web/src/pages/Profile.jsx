@@ -13,6 +13,7 @@ import {
   Check,
   Loader2,
   ArrowLeft,
+  ChevronLeft,
   AlertCircle,
   AlertTriangle,
   Trash2,
@@ -21,6 +22,7 @@ import {
 import axios from "axios";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
+import { triggerHaptic } from '../utils/haptics';
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import { sendPasswordResetOtp, verifyPasswordResetOtp } from "../services/authService.js";
 
@@ -587,7 +589,7 @@ function Profile() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#1E3252] border-t-[#42D6E8]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#22499F]" />
       </div>
     );
   }
@@ -620,13 +622,15 @@ function Profile() {
       .toUpperCase() || "U";
 
   return (
-    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 py-4 sm:px-5 sm:py-6 pb-24 sm:pb-16">
+    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 py-4 sm:px-5 sm:py-6 pb-24 sm:pb-16">
       <div className="mx-auto max-w-xl">
 
-        {/* HEADER */}
-        <div className="mb-4 flex items-center gap-3">
+                {/* HEADER (Pill Design) */}
+        <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2.5 sm:gap-3">
+          {/* Left: Circular Back Button */}
           <button
             onClick={() => {
+              triggerHaptic("light");
               if (window.history.state && window.history.state.idx > 0) {
                 navigate(-1);
               } else {
@@ -634,23 +638,25 @@ function Profile() {
               }
             }}
             aria-label="Back to Account"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#111F36] text-[#F1F5F9] shadow-xs border border-[#1E3252] transition hover:bg-[#42D6E8] hover:text-[#061220] hover:border-[#42D6E8] cursor-pointer active:scale-95"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#1E293B] border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.06)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 hover:text-[#22499F] active:scale-95 cursor-pointer"
           >
-            <ArrowLeft size={17} />
+            <ChevronLeft size={23} strokeWidth={2.5} />
           </button>
-          <div>
-            <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl">
+
+          {/* Center: Capsule utilizing available space with clear typography */}
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#FFFFFF]/95 backdrop-blur-md border border-[#E2E8F0] px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.06)]">
+            <h1 className="text-[19px] sm:text-[20px] font-extrabold text-[#1E293B] tracking-[-0.01em] leading-normal antialiased select-none">
               My Profile
             </h1>
-            <p className="text-xs text-[#8FA4BE] font-medium">
-              Manage your personal information
-            </p>
           </div>
+
+          {/* Right Spacer for optical balance */}
+          <div className="w-12 sm:w-[52px] shrink-0" aria-hidden="true" />
         </div>
 
-        {/* SUCCESS */}
+{/* SUCCESS */}
         {success && (
-          <div className="mb-4 rounded-xl border border-emerald-500 bg-[#132B45] p-3 text-xs font-semibold text-emerald-300">
+          <div className="mb-4 rounded-xl border border-emerald-500 bg-[#FFFFFF] p-3 text-xs font-semibold text-emerald-300">
             {success}
           </div>
         )}
@@ -663,19 +669,19 @@ function Profile() {
         )}
 
         {/* UNIFIED PROFILE CARD */}
-        <div className="overflow-hidden rounded-[22px] border border-[#1E3252]/80 bg-[#111F36] shadow-lg">
+        <div className="overflow-hidden rounded-[22px] border border-[#E2E8F0]/80 bg-[#FFFFFF] shadow-lg">
 
           {/* PROFILE HERO HEADER */}
-          <div className="flex items-center justify-between gap-3.5 p-4 sm:p-5 border-b border-[#1E3252]/60">
+          <div className="flex items-center justify-between gap-3.5 p-4 sm:p-5 border-b border-[#E2E8F0]/60">
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="flex h-13 w-13 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#42D6E8] to-[#2CC4D8] text-[#061220] font-black text-lg sm:text-xl shadow-sm ring-1 ring-[#1E3252]">
+              <div className="account-avatar flex h-13 w-13 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#22499F] to-[#1B3B82] text-[#FFFFFF] font-black text-lg sm:text-xl shadow-sm ring-1 ring-[#E2E8F0]">
                 {avatarInitials}
               </div>
               <div className="min-w-0">
-                <h2 className="text-lg sm:text-xl font-extrabold text-[#F1F5F9] truncate">
+                <h2 className="text-lg sm:text-xl font-extrabold text-[#1E293B] truncate">
                   {displayName}
                 </h2>
-                <p className="text-xs sm:text-sm text-[#8FA4BE] truncate mt-0.5">
+                <p className="text-xs sm:text-sm text-[#64748B] truncate mt-0.5">
                   {editing ? "Editing Information" : "Personal Information"}
                 </p>
               </div>
@@ -685,7 +691,7 @@ function Profile() {
               <button
                 type="button"
                 onClick={handleEdit}
-                className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#132B45] border border-[#1E3252] px-4 py-2 text-xs sm:text-sm font-bold text-[#67E8F9] shadow-xs transition hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95 cursor-pointer"
+                className="account-edit flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-4 py-2 text-xs sm:text-sm font-bold text-[#22499F] shadow-xs transition hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 cursor-pointer"
               >
                 <Pencil size={14} />
                 <span>Edit</span>
@@ -702,13 +708,13 @@ function Profile() {
               {/* FIRST NAME & LAST NAME */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.first_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    First Name <span className={fieldErrors.first_name ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
+                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.first_name ? "text-rose-400" : "text-[#64748B]"}`}>
+                    First Name <span className={fieldErrors.first_name ? "text-rose-400" : "text-[#22499F]"}>*</span>
                   </label>
                   <div className="relative">
                     <User
                       size={15}
-                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.first_name ? "text-rose-400" : "text-[#6E84A3]"}`}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.first_name ? "text-rose-400" : "text-[#64748B]"}`}
                     />
                     <input
                       type="text"
@@ -718,10 +724,10 @@ function Profile() {
                       autoComplete="given-name"
                       placeholder="e.g. Rahul"
                       required
-                      className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#1E293B] outline-none transition ${
                         fieldErrors.first_name
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                   </div>
@@ -734,13 +740,13 @@ function Profile() {
                 </div>
 
                 <div>
-                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.last_name ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    Last Name <span className={fieldErrors.last_name ? "text-rose-400" : "text-[#42D6E8]"}>*</span>
+                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.last_name ? "text-rose-400" : "text-[#64748B]"}`}>
+                    Last Name <span className={fieldErrors.last_name ? "text-rose-400" : "text-[#22499F]"}>*</span>
                   </label>
                   <div className="relative">
                     <User
                       size={15}
-                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.last_name ? "text-rose-400" : "text-[#6E84A3]"}`}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.last_name ? "text-rose-400" : "text-[#64748B]"}`}
                     />
                     <input
                       type="text"
@@ -750,10 +756,10 @@ function Profile() {
                       autoComplete="family-name"
                       placeholder="e.g. Sharma"
                       required
-                      className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#1E293B] outline-none transition ${
                         fieldErrors.last_name
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
-                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                   </div>
@@ -768,11 +774,11 @@ function Profile() {
 
               {/* PRIMARY PHONE */}
               <div>
-                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
                   Primary Mobile
                 </label>
                 <div className="relative flex items-center">
-                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#6E84A3]"}`}>
+                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
                     +91
                   </span>
                   <input
@@ -798,8 +804,8 @@ function Profile() {
                     disabled={saving}
                     className={`h-11 w-full rounded-xl border pl-11 pr-3.5 outline-none transition font-semibold text-sm ${
                       fieldErrors.phone
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#F1F5F9]"
-                        : "border-[#1E3252] bg-[#080F1C] text-[#F1F5F9] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#1E293B]"
+                        : "border-[#E2E8F0] bg-[#F0F8E8] text-[#1E293B] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                     }`}
                   />
                 </div>
@@ -809,7 +815,7 @@ function Profile() {
                     <span>{fieldErrors.phone}</span>
                   </p>
                 ) : phoneAvailability !== "idle" ? (
-                  <p role="status" aria-live="polite" className={`mt-1 flex items-center gap-1 text-[11px] ${phoneAvailability === "taken" ? "text-rose-400" : "text-[#8FA4BE]"}`}>
+                  <p role="status" aria-live="polite" className={`mt-1 flex items-center gap-1 text-[11px] ${phoneAvailability === "taken" ? "text-rose-400" : "text-[#64748B]"}`}>
                     {phoneAvailability === "checking" && <Loader2 size={12} className="animate-spin" />}
                     {phoneAvailability === "checking" ? "Checking availability…" : phoneAvailability === "available" ? "Number available" : phoneAvailability === "taken" ? "This number is already registered to another account." : "Couldn’t check availability. We’ll check when you save."}
                   </p>
@@ -818,22 +824,22 @@ function Profile() {
 
               {/* EMAIL */}
               <div>
-                <label className="mb-1.5 block text-xs font-bold text-[#8FA4BE]">
+                <label className="mb-1.5 block text-xs font-bold text-[#64748B]">
                   Email
                 </label>
                 <div className="relative">
                   <Mail
                     size={15}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6E84A3]"
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#64748B]"
                   />
                   <input
                     type="text"
                     value={profile?.email || user?.email || "Not available"}
                     disabled
-                    className="h-11 w-full cursor-not-allowed rounded-xl border border-[#1E3252] bg-[#080F1C]/50 pl-10 pr-3.5 text-sm text-[#6E84A3] outline-none"
+                    className="h-11 w-full cursor-not-allowed rounded-xl border border-[#E2E8F0] bg-[#F0F8E8]/50 pl-10 pr-3.5 text-sm text-[#64748B] outline-none"
                   />
                 </div>
-                <p className="mt-1 text-[11px] text-[#6E84A3]">
+                <p className="mt-1 text-[11px] text-[#64748B]">
                   Email cannot be changed from this page.
                 </p>
               </div>
@@ -844,7 +850,7 @@ function Profile() {
                   type="button"
                   onClick={handleCancel}
                   disabled={saving}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-[#1E3252] bg-[#080F1C] px-4 text-xs font-bold text-[#8FA4BE] transition hover:bg-[#162744] hover:text-[#F1F5F9] disabled:opacity-50 cursor-pointer"
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-xs font-bold text-[#64748B] transition hover:bg-[#FFFFFF] hover:text-[#1E293B] disabled:opacity-50 cursor-pointer"
                 >
                   <X size={15} />
                   <span>Cancel</span>
@@ -853,13 +859,13 @@ function Profile() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#42D6E8] px-5 text-xs font-black text-[#061220] transition hover:bg-[#2CC4D8] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer shadow-xs"
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#22499F] px-5 text-xs font-black text-[#FFFFFF] transition hover:bg-[#1B3B82] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer shadow-xs"
                 >
                   {saving ? (
                     <>
                       <Loader2
                         size={15}
-                        className="animate-spin text-[#061220]"
+                        className="animate-spin text-[#FFFFFF]"
                       />
                       <span>Saving...</span>
                     </>
@@ -877,34 +883,34 @@ function Profile() {
             /* ========================================= */
             /* COMPACT UNIFIED VIEW MODE */
             /* ========================================= */
-            <div className="divide-y divide-[#1E3252]/60">
+            <div className="divide-y divide-[#E2E8F0]/60">
 
               {/* FULL NAME */}
-              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#FFFFFF]/30">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
                     <User size={17} />
                   </div>
-                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE]">
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#64748B]">
                     Full Name
                   </span>
                 </div>
-                <span className="text-right text-[15px] sm:text-base font-semibold text-[#F1F5F9] truncate max-w-[58%]">
+                <span className="text-right text-[15px] sm:text-base font-semibold text-[#1E293B] truncate max-w-[58%]">
                   {displayName}
                 </span>
               </div>
 
               {/* PRIMARY MOBILE */}
-              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#FFFFFF]/30">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
                     <Phone size={17} />
                   </div>
-                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE] whitespace-nowrap">
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#64748B] whitespace-nowrap">
                     Primary Mobile
                   </span>
                 </div>
-                <span className={`text-right text-[15px] sm:text-base font-semibold font-mono whitespace-nowrap ${(profile?.phone || user?.phone) ? "text-[#F1F5F9]" : "text-[#6E84A3]"}`}>
+                <span className={`text-right text-[15px] sm:text-base font-semibold font-mono whitespace-nowrap ${(profile?.phone || user?.phone) ? "text-[#1E293B]" : "text-[#64748B]"}`}>
                   {(profile?.phone || user?.phone)
                     ? formatPhoneNumber(profile?.phone || user?.phone)
                     : "Not provided"}
@@ -912,16 +918,16 @@ function Profile() {
               </div>
 
               {/* EMAIL */}
-              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#13243F]/30">
+              <div className="flex items-center justify-between gap-3 px-4.5 py-3.5 sm:px-5 sm:py-4 transition-colors hover:bg-[#FFFFFF]/30">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
                     <Mail size={17} />
                   </div>
-                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#8FA4BE]">
+                  <span className="text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[#64748B]">
                     Email
                   </span>
                 </div>
-                <span className="text-right text-sm sm:text-[15px] font-semibold text-[#F1F5F9] break-all max-w-[58%] sm:max-w-none">
+                <span className="text-right text-sm sm:text-[15px] font-semibold text-[#1E293B] break-all max-w-[58%] sm:max-w-none">
                   {profile?.email || user?.email || "Not available"}
                 </span>
               </div>
@@ -934,20 +940,20 @@ function Profile() {
         {/* ACCOUNT PRIVACY: DELETE ACCOUNT */}
         <div className="mt-5 space-y-2">
           <div className="flex items-center gap-1.5 px-1">
-            <Shield size={14} className="text-[#6E84A3]" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[#6E84A3]">
+            <Shield size={14} className="text-[#64748B]" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
               Account Privacy
             </h3>
           </div>
 
-          <div className="rounded-[18px] border border-rose-900/60 bg-rose-950/25 p-4 transition hover:bg-rose-950/35">
+          <div className="account-delete rounded-[18px] border p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-sm font-bold text-rose-400">
+                <div className="account-delete-title flex items-center gap-1.5 text-sm font-bold">
                   <AlertTriangle size={14} />
                   <span>Delete Account</span>
                 </div>
-                <p className="mt-0.5 text-xs leading-snug text-[#8FA4BE]">
+                <p className="mt-0.5 text-xs leading-snug text-[#64748B]">
                   Permanently delete your account, addresses, and saved data.
                 </p>
               </div>
@@ -955,7 +961,7 @@ function Profile() {
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(true)}
-                className="shrink-0 flex items-center gap-1.5 rounded-xl border border-rose-900/60 bg-[#111F36] px-3.5 py-2 text-xs sm:text-sm font-bold text-rose-400 shadow-2xs transition hover:bg-rose-600 hover:border-rose-600 hover:text-white active:scale-95 cursor-pointer"
+                className="account-delete-button shrink-0 flex min-h-11 items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs sm:text-sm font-bold transition active:scale-95 cursor-pointer"
               >
                 <Trash2 size={13} />
                 <span>Delete</span>
@@ -993,12 +999,12 @@ function Profile() {
             </p>
             <div className="mt-5">
               <div className="flex items-center justify-between gap-2">
-                <label className="text-[12.5px] sm:text-xs font-bold uppercase tracking-wider text-[#E2E8F0]">
+                <label className="text-[12.5px] sm:text-xs font-bold uppercase tracking-wider text-[#475569]">
                   {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
                 </label>
                 {passwordlessGoogle && deleteCodeSent && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#42D6E8]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#42D6E8] animate-pulse" />
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#22499F]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#22499F] animate-pulse" />
                     Code sent to email
                   </span>
                 )}
@@ -1018,13 +1024,13 @@ function Profile() {
                     }}
                     autoComplete="one-time-code"
                     disabled={isDeleting}
-                    className="h-12 sm:h-[50px] flex-1 rounded-2xl border border-[#2A4265] bg-[#080F1C] px-4 text-base font-bold tracking-widest text-[#F8FAFC] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#42D6E8] focus:ring-1 focus:ring-[#42D6E8]/30 disabled:opacity-60"
+                    className="h-12 sm:h-[50px] flex-1 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-1 focus:ring-[#22499F]/30 disabled:opacity-60"
                   />
                   <button
                     type="button"
                     disabled={deleteCodeSending || isDeleting || deleteResendSeconds > 0}
                     onClick={sendDeleteCode}
-                    className="h-12 sm:h-[50px] shrink-0 flex items-center justify-center gap-2 rounded-2xl border border-[#42D6E8]/40 bg-[#132B45] px-4 sm:px-5 text-[13px] sm:text-sm font-black text-[#42D6E8] shadow-xs hover:bg-[#42D6E8] hover:text-[#061220] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
+                    className="h-12 sm:h-[50px] shrink-0 flex items-center justify-center gap-2 rounded-2xl border border-[#22499F]/40 bg-[#FFFFFF] px-4 sm:px-5 text-[13px] sm:text-sm font-black text-[#22499F] shadow-xs hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
                   >
                     {deleteCodeSending ? (
                       <>
@@ -1051,7 +1057,7 @@ function Profile() {
                   }}
                   autoComplete="current-password"
                   disabled={isDeleting}
-                  className="mt-2.5 h-12 sm:h-[50px] w-full rounded-2xl border border-[#2A4265] bg-[#080F1C] px-4 text-sm sm:text-base text-[#F8FAFC] placeholder:text-sm placeholder:text-[#64748B] outline-none transition focus:border-[#42D6E8] focus:ring-1 focus:ring-[#42D6E8]/30 disabled:opacity-60"
+                  className="mt-2.5 h-12 sm:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-sm sm:text-base text-[#1E293B] placeholder:text-sm placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-1 focus:ring-[#22499F]/30 disabled:opacity-60"
                 />
               )}
             </div>

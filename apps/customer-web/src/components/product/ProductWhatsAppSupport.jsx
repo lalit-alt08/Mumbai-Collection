@@ -17,7 +17,7 @@ function ProductWhatsAppSupport({ product }) {
   const whatsappUrl = getProductWhatsAppUrl();
 
   return (
-    <div className="rounded-[22px] sm:rounded-[26px] border border-[#1E3252]/80 bg-[#111F36] p-5 sm:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
+    <div className="rounded-[22px] sm:rounded-[26px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-5 sm:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-5">
         {/* Left: Icon & Text Info */}
         <div className="flex items-center gap-4 sm:gap-4.5 min-w-0">
@@ -25,10 +25,10 @@ function ProductWhatsAppSupport({ product }) {
             <WhatsAppIcon className="h-6 w-6 text-[#25D366]" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] sm:text-base font-bold text-[#F1F5F9] leading-snug">
+            <h3 className="text-[15px] sm:text-base font-bold text-[#1E293B] leading-snug">
               Have questions about this product?
             </h3>
-            <p className="text-xs sm:text-[13px] text-[#8FA4BE] font-medium mt-1.5 sm:mt-2 leading-normal">
+            <p className="text-xs sm:text-[13px] text-[#64748B] font-medium mt-1.5 sm:mt-2 leading-normal">
               Chat with us on WhatsApp
             </p>
           </div>
@@ -39,7 +39,7 @@ function ProductWhatsAppSupport({ product }) {
           href={whatsappUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex h-12 w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl sm:rounded-full bg-[#25D366] px-6 py-3 text-sm sm:text-[15px] font-black text-[#061220] shadow-xs transition-all duration-200 hover:bg-[#20bd5a] hover:shadow-[0_4px_16px_rgba(37,211,102,0.35)] active:scale-95 cursor-pointer shrink-0"
+          className="inline-flex h-12 w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl sm:rounded-full bg-[#25D366] px-6 py-3 text-sm sm:text-[15px] font-black text-[#FFFFFF] shadow-xs transition-all duration-200 hover:bg-[#20bd5a] hover:shadow-[0_4px_16px_rgba(37,211,102,0.35)] active:scale-95 cursor-pointer shrink-0"
         >
           <WhatsAppIcon className="h-5 w-5 shrink-0" />
           <span>Chat on WhatsApp</span>

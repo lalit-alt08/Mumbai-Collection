@@ -12,6 +12,7 @@
 import axios from "axios";
 import API_URL from "../config/api.js";
 import { attachStaleConnectionRetry } from "../utils/resilientAxios.js";
+import safeStorage from "../utils/safeStorage.js";
 
 const API = axios.create({
   baseURL: `${API_URL}/payments`,
@@ -32,7 +33,12 @@ attachStaleConnectionRetry(API);
  * @returns {Promise<Object>} Backend response: { success, order_id, razorpay_order_id, amount, currency, key_id }
  */
 export const createPaymentOrder = async (payload, config = {}) => {
-  const response = await API.post("/create-order", payload, config);
+  const token = typeof safeStorage !== "undefined" ? safeStorage.getItem("wc_cart_token") : null;
+  const mergedHeaders = { ...(config.headers || {}) };
+  if (token && !mergedHeaders["Cart-Token"] && !mergedHeaders["cart-token"]) {
+    mergedHeaders["Cart-Token"] = token;
+  }
+  const response = await API.post("/create-order", payload, { ...config, headers: mergedHeaders });
   return response.data;
 };
 
@@ -73,7 +79,13 @@ export const cancelPaymentOrder = async (razorpayOrderId) => {
     const response = await API.post("/cancel", { razorpay_order_id: razorpayOrderId });
     return response.data;
   } catch (err) {
-    return { success: false, error: err.message };
+    return {
+      success: false,
+      status: err.response?.status,
+      code: err.response?.data?.code,
+      message: err.response?.data?.message || err.message,
+      error: err.message,
+    };
   }
 };
 

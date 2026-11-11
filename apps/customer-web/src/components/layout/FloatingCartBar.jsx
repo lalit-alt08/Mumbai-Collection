@@ -156,9 +156,9 @@ function FloatingCartBar() {
     >
       <Link
         to="/cart"
-        className="group flex min-w-[260px] max-w-[305px] items-center justify-between gap-3.5 rounded-full bg-gradient-to-r from-[#174F6D] via-[#14445F] to-[#113B53] border border-[#2B7A9E]/45 py-2.5 pl-2.5 pr-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.15)] transition-all hover:scale-[1.02] hover:border-[#3891BA]/60 active:scale-[0.98]"
+        className="group flex min-w-[260px] max-w-[305px] items-center justify-between gap-3.5 rounded-full bg-[#22499F] border border-[#22499F] py-2.5 pl-2.5 pr-3.5 shadow-[0_8px_24px_rgba(34,73,159,0.35)] transition-all hover:scale-[1.02] hover:border-[#E2E8F0]/60 active:scale-[0.98]"
       >
-        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#081220] p-0.5 border border-[#1E4362] shadow-xs">
+        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#FFFFFF] p-0.5 border border-white/20 shadow-xs">
           {firstItemImage ? (
             <img
               src={firstItemImage}
@@ -166,7 +166,7 @@ function FloatingCartBar() {
               className="h-full w-full rounded-full object-contain"
             />
           ) : (
-            <div className="h-full w-full rounded-full bg-[#081220]" />
+            <div className="h-full w-full rounded-full bg-[#F0F8E8]" />
           )}
         </div>
 
@@ -174,7 +174,7 @@ function FloatingCartBar() {
           <span className="text-[14.5px] font-bold text-white leading-tight truncate">
             View cart
           </span>
-          <span className="text-[12px] font-semibold text-[#8FE3D9] leading-tight mt-0.5">
+          <span className="text-[12px] font-semibold text-[#F4B54B] leading-tight mt-0.5 font-bold">
             {totalItems} {totalItems === 1 ? "Item" : "Items"}
           </span>
         </div>

@@ -17,7 +17,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://accessing-conditional-bar-unknown.trycloudflare.com/api/:path*"
+      "destination": "https://mortality-soc-sean-trackback.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

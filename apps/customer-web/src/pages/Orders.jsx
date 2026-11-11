@@ -184,14 +184,14 @@ function Orders() {
     switch (status) {
       case "completed":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#42D6E8] border border-[#1E3252]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
             <CheckCircle2 size={13} />
             {displayStatus || "Delivered"}
           </span>
         );
       case "processing":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-950/40 px-3 py-1 text-xs font-bold text-blue-300 border border-blue-800/60">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#22499F]/10 px-3 py-1 text-xs font-bold text-[#22499F] border border-[#22499F]/40">
             <Package size={13} className="animate-pulse" />
             {displayStatus || "Preparing & Packing"}
           </span>
@@ -199,14 +199,14 @@ function Orders() {
       case "pending":
       case "on-hold":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#67E8F9] border border-[#1E3252]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
             <Clock size={13} className="animate-spin" />
             {displayStatus || "Payment Pending"}
           </span>
         );
       case "packed":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#67E8F9] border border-[#1E3252]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
             <Package size={13} />
             {displayStatus || "Packed & Ready"}
           </span>
@@ -214,7 +214,7 @@ function Orders() {
       case "out-for-delivery":
       case "dispatched":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#67E8F9] border border-[#1E3252]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
             <Truck size={13} className="animate-bounce" />
             {displayStatus || "Out for Delivery"}
           </span>
@@ -229,7 +229,7 @@ function Orders() {
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#132B45] px-3 py-1 text-xs font-bold text-[#67E8F9] border border-[#1E3252]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
             <Clock size={13} />
             {displayStatus || "Order Placed"}
           </span>
@@ -254,7 +254,7 @@ function Orders() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B1425] px-4 pt-6 pb-28 sm:pb-24 md:pt-10 md:pb-16">
+    <div className="min-h-screen bg-[#F0F8E8] px-4 pt-6 pb-28 sm:pb-24 md:pt-10 md:pb-16">
       <div className="mx-auto max-w-4xl">
         {/* Top Header Bar */}
         <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2.5 sm:gap-3">
@@ -269,14 +269,14 @@ function Orders() {
               }
             }}
             aria-label="Back"
-            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#122038]/90 backdrop-blur-md text-white border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#1A2E4C] hover:border-white/20 active:scale-95 cursor-pointer"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-white border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 active:scale-95 cursor-pointer"
           >
             <ChevronLeft size={23} strokeWidth={2.5} />
           </button>
 
           {/* Center: Capsule utilizing available space with clear typography and no inner pill */}
-          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#122038]/95 backdrop-blur-md border border-white/12 px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
-            <h1 className="text-[19px] sm:text-[20px] font-extrabold text-white tracking-[-0.01em] leading-normal antialiased select-none">
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#FFFFFF]/95 backdrop-blur-md border border-[#E2E8F0] px-5 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.3)]">
+            <h1 className="text-[19px] sm:text-[20px] font-extrabold text-[#1E293B] tracking-[-0.01em] leading-normal antialiased select-none">
               My Orders
             </h1>
           </div>
@@ -286,7 +286,7 @@ function Orders() {
             to="/"
             onClick={() => triggerHaptic("light")}
             aria-label="Shop More"
-            className="flex h-12 sm:h-[52px] shrink-0 items-center justify-center rounded-full bg-[#42D6E8] px-4.5 sm:px-5.5 text-xs sm:text-sm font-extrabold text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)] transition-all hover:bg-[#2CC4D8] hover:shadow-[0_4px_16px_rgba(66,214,232,0.45)] active:scale-95 cursor-pointer whitespace-nowrap"
+            className="flex h-12 sm:h-[52px] shrink-0 items-center justify-center rounded-full bg-[#22499F] px-4.5 sm:px-5.5 text-xs sm:text-sm font-extrabold text-[#FFFFFF] shadow-[0_2px_10px_rgba(66,214,232,0.3)] transition-all hover:bg-[#1B3B82] hover:shadow-[0_4px_16px_rgba(66,214,232,0.45)] active:scale-95 cursor-pointer whitespace-nowrap"
           >
             Shop More
           </Link>
@@ -294,26 +294,26 @@ function Orders() {
 
         {/* Payment-Pending Active Order Banner */}
         {pendingPayment && (
-          <div className="mb-6 rounded-[24px] border border-[#1E3252] bg-[#111F36] p-5 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
+          <div className="mb-6 rounded-[24px] border border-[#E2E8F0] bg-[#FFFFFF] p-5 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
                   <Clock size={22} className="animate-spin" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-extrabold text-[#F1F5F9]">
+                    <h3 className="text-sm font-extrabold text-[#1E293B]">
                       Payment Pending Confirmation
                     </h3>
-                    <span className="rounded-full bg-[#132B45] px-2.5 py-0.5 text-[10px] font-bold text-[#67E8F9] border border-[#1E3252]">
+                    <span className="rounded-full bg-[#FFFFFF] px-2.5 py-0.5 text-[10px] font-bold text-[#22499F] border border-[#E2E8F0]">
                       VERIFYING
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-[#8FA4BE] leading-relaxed">
+                  <p className="mt-1 text-xs text-[#64748B] leading-relaxed">
                     We&apos;re confirming your payment with your bank. If money was debited from your account, please do not pay again.
                   </p>
                   {pendingFeedback && (
-                    <p className="mt-1.5 text-xs font-semibold text-[#42D6E8]">
+                    <p className="mt-1.5 text-xs font-semibold text-[#22499F]">
                       {pendingFeedback}
                     </p>
                   )}
@@ -324,7 +324,7 @@ function Orders() {
                   type="button"
                   onClick={() => handleCheckPending(pendingPayment.razorpay_order_id)}
                   disabled={checkingPending}
-                  className="rounded-xl bg-[#42D6E8] px-4 py-2 text-xs font-black text-[#061220] shadow-xs hover:bg-[#2CC4D8] active:scale-95 cursor-pointer disabled:opacity-50"
+                  className="rounded-xl bg-[#22499F] px-4 py-2 text-xs font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {checkingPending ? "Checking..." : "Check payment"}
                 </button>
@@ -332,7 +332,7 @@ function Orders() {
                   href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-xl border border-[#1E3252] bg-[#162744] px-3.5 py-2 text-xs font-bold text-[#F1F5F9] hover:bg-[#1C3358]"
+                  className="rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-2 text-xs font-bold text-[#1E293B] hover:bg-[#1C3358]"
                 >
                   Help (+91 87936 01567)
                 </a>
@@ -347,17 +347,17 @@ function Orders() {
             {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className="animate-pulse rounded-[24px] bg-[#111F36] border border-[#1E3252] p-6 shadow-sm"
+                className="animate-pulse rounded-[24px] bg-[#FFFFFF] border border-[#E2E8F0] p-6 shadow-sm"
               >
                 <div className="mb-4 flex items-center justify-between">
-                  <div className="h-5 w-32 rounded-lg bg-[#1E3252]/60" />
-                  <div className="h-6 w-24 rounded-full bg-[#1E3252]/60" />
+                  <div className="h-5 w-32 rounded-lg bg-[#E2E8F0]/60" />
+                  <div className="h-6 w-24 rounded-full bg-[#E2E8F0]/60" />
                 </div>
                 <div className="flex gap-4">
-                  <div className="h-16 w-16 rounded-xl bg-[#1E3252]/60" />
+                  <div className="h-16 w-16 rounded-xl bg-[#E2E8F0]/60" />
                   <div className="flex-1 space-y-2">
-                    <div className="h-4 w-3/4 rounded bg-[#1E3252]/60" />
-                    <div className="h-4 w-1/2 rounded bg-[#1E3252]/60" />
+                    <div className="h-4 w-3/4 rounded bg-[#E2E8F0]/60" />
+                    <div className="h-4 w-1/2 rounded bg-[#E2E8F0]/60" />
                   </div>
                 </div>
               </div>
@@ -380,22 +380,22 @@ function Orders() {
 
         {/* Empty State */}
         {!loading && !error && orders.length === 0 && (
-          <div className="rounded-[28px] bg-[#111F36] border border-[#1E3252] p-10 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] md:p-16">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[#132B45] text-[#42D6E8] border border-[#1E3252]">
+          <div className="rounded-[28px] bg-[#FFFFFF] border border-[#E2E8F0] p-10 text-center shadow-[0_8px_30px_rgba(0,0,0,0.3)] md:p-16">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
               <ShoppingBag size={38} />
             </div>
 
-            <h2 className="text-xl font-bold text-[#F1F5F9]">
+            <h2 className="text-xl font-bold text-[#1E293B]">
               No Orders Found
             </h2>
-            <p className="mx-auto mt-2 max-w-md text-sm text-[#8FA4BE] leading-relaxed">
+            <p className="mx-auto mt-2 max-w-md text-sm text-[#64748B] leading-relaxed">
               Looks like you haven't placed any orders yet. Discover our premium stationery, art supplies, and toys!
             </p>
 
             <div className="mt-8 flex justify-center gap-3">
               <Link
                 to="/"
-                className="rounded-full bg-[#42D6E8] px-8 py-3.5 text-sm font-black text-[#061220] shadow-[0_4px_20px_rgba(66,214,232,0.3)] transition hover:bg-[#2CC4D8] active:scale-95"
+                className="rounded-full bg-[#22499F] px-8 py-3.5 text-sm font-black text-[#FFFFFF] shadow-[0_4px_20px_rgba(66,214,232,0.3)] transition hover:bg-[#1B3B82] active:scale-95"
               >
                 Start Shopping &rarr;
               </Link>
@@ -415,19 +415,19 @@ function Orders() {
               return (
                 <div
                   key={order.id}
-                  className="overflow-hidden rounded-[26px] bg-[#111F36] shadow-[0_8px_30px_rgba(0,0,0,0.25)] border border-[#1E3252]/80 transition-all hover:border-[#42D6E8]/50"
+                  className="overflow-hidden rounded-[26px] bg-[#FFFFFF] shadow-[0_8px_30px_rgba(0,0,0,0.25)] border border-[#E2E8F0]/80 transition-all hover:border-[#22499F]/50"
                 >
                   {/* Order Card Header */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1E3252]/70 bg-[#0B1425] px-5 py-4 sm:px-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0]/70 bg-[#F0F8E8] px-5 py-4 sm:px-6">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111F36] text-[#8FA4BE] shadow-sm border border-[#1E3252]">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FFFFFF] text-[#64748B] shadow-sm border border-[#E2E8F0]">
                         <Package size={17} />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-[#8FA4BE] uppercase tracking-wider">
+                        <span className="text-xs font-bold text-[#64748B] uppercase tracking-wider">
                           Order #{order.order_number}
                         </span>
-                        <div className="text-xs text-[#6E84A3] font-medium">
+                        <div className="text-xs text-[#64748B] font-medium">
                           {formatDate(order.date_created)}
                         </div>
                       </div>
@@ -458,7 +458,7 @@ function Orders() {
                           className="flex items-center justify-between gap-4"
                         >
                           <div className="flex items-center gap-3.5">
-                            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#1E3252]/60 bg-[#080F1C] p-1 shadow-sm">
+                            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8] p-1 shadow-sm">
                               {item.image ? (
                                 <img
                                   src={item.image}
@@ -467,21 +467,21 @@ function Orders() {
                                   className="h-full w-full object-contain"
                                 />
                               ) : (
-                                <Package size={22} className="text-[#4B6282]" />
+                                <Package size={22} className="text-[#64748B]" />
                               )}
                             </div>
                             <div>
-                              <h3 className="line-clamp-1 text-sm font-bold text-[#F1F5F9]">
+                              <h3 className="line-clamp-1 text-sm font-bold text-[#1E293B]">
                                 {item.name}
                               </h3>
-                              <div className="text-xs text-[#8FA4BE] font-medium">
-                                Qty: <span className="font-bold text-[#F1F5F9]">{item.quantity}</span> × ₹{item.price || (Number(item.total) / (item.quantity || 1)).toFixed(0)}
+                              <div className="text-xs text-[#64748B] font-medium">
+                                Qty: <span className="font-bold text-[#1E293B]">{item.quantity}</span> × ₹{item.price || (Number(item.total) / (item.quantity || 1)).toFixed(0)}
                               </div>
                             </div>
                           </div>
 
                           <div className="text-right">
-                            <span className="text-sm font-extrabold text-white">
+                            <span className="text-sm font-extrabold text-[#1E293B]">
                               ₹{item.total}
                             </span>
                           </div>
@@ -490,12 +490,12 @@ function Orders() {
                     </div>
 
                     {/* Summary Footer Bar */}
-                    <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 sm:gap-4 border-t border-[#1E3252]/70 pt-4">
+                    <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 sm:gap-4 border-t border-[#E2E8F0]/70 pt-4">
                       <div className="flex items-baseline justify-between sm:flex-col sm:justify-start gap-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#6E84A3]">
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
                           Total Paid ({order.payment_method_title})
                         </span>
-                        <div className="text-lg sm:text-xl font-black text-white tracking-tight">
+                        <div className="text-lg sm:text-xl font-black text-[#1E293B] tracking-tight">
                           ₹{order.total}
                         </div>
                       </div>
@@ -506,16 +506,16 @@ function Orders() {
                           onClick={() => toggleExpandOrder(order.id)}
                           className={`col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border px-3 sm:px-4 text-xs font-bold transition-all select-none cursor-pointer whitespace-nowrap active:scale-[0.98] ${
                             isExpanded
-                              ? "border-[#42D6E8]/50 bg-[#112440] text-[#42D6E8] shadow-xs"
-                              : "border-[#1E3252] bg-[#0E1B30]/60 text-[#8FA4BE] hover:bg-[#162744] hover:text-[#F1F5F9] hover:border-[#2A4368]"
+                              ? "border-[#22499F]/50 bg-[#112440] text-[#22499F] shadow-xs"
+                              : "border-[#E2E8F0] bg-[#FFFFFF] text-[#475569] hover:bg-[#F0F8E8] hover:text-[#22499F] hover:border-[#22499F]/50"
                           }`}
                         >
-                          <Receipt size={14} className={`shrink-0 transition-colors ${isExpanded ? "text-[#42D6E8]" : "text-[#6E84A3]"}`} />
+                          <Receipt size={14} className={`shrink-0 transition-colors ${isExpanded ? "text-[#22499F]" : "text-[#64748B]"}`} />
                           <span>{isExpanded ? "Hide Details" : "Invoice Details"}</span>
                           {isExpanded ? (
-                            <ChevronUp size={13} className="shrink-0 text-[#42D6E8]" />
+                            <ChevronUp size={13} className="shrink-0 text-[#22499F]" />
                           ) : (
-                            <ChevronDown size={13} className="shrink-0 text-[#6E84A3]" />
+                            <ChevronDown size={13} className="shrink-0 text-[#64748B]" />
                           )}
                         </button>
 
@@ -524,7 +524,7 @@ function Orders() {
                             type="button"
                             onClick={() => handleCheckPending(order.meta_data?.find((m) => m.key === "_razorpay_order_id")?.value || order.id)}
                             disabled={checkingPending}
-                            className="col-span-2 sm:col-auto inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#42D6E8] px-3.5 sm:px-4 text-xs font-black text-[#061220] transition-all select-none whitespace-nowrap hover:bg-[#2CC4D8] active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
+                            className="col-span-2 sm:col-auto inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#22499F] px-3.5 sm:px-4 text-xs font-black text-[#FFFFFF] transition-all select-none whitespace-nowrap hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
                           >
                             <Clock size={14} className="shrink-0" />
                             <span>{checkingPending ? "Checking..." : "Check payment"}</span>
@@ -534,7 +534,7 @@ function Orders() {
                         {isLive ? (
                           <Link
                             to={`/orders/${order.id}/track`}
-                            className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#42D6E8] px-3.5 sm:px-4 text-xs font-black text-[#061220] transition-all select-none whitespace-nowrap hover:bg-[#2CC4D8] active:scale-[0.98] shadow-sm shadow-[#42D6E8]/20"
+                            className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#22499F] px-3.5 sm:px-4 text-xs font-black text-[#FFFFFF] transition-all select-none whitespace-nowrap hover:bg-[#1B3B82] active:scale-[0.98] shadow-sm shadow-[#22499F]/20"
                           >
                             <Truck size={14} className="shrink-0" />
                             <span>Track Order</span>
@@ -542,9 +542,9 @@ function Orders() {
                         ) : (
                           <Link
                             to={`/orders/${order.id}/track`}
-                            className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border border-[#42D6E8]/35 bg-[#111F36] px-3.5 sm:px-4 text-xs font-bold text-[#42D6E8] transition-all select-none whitespace-nowrap hover:bg-[#162744] hover:border-[#42D6E8]/70 active:scale-[0.98]"
+                            className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border border-[#22499F]/35 bg-[#FFFFFF] px-3.5 sm:px-4 text-xs font-bold text-[#22499F] transition-all select-none whitespace-nowrap hover:bg-[#FFFFFF] hover:border-[#22499F]/70 active:scale-[0.98]"
                           >
-                            <Package size={14} className="shrink-0 text-[#42D6E8]" />
+                            <Package size={14} className="shrink-0 text-[#22499F]" />
                             <span>Order Details</span>
                           </Link>
                         )}
@@ -553,15 +553,15 @@ function Orders() {
 
                     {/* Expandable Full Bill & Address Details */}
                     {isExpanded && (
-                      <div className="mt-5 rounded-2xl bg-[#080F1C] p-4 sm:p-5 border border-[#1E3252] space-y-4 animate-in fade-in duration-200">
+                      <div className="mt-5 rounded-2xl bg-[#F0F8E8] p-4 sm:p-5 border border-[#E2E8F0] space-y-4 animate-in fade-in duration-200">
                         {/* Delivery Address */}
                         <div>
-                          <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#42D6E8] mb-1.5">
-                            <MapPin size={13} className="text-[#42D6E8]" />
+                          <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#22499F] mb-1.5">
+                            <MapPin size={13} className="text-[#22499F]" />
                             Delivery Address
                           </h4>
-                          <p className="text-xs text-[#8FA4BE] font-medium leading-relaxed">
-                            <span className="font-bold text-[#F1F5F9]">
+                          <p className="text-xs text-[#64748B] font-medium leading-relaxed">
+                            <span className="font-bold text-[#1E293B]">
                               {(() => {
                                 const f = (order.shipping?.first_name || order.billing?.first_name || "").trim();
                                 const l = (order.shipping?.last_name || order.billing?.last_name || "").trim();
@@ -581,43 +581,43 @@ function Orders() {
                         </div>
 
                         {/* Itemized Bill Details */}
-                        <div className="border-t border-[#1E3252]/70 pt-3 space-y-1.5 text-xs text-[#8FA4BE]">
+                        <div className="border-t border-[#E2E8F0]/70 pt-3 space-y-1.5 text-xs text-[#64748B]">
                           <div className="flex justify-between items-start">
                             <div>
-                              <span className="text-[#F1F5F9]">Items Subtotal</span>
-                              <span className="block text-[10px] text-[#6E84A3]">(Incl. of all taxes)</span>
+                              <span className="text-[#1E293B]">Items Subtotal</span>
+                              <span className="block text-xs text-[#64748B]">(Incl. of all taxes)</span>
                             </div>
-                            <span className="font-semibold text-[#F1F5F9]">
+                            <span className="font-semibold text-[#1E293B]">
                               ₹{(Number(order.total) - Number(order.shipping_total) + Number(order.discount_total)).toFixed(2)}
                             </span>
                           </div>
                           {Number(order.discount_total) > 0 && (
-                            <div className="flex justify-between text-[#67E8F9] font-semibold">
+                            <div className="flex justify-between text-[#22499F] font-semibold">
                               <span>Order Discount</span>
                               <span>-₹{order.discount_total}</span>
                             </div>
                           )}
                           <div className="flex justify-between">
                             <span>Delivery Fee</span>
-                            <span className="font-semibold text-[#F1F5F9]">
+                            <span className="font-semibold text-[#1E293B]">
                               {Number(order.shipping_total) === 0 ? "FREE" : `₹${order.shipping_total}`}
                             </span>
                           </div>
-                          <div className="flex justify-between items-start border-t border-[#1E3252]/70 pt-2 text-sm font-bold text-white">
+                          <div className="flex justify-between items-start border-t border-[#E2E8F0]/70 pt-2 text-sm font-bold text-[#1E293B]">
                             <div>
                               <span>Grand Total</span>
-                              <span className="block text-[10px] font-normal text-[#6E84A3]">Inclusive of all taxes (GST)</span>
+                              <span className="block text-xs font-medium text-[#64748B]">Inclusive of all taxes (GST)</span>
                             </div>
-                            <span className="text-[#42D6E8] font-black">₹{order.total}</span>
+                            <span className="text-[#22499F] font-black">₹{order.total}</span>
                           </div>
                         </div>
 
                         {/* Customer Support CTA */}
-                        <div className="flex items-center justify-between border-t border-[#1E3252]/70 pt-3 text-xs">
-                          <span className="text-[#6E84A3] font-medium">Have an issue with this order?</span>
+                        <div className="flex items-center justify-between border-t border-[#E2E8F0]/70 pt-3 text-xs">
+                          <span className="text-[#64748B] font-medium">Have an issue with this order?</span>
                           <Link
                             to="/contact"
-                            className="flex items-center gap-1 font-bold text-[#42D6E8] hover:underline"
+                            className="flex items-center gap-1 font-bold text-[#22499F] hover:underline"
                           >
                             <HelpCircle size={13} />
                             Get Help & Support
@@ -639,7 +639,7 @@ function Orders() {
               type="button"
               onClick={handleLoadMore}
               disabled={loadingMore}
-              className="inline-flex items-center justify-center rounded-full bg-[#42D6E8] px-7 py-2.5 text-xs sm:text-sm font-black text-[#061220] shadow-sm shadow-[#42D6E8]/20 transition-all hover:bg-[#2CC4D8] active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+              className="inline-flex items-center justify-center rounded-full bg-[#22499F] px-7 py-2.5 text-xs sm:text-sm font-black text-[#FFFFFF] shadow-sm shadow-[#22499F]/20 transition-all hover:bg-[#1B3B82] active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
             >
               Load More
             </button>

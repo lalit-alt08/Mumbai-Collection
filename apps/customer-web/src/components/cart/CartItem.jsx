@@ -33,11 +33,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
       className={`flex items-center gap-3 rounded-[18px] p-3 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all duration-300 hover:-translate-y-0.5 ${
         isOutOfStock
           ? "bg-rose-950/30 border border-rose-800/60"
-          : "bg-[#111F36] border border-[#1E3252]/80 hover:border-[#42D6E8]/50"
+          : "bg-[#FFFFFF] border border-[#E2E8F0]/80 hover:border-[#22499F]/50"
       }`}
     >
       {/* Product Image */}
-      <div className="flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[15px] border border-[#1E3252]/60 bg-[#080F1C] p-1.5">
+      <div className="store-product-image flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[15px] border border-[#E2E8F0]/60 bg-[#F0F8E8] p-1.5">
         <img
           src={getCatalogImageUrl(item)}
           alt={item.name || "Cart item"}
@@ -58,7 +58,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
       {/* Product Details */}
       <div className="flex min-h-[72px] min-w-0 flex-1 flex-col justify-between gap-1 py-0.5">
         <div>
-          <h2 className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#F1F5F9]">
+          <h2 className="line-clamp-2 text-[14px] font-bold leading-snug text-[#1E293B]">
             {cleanProductTitle(item.name)}
           </h2>
           {isFullyOutOfStock ? (
@@ -75,7 +75,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
             </span>
           ) : null}
           {isOutOfStock && (
-            <button type="button" disabled={isUpdating} onClick={() => onResolveStock(item, isFullyOutOfStock ? 0 : maxLimit)} className="ml-2 text-xs font-bold text-[#A9EAF2] underline disabled:opacity-50">
+            <button type="button" disabled={isUpdating} onClick={() => onResolveStock(item, isFullyOutOfStock ? 0 : maxLimit)} className="ml-2 text-xs font-bold text-[#22499F] underline disabled:opacity-50">
               {isFullyOutOfStock ? "Remove" : `Change to ${maxLimit}`}
             </button>
           )}
@@ -84,11 +84,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
         <div className="flex items-center justify-between gap-2">
           {/* Price */}
           <div className="flex items-baseline gap-1.5 flex-wrap">
-            <span className="text-[15px] font-bold text-white">
+            <span className="text-[15px] font-bold text-[#1E293B]">
               ₹{price}
             </span>
             {regularPrice > price && (
-              <span className="text-[12px] font-medium text-[#8FA4BE] line-through">
+              <span className="text-[12px] font-medium text-[#64748B] line-through">
                 ₹{regularPrice}
               </span>
             )}
@@ -99,7 +99,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
             className={`flex h-[38px] w-[96px] items-center justify-between rounded-full px-1 shadow-sm flex-shrink-0 select-none transition-colors ${
               isOutOfStock
                 ? "bg-rose-700 text-white"
-                : "bg-[#42D6E8] text-[#061220] shadow-[0_2px_10px_rgba(66,214,232,0.3)]"
+                : "bg-[#22499F] text-[#FFFFFF] shadow-[0_2px_10px_rgba(66,214,232,0.3)]"
             }`}
           >
               <button
@@ -111,7 +111,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
                 className={`relative flex h-8 w-8 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isOutOfStock
                     ? "text-white/90 hover:text-white hover:bg-white/15"
-                    : "text-[#061220] hover:bg-black/15"
+                    : "text-[#FFFFFF] hover:bg-black/15"
                 }`}
               >
                 <Minus size={17} strokeWidth={2.8} />
@@ -136,7 +136,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
                 className={`relative flex h-8 w-8 items-center justify-center rounded-full active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                   isOutOfStock
                     ? "text-white/90 hover:text-white hover:bg-white/15"
-                    : "text-[#061220] hover:bg-black/15"
+                    : "text-[#FFFFFF] hover:bg-black/15"
                 }`}
               >
                 <Plus size={17} strokeWidth={2.8} />

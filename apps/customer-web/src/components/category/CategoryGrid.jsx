@@ -54,14 +54,14 @@ function CategoryGrid({ categories: propCategories = EMPTY_CATEGORIES }) {
     <section className="hidden md:block">
       <div className="mb-2.5 sm:mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 sm:gap-2.5">
-          <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#42D6E8] to-[#2563EB] shrink-0" />
-          <h2 className="text-base sm:text-xl md:text-2xl font-bold tracking-normal text-white drop-shadow-xs">
+          <span className="h-5 sm:h-6 w-1 sm:w-1.5 rounded-full bg-gradient-to-b from-[#22499F] to-[#2563EB] shrink-0" />
+          <h2 className="text-base sm:text-xl md:text-2xl font-bold tracking-normal text-[#1E293B]">
             Shop by Category
           </h2>
         </div>
         <Link
           to="/categories"
-          className="group flex items-center gap-0.5 sm:gap-1 shrink-0 text-xs sm:text-sm font-bold text-[#42D6E8] hover:text-[#67E8F9] transition"
+          className="group flex items-center gap-0.5 sm:gap-1 shrink-0 text-xs sm:text-sm font-bold text-[#22499F] hover:text-[#22499F] transition"
         >
           <span>All categories</span>
           <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />

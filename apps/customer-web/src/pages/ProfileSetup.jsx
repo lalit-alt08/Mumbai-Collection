@@ -663,8 +663,8 @@ function ProfileSetup() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center bg-[#0B1425]">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#1E3252] border-t-[#42D6E8]" />
+      <div className="flex min-h-[50vh] items-center justify-center bg-[#F0F8E8]">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#22499F]" />
       </div>
     );
   }
@@ -673,7 +673,7 @@ function ProfileSetup() {
   const hasOffice = addresses.some((a) => a.type === "office");
 
   return (
-    <div className="min-h-screen bg-[#0B1425] text-[#F1F5F9] px-4 pt-3 pb-24 sm:px-6 sm:pt-6 md:pb-16 font-sans">
+    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 pt-3 pb-24 sm:px-6 sm:pt-6 md:pb-16 font-sans">
       <div className="mx-auto max-w-xl space-y-4 sm:space-y-5">
         {/* Top Header */}
         <div className="flex items-center gap-3">
@@ -681,40 +681,40 @@ function ProfileSetup() {
             type="button"
             onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
             aria-label="Back to Home"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#111F36] text-[#F1F5F9] border border-[#1E3252] transition-all hover:border-[#42D6E8]/60 hover:bg-[#162744] hover:text-[#42D6E8] active:scale-95 cursor-pointer shadow-sm"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#1E293B] border border-[#E2E8F0] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer shadow-sm"
           >
             <ArrowLeft size={18} strokeWidth={2.4} />
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-extrabold tracking-tight text-[#F1F5F9] sm:text-2xl truncate">
+            <h1 className="text-xl font-extrabold tracking-tight text-[#1E293B] sm:text-2xl truncate">
               Account Setup
             </h1>
-            <p className="text-xs font-medium text-[#8FA4BE] truncate">
+            <p className="text-xs font-medium text-[#64748B] truncate">
               Complete your security & delivery details
             </p>
           </div>
           <button
             type="button"
             onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
-            className="shrink-0 text-xs font-semibold text-[#8FA4BE] hover:text-[#42D6E8] px-2.5 py-1.5 rounded-lg border border-[#1E3252]/60 hover:border-[#42D6E8]/40 bg-[#111F36]/50 transition cursor-pointer"
+            className="shrink-0 text-xs font-semibold text-[#64748B] hover:text-[#22499F] px-2.5 py-1.5 rounded-lg border border-[#E2E8F0]/60 hover:border-[#22499F]/40 bg-[#FFFFFF]/50 transition cursor-pointer"
           >
             Skip for now
           </button>
         </div>
 
         {/* Step Progress Pill */}
-        <div className="flex items-center justify-between rounded-xl border border-[#1E3252]/70 bg-[#111F36]/60 px-3.5 py-2 text-xs font-semibold">
-          <span className="flex items-center gap-1.5 text-[#42D6E8]">
-            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#42D6E8] text-[10px] font-black text-[#061220]">
+        <div className="flex items-center justify-between rounded-xl border border-[#E2E8F0]/70 bg-[#FFFFFF]/60 px-3.5 py-2 text-xs font-semibold">
+          <span className="flex items-center gap-1.5 text-[#22499F]">
+            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#22499F] text-[10px] font-black text-[#FFFFFF]">
               ✓
             </span>
             Email Verified
           </span>
-          <div className="h-0.5 flex-1 mx-3 bg-[#1E3252] rounded-full overflow-hidden">
-            <div className="h-full w-full bg-[#42D6E8]" />
+          <div className="h-0.5 flex-1 mx-3 bg-[#E2E8F0] rounded-full overflow-hidden">
+            <div className="h-full w-full bg-[#22499F]" />
           </div>
-          <span className="flex items-center gap-1.5 text-[#F1F5F9]">
-            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#42D6E8] text-[10px] font-black text-[#061220]">
+          <span className="flex items-center gap-1.5 text-[#1E293B]">
+            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#22499F] text-[10px] font-black text-[#FFFFFF]">
               2
             </span>
             Account & Delivery Setup
@@ -727,7 +727,7 @@ function ProfileSetup() {
             className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-xs font-bold shadow-xs border animate-in fade-in duration-200 ${
               message.type === "error"
                 ? "bg-rose-950/40 text-rose-300 border-rose-900/60"
-                : "bg-[#132B45] text-emerald-300 border-emerald-500"
+                : "bg-[#FFFFFF] text-emerald-300 border-emerald-500"
             }`}
           >
             {message.type === "error" ? (
@@ -743,17 +743,17 @@ function ProfileSetup() {
           {/* ──────────────────────────────────────────────────────── */}
           {/* CARD 1: ACCOUNT SECURITY & CONTACT (PASSWORD FIRST)      */}
           {/* ──────────────────────────────────────────────────────── */}
-          <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4.5 sm:p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1E3252]/60 pb-3">
+          <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4.5 sm:p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#42D6E8]/10 text-[#42D6E8] border border-[#42D6E8]/20">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
                   <Lock size={16} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
                     Account Security & Contact
                   </h2>
-                  <p className="text-[11px] font-medium text-[#8FA4BE]">
+                  <p className="text-[11px] font-medium text-[#64748B]">
                     {needsPassword ? "Set your account password and mobile number" : "Add your delivery contact number"}
                   </p>
                 </div>
@@ -768,13 +768,13 @@ function ProfileSetup() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {/* Password Field */}
                 <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.password ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    Password <span className="text-[#42D6E8]">*</span>
+                  <label className={`mb-1 block text-xs font-bold ${errors.password ? "text-rose-400" : "text-[#64748B]"}`}>
+                    Password <span className="text-[#22499F]">*</span>
                   </label>
                   <div className="relative">
                     <Lock
                       size={15}
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.password ? "text-rose-400" : "text-[#6E84A3]"}`}
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.password ? "text-rose-400" : "text-[#64748B]"}`}
                     />
                     <input
                       type={showPassword ? "text" : "password"}
@@ -793,16 +793,16 @@ function ProfileSetup() {
                         }
                       }}
                       required
-                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
                         errors.password
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6E84A3] hover:text-[#42D6E8] cursor-pointer"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -818,13 +818,13 @@ function ProfileSetup() {
 
                 {/* Confirm Password Field */}
                 <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_password ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    Confirm Password <span className="text-[#42D6E8]">*</span>
+                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_password ? "text-rose-400" : "text-[#64748B]"}`}>
+                    Confirm Password <span className="text-[#22499F]">*</span>
                   </label>
                   <div className="relative">
                     <Lock
                       size={15}
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.confirm_password ? "text-rose-400" : "text-[#6E84A3]"}`}
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.confirm_password ? "text-rose-400" : "text-[#64748B]"}`}
                     />
                     <input
                       type={showConfirmPassword ? "text" : "password"}
@@ -843,16 +843,16 @@ function ProfileSetup() {
                         }
                       }}
                       required
-                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
                         errors.confirm_password
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6E84A3] hover:text-[#42D6E8] cursor-pointer"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
                       aria-label={showConfirmPassword ? "Hide password" : "Show password"}
                     >
                       {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -868,24 +868,24 @@ function ProfileSetup() {
               </div>
 
               {/* Password Rules Checklist */}
-              <div className="rounded-xl border border-[#1E3252]/60 bg-[#080F1C]/70 p-3 text-[11px] text-[#8FA4BE] space-y-1.5">
-                <span className="block font-bold text-[#6E84A3] text-[10px] uppercase tracking-wider">
+              <div className="rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/70 p-3 text-[11px] text-[#64748B] space-y-1.5">
+                <span className="block font-bold text-[#64748B] text-[10px] uppercase tracking-wider">
                   Password Requirements
                 </span>
                 <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                  <span className={`flex items-center gap-1 ${passwordChecks.length ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1 ${passwordChecks.length ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
                     <Check size={12} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
                   </span>
-                  <span className={`flex items-center gap-1 ${passwordChecks.uppercase ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1 ${passwordChecks.uppercase ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
                     <Check size={12} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
                   </span>
-                  <span className={`flex items-center gap-1 ${passwordChecks.lowercase ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1 ${passwordChecks.lowercase ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
                     <Check size={12} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
                   </span>
-                  <span className={`flex items-center gap-1 ${passwordChecks.number ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1 ${passwordChecks.number ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
                     <Check size={12} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
                   </span>
-                  <span className={`flex items-center gap-1 col-span-2 sm:col-span-2 ${passwordChecks.special ? "text-emerald-400 font-bold" : "text-[#6E84A3]"}`}>
+                  <span className={`flex items-center gap-1 col-span-2 sm:col-span-2 ${passwordChecks.special ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
                     <Check size={12} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special symbol (!@#$%^&*)
                   </span>
                 </div>
@@ -893,21 +893,21 @@ function ProfileSetup() {
             </div>
 
             {/* B. Divider */}
-            <div className="border-t border-[#1E3252]/60 pt-3" />
+            <div className="border-t border-[#E2E8F0]/60 pt-3" />
             </>
             )}
 
             {/* C. Mobile Number & Confirm Mobile Number */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#42D6E8]/10 text-[#42D6E8] border border-[#42D6E8]/20">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
                   <User size={14} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h3 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9]">
+                  <h3 className="text-xs sm:text-sm font-extrabold text-[#1E293B]">
                     Delivery Contact Mobile
                   </h3>
-                  <p className="text-[10px] font-medium text-[#8FA4BE]">
+                  <p className="text-[10px] font-medium text-[#64748B]">
                     Used for order delivery updates & driver contact
                   </p>
                 </div>
@@ -915,13 +915,13 @@ function ProfileSetup() {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    Mobile Number <span className="text-[#42D6E8]">*</span>
+                  <label className={`mb-1 block text-xs font-bold ${errors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
+                    Mobile Number <span className="text-[#22499F]">*</span>
                   </label>
                   <div className="relative flex items-center w-full">
                     <span
                       className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                        errors.phone ? "text-rose-400" : "text-[#6E84A3]"
+                        errors.phone ? "text-rose-400" : "text-[#64748B]"
                       }`}
                     >
                       +91
@@ -939,18 +939,18 @@ function ProfileSetup() {
                         }
                       }}
                       required
-                      className={`h-11 w-full rounded-xl border pl-11 pr-9 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-11 pr-9 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
                         errors.phone
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
                           : phoneAvailable === true
-                            ? "border-emerald-500/70 bg-[#080F1C] ring-1 ring-emerald-500/30 focus:border-emerald-400"
-                            : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                            ? "border-emerald-500/70 bg-[#F0F8E8] ring-1 ring-emerald-500/30 focus:border-emerald-400"
+                            : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                     {phoneChecking && (
                       <Loader2
                         size={15}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#42D6E8]"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#22499F]"
                       />
                     )}
                     {!phoneChecking && phoneAvailable === true && !errors.phone && (
@@ -961,8 +961,8 @@ function ProfileSetup() {
                     )}
                   </div>
                   {phoneChecking && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-[#42D6E8]">
-                      <Loader2 size={12} className="shrink-0 animate-spin text-[#42D6E8]" />
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-[#22499F]">
+                      <Loader2 size={12} className="shrink-0 animate-spin text-[#22499F]" />
                       <span>Checking number availability...</span>
                     </p>
                   )}
@@ -981,13 +981,13 @@ function ProfileSetup() {
                 </div>
 
                 <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_phone ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    Confirm Mobile Number <span className="text-[#42D6E8]">*</span>
+                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_phone ? "text-rose-400" : "text-[#64748B]"}`}>
+                    Confirm Mobile Number <span className="text-[#22499F]">*</span>
                   </label>
                   <div className="relative flex items-center w-full">
                     <span
                       className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                        errors.confirm_phone ? "text-rose-400" : "text-[#6E84A3]"
+                        errors.confirm_phone ? "text-rose-400" : "text-[#64748B]"
                       }`}
                     >
                       +91
@@ -1002,10 +1002,10 @@ function ProfileSetup() {
                       onChange={handleChange}
                       required
                       aria-invalid={Boolean(errors.confirm_phone)}
-                      className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                      className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
                         errors.confirm_phone
                           ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                   </div>
@@ -1023,23 +1023,23 @@ function ProfileSetup() {
           {/* ──────────────────────────────────────────────────────── */}
           {/* CARD 2: DELIVERY ADDRESS                                 */}
           {/* ──────────────────────────────────────────────────────── */}
-          <div className="rounded-[20px] border border-[#1E3252]/80 bg-[#111F36] p-4.5 sm:p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-[#1E3252]/60 pb-3">
+          <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4.5 sm:p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#42D6E8]/10 text-[#42D6E8] border border-[#42D6E8]/20">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
                   <MapPin size={16} strokeWidth={2.2} />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#F1F5F9]">
+                  <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
                     Delivery Address
                   </h2>
-                  <p className="text-[11px] font-medium text-[#8FA4BE]">
+                  <p className="text-[11px] font-medium text-[#64748B]">
                     Where your orders will be delivered
                   </p>
                 </div>
               </div>
 
-              <span className="rounded-full bg-[#132B45] text-[#42D6E8] border border-[#1E3E63] px-2.5 py-0.5 text-[10px] font-bold">
+              <span className="rounded-full bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] px-2.5 py-0.5 text-[10px] font-bold">
                 Step 2 of 2 {requiresAddress ? "• Required" : ""}
               </span>
             </div>
@@ -1052,23 +1052,23 @@ function ProfileSetup() {
                   return (
                     <div
                       key={address.id}
-                      className="rounded-xl border border-[#1E3252] bg-[#080F1C] p-3.5 transition hover:border-[#42D6E8]/50"
+                      className="rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] p-3.5 transition hover:border-[#22499F]/50"
                     >
                       <div className="flex items-start justify-between gap-2.5">
                         <div className="flex items-start gap-2.5 min-w-0">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#132B45] text-[#42D6E8] shadow-xs border border-[#1E3252]">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#FFFFFF] text-[#22499F] shadow-xs border border-[#E2E8F0]">
                             {isHome ? <Home size={15} /> : <Building2 size={15} />}
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <h4 className="text-xs sm:text-sm font-extrabold text-[#F1F5F9] capitalize">
+                              <h4 className="text-xs sm:text-sm font-extrabold text-[#1E293B] capitalize">
                                 {address.type} Address
                               </h4>
-                              <span className="rounded bg-[#132B45] border border-[#1E3252] px-1.5 py-0.2 text-[9px] font-bold uppercase text-[#67E8F9]">
+                              <span className="rounded bg-[#FFFFFF] border border-[#E2E8F0] px-1.5 py-0.2 text-[9px] font-bold uppercase text-[#22499F]">
                                 Saved
                               </span>
                             </div>
-                            <p className="text-xs font-medium text-[#8FA4BE] line-clamp-2 mt-0.5">
+                            <p className="text-xs font-medium text-[#64748B] line-clamp-2 mt-0.5">
                               {address.address_line1}
                               {address.address_line2 ? `, ${address.address_line2}` : ""}
                               , {address.city}, Maharashtra
@@ -1080,7 +1080,7 @@ function ProfileSetup() {
                           <button
                             type="button"
                             onClick={() => startEditAddress(address)}
-                            className="flex h-7 px-2.5 items-center gap-1 rounded-lg bg-[#111F36] border border-[#1E3252] text-xs font-bold text-[#8FA4BE] hover:text-[#42D6E8] hover:border-[#42D6E8]/40 transition cursor-pointer"
+                            className="flex h-7 px-2.5 items-center gap-1 rounded-lg bg-[#FFFFFF] border border-[#E2E8F0] text-xs font-bold text-[#64748B] hover:text-[#22499F] hover:border-[#22499F]/40 transition cursor-pointer"
                           >
                             <Pencil size={12} />
                             <span>Edit</span>
@@ -1088,7 +1088,7 @@ function ProfileSetup() {
                           <button
                             type="button"
                             onClick={() => handleDeleteAddress(address.id)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#111F36] border border-[#1E3252] text-rose-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition cursor-pointer"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#FFFFFF] border border-[#E2E8F0] text-rose-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition cursor-pointer"
                             title="Delete address"
                           >
                             <Trash2 size={13} />
@@ -1105,7 +1105,7 @@ function ProfileSetup() {
                     <button
                       type="button"
                       onClick={() => startNewAddress("home")}
-                      className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
+                      className="flex items-center gap-1.5 text-xs font-bold text-[#22499F] hover:underline cursor-pointer"
                     >
                       <Plus size={13} />
                       <span>Add Home Address</span>
@@ -1115,7 +1115,7 @@ function ProfileSetup() {
                     <button
                       type="button"
                       onClick={() => startNewAddress("office")}
-                      className="flex items-center gap-1.5 text-xs font-bold text-[#42D6E8] hover:underline cursor-pointer"
+                      className="flex items-center gap-1.5 text-xs font-bold text-[#22499F] hover:underline cursor-pointer"
                     >
                       <Plus size={13} />
                       <span>Add Office Address</span>
@@ -1128,7 +1128,7 @@ function ProfileSetup() {
               <div className="space-y-3">
                 {/* Address Type Toggle (Home / Office) */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold text-[#8FA4BE]">
+                  <label className="mb-1.5 block text-xs font-bold text-[#64748B]">
                     Address Type
                   </label>
                   <div className="grid grid-cols-2 gap-2">
@@ -1137,8 +1137,8 @@ function ProfileSetup() {
                       onClick={() => setAddressForm((prev) => ({ ...prev, type: "home" }))}
                       className={`flex h-10 items-center justify-center gap-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                         addressForm.type === "home"
-                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] ring-2 ring-[#42D6E8]/20 font-extrabold"
-                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
+                          ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] hover:bg-[#FFFFFF]"
                       }`}
                     >
                       <Home size={15} />
@@ -1150,8 +1150,8 @@ function ProfileSetup() {
                       onClick={() => setAddressForm((prev) => ({ ...prev, type: "office" }))}
                       className={`flex h-10 items-center justify-center gap-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                         addressForm.type === "office"
-                          ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] ring-2 ring-[#42D6E8]/20 font-extrabold"
-                          : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:bg-[#162744]"
+                          ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
+                          : "border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] hover:bg-[#FFFFFF]"
                       }`}
                     >
                       <Building2 size={15} />
@@ -1162,8 +1162,8 @@ function ProfileSetup() {
 
                 {/* Street Address */}
                 <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.address_line1 ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                    Flat, Building, Street Address <span className="text-[#42D6E8]">*</span>
+                  <label className={`mb-1 block text-xs font-bold ${errors.address_line1 ? "text-rose-400" : "text-[#64748B]"}`}>
+                    Flat, Building, Street Address <span className="text-[#22499F]">*</span>
                   </label>
                   <input
                     type="text"
@@ -1172,10 +1172,10 @@ function ProfileSetup() {
                     value={addressForm.address_line1}
                     onChange={handleAddressChange}
                     required
-                    className={`h-11 w-full rounded-xl border px-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition ${
+                    className={`h-11 w-full rounded-xl border px-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
                       errors.address_line1
                         ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                        : "border-[#1E3252] bg-[#080F1C] focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                        : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                     }`}
                   />
                   {errors.address_line1 && (
@@ -1188,8 +1188,8 @@ function ProfileSetup() {
 
                 {/* Landmark / Area */}
                 <div>
-                  <label className="mb-1 block text-xs font-bold text-[#8FA4BE]">
-                    Landmark / Area <span className="text-[#6E84A3] font-medium">(Optional)</span>
+                  <label className="mb-1 block text-xs font-bold text-[#64748B]">
+                    Landmark / Area <span className="text-[#64748B] font-medium">(Optional)</span>
                   </label>
                   <input
                     type="text"
@@ -1197,17 +1197,17 @@ function ProfileSetup() {
                     placeholder="e.g. Near Ganpati Mandir, Opposite Bank"
                     value={addressForm.address_line2}
                     onChange={handleAddressChange}
-                    className="h-11 w-full rounded-xl border border-[#1E3252] bg-[#080F1C] px-3 text-xs sm:text-sm font-semibold text-[#F1F5F9] outline-none transition focus:border-[#42D6E8] focus:ring-2 focus:ring-[#42D6E8]/20"
+                    className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] px-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                   />
                 </div>
 
                 {/* Delivery Region Selection (4 Zones) */}
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
-                    <label className={`block text-xs font-bold ${errors.city ? "text-rose-400" : "text-[#8FA4BE]"}`}>
-                      Delivery Region <span className="text-[#42D6E8]">*</span>
+                    <label className={`block text-xs font-bold ${errors.city ? "text-rose-400" : "text-[#64748B]"}`}>
+                      Delivery Region <span className="text-[#22499F]">*</span>
                     </label>
-                    <span className="text-[10px] font-semibold text-[#6E84A3]">
+                    <span className="text-[10px] font-semibold text-[#64748B]">
                       Local delivery zones
                     </span>
                   </div>
@@ -1233,13 +1233,13 @@ function ProfileSetup() {
                           }}
                           className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer active:scale-98 ${
                             isSelected
-                              ? "border-[#42D6E8] bg-[#132B45] text-[#67E8F9] shadow-xs ring-2 ring-[#42D6E8]/20 font-extrabold"
+                              ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-xs ring-2 ring-[#22499F]/20 font-extrabold"
                               : errors.city
-                              ? "border-rose-400 bg-rose-950/20 text-[#8FA4BE]"
-                              : "border-[#1E3252] bg-[#080F1C] text-[#8FA4BE] hover:border-[#42D6E8]/40 hover:bg-[#162744]"
+                              ? "border-rose-400 bg-rose-950/20 text-[#64748B]"
+                              : "border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] hover:border-[#22499F]/40 hover:bg-[#FFFFFF]"
                           }`}
                         >
-                          <MapPin size={14} className={isSelected ? "text-[#67E8F9]" : errors.city ? "text-rose-400" : "text-[#6E84A3]"} />
+                          <MapPin size={14} className={isSelected ? "text-[#22499F]" : errors.city ? "text-rose-400" : "text-[#64748B]"} />
                           <span className="truncate">{region}</span>
                         </button>
                       );
@@ -1251,13 +1251,13 @@ function ProfileSetup() {
                       <span>{errors.city}</span>
                     </p>
                   )}
-                  <p className="mt-2 text-[11.5px] sm:text-xs text-[#8FA4BE] leading-relaxed">
+                  <p className="mt-2 text-[11.5px] sm:text-xs text-[#64748B] leading-relaxed">
                     For delivery outside these 4 zones, please{" "}
                     <Link
                       to="/contact"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-bold text-[#42D6E8] underline hover:text-[#2CC4D8] transition-colors"
+                      className="font-bold text-[#22499F] underline hover:text-[#1B3B82] transition-colors"
                     >
                       contact the store
                     </Link>
@@ -1266,12 +1266,12 @@ function ProfileSetup() {
                 </div>
 
                 {/* State / Store Zone Badge */}
-                <div className="flex items-center justify-between rounded-xl border border-[#1E3252] bg-[#080F1C] px-3.5 py-2.5 text-xs font-bold text-[#8FA4BE]">
+                <div className="flex items-center justify-between rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] px-3.5 py-2.5 text-xs font-bold text-[#64748B]">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[#F1F5F9]">Maharashtra</span>
-                    <span className="text-[11px] font-semibold text-[#6E84A3]">(MH)</span>
+                    <span className="text-[#1E293B]">Maharashtra</span>
+                    <span className="text-[11px] font-semibold text-[#64748B]">(MH)</span>
                   </div>
-                  <span className="rounded bg-[#132B45] border border-[#1E3252] px-2 py-0.5 text-[9px] font-extrabold text-[#67E8F9]">
+                  <span className="rounded bg-[#FFFFFF] border border-[#E2E8F0] px-2 py-0.5 text-[9px] font-extrabold text-[#22499F]">
                     Store Delivery Zone
                   </span>
                 </div>
@@ -1285,7 +1285,7 @@ function ProfileSetup() {
                         setIsEditingAddress(false);
                         setEditingAddressId(null);
                       }}
-                      className="text-xs font-bold text-[#8FA4BE] hover:text-[#42D6E8] cursor-pointer"
+                      className="text-xs font-bold text-[#64748B] hover:text-[#22499F] cursor-pointer"
                     >
                       Cancel Editing
                     </button>
@@ -1302,11 +1302,11 @@ function ProfileSetup() {
             <button
               type="submit"
               disabled={saving}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#42D6E8] px-6 text-sm font-black text-[#061220] shadow-lg transition-all hover:bg-[#2CC4D8] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] px-6 text-sm font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               {saving ? (
                 <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#061220]/30 border-t-[#061220]" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#FFFFFF]/30 border-t-[#FFFFFF]" />
                   <span>Saving Information...</span>
                 </>
               ) : (
@@ -1317,8 +1317,8 @@ function ProfileSetup() {
               )}
             </button>
 
-            <div className="flex items-center justify-center gap-1.5 text-center text-[11px] font-semibold text-[#6E84A3]">
-              <ShieldCheck size={14} className="text-[#42D6E8] shrink-0" />
+            <div className="flex items-center justify-center gap-1.5 text-center text-[11px] font-semibold text-[#64748B]">
+              <ShieldCheck size={14} className="text-[#22499F] shrink-0" />
               <span>Your profile details are private & securely encrypted.</span>
             </div>
           </div>

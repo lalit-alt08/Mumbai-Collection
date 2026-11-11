@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { attachStaleConnectionRetry } from "./utils/resilientAxios.js";
 import "./index.css";
+import "./utils/storefrontTheme.js";
 import App from "./App.jsx";
 import ErrorBoundary from "./components/layout/ErrorBoundary.jsx";
 

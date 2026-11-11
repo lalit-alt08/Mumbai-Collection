@@ -184,7 +184,7 @@ export default function CategoryFilterBar({
   };
 
   return (
-    <div className="relative shrink-0 z-30 bg-[#0B1425] px-3 sm:px-4 py-2 border-b border-[#162744]/70 select-none">
+    <div className="relative shrink-0 z-30 bg-[#F0F8E8] px-3 sm:px-4 py-2 select-none">
       <div className="mx-auto max-w-7xl flex items-center justify-between gap-2.5">
         {/* Horizontal scrollable pills row */}
         <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-0.5">
@@ -197,20 +197,20 @@ export default function CategoryFilterBar({
               aria-label="Filter options"
               className={`flex items-center justify-center gap-2 rounded-full px-4.5 sm:px-5 h-9 min-w-[96px] sm:min-w-[106px] text-[12.5px] sm:text-[13px] font-extrabold tracking-[0.01em] transition-all active:scale-95 cursor-pointer antialiased shadow-xs ${
                 activeCount > 0
-                  ? "bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
+                  ? "bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
                   : isSheetOpen && targetSection === "all"
-                  ? "bg-[#1A2E4C] text-white border border-[#42D6E8]/50 ring-1 ring-[#42D6E8]/30"
-                  : "bg-[#122038]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#1A2E4C] hover:text-white hover:border-white/20"
+                  ? "bg-[#FFFFFF] text-[#1E293B] border border-[#22499F]/50 ring-1 ring-[#22499F]/30"
+                  : "bg-[#FFFFFF]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#FFFFFF] hover:text-white hover:border-white/20"
               }`}
             >
               <SlidersHorizontal
                 size={13}
                 strokeWidth={2.4}
-                className={`shrink-0 transition-colors ${activeCount > 0 ? "text-[#42D6E8]" : "text-[#8FA4BE]"}`}
+                className={`shrink-0 transition-colors ${activeCount > 0 ? "text-[#22499F]" : "text-[#64748B]"}`}
               />
               <span>Filters</span>
               {activeCount > 0 && (
-                <span className="flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-[#42D6E8] text-[#061220] text-[10px] font-black leading-none">
+                <span className="flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-[#22499F] text-[#FFFFFF] text-[10px] font-black leading-none">
                   {activeCount}
                 </span>
               )}
@@ -226,23 +226,23 @@ export default function CategoryFilterBar({
               aria-label="Sort products"
               className={`flex items-center gap-1.5 sm:gap-2 rounded-full px-3.5 sm:px-4 h-9 text-[12.5px] sm:text-[13px] font-bold transition-all active:scale-95 cursor-pointer antialiased shadow-xs ${
                 sortBy !== "default"
-                  ? "bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
+                  ? "bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
                   : isSheetOpen && targetSection === "sort"
-                  ? "bg-[#1A2E4C] text-white border border-[#42D6E8]/50 ring-1 ring-[#42D6E8]/30"
-                  : "bg-[#122038]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#1A2E4C] hover:text-white hover:border-white/20"
+                  ? "bg-[#FFFFFF] text-[#1E293B] border border-[#22499F]/50 ring-1 ring-[#22499F]/30"
+                  : "bg-[#FFFFFF]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#FFFFFF] hover:text-white hover:border-white/20"
               }`}
             >
               <ArrowUpDown
                 size={13}
                 strokeWidth={2.2}
-                className={`shrink-0 transition-colors ${sortBy !== "default" ? "text-[#42D6E8]" : "text-[#8FA4BE]"}`}
+                className={`shrink-0 transition-colors ${sortBy !== "default" ? "text-[#22499F]" : "text-[#64748B]"}`}
               />
               <span className="max-w-[130px] truncate">{currentSortLabel}</span>
               <ChevronDown
                 size={13}
                 strokeWidth={2.4}
                 className={`shrink-0 transition-transform duration-200 ${
-                  isSheetOpen && targetSection === "sort" ? "rotate-180 text-[#42D6E8]" : "text-[#8FA4BE]"
+                  isSheetOpen && targetSection === "sort" ? "rotate-180 text-[#22499F]" : "text-[#64748B]"
                 }`}
               />
             </button>
@@ -257,19 +257,19 @@ export default function CategoryFilterBar({
               aria-label="Filter by price"
               className={`flex items-center gap-1.5 sm:gap-2 rounded-full px-3.5 sm:px-4 h-9 text-[12.5px] sm:text-[13px] font-bold transition-all active:scale-95 cursor-pointer antialiased shadow-xs ${
                 priceFilter !== "all"
-                  ? "bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
+                  ? "bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
                   : isSheetOpen && targetSection === "price"
-                  ? "bg-[#1A2E4C] text-white border border-[#42D6E8]/50 ring-1 ring-[#42D6E8]/30"
-                  : "bg-[#122038]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#1A2E4C] hover:text-white hover:border-white/20"
+                  ? "bg-[#FFFFFF] text-[#1E293B] border border-[#22499F]/50 ring-1 ring-[#22499F]/30"
+                  : "bg-[#FFFFFF]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#FFFFFF] hover:text-white hover:border-white/20"
               }`}
             >
-              <span className={`text-[13px] font-bold shrink-0 ${priceFilter !== "all" ? "text-[#42D6E8]" : "text-[#8FA4BE]"}`}>₹</span>
+              <span className={`text-[13px] font-bold shrink-0 ${priceFilter !== "all" ? "text-[#22499F]" : "text-[#64748B]"}`}>₹</span>
               <span className="max-w-[130px] truncate">{currentPriceLabel}</span>
               <ChevronDown
                 size={13}
                 strokeWidth={2.4}
                 className={`shrink-0 transition-transform duration-200 ${
-                  isSheetOpen && targetSection === "price" ? "rotate-180 text-[#42D6E8]" : "text-[#8FA4BE]"
+                  isSheetOpen && targetSection === "price" ? "rotate-180 text-[#22499F]" : "text-[#64748B]"
                 }`}
               />
             </button>
@@ -284,14 +284,14 @@ export default function CategoryFilterBar({
               aria-label="Toggle in-stock only"
               className={`flex items-center gap-1.5 sm:gap-2 rounded-full px-3.5 sm:px-4 h-9 text-[12.5px] sm:text-[13px] font-bold transition-all active:scale-95 cursor-pointer antialiased shadow-xs ${
                 inStockOnly
-                  ? "bg-[#132B45] text-[#42D6E8] border border-[#42D6E8]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
-                  : "bg-[#122038]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#1A2E4C] hover:text-white hover:border-white/20"
+                  ? "bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/70 shadow-[0_0_12px_rgba(66,214,232,0.2)]"
+                  : "bg-[#FFFFFF]/90 text-[#CBD5E1] border border-white/10 hover:bg-[#FFFFFF] hover:text-white hover:border-white/20"
               }`}
             >
               <Zap
                 size={13}
                 strokeWidth={2.4}
-                className={`shrink-0 transition-colors ${inStockOnly ? "text-[#42D6E8] fill-[#42D6E8]" : "text-[#8FA4BE]"}`}
+                className={`shrink-0 transition-colors ${inStockOnly ? "text-[#22499F] fill-[#22499F]" : "text-[#64748B]"}`}
               />
               <span className="whitespace-nowrap">In Stock</span>
             </button>
@@ -312,7 +312,7 @@ export default function CategoryFilterBar({
         </div>
 
         {/* Product count display */}
-        <div className="shrink-0 text-xs font-semibold text-[#8FA4BE] hidden sm:block whitespace-nowrap pl-3">
+        <div className="shrink-0 text-xs font-semibold text-[#64748B] hidden sm:block whitespace-nowrap pl-3">
           {totalProducts} {totalProducts === 1 ? "item" : "items"}
         </div>
       </div>
@@ -330,20 +330,20 @@ export default function CategoryFilterBar({
         >
           <div
             ref={sheetDialogRef}
-            className="w-full max-w-md rounded-t-[28px] sm:rounded-3xl bg-[#0F1C31] border border-[#1E365A] p-5 sm:p-6 text-white shadow-2xl relative animate-in slide-in-from-bottom-4 duration-200 max-h-[85vh] flex flex-col pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]"
+            className="w-full max-w-md rounded-t-[28px] sm:rounded-3xl bg-[#FFFFFF] border border-[#E2E8F0] p-5 sm:p-6 text-[#1E293B] shadow-2xl relative animate-in slide-in-from-bottom-4 duration-200 max-h-[85vh] flex flex-col pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Mobile Drag Pill */}
             <div className="mx-auto mb-3.5 h-1.5 w-12 rounded-full bg-white/25 sm:hidden" />
 
             {/* Header - Fixed (shrink-0) */}
-            <div className="flex items-center justify-between pb-4 border-b border-[#1E365A]/80 shrink-0">
+            <div className="flex items-center justify-between pb-4 border-b border-[#E2E8F0]/80 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#132B45] to-[#18395F] text-[#42D6E8] border border-[#42D6E8]/40 shadow-[0_0_12px_rgba(66,214,232,0.2)]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#FFFFFF] to-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_0_12px_rgba(66,214,232,0.2)]">
                   <SlidersHorizontal size={20} strokeWidth={2.5} />
                 </div>
                 <div>
-                  <h3 id="filter-sheet-title" className="text-[19px] sm:text-[21px] font-black text-white tracking-[-0.015em] leading-tight antialiased">
+                  <h3 id="filter-sheet-title" className="text-[19px] sm:text-[21px] font-black text-[#1E293B] tracking-[-0.015em] leading-tight antialiased">
                     Filter & Sort
                   </h3>
                   <p className="text-[13px] sm:text-[13.5px] font-semibold text-[#CBD5E1] tracking-[0.005em] mt-0.5 leading-snug antialiased">
@@ -356,7 +356,7 @@ export default function CategoryFilterBar({
                 type="button"
                 onClick={handleCloseSheet}
                 aria-label="Close"
-                className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/90 hover:bg-white/20 hover:text-white border border-white/10 transition active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#42D6E8]"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F0F8E8] text-[#1E293B] hover:bg-[#FFFFFF] hover:text-[#22499F] border border-[#E2E8F0] transition active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#22499F]"
               >
                 <X size={18} strokeWidth={2.5} />
               </button>
@@ -374,7 +374,7 @@ export default function CategoryFilterBar({
                     <button
                       type="button"
                       onClick={() => setDraft((prev) => ({ ...prev, sortBy: "default" }))}
-                      className="text-xs font-extrabold text-[#42D6E8] hover:text-[#67E8F9] hover:underline cursor-pointer"
+                      className="text-xs font-extrabold text-[#22499F] hover:text-[#22499F] hover:underline cursor-pointer"
                     >
                       Reset
                     </button>
@@ -393,12 +393,12 @@ export default function CategoryFilterBar({
                         }}
                         className={`flex items-center justify-between gap-2 px-4 py-3.5 min-h-[50px] rounded-2xl text-[13.5px] sm:text-[14px] font-extrabold border transition-all text-left active:scale-[0.98] cursor-pointer antialiased shadow-xs ${
                           isSelected
-                            ? "bg-[#132B45] text-[#42D6E8] border-[#42D6E8] shadow-[0_0_14px_rgba(66,214,232,0.25)] ring-1 ring-[#42D6E8]/60"
-                            : "bg-[#0D1829] text-white border-[#1E365A] hover:bg-[#13243D] hover:border-[#42D6E8]/40"
+                            ? "bg-[#FFFFFF] text-[#22499F] border-[#22499F] shadow-[0_0_14px_rgba(66,214,232,0.25)] ring-1 ring-[#22499F]/60"
+                            : "bg-[#FFFFFF] text-[#1E293B] border-[#E2E8F0] hover:bg-[#FFFFFF] hover:border-[#22499F]/40"
                         }`}
                       >
                         <span className="truncate leading-tight">{opt.label}</span>
-                        {isSelected && <Check size={16} strokeWidth={3} className="text-[#42D6E8] shrink-0" />}
+                        {isSelected && <Check size={16} strokeWidth={3} className="text-[#22499F] shrink-0" />}
                       </button>
                     );
                   })}
@@ -415,7 +415,7 @@ export default function CategoryFilterBar({
                     <button
                       type="button"
                       onClick={() => setDraft((prev) => ({ ...prev, priceFilter: "all" }))}
-                      className="text-xs font-extrabold text-[#42D6E8] hover:text-[#67E8F9] hover:underline cursor-pointer"
+                      className="text-xs font-extrabold text-[#22499F] hover:text-[#22499F] hover:underline cursor-pointer"
                     >
                       Reset
                     </button>
@@ -434,12 +434,12 @@ export default function CategoryFilterBar({
                         }}
                         className={`flex items-center justify-between gap-2 px-4 py-3.5 min-h-[50px] rounded-2xl text-[13.5px] sm:text-[14px] font-extrabold border transition-all text-left active:scale-[0.98] cursor-pointer antialiased shadow-xs ${
                           isSelected
-                            ? "bg-[#132B45] text-[#42D6E8] border-[#42D6E8] shadow-[0_0_14px_rgba(66,214,232,0.25)] ring-1 ring-[#42D6E8]/60"
-                            : "bg-[#0D1829] text-white border-[#1E365A] hover:bg-[#13243D] hover:border-[#42D6E8]/40"
+                            ? "bg-[#FFFFFF] text-[#22499F] border-[#22499F] shadow-[0_0_14px_rgba(66,214,232,0.25)] ring-1 ring-[#22499F]/60"
+                            : "bg-[#FFFFFF] text-[#1E293B] border-[#E2E8F0] hover:bg-[#FFFFFF] hover:border-[#22499F]/40"
                         }`}
                       >
                         <span className="truncate leading-tight">{opt.label}</span>
-                        {isSelected && <Check size={16} strokeWidth={3} className="text-[#42D6E8] shrink-0" />}
+                        {isSelected && <Check size={16} strokeWidth={3} className="text-[#22499F] shrink-0" />}
                       </button>
                     );
                   })}
@@ -459,39 +459,39 @@ export default function CategoryFilterBar({
                   }}
                   className={`w-full flex items-center justify-between px-4 py-3.5 min-h-[52px] rounded-2xl border text-[13.5px] sm:text-[14px] font-extrabold transition-all active:scale-[0.98] cursor-pointer antialiased shadow-xs ${
                     draft.inStockOnly
-                      ? "bg-[#132B45] text-[#42D6E8] border-[#42D6E8] shadow-[0_0_14px_rgba(66,214,232,0.25)] ring-1 ring-[#42D6E8]/60"
-                      : "bg-[#0D1829] text-white border-[#1E365A] hover:bg-[#13243D] hover:border-[#42D6E8]/40"
+                      ? "bg-[#FFFFFF] text-[#22499F] border-[#22499F] shadow-[0_0_14px_rgba(66,214,232,0.25)] ring-1 ring-[#22499F]/60"
+                      : "bg-[#FFFFFF] text-[#1E293B] border-[#E2E8F0] hover:bg-[#FFFFFF] hover:border-[#22499F]/40"
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Zap size={16} strokeWidth={2.4} className={draft.inStockOnly ? "text-[#42D6E8] fill-[#42D6E8]" : "text-[#8FA4BE]"} />
+                    <Zap size={16} strokeWidth={2.4} className={draft.inStockOnly ? "text-[#22499F] fill-[#22499F]" : "text-[#64748B]"} />
                     <span>In Stock Only</span>
                   </div>
-                  {draft.inStockOnly && <Check size={17} strokeWidth={3} className="text-[#42D6E8]" />}
+                  {draft.inStockOnly && <Check size={17} strokeWidth={3} className="text-[#22499F]" />}
                 </button>
               </div>
             </div>
 
             {/* Footer Actions - Fixed (shrink-0) with Safe-Area Padding */}
-            <div className="pt-3.5 border-t border-[#1E365A]/80 flex items-center justify-between gap-3.5 shrink-0">
+            <div className="pt-3.5 border-t border-[#E2E8F0]/80 flex items-center justify-between gap-3.5 shrink-0">
               <button
                 type="button"
                 onClick={handleClearAllDraft}
                 disabled={isDraftDefault}
                 className={`flex items-center justify-center gap-1.5 rounded-[20px] px-4.5 sm:px-5 py-4 min-h-[52px] sm:min-h-[54px] text-[14px] font-extrabold border transition-all active:scale-95 antialiased shadow-xs ${
                   isDraftDefault
-                    ? "bg-[#0B1526]/80 text-[#94A3B8] border-[#1E365A] cursor-not-allowed opacity-80"
-                    : "bg-[#13243C] text-white border-[#2A4770] hover:bg-[#1A3152] hover:border-[#42D6E8]/60 hover:text-[#42D6E8] cursor-pointer shadow-sm"
+                    ? "bg-[#FFFFFF]/80 text-[#94A3B8] border-[#E2E8F0] cursor-not-allowed opacity-80"
+                    : "bg-[#FFFFFF] text-[#1E293B] border-[#E2E8F0] hover:bg-[#E2E8F0] hover:border-[#22499F]/60 hover:text-[#22499F] cursor-pointer shadow-sm"
                 }`}
               >
-                <X size={15} strokeWidth={2.6} className={isDraftDefault ? "text-[#64748B]" : "text-[#42D6E8]"} />
+                <X size={15} strokeWidth={2.6} className={isDraftDefault ? "text-[#64748B]" : "text-[#22499F]"} />
                 <span>Clear All</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleApply}
-                className="flex-1 max-w-[240px] sm:max-w-[260px] rounded-[20px] bg-[#42D6E8] hover:bg-[#2CC4D8] active:bg-[#20ADC0] px-5 py-4 min-h-[52px] sm:min-h-[54px] text-[15.5px] sm:text-[16px] font-black tracking-[-0.01em] text-[#061220] shadow-[0_4px_18px_rgba(66,214,232,0.35)] transition-all active:scale-[0.98] cursor-pointer text-center flex items-center justify-center select-none antialiased"
+                className="flex-1 max-w-[240px] sm:max-w-[260px] rounded-[20px] bg-[#22499F] hover:bg-[#1B3B82] active:bg-[#1B3B82] px-5 py-4 min-h-[52px] sm:min-h-[54px] text-[15.5px] sm:text-[16px] font-black tracking-[-0.01em] text-[#FFFFFF] shadow-[0_4px_18px_rgba(66,214,232,0.35)] transition-all active:scale-[0.98] cursor-pointer text-center flex items-center justify-center select-none antialiased"
               >
                 Apply Filters
               </button>

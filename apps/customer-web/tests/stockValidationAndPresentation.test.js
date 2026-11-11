@@ -8,6 +8,7 @@ import {
   shuffleProducts,
   reshuffleCategoryProducts,
   filterAndShuffleRelatedProducts,
+  orderProductsForSession,
 } from "../src/utils/productUtils.js";
 
 test("Stock Validation & Presentation Test Suite", async (t) => {
@@ -158,6 +159,68 @@ test("Stock Validation & Presentation Test Suite", async (t) => {
       { id: "zero_qty", name: "Sold Out Toy", manage_stock: true, stock_quantity: 0 },
     ];
     assert.deepEqual(filterAndShuffleRelatedProducts(allOutOfStock), []);
+  });
+
+  await t.test("7. reshuffleCategoryProducts with seed: partitions in-stock first and preserves deterministic order per seed", () => {
+    const products = [
+      { id: "p_out_1", name: "Portronics Conch", stock_status: "outofstock" },
+      { id: "p_out_2", name: "Timex watch", stock_status: "outofstock" },
+      { id: "p_in_1", name: "Sandisk 32GB", stock_status: "instock", stock_quantity: 10 },
+      { id: "p_in_2", name: "DOMS Brush Pen", stock_status: "instock", stock_quantity: 2 },
+      { id: "p_in_3", name: "Camel Oil Pastels", stock_status: "instock", stock_quantity: 5 },
+      { id: "p_in_4", name: "Wireless Mouse", stock_status: "instock", stock_quantity: 8 },
+      { id: "p_in_5", name: "Keyboard", stock_status: "instock", stock_quantity: 4 },
+      { id: "p_in_6", name: "USB Cable", stock_status: "instock", stock_quantity: 15 },
+    ];
+
+    const seedA = "seed-visit-1:home-category-electronics";
+    const orderedA = reshuffleCategoryProducts(products, seedA);
+
+    // Top 6 products in shelf
+    const top6 = orderedA.slice(0, 6);
+    // All 6 in-stock products must occupy the top 6 spots
+    for (const item of top6) {
+      assert.equal(item.stock_status, "instock", `Expected in-stock item in top 6, found ${item.name} (${item.stock_status})`);
+    }
+
+    // Out-of-stock items (Portronics Conch, Timex watch) must be pushed strictly to the tail
+    const tail = orderedA.slice(6);
+    assert.equal(tail.length, 2);
+    for (const item of tail) {
+      assert.equal(item.stock_status, "outofstock", `Expected out-of-stock item at tail, found ${item.name}`);
+    }
+
+    // Deterministic for same seed
+    const orderedA2 = reshuffleCategoryProducts(products, seedA);
+    assert.deepEqual(orderedA.map((p) => p.id), orderedA2.map((p) => p.id));
+
+    // When fewer than 6 in-stock products exist, in-stock products still come first and out-of-stock fill the remainder
+    const fewInStock = [
+      { id: "p_out_1", name: "Portronics Conch", stock_status: "outofstock" },
+      { id: "p_out_2", name: "Timex watch", stock_status: "outofstock" },
+      { id: "p_in_1", name: "Sandisk 32GB", stock_status: "instock", stock_quantity: 10 },
+      { id: "p_in_2", name: "DOMS Brush Pen", stock_status: "instock", stock_quantity: 2 },
+    ];
+    const orderedFew = reshuffleCategoryProducts(fewInStock, seedA);
+    assert.equal(orderedFew[0].stock_status, "instock");
+    assert.equal(orderedFew[1].stock_status, "instock");
+    assert.equal(orderedFew[2].stock_status, "outofstock");
+    assert.equal(orderedFew[3].stock_status, "outofstock");
+  });
+
+  await t.test("8. orderProductsForSession: groups in-stock before out-of-stock", () => {
+    const products = [
+      { id: "p_out_1", name: "Portronics Conch", stock_status: "outofstock" },
+      { id: "p_in_1", name: "Sandisk 32GB", stock_status: "instock", stock_quantity: 10 },
+      { id: "p_out_2", name: "Timex watch", stock_status: "outofstock" },
+      { id: "p_in_2", name: "DOMS Brush Pen", stock_status: "instock", stock_quantity: 2 },
+    ];
+
+    const ordered = orderProductsForSession(products, "seed-123", "test-category");
+    assert.equal(ordered[0].stock_status, "instock");
+    assert.equal(ordered[1].stock_status, "instock");
+    assert.equal(ordered[2].stock_status, "outofstock");
+    assert.equal(ordered[3].stock_status, "outofstock");
   });
 
 });

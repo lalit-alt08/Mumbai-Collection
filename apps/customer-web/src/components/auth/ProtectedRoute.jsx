@@ -9,11 +9,11 @@ function ProtectedRoute() {
   if (loading || isReconnecting) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-6 text-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8] mb-3" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#22499F]/20 border-t-[#22499F] mb-3" />
         {isReconnecting && (
           <>
-            <p className="text-sm font-medium text-[#0A1628]/70">Reconnecting to store...</p>
-            <p className="text-xs text-[#0A1628]/50 mt-1">Our services are momentarily synchronizing. Please wait a moment.</p>
+            <p className="text-sm font-medium text-[#FFFFFF]/70">Reconnecting to store...</p>
+            <p className="text-xs text-[#FFFFFF]/50 mt-1">Our services are momentarily synchronizing. Please wait a moment.</p>
           </>
         )}
       </div>

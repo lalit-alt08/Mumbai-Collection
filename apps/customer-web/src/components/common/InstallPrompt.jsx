@@ -87,20 +87,20 @@ export default function InstallPrompt() {
       aria-label="Install app"
       className="md:hidden fixed top-3 left-3 right-3 z-[60] mx-auto max-w-md animate-in fade-in slide-in-from-top-4 duration-300"
     >
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#1E3252] bg-[#0E1A2E]/95 p-3.5 shadow-2xl backdrop-blur-md">
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF]/95 p-3.5 shadow-2xl backdrop-blur-md">
         {/* App Icon */}
         <img
           src="/icons/icon-192.png"
           alt="Mumbai Collection"
-          className="h-11 w-11 flex-shrink-0 rounded-xl shadow-md border border-[#1E3252]/80 object-cover"
+          className="h-11 w-11 flex-shrink-0 rounded-xl shadow-md border border-[#E2E8F0]/80 object-cover"
         />
 
         {/* Text Info */}
         <div className="flex-1 min-w-0 pr-1">
-          <h4 className="text-[14px] font-bold text-[#F1F5F9] truncate">
+          <h4 className="text-[14px] font-bold text-[#1E293B] truncate">
             Mumbai Collection
           </h4>
-          <p className="text-[12px] text-[#8FA4BE] truncate">
+          <p className="text-[12px] text-[#64748B] truncate">
             Install app for faster shopping
           </p>
         </div>
@@ -109,7 +109,7 @@ export default function InstallPrompt() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleInstallClick}
-            className="flex items-center gap-1.5 rounded-xl bg-[#42D6E8] px-3.5 py-2 text-[13px] font-extrabold text-[#061220] transition-all hover:bg-[#2CC4D8] active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 rounded-xl bg-[#22499F] px-3.5 py-2 text-[13px] font-extrabold text-[#FFFFFF] transition-all hover:bg-[#1B3B82] active:scale-95 cursor-pointer"
           >
             <Download size={15} strokeWidth={2.5} />
             <span>Install</span>
@@ -118,7 +118,7 @@ export default function InstallPrompt() {
           <button
             onClick={handleDismiss}
             aria-label="Dismiss install prompt"
-            className="rounded-lg p-1.5 text-[#6E84A3] transition-colors hover:bg-[#1E3252] hover:text-[#F1F5F9] cursor-pointer"
+            className="rounded-lg p-1.5 text-[#64748B] transition-colors hover:bg-[#E2E8F0] hover:text-[#1E293B] cursor-pointer"
           >
             <X size={18} />
           </button>

@@ -56,7 +56,7 @@ function StockNotificationModal({
       />
 
       {/* Modal Dialog Card */}
-      <div className="relative z-10 w-full max-w-[480px] overflow-hidden rounded-[24px] sm:rounded-[28px] border border-[#1E3252] bg-[#111F36] p-5 sm:p-7 shadow-[0_25px_65px_rgba(0,0,0,0.6)] animate-[scaleUp_0.2s_ease-out] flex flex-col max-h-[90vh]">
+      <div className="relative z-10 w-full max-w-[480px] overflow-hidden rounded-[24px] sm:rounded-[28px] border border-[#E2E8F0] bg-[#FFFFFF] p-5 sm:p-7 shadow-[0_25px_65px_rgba(0,0,0,0.6)] animate-[scaleUp_0.2s_ease-out] flex flex-col max-h-[90vh]">
         {/* Header with Warning Icon */}
         <div className="flex items-start gap-3.5 mb-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-950/60 text-rose-300 border border-rose-800/60 shadow-xs">
@@ -66,11 +66,11 @@ function StockNotificationModal({
           <div className="flex-1 min-w-0 pt-0.5">
             <h3
               id="stock-alert-title"
-              className="text-[17px] sm:text-[19px] font-black leading-tight text-[#F1F5F9]"
+              className="text-[17px] sm:text-[19px] font-black leading-tight text-[#1E293B]"
             >
               Availability Changed
             </h3>
-            <p className="mt-1 text-xs sm:text-[13px] text-[#8FA4BE] leading-snug">
+            <p className="mt-1 text-xs sm:text-[13px] text-[#64748B] leading-snug">
               {hasRemainingItems
                 ? "Some quantities exceed what is available. Reduce them to continue with the rest of your order:"
                 : "Please review the available quantity for this item:"}
@@ -103,7 +103,7 @@ function StockNotificationModal({
                 className="flex items-center gap-3 rounded-2xl border border-rose-800/60 bg-rose-950/30 p-2.5 sm:p-3 transition-colors"
               >
                 {/* Thumbnail */}
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#1E3252]/60 bg-[#080F1C] p-1">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8] p-1">
                   <img
                     src={imageUrl}
                     alt={cleanTitle}
@@ -119,14 +119,14 @@ function StockNotificationModal({
 
                 {/* Details */}
                 <div className="flex-1 min-w-0">
-                  <h4 className="line-clamp-2 text-xs sm:text-[13px] font-bold text-[#F1F5F9] leading-snug">
+                  <h4 className="line-clamp-2 text-xs sm:text-[13px] font-bold text-[#1E293B] leading-snug">
                     {cleanTitle}
                   </h4>
                   <div className="mt-1 flex items-center gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1 rounded-full bg-rose-950/60 border border-rose-800/60 px-2 py-0.5 text-[10px] font-extrabold text-rose-300">
                       {available > 0 ? "Limited Stock" : "Sold Out"}
                     </span>
-                    <span className="text-[11px] text-[#8FA4BE] font-medium">
+                    <span className="text-[11px] text-[#64748B] font-medium">
                       Qty in cart: {requested}
                       {available > 0 ? ` (Only ${available} available)` : ""}
                     </span>
@@ -138,13 +138,13 @@ function StockNotificationModal({
         </div>
 
         {/* Action Buttons */}
-        <div className="mt-5 flex flex-col gap-2.5 pt-2 border-t border-[#1E3252]/70">
+        <div className="mt-5 flex flex-col gap-2.5 pt-2 border-t border-[#E2E8F0]/70">
           {hasRemainingItems ? (
             <button
               type="button"
               disabled={removing}
               onClick={onRemoveAndContinue}
-              className="flex h-[46px] sm:h-[48px] w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl bg-[#42D6E8] px-4 text-xs sm:text-sm font-black text-[#061220] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-all hover:bg-[#2CC4D8] hover:text-[#061220] active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              className="flex h-[46px] sm:h-[48px] w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl bg-[#22499F] px-4 text-xs sm:text-sm font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-all hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               {removing ? (
                 <>
@@ -164,8 +164,8 @@ function StockNotificationModal({
             type="button"
             disabled={removing}
             onClick={onReturnToCart}
-            className={`flex h-[44px] w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl border border-[#1E3252] bg-transparent px-4 text-xs sm:text-sm font-bold text-[#8FA4BE] transition-all hover:bg-[#162744] active:scale-[0.98] cursor-pointer ${
-              !hasRemainingItems ? "bg-[#42D6E8] text-[#061220] font-black border-transparent hover:bg-[#2CC4D8] hover:text-[#061220]" : ""
+            className={`flex h-[44px] w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl border border-[#E2E8F0] bg-transparent px-4 text-xs sm:text-sm font-bold text-[#64748B] transition-all hover:bg-[#FFFFFF] active:scale-[0.98] cursor-pointer ${
+              !hasRemainingItems ? "bg-[#22499F] text-[#FFFFFF] font-black border-transparent hover:bg-[#1B3B82] hover:text-[#FFFFFF]" : ""
             }`}
           >
             <ArrowLeft size={16} />

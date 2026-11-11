@@ -51,7 +51,7 @@ import { CartRouteManager } from "../context/CartContext";
 function RouteLoadingFallback() {
   return (
     <div className="flex min-h-[50vh] w-full items-center justify-center">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#42D6E8]/20 border-t-[#42D6E8]" />
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#22499F]/20 border-t-[#22499F]" />
     </div>
   );
 }

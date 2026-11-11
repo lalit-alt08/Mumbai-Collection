@@ -89,12 +89,12 @@ function RelatedProducts({ product }) {
   if (!products.length) return null;
 
   return (
-    <section className="rounded-[24px] bg-[#111F36] border border-[#1E3252]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] md:p-6">
+    <section className="rounded-[24px] bg-[#FFFFFF] border border-[#E2E8F0]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] md:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[15px] sm:text-[16px] font-bold uppercase tracking-wide text-[#F1F5F9]">
+        <h2 className="text-[15px] sm:text-[16px] font-bold uppercase tracking-wide text-[#1E293B]">
           You may also like
         </h2>
-        <span className="text-xs text-[#8FA4BE] font-medium">
+        <span className="text-xs text-[#64748B] font-medium">
           {products.length} item{products.length > 1 ? "s" : ""}
         </span>
       </div>

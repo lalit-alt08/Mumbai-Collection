@@ -71,10 +71,10 @@ function MainLayout() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col text-[#F1F5F9] transition-colors duration-200 ${
+      className={`min-h-screen flex flex-col text-[#1E293B] transition-colors duration-200 ${
         isHomePage
-          ? "bg-[#132238] [background:radial-gradient(125%_100%_at_50%_0%,_#1B3459_0%,_#13233A_45%,_#0D192B_100%)]"
-          : "bg-[#0B1425]"
+          ? "bg-[#F0F8E8] "
+          : "bg-[#F0F8E8]"
       }`}
     >
       <NetworkBanner />
