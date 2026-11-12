@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
+import MobileThinBanner from "../components/home/MobileThinBanner";
 import BackToTopButton from "../components/home/BackToTopButton";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
@@ -166,11 +167,22 @@ function Home() {
         </div>
       )}
 
-      {/* Hero Promotional Banner */}
-      <HeroBanner />
+      {/* Swap the two homepage banners on mobile while preserving desktop order. */}
+      <div className="flex flex-col gap-2.5 sm:gap-3 md:gap-8">
+        <div className="order-3 md:order-1">
+          <HeroBanner />
+        </div>
 
-      {/* Compact category shortcuts on mobile and desktop */}
-      <CategoryGrid categories={categories} />
+        {/* Compact category shortcuts on mobile and desktop */}
+        <div className="order-2">
+          <CategoryGrid categories={categories} />
+        </div>
+
+        {/* Mobile welcome banner takes the hero's former top position. */}
+        <div className="order-1 md:order-3">
+          <MobileThinBanner />
+        </div>
+      </div>
 
       {/* Category-by-Category Responsive Product Sections */}
       <div className="space-y-6 md:space-y-8 lg:space-y-10">

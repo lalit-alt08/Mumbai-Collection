@@ -134,16 +134,18 @@ function EmployeeLayout() {
     }
   };
 
-  const getPageTitle = () => {
-    if (location.pathname === "/") return "Operational Dashboard";
-    if (location.pathname === "/products/add") return "Add New Product";
-    if (location.pathname === "/categories/add") return "Categories";
-    if (location.pathname === "/banners") return "Banners";
-    if (location.pathname === "/subcategories") return "Subcategories";
-    if (location.pathname.startsWith("/products")) return "Product Inventory";
-    if (location.pathname.startsWith("/orders")) return "Orders & Dispatch";
-    return "Employee Panel";
+  const getPageInfo = () => {
+    if (location.pathname === "/") return { title: "Operational Dashboard", icon: LayoutDashboard };
+    if (location.pathname === "/products/add") return { title: "Add New Product", icon: PackagePlus };
+    if (location.pathname === "/categories/add") return { title: "Categories", icon: FolderPlus };
+    if (location.pathname === "/banners") return { title: "Homepage Banners", icon: Sliders };
+    if (location.pathname === "/subcategories") return { title: "Subcategories", icon: FolderTree };
+    if (location.pathname.startsWith("/products")) return { title: "Product Inventory", icon: Boxes };
+    if (location.pathname.startsWith("/orders")) return { title: "Orders & Dispatch", icon: Truck };
+    return { title: "Employee Panel", icon: Store };
   };
+
+  const { title: pageTitle, icon: PageIcon } = getPageInfo();
 
   return (
     <div className="flex min-h-screen bg-[#F8F9FA] text-[#1E1E1E]">
@@ -300,8 +302,11 @@ function EmployeeLayout() {
 
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-2xl lg:text-[28px] font-black tracking-[-0.02em] text-slate-900 truncate leading-tight antialiased">
-                  {getPageTitle()}
+                <h1 className="text-base sm:text-2xl lg:text-[28px] font-black tracking-[-0.02em] text-slate-900 truncate leading-tight antialiased flex items-center gap-2">
+                  {PageIcon && (
+                    <PageIcon size={22} className="text-emerald-600 shrink-0" />
+                  )}
+                  <span>{pageTitle}</span>
                 </h1>
                 <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200 shrink-0">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />

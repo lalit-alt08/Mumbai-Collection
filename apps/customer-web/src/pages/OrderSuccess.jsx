@@ -46,6 +46,7 @@ function OrderSuccess() {
   const [orderStatus, setOrderStatus] = useState(
     location.state?.status || "Processing"
   );
+  const [order, setOrder] = useState(null);
   const [fetchError, setFetchError] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [networkError, setNetworkError] = useState(false);
@@ -147,6 +148,8 @@ function OrderSuccess() {
         setPollAttempt(attempt);
         const data = await getOrderById(activeOrderId);
         if (!isMounted) return;
+
+        setOrder(data?.order || null);
 
         if (data?.order?.payment_method_title) {
           setPaymentMethodTitle(data.order.payment_method_title);
@@ -287,11 +290,11 @@ function OrderSuccess() {
     : "60–90 mins";
 
   return (
-    <div className="min-h-[calc(100vh-2rem)] w-full bg-[#F0F8E8] text-[#1E293B] flex items-center justify-center px-4 py-8 sm:py-12">
+    <div className="order-success-page min-h-[calc(100vh-2rem)] w-full bg-[#F0F8E8] text-[#1E293B] flex items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-[460px] animate-[slideUp_0.3s_ease-out]">
 
         {/* MAIN CARD */}
-        <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#FFFFFF]/95 backdrop-blur-xl p-6 sm:p-8 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
+        <section className="order-success-card relative overflow-hidden rounded-[28px] border border-white/10 bg-[#FFFFFF]/95 backdrop-blur-xl p-6 sm:p-8 shadow-[0_16px_50px_rgba(0,0,0,0.45)]">
           {/* Subtle ambient cyan glow */}
           <div className="pointer-events-none absolute -top-16 left-1/2 -translate-x-1/2 h-36 w-64 rounded-full bg-[#22499F]/15 blur-3xl" />
 
@@ -316,14 +319,14 @@ function OrderSuccess() {
               Order Placed Successfully! 🎉
             </h1>
 
-            <p className="mt-2 text-xs sm:text-[13px] font-medium leading-relaxed text-[#64748B]">
+            <p className="order-success-intro mt-2 text-base font-semibold leading-relaxed text-[#64748B]">
               Thank you for shopping with Mumbai Collection. Your order is confirmed and is now being processed.
             </p>
           </div>
 
           {/* Night Order Notification Card */}
           {isAfterHours && (
-            <div className="mt-4 rounded-2xl bg-[#0E223D] border border-[#22499F]/35 p-3.5 text-left flex items-center gap-3">
+            <div className="order-success-scheduled mt-4 rounded-2xl bg-[#0E223D] border border-[#22499F]/35 p-3.5 text-left flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-xs">
                 <Moon size={18} />
               </div>
@@ -338,14 +341,14 @@ function OrderSuccess() {
             </div>
           )}
           {needsDeliveryReview && (
-            <div className="mt-4 rounded-2xl border border-amber-400/35 bg-amber-950/30 p-3.5 text-left">
+            <div className="order-success-review mt-4 rounded-2xl border border-amber-400/35 bg-amber-950/30 p-3.5 text-left">
               <p className="text-xs font-black text-amber-200">Payment received · Fulfillment confirmation pending</p>
               <p className="mt-1 text-[11px] font-semibold leading-tight text-amber-100/90">Your payment is safe. The store team will contact you to confirm delivery timing.</p>
             </div>
           )}
 
           {/* Order Summary Details Box */}
-          <div className="mt-6 rounded-2xl border border-white/10 bg-[#F0F8E8]/80 px-4 py-1 shadow-inner">
+          <div className="order-success-summary mt-6 rounded-2xl border border-white/10 bg-[#F0F8E8]/80 px-4 py-1 shadow-inner">
             <SummaryRow
               icon={<Package size={17} />}
               label="Order Number"
@@ -356,7 +359,7 @@ function OrderSuccess() {
               icon={<span className="h-2.5 w-2.5 rounded-full bg-[#22499F]" />}
               label="Status"
               value={
-                <span className="rounded-full border border-[#22499F]/30 bg-[#FFFFFF] px-2.5 py-1 text-[11px] font-extrabold text-[#22499F]">
+                <span className="order-success-status inline-block rounded-full border border-[#22499F]/30 bg-[#FFFFFF] px-2.5 py-1 text-xs font-extrabold text-[#22499F]">
                   {orderStatus}
                 </span>
               }
@@ -381,7 +384,7 @@ function OrderSuccess() {
           </div>
 
           {/* Short Helper Notice */}
-          <p className="mt-4 text-center text-xs font-medium leading-relaxed text-[#64748B]">
+          <p className="order-success-helper mt-4 text-center text-base font-semibold leading-relaxed text-[#64748B]">
             {needsDeliveryReview
               ? "Payment is confirmed. Our store team will contact you to arrange fulfillment."
               : isAfterHours
@@ -409,7 +412,7 @@ function OrderSuccess() {
             <Link
               to="/"
               onClick={() => triggerHaptic("light")}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 text-sm font-bold text-[#64748B] transition-all hover:bg-white/10 hover:text-white active:scale-[0.99] cursor-pointer"
+              className="order-success-secondary flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 text-sm font-bold text-[#64748B] transition-all hover:bg-white/10 hover:text-white active:scale-[0.99] cursor-pointer"
             >
               <Home size={17} />
               <span>Continue Shopping</span>
@@ -417,7 +420,7 @@ function OrderSuccess() {
           </div>
 
           {/* Support Link */}
-          <p className="mt-4 text-center text-[11px] font-medium text-[#64748B]">
+          <p className="order-success-support mt-4 text-center text-xs font-medium text-[#64748B]">
             Need help?{" "}
             <Link
               to="/contact"
@@ -463,18 +466,18 @@ function OrderSuccess() {
 function SummaryRow({ icon, label, value, last = false }) {
   return (
     <div
-      className={`flex min-h-[50px] items-center justify-between gap-3 ${
+      className={`order-success-row flex min-h-[52px] items-center justify-between gap-3 ${
         !last ? "border-b border-white/8" : ""
       }`}
     >
-      <div className="flex min-w-0 items-center gap-2.5 text-xs font-medium text-[#64748B]">
+      <div className="order-success-label flex min-w-0 items-center gap-2.5 text-sm font-medium text-[#64748B]">
         <span className="flex w-[18px] shrink-0 items-center justify-center text-[#22499F]">
           {icon}
         </span>
         <span>{label}</span>
       </div>
 
-      <div className="shrink-0 text-right text-xs font-extrabold text-[#1E293B]">
+      <div className="order-success-value min-w-0 max-w-[60%] text-right text-sm font-extrabold text-[#1E293B] break-words">
         {value}
       </div>
     </div>

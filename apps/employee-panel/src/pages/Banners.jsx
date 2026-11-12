@@ -23,6 +23,7 @@ import {
   LayoutGrid,
   Search,
   Link2,
+  ChevronDown,
 } from "lucide-react";
 import {
   getBanners,
@@ -61,10 +62,22 @@ function DestinationLinkSelector({
   const [searchQuery, setSearchQuery] = useState("");
   const [isChangingProduct, setIsChangingProduct] = useState(false);
   const [customLinkVal, setCustomLinkVal] = useState(currentLink);
+  const [isCatDropOpen, setIsCatDropOpen] = useState(false);
+  const catDropRef = useRef(null);
 
   useEffect(() => {
     setCustomLinkVal(banner?.link || "");
   }, [banner?.link]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (catDropRef.current && !catDropRef.current.contains(e.target)) {
+        setIsCatDropOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Match selected product from link
   const productMatch = currentLink.match(/^\/products?\/(\d+)/);
@@ -320,21 +333,61 @@ function DestinationLinkSelector({
         </div>
       )}
 
-      {/* Mode B: Category Selector */}
+      {/* Mode B: Category Selector — Custom Styled Dropdown */}
       {mode === "category" && (
-        <div>
-          <select
-            value={selectedCategory ? (selectedCategory.slug || selectedCategory.id) : selectedCatVal}
-            onChange={(e) => handleSelectCategory(e.target.value)}
-            className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition cursor-pointer"
+        <div className="relative" ref={catDropRef}>
+          {/* Trigger button */}
+          <button
+            type="button"
+            onClick={() => setIsCatDropOpen((prev) => !prev)}
+            className="w-full flex items-center justify-between gap-2 rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-900 outline-none hover:border-emerald-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition cursor-pointer"
           >
-            <option value="">-- Choose Category --</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.slug || cat.id}>
-                {cat.name} ({cat.count || 0} products)
-              </option>
-            ))}
-          </select>
+            <span className="truncate">
+              {selectedCategory
+                ? `${selectedCategory.name} (${selectedCategory.count ?? 0} products)`
+                : "-- Choose Category --"}
+            </span>
+            <ChevronDown
+              size={14}
+              className={`shrink-0 text-gray-500 transition-transform duration-200 ${isCatDropOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {/* Dropdown list */}
+          {isCatDropOpen && (
+            <div className="absolute top-full left-0 right-0 z-50 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden max-h-60 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
+              <button
+                type="button"
+                onClick={() => { handleSelectCategory(""); setIsCatDropOpen(false); }}
+                className="w-full text-left px-3.5 py-2.5 text-xs font-semibold text-gray-400 hover:bg-gray-50 transition cursor-pointer"
+              >
+                -- Choose Category --
+              </button>
+              {categories.map((cat) => {
+                const val = String(cat.slug || cat.id);
+                const isSelected =
+                  selectedCategory &&
+                  (String(selectedCategory.slug) === val || String(selectedCategory.id) === val);
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => { handleSelectCategory(val); setIsCatDropOpen(false); }}
+                    className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
+                      isSelected
+                        ? "bg-emerald-50 text-emerald-900 font-extrabold"
+                        : "text-gray-700 font-semibold hover:bg-gray-50"
+                    }`}
+                  >
+                    <span className="truncate">
+                      {cat.name} ({cat.count || 0} products)
+                    </span>
+                    {isSelected && <Check size={13} className="text-emerald-600 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -394,6 +447,14 @@ function DestinationLinkSelector({
 
 function Banners() {
   const [banners, setBanners] = useState([]);
+  const [thinBanner, setThinBanner] = useState({
+    id: "thin-banner-1",
+    title: "Welcome to Mumbai Collection",
+    link: "",
+    image: "/banners/welcome-thin-banner.webp",
+    is_active: true,
+  });
+  const [activeTab, setActiveTab] = useState("hero"); // "hero" | "thin"
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -427,6 +488,9 @@ function Banners() {
         setBanners(res.banners);
       } else if (Array.isArray(res)) {
         setBanners(res);
+      }
+      if (res.thin_banner) {
+        setThinBanner(res.thin_banner);
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to load homepage banners.");
@@ -486,9 +550,10 @@ function Banners() {
           ? crypto.randomUUID()
           : `idemp_bnr_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
 
-      const res = await updateBanners(updatedBanners, {
-        "X-Idempotency-Key": idempotencyKey,
-      });
+      const res = await updateBanners(
+        { banners: updatedBanners },
+        { "X-Idempotency-Key": idempotencyKey }
+      );
 
       if (res.success && Array.isArray(res.banners)) {
         setBanners(res.banners);
@@ -507,6 +572,102 @@ function Banners() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const persistThinBanner = async (updatedThin, successMsg) => {
+    try {
+      setSaving(true);
+      setError("");
+      const idempotencyKey =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idemp_bnr_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      const res = await updateBanners(
+        { thin_banner: updatedThin },
+        { "X-Idempotency-Key": idempotencyKey }
+      );
+      if (res.thin_banner) {
+        setThinBanner(res.thin_banner);
+      } else {
+        setThinBanner(updatedThin);
+      }
+      if (successMsg) {
+        showToast(successMsg, "success");
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || "Failed to update mobile thin banner.";
+      setError(msg);
+      showToast(msg, "error");
+      fetchBannerList(); // Roll back to server state on error
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleThinActive = async () => {
+    const nextActive = !thinBanner.is_active;
+    if (nextActive && !thinBanner.image) {
+      showToast("Please upload an image before turning this banner Live.", "error");
+      return;
+    }
+    const updated = { ...thinBanner, is_active: nextActive };
+    setThinBanner(updated);
+    await persistThinBanner(
+      updated,
+      nextActive ? "Mobile thin banner is now LIVE on store! 🎉" : "Mobile thin banner hidden from store."
+    );
+  };
+
+  const handleUpdateThinTitle = async (newTitle) => {
+    const updated = { ...thinBanner, title: newTitle };
+    setThinBanner(updated);
+    await persistThinBanner(updated, "Thin banner title saved.");
+  };
+
+  const handleUpdateThinLink = async (newLink, autoTitle) => {
+    const updated = {
+      ...thinBanner,
+      link: newLink,
+      title: autoTitle && !thinBanner.title ? autoTitle : thinBanner.title,
+    };
+    setThinBanner(updated);
+    await persistThinBanner(updated, "Thin banner destination updated.");
+  };
+
+  const handleUploadThinImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!isAcceptedImage(file)) {
+      showToast("Unsupported format. Use JPG, PNG, WEBP, or HEIC.", "error");
+      return;
+    }
+    try {
+      setUploadingSlots((prev) => ({ ...prev, "thin-image": { uploading: true, progress: "Optimizing..." } }));
+      const compressed = await compressImage(file, { maxDimension: BANNER_MAX_DIMENSION, quality: 0.88 });
+      setUploadingSlots((prev) => ({ ...prev, "thin-image": { uploading: true, progress: "Uploading to store..." } }));
+      const uploaded = await uploadProductImage(compressed);
+      const url = uploaded.url || uploaded.source_url;
+      const mediaId = uploaded.id;
+      if (!url) throw new Error("Image upload succeeded but received no public URL.");
+      const updated = { ...thinBanner, image: url, media_id: mediaId || null };
+      setThinBanner(updated);
+      await persistThinBanner(updated, "Mobile thin banner image updated live!");
+    } catch (err) {
+      showToast(err.message || "Failed to upload image.", "error");
+    } finally {
+      setUploadingSlots((prev) => {
+        const next = { ...prev };
+        delete next["thin-image"];
+        return next;
+      });
+      e.target.value = "";
+    }
+  };
+
+  const handleRemoveThinImage = async () => {
+    const updated = { ...thinBanner, image: "", media_id: null, is_active: false };
+    setThinBanner(updated);
+    await persistThinBanner(updated, "Thin banner image removed.");
   };
 
   /**
@@ -753,25 +914,14 @@ function Banners() {
         </div>
       )}
 
-      {/* Top Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-4 sm:pb-5">
-        <div>
-          <div className="hidden sm:flex items-center gap-2">
-            <Link
-              to="/products"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
-            >
-              <ArrowLeft size={14} /> Back to Products
-            </Link>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 sm:mt-2 flex items-center gap-2">
-            <Sliders size={24} className="text-emerald-600" />
-            Homepage Banners
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Manage up to 3 hero promotional slides displayed on the Customer Web homepage.
-          </p>
-        </div>
+      {/* Action Controls Bar */}
+      <div className="flex items-center justify-between border-b border-gray-200 pb-3 sm:pb-4 gap-2">
+        <Link
+          to="/products"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
+        >
+          <ArrowLeft size={14} /> Back to Products
+        </Link>
 
         {/* Action Controls: Live Sync Indicator + Add Button */}
         <div className="flex items-center gap-2.5">
@@ -806,6 +956,45 @@ function Banners() {
         </div>
       </div>
 
+      {/* Banner Type Tabs */}
+      <div className="flex items-center gap-2 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab("hero")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition cursor-pointer ${
+            activeTab === "hero"
+              ? "border-emerald-600 text-emerald-900 bg-emerald-50/60 rounded-t-xl"
+              : "border-transparent text-gray-500 hover:text-gray-800"
+          }`}
+        >
+          <Sliders size={14} className={activeTab === "hero" ? "text-emerald-600" : "text-gray-400"} />
+          <span>Hero Carousel (16:7)</span>
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
+            {banners.length}/3
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("thin")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition cursor-pointer ${
+            activeTab === "thin"
+              ? "border-emerald-600 text-emerald-900 bg-emerald-50/60 rounded-t-xl"
+              : "border-transparent text-gray-500 hover:text-gray-800"
+          }`}
+        >
+          <Smartphone size={14} className={activeTab === "thin" ? "text-emerald-600" : "text-gray-400"} />
+          <span>Mobile Banner (3:1)</span>
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+              thinBanner?.is_active ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
+            }`}
+          >
+            {thinBanner?.is_active ? "Live" : "Off"}
+          </span>
+        </button>
+      </div>
+
       {error && (
         <div className="flex items-center gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-bold text-rose-700">
           <AlertCircle size={16} className="shrink-0 text-rose-600" />
@@ -813,8 +1002,10 @@ function Banners() {
         </div>
       )}
 
-      {/* Main Banner List */}
-      {/* Notice if all banners are inactive */}
+      {/* Hero Carousel Tab Content */}
+      {activeTab === "hero" && (
+        <div className="space-y-5">
+          {/* Notice if all banners are inactive */}
       {!loading && banners.length > 0 && !banners.some((b) => b.is_active) && (
         <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950 shadow-xs">
           <AlertCircle size={20} className="shrink-0 text-amber-600" />
@@ -872,15 +1063,6 @@ function Banners() {
                     <h2 className="text-sm font-black text-gray-900">
                       {banner.title || `Slide #${index + 1}`}
                     </h2>
-                    {banner.is_active ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        Live on Store
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
-                        Draft / Hidden
-                      </span>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1134,6 +1316,179 @@ function Banners() {
               </div>
             );
           })}
+        </div>
+      )}
+
+        </div>
+      )}
+
+      {/* Mobile Thin Banner Tab Content */}
+      {activeTab === "thin" && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          {/* Info Card */}
+          <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-950 shadow-xs">
+            <Info size={18} className="shrink-0 text-blue-600 mt-0.5" />
+            <div>
+              <p className="font-black text-blue-950">Mobile-Only Thin Banner</p>
+              <p className="text-blue-800 mt-0.5 leading-relaxed">
+                This banner displays exclusively on mobile view on the Customer Web homepage. Use a <strong>3:1 ratio (1200 × 400 px)</strong> to give headlines and supporting text enough vertical room while keeping the banner compact.
+              </p>
+            </div>
+          </div>
+
+          {/* Thin Banner Card */}
+          <div
+            className={`rounded-3xl border transition-all duration-200 bg-white shadow-xs p-4 sm:p-6 space-y-4 ${
+              thinBanner.is_active
+                ? "border-gray-200/90 hover:border-emerald-300"
+                : "border-gray-200 bg-gray-50/50 opacity-80"
+            }`}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-blue-600 text-white font-mono font-black text-xs shadow-2xs">
+                  <Smartphone size={14} />
+                </span>
+                <h2 className="text-sm font-black text-gray-900">
+                  {thinBanner.title || "Mobile Welcome Banner"}
+                </h2>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* 1-Click Live/Hidden Toggle */}
+                <button
+                  type="button"
+                  onClick={handleToggleThinActive}
+                  disabled={saving}
+                  className={`inline-flex items-center gap-2 select-none rounded-xl px-3 py-1.5 text-xs font-bold transition border cursor-pointer ${
+                    thinBanner.is_active
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-2xs"
+                      : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+                  }`}
+                  title={thinBanner.is_active ? "Banner is live on mobile view. Click to hide." : "Banner is off. Click to make live."}
+                >
+                  <span
+                    className={`inline-block h-2.5 w-2.5 rounded-full ${
+                      thinBanner.is_active ? "bg-emerald-500 shadow-xs animate-pulse" : "bg-gray-400"
+                    }`}
+                  />
+                  <span>{thinBanner.is_active ? "Live on Store (Mobile)" : "Hidden (Turn On)"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Inputs: Title & Destination Target */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700">
+                  Banner Title / Internal Name
+                </label>
+                <input
+                  type="text"
+                  defaultValue={thinBanner.title || ""}
+                  key={thinBanner.id + "-title"}
+                  onBlur={(e) => {
+                    if (e.target.value !== thinBanner.title) {
+                      handleUpdateThinTitle(e.target.value);
+                    }
+                  }}
+                  placeholder="e.g. Welcome to Mumbai Collection"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2 text-xs font-medium text-gray-900 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 transition"
+                />
+              </div>
+
+              <div>
+                <DestinationLinkSelector
+                  banner={thinBanner}
+                  index={0}
+                  products={products}
+                  categories={categories}
+                  loadingLookups={loadingLookups}
+                  onUpdateLink={(newLink, autoTitle) => handleUpdateThinLink(newLink, autoTitle)}
+                />
+              </div>
+            </div>
+
+            {/* Single mobile banner image slot (3:1 ratio) */}
+            <div className="pt-2">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Smartphone size={15} className="text-blue-600" />
+                    <span className="text-xs font-black uppercase tracking-wider text-gray-800">
+                      Mobile Thin Banner Image
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                    1200 × 400 px (3:1)
+                  </span>
+                </div>
+
+                <input
+                  type="file"
+                  id="file-thin-banner"
+                  onChange={handleUploadThinImage}
+                  accept="image/*,image/heic,image/heif"
+                  className="hidden"
+                />
+
+                {thinBanner.image ? (
+                  <div className="space-y-2">
+                    <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-white aspect-[3/1] flex items-center justify-center">
+                      <img
+                        src={thinBanner.image}
+                        alt="Mobile Thin Banner"
+                        className="h-full w-full object-cover"
+                      />
+                      {uploadingSlots["thin-image"]?.uploading && (
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center text-white gap-2">
+                          <Loader2 size={24} className="animate-spin text-emerald-400" />
+                          <span className="text-xs font-bold">{uploadingSlots["thin-image"]?.progress}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2">
+                      <label
+                        htmlFor="file-thin-banner"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 text-xs font-bold transition shadow-2xs cursor-pointer"
+                      >
+                        <Upload size={12} />
+                        Change Image
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleRemoveThinImage}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label
+                    htmlFor="file-thin-banner"
+                    className="flex flex-col items-center justify-center aspect-[3/1] border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-500 hover:bg-blue-50/20 transition cursor-pointer p-4 group"
+                  >
+                    {uploadingSlots["thin-image"]?.uploading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 size={24} className="animate-spin text-blue-600" />
+                        <span className="text-xs font-bold text-gray-600">{uploadingSlots["thin-image"]?.progress}</span>
+                      </div>
+                    ) : (
+                      <>
+                        <Upload size={22} className="text-gray-400 group-hover:text-blue-600 transition" />
+                        <span className="text-xs font-bold text-gray-700 mt-1">Upload Mobile Thin Banner</span>
+                        <span className="text-[10px] text-gray-400">1200 × 400 px (3:1 ratio) • JPG, PNG, WEBP</span>
+                      </>
+                    )}
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

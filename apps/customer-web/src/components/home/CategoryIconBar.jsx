@@ -15,6 +15,7 @@ import {
   Baby,
   Coffee,
   Package,
+  LayoutGrid,
 } from "lucide-react";
 import { triggerHaptic } from "../../utils/haptics";
 
@@ -46,7 +47,7 @@ export default function CategoryIconBar({
 }) {
   const scrollContainerRef = useRef(null);
 
-  // Keep exactly 4 root categories after "All" (Total 5 items evenly distributed)
+  // Keep strictly 4 top root categories (Total 5 with "All", directly followed by "View All")
   const rootCategories = useMemo(() => {
     if (!Array.isArray(categories)) return [];
     return categories
@@ -71,16 +72,16 @@ export default function CategoryIconBar({
   };
 
   return (
-    <div className={`w-full pt-1 pb-1 ${className}`}>
+    <div className={`w-full pt-1 pb-1 relative ${className}`}>
       <div
         ref={scrollContainerRef}
-        className="grid grid-cols-5 items-start justify-items-center w-full px-1"
+        className="flex items-start justify-between gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] w-full px-1.5 scroll-smooth"
       >
         {/* Item 1: "All" */}
         <button
           type="button"
           onClick={() => handleCategoryClick("all")}
-          className="group relative flex flex-col items-center justify-between w-full shrink-0 cursor-pointer pt-0.5 pb-2 transition-all outline-hidden focus:outline-hidden"
+          className="group relative flex flex-col items-center justify-between min-w-[58px] sm:min-w-[68px] flex-1 shrink-0 cursor-pointer pt-0.5 pb-2 transition-all outline-hidden focus:outline-hidden"
         >
           <div className="relative flex items-center justify-center h-7 w-7 mb-1">
             <ShoppingBag
@@ -92,7 +93,7 @@ export default function CategoryIconBar({
             />
           </div>
           <span
-            className={`text-[11.5px] sm:text-xs tracking-tight transition-colors text-center truncate max-w-full px-0.5 ${
+            className={`text-[11px] sm:text-xs tracking-tight transition-colors text-center truncate max-w-full px-0.5 ${
               isAllActive ? "font-bold text-[#1E293B]" : "font-semibold text-[#64748B] group-hover:text-[#1E293B]"
             }`}
           >
@@ -101,11 +102,11 @@ export default function CategoryIconBar({
 
           {/* Active bottom underline indicator */}
           {isAllActive && (
-            <span className="absolute bottom-0 left-2 right-2 h-[2.5px] rounded-full bg-[#22499F] transition-all" />
+            <span className="absolute bottom-0 left-1 right-1 h-[2.5px] rounded-full bg-[#22499F] transition-all" />
           )}
         </button>
 
-        {/* Items 2-5: Dynamic Categories (4 categories, total 5 items across the full row) */}
+        {/* Items 2-5: Dynamic Categories (Strictly Top 4) */}
         {rootCategories.map((category) => {
           const catId = category.id || category.slug;
           const isActive = String(selectedCategoryId) === String(catId);
@@ -121,7 +122,7 @@ export default function CategoryIconBar({
               key={catId}
               to={`/category/${catId}`}
               onClick={() => triggerHaptic("light")}
-              className="group relative flex flex-col items-center justify-between w-full shrink-0 cursor-pointer pt-0.5 pb-2 transition-all outline-hidden focus:outline-hidden"
+              className="group relative flex flex-col items-center justify-between min-w-[58px] sm:min-w-[68px] flex-1 shrink-0 cursor-pointer pt-0.5 pb-2 transition-all outline-hidden focus:outline-hidden"
             >
               <div className="relative flex items-center justify-center h-7 w-7 mb-1">
                 <IconComponent
@@ -138,7 +139,7 @@ export default function CategoryIconBar({
                 )}
               </div>
               <span
-                className={`text-[11.5px] sm:text-xs tracking-tight transition-colors text-center truncate max-w-full px-0.5 ${
+                className={`text-[11px] sm:text-xs tracking-tight transition-colors text-center truncate max-w-full px-0.5 ${
                   isActive ? "font-bold text-[#1E293B]" : "font-semibold text-[#64748B] group-hover:text-[#1E293B]"
                 }`}
                 title={category.name}
@@ -147,11 +148,29 @@ export default function CategoryIconBar({
               </span>
 
               {isActive && (
-                <span className="absolute bottom-0 left-2 right-2 h-[2.5px] rounded-full bg-[#22499F] transition-all" />
+                <span className="absolute bottom-0 left-1 right-1 h-[2.5px] rounded-full bg-[#22499F] transition-all" />
               )}
             </Link>
           );
         })}
+
+        {/* Item 6: Directly visible "View All" */}
+        <Link
+          to="/categories"
+          onClick={() => triggerHaptic("light")}
+          className="group relative flex flex-col items-center justify-between min-w-[58px] sm:min-w-[68px] flex-1 shrink-0 cursor-pointer pt-0.5 pb-2 transition-all outline-hidden focus:outline-hidden"
+        >
+          <div className="relative flex items-center justify-center h-7 w-7 mb-1 rounded-full bg-[#22499F]/10 group-hover:bg-[#22499F]/20 transition-colors">
+            <LayoutGrid
+              size={18}
+              strokeWidth={2.2}
+              className="text-[#22499F] transition-transform group-hover:scale-110"
+            />
+          </div>
+          <span className="text-[11px] sm:text-xs tracking-tight transition-colors text-center font-bold text-[#22499F] group-hover:text-[#1E293B] truncate max-w-full px-0.5">
+            View All
+          </span>
+        </Link>
       </div>
     </div>
   );

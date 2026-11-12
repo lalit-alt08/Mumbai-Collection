@@ -200,7 +200,8 @@ function ProductCard({ product }) {
                       }
                     }}
                     title="Item is sold out. Tap to remove from cart."
-                    className="h-[32px] sm:h-[34px] rounded-full border border-rose-400/40 bg-rose-950/40 px-2 sm:px-2.5 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-900/60 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
+                    aria-label={`Remove sold out ${product.name} from cart`}
+                    className="sold-out-remove h-[32px] sm:h-[34px] rounded-full border border-rose-400/40 bg-rose-950/40 px-2 sm:px-2.5 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-900/60 active:scale-95 cursor-pointer flex items-center gap-1 shadow-xs"
                   >
                     Sold Out <span className="text-xs font-black leading-none">✕</span>
                   </button>

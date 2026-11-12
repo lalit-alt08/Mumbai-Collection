@@ -143,7 +143,12 @@ function BottomNav() {
               <Link
                 to={item.to}
                 onClick={() => {
-                  if (!active) {
+                  if (active && item.id === "categories") {
+                    try {
+                      sessionStorage.removeItem("mc_categories_scroll_session");
+                    } catch (_) {}
+                    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+                  } else if (!active) {
                     triggerHaptic("selection");
                   }
                 }}

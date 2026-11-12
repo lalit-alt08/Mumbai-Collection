@@ -125,6 +125,8 @@ app.use(
       "nonce",
       "Cart-Token",
       "cart-token",
+      "Cache-Control",
+      "Pragma",
     ],
     exposedHeaders: [
       "Nonce",

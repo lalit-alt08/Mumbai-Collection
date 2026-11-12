@@ -238,12 +238,13 @@ export const getBanners = async (config = {}) => {
   return res.data;
 };
 
-export const updateBanners = async (banners, headers = {}) => {
+export const updateBanners = async (payload, headers = {}) => {
   const config = {};
   if (headers && Object.keys(headers).length > 0) {
     config.headers = headers;
   }
-  const res = await api.put("/banners", { banners }, config);
+  const body = Array.isArray(payload) ? { banners: payload } : payload;
+  const res = await api.put("/banners", body, config);
   return res.data;
 };
 

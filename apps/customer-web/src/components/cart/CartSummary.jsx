@@ -34,7 +34,7 @@ function CartSummary({
 
       {/* Minimum Order Value Alert (Subtotal < ₹500) */}
       {itemsTotal < minOrderValue && (
-        <div className="rounded-[22px] border border-amber-800/60 bg-amber-950/30 p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.2)] animate-in fade-in duration-200">
+        <div className="minimum-order-notice rounded-[22px] border border-amber-800/60 bg-amber-950/30 p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.2)] animate-in fade-in duration-200">
           <div className="flex items-start gap-3.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-black font-black text-xs shadow-xs">
               ₹500
@@ -44,7 +44,7 @@ function CartSummary({
                 <h4 className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
                   Minimum Order Value
                 </h4>
-                <span className="rounded-md bg-amber-900/60 border border-amber-700/60 px-2 py-0.5 text-[10px] font-black text-amber-300">
+                <span className="minimum-order-badge rounded-md bg-amber-900/60 border border-amber-700/60 px-2 py-0.5 text-[10px] font-black text-amber-300">
                   Required
                 </span>
               </div>
@@ -55,7 +55,7 @@ function CartSummary({
                 * Delivery charges do not count toward the ₹500 product minimum.
               </p>
               {/* Dynamic progress bar */}
-              <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-amber-950/80 border border-amber-800/40">
+              <div className="minimum-order-progress mt-2.5 h-2 w-full overflow-hidden rounded-full bg-amber-950/80 border border-amber-800/40">
                 <div
                   className="h-full rounded-full bg-[#22499F] transition-all duration-300"
                   style={{ width: `${Math.min(100, (itemsTotal / minOrderValue) * 100)}%` }}

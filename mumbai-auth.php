@@ -3109,63 +3109,123 @@ function mumbai_get_banners()
     if (!is_array($banners)) {
         $banners = [];
     }
+    $thin_banner = get_option('mumbai_mobile_thin_banner', null);
+    if (!is_array($thin_banner)) {
+        $thin_banner = [
+            'id'        => 'thin-banner-1',
+            'title'     => 'Welcome to Mumbai Collection',
+            'link'      => '',
+            'image'     => '/banners/welcome-thin-banner.webp',
+            'is_active' => true,
+        ];
+    }
     return [
-        'success' => true,
-        'banners' => $banners,
+        'success'     => true,
+        'banners'     => $banners,
+        'thin_banner' => $thin_banner,
     ];
 }
 
 function mumbai_save_banners(WP_REST_Request $request)
 {
     $params = $request->get_json_params();
-    $banners = $params['banners'] ?? [];
-    if (!is_array($banners)) {
-        return new WP_Error(
-            'invalid_banners_data',
-            'Banners must be provided as an array.',
-            ['status' => 400]
-        );
-    }
-    if (count($banners) > 3) {
-        return new WP_Error(
-            'too_many_banners',
-            'Maximum 3 homepage banners allowed.',
-            ['status' => 400]
-        );
-    }
-    // Sanitize each banner object (M2 fix)
-    $sanitized = [];
-    foreach ($banners as $index => $b) {
-        if (!is_array($b)) continue;
+    $banners = $params['banners'] ?? null;
+    $thin_banner = $params['thin_banner'] ?? null;
 
-        $raw_link = trim((string) ($b['link'] ?? ''));
+    $sanitized = null;
+    if ($banners !== null) {
+        if (!is_array($banners)) {
+            return new WP_Error(
+                'invalid_banners_data',
+                'Banners must be provided as an array.',
+                ['status' => 400]
+            );
+        }
+        if (count($banners) > 3) {
+            return new WP_Error(
+                'too_many_banners',
+                'Maximum 3 homepage banners allowed.',
+                ['status' => 400]
+            );
+        }
+        // Sanitize each banner object
+        $sanitized = [];
+        foreach ($banners as $index => $b) {
+            if (!is_array($b)) continue;
+
+            $raw_link = trim((string) ($b['link'] ?? ''));
+            $safe_link = '';
+            if ($raw_link !== '') {
+                if (str_starts_with($raw_link, '/')) {
+                    $safe_link = '/' . ltrim(sanitize_text_field($raw_link), '/');
+                } elseif (preg_match('#^https?://#i', $raw_link)) {
+                    $safe_link = esc_url_raw($raw_link, ['http', 'https']);
+                }
+            }
+
+            $sanitized[] = [
+                'id'               => !empty($b['id']) ? sanitize_text_field($b['id']) : 'banner-' . ($index + 1),
+                'title'            => !empty($b['title']) ? sanitize_text_field($b['title']) : '',
+                'link'             => $safe_link,
+                'desktop_image'    => !empty($b['desktop_image']) ? esc_url_raw($b['desktop_image']) : '',
+                'desktop_media_id' => !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : null,
+                'mobile_image'     => !empty($b['mobile_image']) ? esc_url_raw($b['mobile_image']) : '',
+                'mobile_media_id'  => !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : null,
+                'is_active'        => isset($b['is_active']) ? (bool) $b['is_active'] : true,
+            ];
+        }
+        update_option('mumbai_homepage_banners', $sanitized, false);
+        $stored = get_option('mumbai_homepage_banners', null);
+        if ($stored === null || serialize($stored) !== serialize($sanitized)) {
+            return new WP_Error(
+                'mumbai_banners_save_failed',
+                'Failed to persist homepage hero banners to WordPress database.',
+                ['status' => 500]
+            );
+        }
+        $sanitized = $stored;
+    } else {
+        $sanitized = get_option('mumbai_homepage_banners', []);
+    }
+
+    $sanitized_thin = null;
+    if ($thin_banner !== null && is_array($thin_banner)) {
+        $raw_link = trim((string) ($thin_banner['link'] ?? ''));
         $safe_link = '';
         if ($raw_link !== '') {
             if (str_starts_with($raw_link, '/')) {
-                // Safe internal relative route (e.g. /category/art, /categories)
                 $safe_link = '/' . ltrim(sanitize_text_field($raw_link), '/');
             } elseif (preg_match('#^https?://#i', $raw_link)) {
-                // Absolute HTTP/HTTPS URL
                 $safe_link = esc_url_raw($raw_link, ['http', 'https']);
             }
         }
-
-        $sanitized[] = [
-            'id'               => !empty($b['id']) ? sanitize_text_field($b['id']) : 'banner-' . ($index + 1),
-            'title'            => !empty($b['title']) ? sanitize_text_field($b['title']) : '',
-            'link'             => $safe_link,
-            'desktop_image'    => !empty($b['desktop_image']) ? esc_url_raw($b['desktop_image']) : '',
-            'desktop_media_id' => !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : null,
-            'mobile_image'     => !empty($b['mobile_image']) ? esc_url_raw($b['mobile_image']) : '',
-            'mobile_media_id'  => !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : null,
-            'is_active'        => isset($b['is_active']) ? (bool) $b['is_active'] : true,
+        $sanitized_thin = [
+            'id'        => !empty($thin_banner['id']) ? sanitize_text_field($thin_banner['id']) : 'thin-banner-1',
+            'title'     => !empty($thin_banner['title']) ? sanitize_text_field($thin_banner['title']) : 'Welcome to Mumbai Collection',
+            'link'      => $safe_link,
+            'image'     => !empty($thin_banner['image']) ? esc_url_raw($thin_banner['image']) : '',
+            'media_id'  => !empty($thin_banner['media_id']) ? absint($thin_banner['media_id']) : null,
+            'is_active' => isset($thin_banner['is_active']) ? (bool) $thin_banner['is_active'] : true,
         ];
+        update_option('mumbai_mobile_thin_banner', $sanitized_thin, false);
+        $stored_thin = get_option('mumbai_mobile_thin_banner', null);
+        if ($stored_thin === null || serialize($stored_thin) !== serialize($sanitized_thin)) {
+            return new WP_Error(
+                'mumbai_thin_banner_save_failed',
+                'Failed to persist mobile thin banner to WordPress database.',
+                ['status' => 500]
+            );
+        }
+        $sanitized_thin = $stored_thin;
+    } else {
+        $sanitized_thin = get_option('mumbai_mobile_thin_banner', null);
     }
-    update_option('mumbai_homepage_banners', $sanitized, false);
+
     return [
-        'success' => true,
-        'message' => 'Homepage banners saved successfully in WordPress.',
-        'banners' => $sanitized,
+        'success'     => true,
+        'message'     => 'Banners saved successfully in WordPress.',
+        'banners'     => $sanitized,
+        'thin_banner' => $sanitized_thin,
     ];
 }
 

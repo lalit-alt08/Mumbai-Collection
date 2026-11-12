@@ -10,6 +10,26 @@ import ProductReviews from "../components/product/ProductReviews";
 import RelatedProducts from "../components/product/RelatedProducts";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 
+const SESSION_SCROLL_PREFIX = "mc_product_scroll_";
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle expiration
+
+function getSavedProductScroll(productId) {
+  if (typeof window === "undefined" || !productId) return null;
+  try {
+    const raw = sessionStorage.getItem(`${SESSION_SCROLL_PREFIX}${productId}`);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data.scrollY !== "number") return null;
+    if (Date.now() - (data.timestamp || 0) > SESSION_TIMEOUT_MS) {
+      sessionStorage.removeItem(`${SESSION_SCROLL_PREFIX}${productId}`);
+      return null;
+    }
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
 function ProductDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -20,6 +40,62 @@ function ProductDetails() {
   const abortControllerRef = useRef(null);
   const activeIdRef = useRef(id);
   activeIdRef.current = id;
+
+  const savedScrollRef = useRef(getSavedProductScroll(id));
+  const hasRestoredScrollRef = useRef(false);
+
+  useEffect(() => {
+    savedScrollRef.current = getSavedProductScroll(id);
+    hasRestoredScrollRef.current = false;
+  }, [id]);
+
+  // Restore scroll position once product data is loaded & rendered
+  useEffect(() => {
+    if (!product || hasRestoredScrollRef.current) return;
+    const targetY = savedScrollRef.current?.scrollY;
+    if (typeof targetY === "number" && targetY > 0) {
+      hasRestoredScrollRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: targetY, left: 0, behavior: "instant" });
+        });
+      });
+    }
+  }, [product]);
+
+  // Continuously record scroll position and timestamp for current product in sessionStorage
+  useEffect(() => {
+    let ticking = false;
+    const savePosition = () => {
+      if (window.scrollY > 0 && id) {
+        try {
+          sessionStorage.setItem(
+            `${SESSION_SCROLL_PREFIX}${id}`,
+            JSON.stringify({
+              scrollY: Math.round(window.scrollY),
+              timestamp: Date.now(),
+            })
+          );
+        } catch (_) {}
+      }
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          savePosition();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      savePosition();
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [id]);
 
   useEffect(() => {
     abortControllerRef.current?.abort();

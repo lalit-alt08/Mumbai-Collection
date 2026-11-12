@@ -259,7 +259,55 @@ export const getHomeShelves = async ({ page = 1, offset, ...options } = {}) => {
   return response.data;
 };
 
+let bannersInFlight = null;
+let bannersCachedData = null;
+let bannersCachedTimestamp = 0;
+let latestRequestSeq = 0;
+let latestCompletedSeq = 0;
+const BANNERS_CACHE_TTL_MS = 60_000;
+
 export const getBanners = async (options = {}) => {
-  const response = await catalogClient.get("/banners", options);
-  return response.data;
+  const force = options?.force === true;
+  if (!force && bannersCachedData && (Date.now() - bannersCachedTimestamp < BANNERS_CACHE_TTL_MS)) {
+    return bannersCachedData;
+  }
+
+  // Coalesce all concurrent calls (including concurrent forced refreshes) into one single in-flight Promise
+  if (bannersInFlight) {
+    return bannersInFlight;
+  }
+
+  const reqSeq = ++latestRequestSeq;
+  const reqOptions = force
+    ? {
+        ...options,
+        params: {
+          ...(options?.params || {}),
+          _t: Date.now(),
+          force: "true",
+        },
+      }
+    : options;
+
+  bannersInFlight = catalogClient
+    .get("/banners", reqOptions)
+    .then((response) => {
+      // Sequence guard: prevent a delayed older response from overwriting a newer completed response
+      if (reqSeq >= latestCompletedSeq) {
+        latestCompletedSeq = reqSeq;
+        const hasBanners = Array.isArray(response.data?.banners) && response.data.banners.length > 0;
+        const hasThin = Boolean(response.data?.thin_banner);
+        // Full TTL for populated banner data; 5s TTL for empty/degraded responses to allow fast recovery
+        bannersCachedData = response.data;
+        bannersCachedTimestamp = (hasBanners || hasThin)
+          ? Date.now()
+          : (Date.now() - BANNERS_CACHE_TTL_MS + 5000);
+      }
+      return response.data;
+    })
+    .finally(() => {
+      bannersInFlight = null;
+    });
+
+  return bannersInFlight;
 };

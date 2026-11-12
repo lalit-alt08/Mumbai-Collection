@@ -317,7 +317,7 @@ function TrackOrder() {
   ).toFixed(2);
 
   return (
-    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-3 pt-4 sm:px-6 sm:pt-6 pb-20 sm:pb-24">
+    <div className="track-order-page min-h-screen bg-[#F0F8E8] text-[#1E293B] px-3 pt-4 sm:px-6 sm:pt-6 pb-20 sm:pb-24">
       <div className="mx-auto max-w-[1060px]">
         {/* Top Header Bar */}
         <div className="mb-4 sm:mb-6 flex items-center justify-between gap-3">
@@ -326,7 +326,7 @@ function TrackOrder() {
             <button
               onClick={handleBack}
               aria-label="Back to My Orders"
-              className="flex items-center gap-2 rounded-full bg-[#FFFFFF] px-3.5 py-2 text-xs font-bold text-[#1E293B] shadow-xs border border-[#E2E8F0] transition-all hover:border-[#22499F]/50 hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer"
+              className="track-order-back flex items-center gap-2 rounded-full bg-[#FFFFFF] px-3.5 py-2 text-xs font-bold text-[#1E293B] shadow-xs border border-[#E2E8F0] transition-all hover:border-[#22499F]/50 hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer"
             >
               <ArrowLeft size={16} strokeWidth={2.4} />
               <span className="hidden sm:inline">Back to My Orders</span>
@@ -418,7 +418,7 @@ function TrackOrder() {
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold border ${
                         isDelivered
-                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                          ? "track-order-delivered-badge bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
                           : order.status === "packed"
                           ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
                           : order.status === "out-for-delivery" || order.status === "dispatched"
@@ -462,9 +462,9 @@ function TrackOrder() {
                   </div>
                 )}
                 {isDelivered && (
-                  <div className="flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 text-xs font-bold text-emerald-400 border border-emerald-500/30 shadow-xs">
-                    <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
-                    <span>Delivered Successfully</span>
+                  <div className="track-order-delivered flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 text-sm font-bold text-emerald-400 border border-emerald-500/30 shadow-xs">
+                    <CheckCircle2 size={16} className="shrink-0" />
+                    <span>Delivered successfully</span>
                   </div>
                 )}
               </div>
@@ -574,7 +574,7 @@ function TrackOrder() {
                   {/* ────────────────────────────────────────────────────────── */}
                   {/* MOBILE VERTICAL TIMELINE (< 768px)                         */}
                   {/* ────────────────────────────────────────────────────────── */}
-                  <div className="md:hidden pt-4 space-y-4">
+                  <div className="track-order-timeline md:hidden pt-4 space-y-4">
                     {trackingSteps.map((step, idx) => {
                       const status = getStepStatus(step.stage, order.tracking_stage || 1, order.status);
                       const Icon = step.icon;
@@ -634,7 +634,7 @@ function TrackOrder() {
               {/* LEFT COLUMN: ORDER ITEMS & DELIVERY DESTINATION */}
               <div className="lg:col-span-7 space-y-4">
                 {/* Ordered Items Preview */}
-                <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-lg">
+                <div className="track-order-detail rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-lg">
                   <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3 mb-3">
                     <div className="flex items-center gap-2">
                       <ShoppingBag size={16} className="text-[#22499F]" />
@@ -676,8 +676,8 @@ function TrackOrder() {
                 </div>
 
                 {/* Destination Address (Moved to Left Column for visual balance) */}
-                <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-lg">
-                  <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-2.5 mb-2.5">
+                <div className="track-order-detail track-order-address rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0]/60 pb-3 mb-3">
                     <div className="flex items-center gap-2">
                       <MapPin size={15} className="text-[#22499F]" />
                       <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#64748B]">
@@ -688,8 +688,8 @@ function TrackOrder() {
                       Shipping Address
                     </span>
                   </div>
-                  <div className="text-sm text-[#64748B] leading-relaxed font-medium space-y-1 break-words">
-                    <p className="font-bold text-[#1E293B] text-sm">
+                  <div className="text-sm text-[#64748B] leading-relaxed font-medium space-y-1.5 break-words [overflow-wrap:anywhere]">
+                    <p className="font-bold text-[#1E293B] text-base">
                       {getRecipientName()}
                     </p>
                     <p className="text-[#64748B]">
@@ -711,7 +711,7 @@ function TrackOrder() {
               {/* RIGHT COLUMN: BILL & SUPPORT (STICKY ON DESKTOP) */}
               <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-6">
                 {/* Bill Summary */}
-                <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-lg">
+                <div className="track-order-detail track-order-bill rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-lg">
                   <div className="flex items-center gap-2 border-b border-[#E2E8F0]/60 pb-2.5 mb-2.5">
                     <CreditCard size={15} className="text-[#22499F]" />
                     <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#64748B]">
@@ -719,15 +719,15 @@ function TrackOrder() {
                     </h3>
                   </div>
 
-                  <div className="space-y-2.5 text-sm text-[#64748B]">
+                  <div className="space-y-3 text-sm font-medium text-[#64748B]">
                     <div className="flex justify-between gap-3">
                       <span>Payment Method</span>
-                      <span className="font-bold text-[#1E293B]">{order.payment_method_title || "Payment method unavailable"}</span>
+                      <span className="text-right font-bold text-[#1E293B]">{order.payment_method_title || "Payment method unavailable"}</span>
                     </div>
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="text-[#1E293B]">Items Subtotal</span>
-                        <span className="block text-xs text-[#64748B]">(Incl. of all taxes)</span>
+                        <span className="block text-xs text-[#64748B]">Includes all taxes</span>
                       </div>
                       <span className="font-bold text-[#1E293B]">
                         ₹{itemsSubtotal}
@@ -756,7 +756,7 @@ function TrackOrder() {
                 </div>
 
                 {/* Need Support Card */}
-                <div className="flex items-center justify-between rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 shadow-lg">
+                <div className="track-order-detail track-order-support flex items-center justify-between rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 shadow-lg">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#22499F]/10 text-[#22499F]">
                       <HelpCircle size={16} />

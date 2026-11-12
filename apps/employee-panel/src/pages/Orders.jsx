@@ -84,10 +84,8 @@ export { resolveTabFromStatusParam, getOrderDateIST, getOrderTimestampDate, getC
 
 const STATUS_OPTIONS = [
   { value: "processing", label: "Processing / To Pack", shortLabel: "To Pack", dot: "bg-amber-400" },
-  { value: "packed", label: "Packed (Ready for Dispatch)", shortLabel: "Packed", dot: "bg-purple-500" },
   { value: "out-for-delivery", label: "Out for Delivery (Rider)", shortLabel: "Out for Delivery", dot: "bg-blue-500" },
   { value: "completed", label: "Delivered (Completed)", shortLabel: "Delivered", dot: "bg-emerald-500" },
-  { value: "cancelled", label: "Cancelled", shortLabel: "Cancelled", dot: "bg-rose-500" },
 ];
 
 const ALL_STATUS_BADGES = [
@@ -234,6 +232,7 @@ function Orders() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [cancelConfirmPending, setCancelConfirmPending] = useState(false);
   const requestIdRef = useRef(0);
   const pollTimerRef = useRef(null);
   const eventRefreshTimerRef = useRef(null);
@@ -280,6 +279,8 @@ function Orders() {
         if (isStatusDropdownOpen) {
           setIsStatusDropdownOpen(false);
         } else if (selectedOrder) {
+          setCancelConfirmPending(false);
+
           setSelectedOrder(null);
         }
         setIsDateDropdownOpen(false);
@@ -1257,15 +1258,15 @@ function Orders() {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            handleStatusUpdate(order.id, "packed");
+            handleStatusUpdate(order.id, "out-for-delivery");
           }}
           disabled={isUpdating}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-xl bg-purple-600 font-bold text-white shadow-xs hover:bg-purple-500 active:scale-95 transition cursor-pointer disabled:opacity-50 ${
+          className={`inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 font-bold text-white shadow-xs hover:bg-blue-500 active:scale-95 transition cursor-pointer disabled:opacity-50 ${
             isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
           }`}
         >
-          {isUpdating ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Package size={13} className="shrink-0" />}
-          <span>{isUpdating ? "Updating..." : "Pack"}</span>
+          {isUpdating ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Truck size={13} className="shrink-0" />}
+          <span>{isUpdating ? "Updating..." : "Dispatch"}</span>
         </button>
       );
     }
@@ -2343,7 +2344,7 @@ function Orders() {
       {/* Order Details Drawer / Modal */}
       {selectedOrder && (
         <div
-          onClick={() => setSelectedOrder(null)}
+          onClick={() => { setCancelConfirmPending(false); setSelectedOrder(null); }}
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
         >
           <div
@@ -2353,10 +2354,10 @@ function Orders() {
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-gray-100 p-4 sm:p-6 shrink-0 bg-white">
               <div className="min-w-0 flex-1 pr-3">
-                <h3 className="text-base sm:text-lg font-black text-gray-900 truncate">
+                <h3 className="text-lg sm:text-xl font-black text-gray-900 truncate">
                   Order #{selectedOrder.id}
                 </h3>
-                <p className="text-[11px] sm:text-xs text-gray-500 truncate mt-0.5">
+                <p className="text-sm font-medium text-gray-600 truncate mt-1">
                   Placed on{" "}
                   {(() => {
                     const d = getOrderTimestampDate(selectedOrder);
@@ -2368,8 +2369,9 @@ function Orders() {
               </div>
 
               <button
-                onClick={() => setSelectedOrder(null)}
-                className="rounded-xl border border-gray-200 p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-700 cursor-pointer shrink-0"
+                onClick={() => { setCancelConfirmPending(false); setSelectedOrder(null); }}
+                aria-label="Close order details"
+                className="rounded-xl border border-gray-300 p-2.5 text-gray-600 hover:bg-gray-50 hover:text-gray-900 cursor-pointer shrink-0"
               >
                 <X size={18} />
               </button>
@@ -2380,7 +2382,7 @@ function Orders() {
               {/* Status Selector Card */}
               <div className="rounded-2xl border border-gray-200 bg-gray-50/80 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-[11px] sm:text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  <span className="text-xs sm:text-sm font-bold text-gray-800 uppercase tracking-wide">
                     Current Fulfillment Status
                   </span>
                   {getStatusBadge(selectedOrder.status, selectedOrder.is_unpaid)}
@@ -2413,7 +2415,7 @@ function Orders() {
                       type="button"
                       disabled={updatingIds.has(selectedOrder.id)}
                       onClick={() => setIsStatusDropdownOpen((prev) => !prev)}
-                      className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-800 outline-none hover:border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-60"
+                      className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white px-3.5 py-3 text-sm font-bold text-gray-900 outline-none hover:border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-60"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <span
@@ -2492,7 +2494,7 @@ function Orders() {
               {/* Delivery Address & Customer Info */}
               <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                  <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-gray-700 flex items-center gap-1.5">
                     <MapPin size={14} className="text-emerald-600 shrink-0" />
                     <span>Delivery & Contact Information</span>
                   </h4>
@@ -2507,15 +2509,15 @@ function Orders() {
                   })()}
                 </div>
 
-                <div className="space-y-1.5 text-xs text-gray-700 font-medium">
-                  <p className="font-bold text-gray-900 text-sm">
+                <div className="space-y-1.5 text-sm leading-relaxed text-gray-800 font-medium">
+                  <p className="font-bold text-gray-900 text-base">
                     {getCleanCustomerName(selectedOrder.customer_name, selectedOrder.billing?.first_name, selectedOrder.billing?.last_name, "Customer")}
                   </p>
-                  <p className="text-gray-600 break-words">
+                  <p className="text-gray-700 break-words [overflow-wrap:anywhere]">
                     {selectedOrder.shipping?.address_1 || selectedOrder.billing?.address_1 || "No street address provided"}
                     {(selectedOrder.shipping?.address_2 || selectedOrder.billing?.address_2) && `, ${selectedOrder.shipping?.address_2 || selectedOrder.billing?.address_2}`}
                   </p>
-                  <p className="text-gray-600 break-words font-semibold">
+                  <p className="text-gray-700 break-words font-semibold">
                     {[
                       selectedOrder.shipping?.city || selectedOrder.billing?.city,
                       selectedOrder.shipping?.state || selectedOrder.billing?.state,
@@ -2527,14 +2529,14 @@ function Orders() {
                   <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
                     <a
                       href={`tel:${selectedOrder.phone || selectedOrder.billing?.phone}`}
-                      className="inline-flex items-center gap-1 text-emerald-600 font-bold hover:underline"
+                      className="inline-flex items-center gap-1.5 text-emerald-700 font-bold hover:underline"
                     >
                       <Phone size={12} /> {selectedOrder.phone || selectedOrder.billing?.phone || "No Phone"}
                     </a>
                     {selectedOrder.billing?.email && (
                       <a
                         href={`mailto:${selectedOrder.billing.email}`}
-                        className="inline-flex items-center gap-1 text-gray-500 hover:underline truncate max-w-[200px]"
+                        className="inline-flex min-w-0 items-center gap-1.5 text-gray-700 hover:underline break-all"
                       >
                         <Mail size={12} /> {selectedOrder.billing.email}
                       </a>
@@ -2545,7 +2547,7 @@ function Orders() {
 
               {/* Items List */}
               <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-gray-700 flex items-center gap-1.5">
                   <Boxes size={14} className="text-emerald-600 shrink-0" />
                   <span>Order Items ({selectedOrder.items?.length || 0})</span>
                 </h4>
@@ -2560,13 +2562,13 @@ function Orders() {
                           className="h-10 w-10 rounded-lg object-cover bg-gray-100 border border-gray-200 shrink-0"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">{item.name}</p>
-                          <p className="text-[11px] text-gray-500 mt-0.5">
+                          <p className="text-sm font-bold text-gray-900 leading-snug break-words">{item.name}</p>
+                          <p className="text-xs font-medium text-gray-600 mt-1">
                             Qty: {item.quantity} × ₹{item.price || (item.total && item.quantity ? Math.round(item.total / item.quantity) : 0)}
                           </p>
                         </div>
                       </div>
-                      <span className="text-xs font-bold text-gray-900 shrink-0">
+                      <span className="text-sm font-bold text-gray-900 shrink-0">
                         ₹{item.total || 0}
                       </span>
                     </div>
@@ -2604,10 +2606,10 @@ function Orders() {
                     : Math.max(0, orderTotal - shippingTotal - taxTotal - feeTotal + discountTotal);
 
                 return (
-                  <div className="rounded-2xl border border-gray-200 bg-gray-50/75 p-4 space-y-2 text-xs">
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50/75 p-4 space-y-3 text-sm font-medium leading-relaxed">
                     <div className="flex justify-between text-gray-600">
                       <span>Payment Method:</span>
-                      <span className="font-bold text-gray-900 uppercase">
+                      <span className="font-bold text-gray-900 uppercase text-right">
                         {selectedOrder.payment_method_title || selectedOrder.payment_method || "COD"}
                       </span>
                     </div>
@@ -2649,9 +2651,9 @@ function Orders() {
                       </div>
                     )}
 
-                    <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-black text-gray-900">
+                    <div className="flex justify-between border-t border-gray-200 pt-3 text-base font-black text-gray-900">
                       <span>Total Amount:</span>
-                      <span className="text-emerald-600">₹{selectedOrder.total || "0.00"}</span>
+                      <span className="text-emerald-700">₹{selectedOrder.total || "0.00"}</span>
                     </div>
                   </div>
                 );
@@ -2659,9 +2661,35 @@ function Orders() {
             </div>
 
             {/* Modal Footer Quick Dispatch */}
-            <div className="border-t border-gray-100 p-3.5 sm:p-4 bg-white flex flex-wrap gap-2 shrink-0">
+            <div className="border-t border-gray-100 p-3.5 sm:p-4 bg-white flex flex-wrap gap-2 shrink-0 justify-between">
+              {/* Inline cancel confirmation */}
+              {cancelConfirmPending ? (
+                <div className="w-full flex flex-col gap-2">
+                  <p className="text-sm font-semibold text-rose-700 text-center">Cancel this order?</p>
+                  <p className="text-xs text-gray-500 text-center">This action cannot be undone.</p>
+                  <div className="flex gap-2 w-full">
+                    <button
+                      onClick={() => setCancelConfirmPending(false)}
+                      className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+                    >
+                      Keep Order
+                    </button>
+                    <button
+                      onClick={() => {
+                        setCancelConfirmPending(false);
+                        handleStatusUpdate(selectedOrder.id, "cancelled");
+                      }}
+                      disabled={updatingIds.has(selectedOrder.id)}
+                      className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-500 transition cursor-pointer disabled:opacity-50"
+                    >
+                      Yes, Cancel Order
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
               <button
-                onClick={() => setSelectedOrder(null)}
+                onClick={() => { setCancelConfirmPending(false); setSelectedOrder(null); }}
                 className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
               >
                 Close
@@ -2670,11 +2698,7 @@ function Orders() {
               {/* Cancellation button where permitted */}
               {["processing", "packed"].includes(selectedOrder.status) && (
                 <button
-                  onClick={() => {
-                    if (window.confirm("Are you sure you want to cancel this order?")) {
-                      handleStatusUpdate(selectedOrder.id, "cancelled");
-                    }
-                  }}
+                  onClick={() => setCancelConfirmPending(true)}
                   disabled={updatingIds.has(selectedOrder.id)}
                   className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer disabled:opacity-50"
                 >
@@ -2683,24 +2707,14 @@ function Orders() {
               )}
 
               {selectedOrder.status === "processing" && (
-                <>
-                  <button
-                    onClick={() => handleStatusUpdate(selectedOrder.id, "packed")}
-                    disabled={updatingIds.has(selectedOrder.id)}
-                    className="flex-1 min-w-[120px] rounded-xl bg-purple-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-purple-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
-                    <Package size={14} />
-                    <span>Mark Packed</span>
-                  </button>
-                  <button
-                    onClick={() => handleStatusUpdate(selectedOrder.id, "out-for-delivery")}
-                    disabled={updatingIds.has(selectedOrder.id)}
-                    className="flex-1 min-w-[120px] rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
-                  >
-                    <Truck size={14} />
-                    <span>Dispatch Rider</span>
-                  </button>
-                </>
+                <button
+                  onClick={() => handleStatusUpdate(selectedOrder.id, "out-for-delivery")}
+                  disabled={updatingIds.has(selectedOrder.id)}
+                  className="flex-1 rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  <Truck size={14} />
+                  <span>Dispatch Rider</span>
+                </button>
               )}
 
               {selectedOrder.status === "packed" && (
@@ -2723,6 +2737,8 @@ function Orders() {
                   <CheckCircle2 size={14} />
                   <span>Mark Delivered</span>
                 </button>
+              )}
+                </>
               )}
             </div>
           </div>

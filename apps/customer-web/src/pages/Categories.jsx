@@ -9,6 +9,26 @@ import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, ChevronLeft, Shopping
 const CATEGORY_PAGE_SIZE = 24;
 let cachedVisibleCategoryCount = CATEGORY_PAGE_SIZE;
 
+const SESSION_SCROLL_KEY = "mc_categories_scroll_session";
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle expiration
+
+function getSavedSessionScroll() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(SESSION_SCROLL_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data.scrollY !== "number") return null;
+    if (Date.now() - (data.timestamp || 0) > SESSION_TIMEOUT_MS) {
+      sessionStorage.removeItem(SESSION_SCROLL_KEY);
+      return null;
+    }
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
 function Categories() {
   const navigate = useNavigate();
   const { cart } = useCart();
@@ -25,7 +45,15 @@ function Categories() {
   const [loadError, setLoadError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const hasCachedCategoriesRef = useRef(categories.length > 0);
-  const [visibleCategoryCount, setVisibleCategoryCount] = useState(() => cachedVisibleCategoryCount);
+  const savedSessionRef = useRef(getSavedSessionScroll());
+  const hasRestoredScrollRef = useRef(false);
+  const [visibleCategoryCount, setVisibleCategoryCount] = useState(() => {
+    const savedCount = savedSessionRef.current?.visibleCount;
+    if (typeof savedCount === "number" && savedCount > cachedVisibleCategoryCount) {
+      return savedCount;
+    }
+    return cachedVisibleCategoryCount;
+  });
   const sentinelRef = useRef(null);
   const supportsAutoLoad = typeof window !== "undefined" && "IntersectionObserver" in window;
 
@@ -101,6 +129,55 @@ function Categories() {
         (!hasCountData || populatedRootIds.has(Number(c.id)))
     );
   }, [categories]);
+
+  // Restore scroll position within the active session once categories are ready
+  useEffect(() => {
+    if (hasRestoredScrollRef.current) return;
+    const targetY = savedSessionRef.current?.scrollY;
+    if (typeof targetY === "number" && targetY > 0 && displayCategories.length > 0) {
+      hasRestoredScrollRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: targetY, left: 0, behavior: "instant" });
+        });
+      });
+    }
+  }, [displayCategories]);
+
+  // Continuously record scroll position and timestamp in sessionStorage for the active session
+  useEffect(() => {
+    let ticking = false;
+    const savePosition = () => {
+      if (window.scrollY > 0) {
+        try {
+          sessionStorage.setItem(
+            SESSION_SCROLL_KEY,
+            JSON.stringify({
+              scrollY: Math.round(window.scrollY),
+              visibleCount: cachedVisibleCategoryCount,
+              timestamp: Date.now(),
+            })
+          );
+        } catch (_) {}
+      }
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          savePosition();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      savePosition();
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
 
   // Silent incremental prefetching for all categories as user scrolls
   useEffect(() => {
