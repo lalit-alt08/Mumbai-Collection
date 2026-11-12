@@ -461,7 +461,23 @@ export const getAllCategories = async (req, res) => {
  * department. Each shelf is cached so the home page does not scan the global
  * catalog or make one WooCommerce request per visitor.
  */
+const homeShelfProgress = new Map();
+
 export const getHomeShelves = async (req, res) => {
+  const deadline = Date.now() + 18000;
+  const withinDeadline = async (promise) => {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Homepage request deadline exceeded")), Math.max(0, deadline - Date.now()));
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   try {
     const page = Number(req.query.page) || 1;
     const requestedOffset = Number(req.query.offset);
@@ -469,10 +485,21 @@ export const getHomeShelves = async (req, res) => {
       ? requestedOffset
       : (page - 1) * HOME_SHELF_COUNT;
     const currentPage = Math.floor(offset / HOME_SHELF_COUNT) + 1;
-    const result = await serverCache.getOrFetch(
+    const fallbackKey = `catalog:home_last_known:v7:offset:${offset}`;
+    const progressKey = `home:${offset}`;
+    let progress = homeShelfProgress.get(progressKey);
+    if (!progress) {
+      progress = { partial: null };
+      homeShelfProgress.set(progressKey, progress);
+    }
+    let result;
+    let degraded = false;
+    try {
+    const rebuild = serverCache.getOrFetch(
       // Cache with 6-shelf / 12-product boundaries
-      `catalog:home_shelves:v6:offset:${offset}:c${HOME_SHELF_COUNT}:p${HOME_PRODUCTS_PER_SHELF}`,
+      `catalog:home_shelves:v7:offset:${offset}:c${HOME_SHELF_COUNT}:p${HOME_PRODUCTS_PER_SHELF}`,
       async () => {
+        const fence = await serverCache.createFence(fallbackKey);
         const categories = await getCategoriesWithStaleFallback();
         const categoryList = Array.isArray(categories) ? categories : [];
         const categoryById = new Map(
@@ -523,6 +550,7 @@ export const getHomeShelves = async (req, res) => {
         );
 
         const shelves = new Array(homeDepartments.length);
+        progress.partial = { categories: offset === 0 ? departments.slice(0, 12) : [], shelves, pagination: { page: currentPage, per_page: HOME_SHELF_COUNT, total_departments: departments.length, next_offset: offset, has_more: offset < departments.length } };
         let nextIndex = 0;
         const worker = async () => {
           while (nextIndex < homeDepartments.length) {
@@ -531,7 +559,7 @@ export const getHomeShelves = async (req, res) => {
             try {
               const shelf = await serverCache.getOrFetch(
                 `catalog:home_shelf:p${HOME_PRODUCTS_PER_SHELF}:${department.id}`,
-                () => fetchProductsByCategory(department.id, { page: 1, per_page: HOME_PRODUCTS_PER_SHELF }),
+                () => fetchProductsByCategory(department.id, { page: 1, per_page: HOME_PRODUCTS_PER_SHELF, verifiedCategory: true, timeout: 2500 }),
                 HOME_CACHE_TTL_MS
               );
               const rawProducts = Array.isArray(shelf?.products) ? shelf.products : [];
@@ -554,7 +582,7 @@ export const getHomeShelves = async (req, res) => {
                 { categoryId: department.id, err: error.message },
                 "Failed to load a homepage product shelf"
               );
-              shelves[index] = { ...department, products: [] };
+              shelves[index] = null;
             }
           }
         };
@@ -562,6 +590,9 @@ export const getHomeShelves = async (req, res) => {
         await Promise.all(
           Array.from({ length: Math.min(4, homeDepartments.length) }, () => worker())
         );
+        if (shelves.some((shelf) => shelf === null)) {
+          throw new Error("Homepage product shelves are temporarily unavailable");
+        }
         const populatedShelves = shelves.filter((shelf) => shelf?.products?.length > 0);
         const visibleShelves = populatedShelves.slice(0, HOME_SHELF_COUNT);
         const lastVisibleShelfId = visibleShelves.at(-1)?.id;
@@ -571,7 +602,7 @@ export const getHomeShelves = async (req, res) => {
         const consumedDepartments = Math.max(0, lastConsumedIndex + 1);
         const nextOffset = offset + consumedDepartments;
 
-        return {
+        const completed = {
           categories: offset === 0 ? departments.slice(0, 12) : [],
           shelves: visibleShelves,
           pagination: {
@@ -582,12 +613,33 @@ export const getHomeShelves = async (req, res) => {
             has_more: nextOffset < departments.length,
           },
         };
+        await serverCache.setFenced(fallbackKey, completed, 86400000, fence);
+        return completed;
       },
       300000
     );
+    rebuild.then(() => { if (homeShelfProgress.get(progressKey) === progress) homeShelfProgress.delete(progressKey); }, () => { if (homeShelfProgress.get(progressKey) === progress) homeShelfProgress.delete(progressKey); });
+    result = await withinDeadline(rebuild);
+    } catch (error) {
+      let fallback = serverCache.get(fallbackKey);
+      if (!fallback && Date.now() < deadline) {
+        try { fallback = await withinDeadline(serverCache.getOrFetch(fallbackKey, async () => null, 86400000)); } catch (_) { /* Use available shelves. */ }
+      }
+      const partial = progress.partial;
+      const available = partial?.shelves?.filter((shelf) => shelf?.products?.length) || [];
+      if (!fallback && !available.length) throw error;
+      if (partial && available.length) {
+        const byId = new Map((fallback?.shelves || []).map((shelf) => [Number(shelf.id), shelf]));
+        for (const shelf of available) byId.set(Number(shelf.id), shelf);
+        const order = partial.categories.length ? partial.categories : [...available, ...(fallback?.shelves || [])];
+        result = { ...partial, shelves: order.map((category) => byId.get(Number(category.id))).filter(Boolean).slice(0, HOME_SHELF_COUNT) };
+      } else result = fallback;
+      degraded = true;
+    }
 
     return res.json({
       success: true,
+      degraded,
       categories: transformMediaUrls(result.categories || [], req),
       shelves: transformMediaUrls(result.shelves || [], req),
       pagination: result.pagination || {

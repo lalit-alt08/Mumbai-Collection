@@ -35,6 +35,7 @@ import {
 import {
   getEmployeeBanners,
   updateEmployeeBanners,
+  uploadBannerVideo,
 } from "../controllers/bannerController.js";
 
 import { requireAuth } from "../middlewares/authMiddleware.js";
@@ -44,6 +45,10 @@ import {
   EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
   validateImageBuffer,
 } from "../utils/imageValidator.js";
+import {
+  MAX_VIDEO_SIZE_BYTES,
+  validateMp4Buffer,
+} from "../utils/videoValidator.js";
 import { uploadLimiter } from "../middlewares/rateLimiter.js";
 import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 
@@ -83,6 +88,53 @@ const handleImageUpload = (req, res, next) => {
 
     const validation = validateImageBuffer(req.file, {
       maxFileSizeBytes: EMPLOYEE_MAX_IMAGE_SIZE_BYTES,
+    });
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: validation.message,
+      });
+    }
+
+    next();
+  });
+};
+
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_VIDEO_SIZE_BYTES,
+  },
+  fileFilter: (req, file, cb) => {
+    // Content and H.264 codec validation runs after buffering
+    cb(null, true);
+  },
+});
+
+const handleVideoUpload = (req, res, next) => {
+  videoUpload.single("video")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({
+          success: false,
+          message: "File size exceeds the 5MB limit for banner videos.",
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: err.message || "Invalid video upload.",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No video file provided.",
+      });
+    }
+
+    const validation = validateMp4Buffer(req.file.buffer, {
+      maxSizeBytes: MAX_VIDEO_SIZE_BYTES,
     });
     if (!validation.valid) {
       return res.status(400).json({
@@ -288,6 +340,15 @@ router.get(
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   getEmployeeBanners
+);
+
+router.post(
+  "/banners/video",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  uploadLimiter,
+  handleVideoUpload,
+  uploadBannerVideo
 );
 
 router.put(

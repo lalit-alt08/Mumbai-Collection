@@ -24,11 +24,15 @@ import {
   Search,
   Link2,
   ChevronDown,
+  Video as VideoIcon,
+  Film,
+  Play,
 } from "lucide-react";
 import {
   getBanners,
   updateBanners,
   uploadProductImage,
+  uploadBannerVideo,
   getCategories,
   getProducts,
 } from "../services/employeeApi.js";
@@ -452,8 +456,17 @@ function Banners() {
     title: "Welcome to Mumbai Collection",
     link: "",
     image: "/banners/welcome-thin-banner.webp",
+    media_id: null,
+    media_type: "image",
+    video_url: "",
+    video_media_id: null,
     is_active: true,
   });
+  const thinBannerRef = useRef(thinBanner);
+  const thinBannerOperationRef = useRef(false);
+  useEffect(() => {
+    thinBannerRef.current = thinBanner;
+  }, [thinBanner]);
   const [activeTab, setActiveTab] = useState("hero"); // "hero" | "thin"
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -490,7 +503,12 @@ function Banners() {
         setBanners(res);
       }
       if (res.thin_banner) {
-        setThinBanner(res.thin_banner);
+        setThinBanner({
+          ...res.thin_banner,
+          media_type: res.thin_banner.media_type === "video" ? "video" : "image",
+          video_url: res.thin_banner.video_url || "",
+          video_media_id: res.thin_banner.video_media_id || null,
+        });
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to load homepage banners.");
@@ -574,9 +592,14 @@ function Banners() {
     }
   };
 
-  const persistThinBanner = async (updatedThin, successMsg) => {
-    try {
+  const persistThinBanner = async (updatedThin, successMsg, { lockHeld = false } = {}) => {
+    const ownsLock = !lockHeld;
+    if (ownsLock && thinBannerOperationRef.current) return false;
+    if (ownsLock) {
+      thinBannerOperationRef.current = true;
       setSaving(true);
+    }
+    try {
       setError("");
       const idempotencyKey =
         typeof crypto !== "undefined" && crypto.randomUUID
@@ -586,29 +609,52 @@ function Banners() {
         { thin_banner: updatedThin },
         { "X-Idempotency-Key": idempotencyKey }
       );
-      if (res.thin_banner) {
-        setThinBanner(res.thin_banner);
-      } else {
-        setThinBanner(updatedThin);
-      }
+      if (!res?.thin_banner) throw new Error("The server did not confirm saving the mobile banner.");
+      const confirmed = {
+        ...res.thin_banner,
+        media_type: res.thin_banner.media_type === "video" ? "video" : "image",
+        video_url: res.thin_banner.video_url || "",
+        video_media_id: res.thin_banner.video_media_id || null,
+      };
+      thinBannerRef.current = confirmed;
+      setThinBanner(confirmed);
       if (successMsg) {
         showToast(successMsg, "success");
       }
+      return true;
     } catch (err) {
       const msg = err.response?.data?.message || err.message || "Failed to update mobile thin banner.";
       setError(msg);
       showToast(msg, "error");
       fetchBannerList(); // Roll back to server state on error
+      return false;
     } finally {
-      setSaving(false);
+      if (ownsLock) {
+        thinBannerOperationRef.current = false;
+        setSaving(false);
+      }
     }
   };
 
   const handleToggleThinActive = async () => {
+    if (saving || thinBannerOperationRef.current) return;
     const nextActive = !thinBanner.is_active;
-    if (nextActive && !thinBanner.image) {
-      showToast("Please upload an image before turning this banner Live.", "error");
-      return;
+    if (nextActive) {
+      if (thinBanner.media_type === "video") {
+        if (!thinBanner.image || !thinBanner.media_id) {
+          showToast("Poster image is required before making Video banner Live.", "error");
+          return;
+        }
+        if (!thinBanner.video_url) {
+          showToast("Please upload an MP4 video before making Video banner Live.", "error");
+          return;
+        }
+      } else {
+        if (!thinBanner.image) {
+          showToast("Please upload an image before turning this banner Live.", "error");
+          return;
+        }
+      }
     }
     const updated = { ...thinBanner, is_active: nextActive };
     setThinBanner(updated);
@@ -618,13 +664,43 @@ function Banners() {
     );
   };
 
+  const handleSwitchToImageMode = async () => {
+    if (saving || thinBannerOperationRef.current || thinBanner.media_type === "image") return;
+    const updated = { ...thinBanner, media_type: "image" };
+    setThinBanner(updated);
+    await persistThinBanner(updated, "Switched to Image banner mode.");
+  };
+
+  const handleSwitchToVideoMode = async () => {
+    if (saving || thinBannerOperationRef.current || thinBanner.media_type === "video") return;
+    if (!thinBanner.video_url || !thinBanner.video_media_id) {
+      showToast("Upload and preview an MP4 video draft before switching to Video mode.", "error");
+      return;
+    }
+    if (thinBanner.is_active) {
+      if (!thinBanner.image || !thinBanner.media_id) {
+        showToast("Poster image is required before switching active banner to Video mode.", "error");
+        return;
+      }
+      if (!thinBanner.video_url) {
+        showToast("Please upload an MP4 video before switching active banner to Video mode.", "error");
+        return;
+      }
+    }
+    const updated = { ...thinBanner, media_type: "video" };
+    setThinBanner(updated);
+    await persistThinBanner(updated, "Switched to Video banner mode.");
+  };
+
   const handleUpdateThinTitle = async (newTitle) => {
+    if (thinBannerOperationRef.current) return;
     const updated = { ...thinBanner, title: newTitle };
     setThinBanner(updated);
     await persistThinBanner(updated, "Thin banner title saved.");
   };
 
   const handleUpdateThinLink = async (newLink, autoTitle) => {
+    if (thinBannerOperationRef.current) return;
     const updated = {
       ...thinBanner,
       link: newLink,
@@ -637,10 +713,17 @@ function Banners() {
   const handleUploadThinImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!isAcceptedImage(file)) {
-      showToast("Unsupported format. Use JPG, PNG, WEBP, or HEIC.", "error");
+    if (thinBannerOperationRef.current) {
+      e.target.value = "";
       return;
     }
+    if (!isAcceptedImage(file)) {
+      showToast("Unsupported format. Use JPG, PNG, WEBP, or HEIC.", "error");
+      e.target.value = "";
+      return;
+    }
+    thinBannerOperationRef.current = true;
+    setSaving(true);
     try {
       setUploadingSlots((prev) => ({ ...prev, "thin-image": { uploading: true, progress: "Optimizing..." } }));
       const compressed = await compressImage(file, { maxDimension: BANNER_MAX_DIMENSION, quality: 0.88 });
@@ -649,9 +732,9 @@ function Banners() {
       const url = uploaded.url || uploaded.source_url;
       const mediaId = uploaded.id;
       if (!url) throw new Error("Image upload succeeded but received no public URL.");
-      const updated = { ...thinBanner, image: url, media_id: mediaId || null };
+      const updated = { ...thinBannerRef.current, image: url, media_id: mediaId || null };
       setThinBanner(updated);
-      await persistThinBanner(updated, "Mobile thin banner image updated live!");
+      await persistThinBanner(updated, "Mobile thin banner image updated live!", { lockHeld: true });
     } catch (err) {
       showToast(err.message || "Failed to upload image.", "error");
     } finally {
@@ -660,14 +743,121 @@ function Banners() {
         delete next["thin-image"];
         return next;
       });
+      thinBannerOperationRef.current = false;
+      setSaving(false);
       e.target.value = "";
     }
   };
 
   const handleRemoveThinImage = async () => {
-    const updated = { ...thinBanner, image: "", media_id: null, is_active: false };
+    if (thinBannerOperationRef.current) return;
+    // If removing image while in video mode or image mode, banner cannot stay active without an image
+    const updated = {
+      ...thinBanner,
+      image: "",
+      media_id: null,
+      is_active: false,
+    };
     setThinBanner(updated);
     await persistThinBanner(updated, "Thin banner image removed.");
+  };
+
+  const handleUploadThinVideo = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (thinBannerOperationRef.current) {
+      e.target.value = "";
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".mp4") && file.type !== "video/mp4") {
+      showToast("Only browser-playable MP4 videos are supported.", "error");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("Video size exceeds the 5MB limit.", "error");
+      e.target.value = "";
+      return;
+    }
+
+    thinBannerOperationRef.current = true;
+    setSaving(true);
+    try {
+      setUploadingSlots((prev) => ({
+        ...prev,
+        "thin-video": { uploading: true, progress: "Uploading video (0%)..." },
+      }));
+
+      // Upload replacement video before saving the banner
+      const uploaded = await uploadBannerVideo(file, {
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadingSlots((prev) => ({
+              ...prev,
+              "thin-video": { uploading: true, progress: `Uploading video (${percent}%)...` },
+            }));
+          }
+        },
+      });
+
+      const videoUrl = uploaded.url || uploaded.source_url;
+      const videoMediaId = uploaded.id;
+      if (!videoUrl) throw new Error("Video upload succeeded but received no public URL.");
+
+      // Require valid poster before publishing Video mode: if active and poster is missing, warn or keep hidden
+      const latest = thinBannerRef.current;
+      const nextActive = latest.is_active && !latest.image ? false : latest.is_active;
+
+      const updated = {
+        ...latest,
+        video_url: videoUrl,
+        video_media_id: videoMediaId || null,
+        is_active: nextActive,
+      };
+
+      await persistThinBanner(
+        updated,
+        latest.media_type === "video"
+          ? "Video uploaded and saved. The current banner remains live."
+          : "Video uploaded as a draft. The current image banner remains live.",
+        { lockHeld: true }
+      );
+    } catch (err) {
+      showToast(err.response?.data?.message || err.message || "Failed to upload video.", "error");
+      // Current published banner is kept untouched
+    } finally {
+      setUploadingSlots((prev) => {
+        const next = { ...prev };
+        delete next["thin-video"];
+        return next;
+      });
+      thinBannerOperationRef.current = false;
+      setSaving(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleRemoveThinVideo = async () => {
+    if (saving || thinBannerOperationRef.current) return;
+    // Removing a video switches back to Image mode if an image exists
+    const hasImage = Boolean(thinBanner.image);
+    const updated = {
+      ...thinBanner,
+      media_type: "image",
+      video_url: "",
+      video_media_id: null,
+      is_active: hasImage ? thinBanner.is_active : false,
+    };
+    setThinBanner(updated);
+    await persistThinBanner(
+      updated,
+      hasImage
+        ? "Video removed. Switched back to Image mode."
+        : "Video removed. Banner hidden until image is added."
+    );
   };
 
   /**
@@ -1410,20 +1600,162 @@ function Banners() {
               </div>
             </div>
 
-            {/* Single mobile banner image slot (3:1 ratio) */}
+            {/* Mode Switcher: Image Mode vs Video Mode */}
+            <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-3 sm:p-4 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <span className="block text-xs font-black uppercase tracking-wider text-gray-800">
+                  Media Format
+                </span>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Display a static image or a lightweight looping MP4 video (with poster image fallback).
+                </p>
+              </div>
+
+              <div className="inline-flex p-1 bg-gray-200/80 rounded-xl border border-gray-200">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSwitchToImageMode}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    thinBanner.media_type !== "video"
+                      ? "bg-white text-gray-900 shadow-xs border border-gray-200 font-black"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  <ImageIcon size={14} className={thinBanner.media_type !== "video" ? "text-blue-600" : "text-gray-400"} />
+                  <span>Image Mode</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSwitchToVideoMode}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    thinBanner.media_type === "video"
+                      ? "bg-white text-gray-900 shadow-xs border border-gray-200 font-black"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  <VideoIcon size={14} className={thinBanner.media_type === "video" ? "text-emerald-600" : "text-gray-400"} />
+                  <span>Video Mode (MP4)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Always allow preparing a video draft while an image remains published. */}
+            {(
+              <div className="pt-1">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Film size={15} className="text-emerald-600" />
+                      <span className="text-xs font-black uppercase tracking-wider text-emerald-950">
+                        {thinBanner.media_type === "video" ? "Banner Video (MP4)" : "Optional Video Draft (MP4)"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200">
+                        1200 × 400 px (3:1) • Max 5MB • H.264
+                      </span>
+                    </div>
+                  </div>
+
+                  <input
+                    type="file"
+                    id="file-thin-video"
+                    onChange={handleUploadThinVideo}
+                    accept="video/mp4"
+                    className="hidden"
+                  />
+
+                  {thinBanner.video_url ? (
+                    <div className="space-y-2">
+                      <div className="relative rounded-xl overflow-hidden border border-emerald-200 bg-black aspect-[3/1] flex items-center justify-center">
+                        <video
+                          key={thinBanner.video_url}
+                          src={thinBanner.video_url}
+                          poster={thinBanner.image || undefined}
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          className="h-full w-full object-cover"
+                        />
+                        {uploadingSlots["thin-video"]?.uploading && (
+                          <div className="absolute inset-0 bg-black/75 backdrop-blur-xs flex flex-col items-center justify-center text-white gap-2 z-10">
+                            <Loader2 size={24} className="animate-spin text-emerald-400" />
+                            <span className="text-xs font-bold">{uploadingSlots["thin-video"]?.progress}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
+                        <span className="text-[11px] text-emerald-800 font-medium flex items-center gap-1">
+                          <CheckCircle2 size={12} className="text-emerald-600" /> {thinBanner.media_type === "video" ? "Video selected for banner" : "Draft saved; current image stays live"}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <label
+                            htmlFor="file-thin-video"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 text-xs font-bold transition shadow-2xs cursor-pointer"
+                          >
+                            <Upload size={12} />
+                            {thinBanner.media_type === "video" ? "Replace Video" : "Replace Draft"}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleRemoveThinVideo}
+                            disabled={saving}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition cursor-pointer"
+                          >
+                            <Trash2 size={12} />
+                            Remove Video
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="file-thin-video"
+                      className="flex flex-col items-center justify-center aspect-[3/1] border-2 border-dashed border-emerald-300 rounded-xl hover:border-emerald-500 hover:bg-emerald-100/30 transition cursor-pointer p-4 group bg-white/60"
+                    >
+                      {uploadingSlots["thin-video"]?.uploading ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 size={24} className="animate-spin text-emerald-600" />
+                          <span className="text-xs font-bold text-gray-600">{uploadingSlots["thin-video"]?.progress}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <Film size={22} className="text-emerald-500 group-hover:scale-110 transition" />
+                          <span className="text-xs font-bold text-gray-800 mt-1">Upload Banner Video</span>
+                        <span className="text-[10px] text-gray-500">Upload and preview before switching the live banner • MP4 (H.264) • Up to 5MB</span>
+                        </>
+                      )}
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Poster / Primary Image Slot (3:1 ratio) */}
             <div className="pt-2">
               <div className="rounded-2xl border border-gray-200 bg-gray-50/40 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <Smartphone size={15} className="text-blue-600" />
                     <span className="text-xs font-black uppercase tracking-wider text-gray-800">
-                      Mobile Thin Banner Image
+                      {thinBanner.media_type === "video"
+                        ? "Video Poster & Fallback Image (Required)"
+                        : "Mobile Thin Banner Image"}
                     </span>
                   </div>
                   <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
                     1200 × 400 px (3:1)
                   </span>
                 </div>
+                {thinBanner.media_type === "video" && (
+                  <p className="text-[11px] text-gray-500">
+                    Displayed immediately while video streams, and for shoppers with reduced motion or paused autoplay.
+                  </p>
+                )}
 
                 <input
                   type="file"
@@ -1455,7 +1787,7 @@ function Banners() {
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 text-xs font-bold transition shadow-2xs cursor-pointer"
                       >
                         <Upload size={12} />
-                        Change Image
+                        {thinBanner.media_type === "video" ? "Change Poster Image" : "Change Image"}
                       </label>
                       <button
                         type="button"
@@ -1480,7 +1812,11 @@ function Banners() {
                     ) : (
                       <>
                         <Upload size={22} className="text-gray-400 group-hover:text-blue-600 transition" />
-                        <span className="text-xs font-bold text-gray-700 mt-1">Upload Mobile Thin Banner</span>
+                        <span className="text-xs font-bold text-gray-700 mt-1">
+                          {thinBanner.media_type === "video"
+                            ? "Upload Poster Image (Required)"
+                            : "Upload Mobile Thin Banner"}
+                        </span>
                         <span className="text-[10px] text-gray-400">1200 × 400 px (3:1 ratio) • JPG, PNG, WEBP</span>
                       </>
                     )}

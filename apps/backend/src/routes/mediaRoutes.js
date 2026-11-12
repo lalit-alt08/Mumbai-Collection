@@ -18,13 +18,21 @@ const ALLOWED_EXTENSIONS = new Set([
   ".svg",
   ".avif",
   ".ico",
+  ".mp4",
 ]);
 
 /**
  * Secure WordPress Media Proxy
- * Streams images from WordPress /wp-content/uploads/*
+ * Streams images and MP4 videos from WordPress /wp-content/uploads/*
+ * Supports GET and HEAD methods, byte range requests (206 Partial Content),
+ * and clean upstream teardown on client abort.
  */
 router.use(async (req, res) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    return res.status(405).json({ success: false, message: "Method Not Allowed" });
+  }
+
   const rawPath = req.path;
 
   // Strip leading /uploads or /
@@ -91,43 +99,67 @@ router.use(async (req, res) => {
 
   const targetUrl = targetUrlObj.href;
 
+  // Forward Range header if present
+  const requestHeaders = {};
+  if (req.headers.range) {
+    requestHeaders.Range = req.headers.range;
+  }
+
+  const upstreamAbort = new AbortController();
+  const abortUpstreamOnDisconnect = () => {
+    if (!res.writableEnded) upstreamAbort.abort();
+  };
+  res.on("close", abortUpstreamOnDisconnect);
+
   try {
     let response;
+    const isHead = req.method === "HEAD";
+
+    const fetchConfig = {
+      method: isHead ? "HEAD" : "GET",
+      url: targetUrl,
+      headers: requestHeaders,
+      httpsAgent: mediaHttpsAgent,
+      httpAgent: mediaHttpAgent,
+      responseType: isHead ? "text" : "stream",
+      timeout: 15000,
+      signal: upstreamAbort.signal,
+      validateStatus: (status) => status === 200 || status === 206 || status === 416,
+    };
+
     try {
-      response = await axios({
-        method: "GET",
-        url: targetUrl,
-        httpsAgent: mediaHttpsAgent,
-        httpAgent: mediaHttpAgent,
-        responseType: "stream",
-        timeout: 10000,
-        validateStatus: (status) => status === 200,
-      });
+      response = await axios(fetchConfig);
     } catch (err) {
       if (err.response?.status === 404 && normalized.includes(".SY522.")) {
         const altPath = normalized.replace(".SY522.", "._SY522_.");
         const altUrl = `${wpBaseUrl}/wp-content/uploads/${altPath.replace(/\\/g, "/")}`;
         response = await axios({
-          method: "GET",
+          ...fetchConfig,
           url: altUrl,
-          httpsAgent: mediaHttpsAgent,
-          httpAgent: mediaHttpAgent,
-          responseType: "stream",
-          timeout: 10000,
-          validateStatus: (status) => status === 200,
         });
       } else {
         throw err;
       }
     }
 
+    // Pass through status (200, 206 Partial Content, or 416 Range Not Satisfiable)
+    res.status(response.status);
+
     // Pass through Content-Type and caching headers
-    if (response.headers["content-type"]) {
+    if (ext === ".mp4") {
+      res.setHeader("Content-Type", "video/mp4");
+    } else if (response.headers["content-type"]) {
       res.setHeader("Content-Type", response.headers["content-type"]);
     }
-    if (response.headers["content-length"]) {
+
+    if (response.status !== 416 && response.headers["content-length"]) {
       res.setHeader("Content-Length", response.headers["content-length"]);
     }
+    if (response.headers["content-range"]) {
+      res.setHeader("Content-Range", response.headers["content-range"]);
+    }
+    res.setHeader("Accept-Ranges", response.headers["accept-ranges"] || "bytes");
+
     if (response.headers["last-modified"]) {
       res.setHeader("Last-Modified", response.headers["last-modified"]);
     }
@@ -147,8 +179,37 @@ router.use(async (req, res) => {
 
     res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
 
+    if (response.status === 416) {
+      if (response.data && typeof response.data.destroy === "function") response.data.destroy();
+      res.setHeader("Content-Length", "0");
+      res.removeListener("close", abortUpstreamOnDisconnect);
+      return res.end();
+    }
+
+    if (isHead) {
+      if (response.data && typeof response.data.destroy === "function") response.data.destroy();
+      res.removeListener("close", abortUpstreamOnDisconnect);
+      return res.end();
+    }
+
+    // Clean up upstream stream when the client disconnects before the response ends.
+    res.on("close", () => {
+      if (res.writableEnded) return;
+      if (response?.data && typeof response.data.destroy === "function") {
+        response.data.destroy();
+      }
+    });
+    response.data.on("error", (streamError) => {
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, message: "Media stream could not be completed." });
+      } else {
+        res.destroy(streamError);
+      }
+    });
+    res.once("finish", () => res.removeListener("close", abortUpstreamOnDisconnect));
     return response.data.pipe(res);
   } catch (error) {
+    res.removeListener("close", abortUpstreamOnDisconnect);
     if (error.response?.status === 404 || error.code === "ERR_BAD_REQUEST") {
       return res.status(404).json({ success: false, message: "Media file not found." });
     }

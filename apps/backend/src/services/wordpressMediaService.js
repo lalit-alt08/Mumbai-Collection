@@ -3,6 +3,7 @@ import path from "path";
 import { httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
 import { processProductImage } from "./imageProcessor.js";
+import { validateMp4Buffer } from "../utils/videoValidator.js";
 
 /**
  * Upload a media file buffer directly to WordPress Media Library (/wp-json/wp/v2/media)
@@ -111,6 +112,119 @@ export const uploadMedia = async (file, options = {}) => {
 
   return {
     id: mediaId,
+    url: mediaUrl,
+  };
+};
+
+/**
+ * Upload a browser-playable H.264 MP4 video buffer directly to WordPress Media Library.
+ * Bypasses image processing/Sharp/WebP and preserves raw MP4 stream.
+ *
+ * @param {Object} file - Multer file object containing originalname, buffer, mimetype
+ * @param {Object} [options]
+ * @param {number} [options.uploaderId]
+ * @returns {Promise<{ id: number, url: string }>}
+ */
+export const uploadVideoMedia = async (file, options = {}) => {
+  if (!file || !file.buffer) {
+    throw new Error("No file buffer provided for video upload.");
+  }
+
+  // Validate MP4 container and H.264 codec
+  const validation = validateMp4Buffer(file.buffer);
+  if (!validation.valid) {
+    throw new Error(validation.message || "Invalid MP4 video file.");
+  }
+
+  const { originalname, buffer } = file;
+  const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+  const internalApiKey = process.env.MUMBAI_INTERNAL_API_KEY;
+
+  // Sanitize base filename and enforce .mp4 extension
+  const detectedExt = path.extname(originalname || "").toLowerCase();
+  const baseName = path.basename(originalname || "banner_video", detectedExt)
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .substring(0, 50);
+
+  const cleanFilename = `${baseName || "banner_video"}_${Date.now()}.mp4`;
+  const cleanMimeType = "video/mp4";
+
+  // Primary Method: Internal endpoint
+  if (internalApiKey) {
+    try {
+      const uploadUrl = `${wpBaseUrl}/wp-json/mumbai-auth/v1/media/upload?filename=${encodeURIComponent(cleanFilename)}&uploader_id=${encodeURIComponent(options.uploaderId || 0)}`;
+      const response = await axios.post(uploadUrl, buffer, {
+        headers: {
+          "Content-Type": cleanMimeType,
+          "X-Mumbai-Internal-Key": internalApiKey,
+        },
+        httpsAgent,
+        timeout: 45000,
+      });
+
+      const mediaData = response.data;
+      const mediaId = mediaData?.id;
+      const mediaUrl = mediaData?.source_url || mediaData?.url || "";
+
+      if (mediaId && mediaUrl) {
+        return {
+          id: Number(mediaId),
+          url: mediaUrl,
+        };
+      }
+    } catch (internalErr) {
+      logger.warn(
+        { err: internalErr.response?.data || internalErr.message },
+        "[wordpressMediaService] Internal video upload failed, attempting fallback to WP REST API"
+      );
+    }
+  }
+
+  // Fallback Method: Standard WordPress REST API
+  const wpUser = process.env.WP_USERNAME || "mumbaicollection";
+  const wpPass = process.env.WP_APPLICATION_PASSWORD || "";
+
+  if (!wpPass) {
+    throw new Error(
+      "WordPress video upload failed: Internal key and application password are both unavailable or rejected."
+    );
+  }
+
+  const authHeader = Buffer.from(`${wpUser}:${wpPass}`).toString("base64");
+  const wpUrl = `${wpBaseUrl}/wp-json/wp/v2/media`;
+
+  const response = await axios.post(wpUrl, buffer, {
+    headers: {
+      "Content-Type": cleanMimeType,
+      "Content-Disposition": `attachment; filename="${cleanFilename}"`,
+      Authorization: `Basic ${authHeader}`,
+    },
+    httpsAgent,
+    timeout: 45000,
+  });
+
+  const mediaData = response.data;
+  const mediaUrl = mediaData?.source_url || mediaData?.guid?.rendered || "";
+  const mediaId = mediaData?.id;
+
+  if (!mediaId || !mediaUrl) {
+    throw new Error("Invalid response received from WordPress Media API for video.");
+  }
+
+  if (options.trackPending !== false) {
+    try {
+      await trackPendingMedia(mediaId, { uploaderId: options.uploaderId });
+    } catch (trackErr) {
+      logger.warn(
+        { mediaId, err: trackErr.message },
+        "[wordpressMediaService] Failed to track video media as pending"
+      );
+    }
+  }
+
+  return {
+    id: Number(mediaId),
     url: mediaUrl,
   };
 };
@@ -252,6 +366,7 @@ export const cleanupPendingOrphanMedia = async () => {
 
 export default {
   uploadMedia,
+  uploadVideoMedia,
   trackPendingMedia,
   markMediaAttached,
   deleteMediaIfUnreferenced,

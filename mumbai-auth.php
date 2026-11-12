@@ -3112,12 +3112,26 @@ function mumbai_get_banners()
     $thin_banner = get_option('mumbai_mobile_thin_banner', null);
     if (!is_array($thin_banner)) {
         $thin_banner = [
-            'id'        => 'thin-banner-1',
-            'title'     => 'Welcome to Mumbai Collection',
-            'link'      => '',
-            'image'     => '/banners/welcome-thin-banner.webp',
-            'is_active' => true,
+            'id'             => 'thin-banner-1',
+            'title'          => 'Welcome to Mumbai Collection',
+            'link'           => '',
+            'image'          => '/banners/welcome-thin-banner.webp',
+            'media_id'       => null,
+            'media_type'     => 'image',
+            'video_url'      => '',
+            'video_media_id' => null,
+            'is_active'      => true,
         ];
+    } else {
+        if (!isset($thin_banner['media_type'])) {
+            $thin_banner['media_type'] = !empty($thin_banner['video_url']) ? 'video' : 'image';
+        }
+        if (!array_key_exists('video_url', $thin_banner)) {
+            $thin_banner['video_url'] = '';
+        }
+        if (!array_key_exists('video_media_id', $thin_banner)) {
+            $thin_banner['video_media_id'] = null;
+        }
     }
     return [
         'success'     => true,
@@ -3163,16 +3177,26 @@ function mumbai_save_banners(WP_REST_Request $request)
                 }
             }
 
+            $d_id = !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : null;
+            $m_id = !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : null;
+
             $sanitized[] = [
                 'id'               => !empty($b['id']) ? sanitize_text_field($b['id']) : 'banner-' . ($index + 1),
                 'title'            => !empty($b['title']) ? sanitize_text_field($b['title']) : '',
                 'link'             => $safe_link,
                 'desktop_image'    => !empty($b['desktop_image']) ? esc_url_raw($b['desktop_image']) : '',
-                'desktop_media_id' => !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : null,
+                'desktop_media_id' => $d_id,
                 'mobile_image'     => !empty($b['mobile_image']) ? esc_url_raw($b['mobile_image']) : '',
-                'mobile_media_id'  => !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : null,
+                'mobile_media_id'  => $m_id,
                 'is_active'        => isset($b['is_active']) ? (bool) $b['is_active'] : true,
             ];
+
+            if ($d_id) {
+                update_post_meta($d_id, '_mumbai_upload_status', 'attached');
+            }
+            if ($m_id) {
+                update_post_meta($m_id, '_mumbai_upload_status', 'attached');
+            }
         }
         update_option('mumbai_homepage_banners', $sanitized, false);
         $stored = get_option('mumbai_homepage_banners', null);
@@ -3199,13 +3223,74 @@ function mumbai_save_banners(WP_REST_Request $request)
                 $safe_link = esc_url_raw($raw_link, ['http', 'https']);
             }
         }
+
+        $raw_media_type = strtolower(trim((string) ($thin_banner['media_type'] ?? 'image')));
+        $media_type = ($raw_media_type === 'video') ? 'video' : 'image';
+
+        $poster_id = !empty($thin_banner['media_id']) ? absint($thin_banner['media_id']) : null;
+        $image_url = !empty($thin_banner['image']) ? esc_url_raw($thin_banner['image']) : '';
+        if ($poster_id) {
+            $att_url = wp_get_attachment_url($poster_id);
+            if ($att_url) {
+                $image_url = $att_url;
+            }
+        }
+
+        $video_media_id = !empty($thin_banner['video_media_id']) ? absint($thin_banner['video_media_id']) : null;
+        // Never trust a client-provided video URL; only a validated WP attachment may be used.
+        $video_url = '';
+        if ($video_media_id) {
+            $att = get_post($video_media_id);
+            if (!$att || $att->post_type !== 'attachment' || !str_starts_with($att->post_mime_type, 'video/mp4')) {
+                return new WP_Error(
+                    'invalid_video_attachment',
+                    'The provided video attachment ID is not a valid MP4 video.',
+                    ['status' => 400]
+                );
+            }
+            $derived_video_url = wp_get_attachment_url($video_media_id);
+            if ($derived_video_url) {
+                $video_url = $derived_video_url;
+            }
+        }
+
+        if ($media_type === 'video' && !$video_media_id) {
+            return new WP_Error(
+                'missing_video_attachment',
+                'Upload a validated MP4 attachment before selecting Video mode.',
+                ['status' => 400]
+            );
+        }
+
+        if ($media_type === 'video' && !empty($thin_banner['is_active'])) {
+            $poster = $poster_id ? get_post($poster_id) : null;
+            $poster_url = $poster_id ? wp_get_attachment_url($poster_id) : false;
+            if (!$poster || $poster->post_type !== 'attachment' || strpos((string) $poster->post_mime_type, 'image/') !== 0 || !$poster_url) {
+                return new WP_Error(
+                    'invalid_video_poster',
+                    'An uploaded poster image is required before publishing Video mode.',
+                    ['status' => 400]
+                );
+            }
+            if (!$video_media_id || !$video_url) {
+                return new WP_Error(
+                    'invalid_video_attachment',
+                    'A validated MP4 video attachment is required before publishing Video mode.',
+                    ['status' => 400]
+                );
+            }
+        }
+
         $sanitized_thin = [
-            'id'        => !empty($thin_banner['id']) ? sanitize_text_field($thin_banner['id']) : 'thin-banner-1',
-            'title'     => !empty($thin_banner['title']) ? sanitize_text_field($thin_banner['title']) : 'Welcome to Mumbai Collection',
-            'link'      => $safe_link,
-            'image'     => !empty($thin_banner['image']) ? esc_url_raw($thin_banner['image']) : '',
-            'media_id'  => !empty($thin_banner['media_id']) ? absint($thin_banner['media_id']) : null,
-            'is_active' => isset($thin_banner['is_active']) ? (bool) $thin_banner['is_active'] : true,
+            'id'             => !empty($thin_banner['id']) ? sanitize_text_field($thin_banner['id']) : 'thin-banner-1',
+            'title'          => !empty($thin_banner['title']) ? sanitize_text_field($thin_banner['title']) : 'Welcome to Mumbai Collection',
+            'link'           => $safe_link,
+            'image'          => $image_url,
+            'media_id'       => $poster_id,
+            'media_type'     => $media_type,
+            'video_url'      => $video_url,
+            'video_media_id' => $video_media_id,
+            'is_active'      => isset($thin_banner['is_active']) ? (bool) $thin_banner['is_active'] : true,
         ];
         update_option('mumbai_mobile_thin_banner', $sanitized_thin, false);
         $stored_thin = get_option('mumbai_mobile_thin_banner', null);
@@ -3217,6 +3302,14 @@ function mumbai_save_banners(WP_REST_Request $request)
             );
         }
         $sanitized_thin = $stored_thin;
+
+        // Mark attached assets as 'attached' so they survive pending upload cleanup
+        if ($poster_id) {
+            update_post_meta($poster_id, '_mumbai_upload_status', 'attached');
+        }
+        if ($video_media_id) {
+            update_post_meta($video_media_id, '_mumbai_upload_status', 'attached');
+        }
     } else {
         $sanitized_thin = get_option('mumbai_mobile_thin_banner', null);
     }
@@ -3955,6 +4048,21 @@ function mumbai_is_media_referenced($media_id) {
                     'banner_id'  => $b['id'] ?? 'unknown',
                 ];
             }
+        }
+    }
+
+    // The mobile banner uses its own option and can remain hidden while its
+    // poster and video are still needed for a later publish.
+    $thin_banner = get_option('mumbai_mobile_thin_banner', []);
+    if (is_array($thin_banner)) {
+        $poster_id = !empty($thin_banner['media_id']) ? absint($thin_banner['media_id']) : 0;
+        $video_id = !empty($thin_banner['video_media_id']) ? absint($thin_banner['video_media_id']) : 0;
+        if ($poster_id === $media_id || $video_id === $media_id) {
+            return [
+                'referenced' => true,
+                'type' => 'mobile_thin_banner',
+                'banner_id' => $thin_banner['id'] ?? 'thin-banner-1',
+            ];
         }
     }
 

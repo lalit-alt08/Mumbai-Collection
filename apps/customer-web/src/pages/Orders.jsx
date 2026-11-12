@@ -420,14 +420,14 @@ function Orders() {
                   {/* Order Card Header */}
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0]/70 bg-[#F0F8E8] px-5 py-4 sm:px-6">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FFFFFF] text-[#64748B] shadow-sm border border-[#E2E8F0]">
-                        <Package size={17} />
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF] text-[#22499F] shadow-sm border border-[#E2E8F0]">
+                        <Package size={19} />
                       </div>
-                      <div>
-                        <span className="text-xs font-bold text-[#64748B] uppercase tracking-wider">
+                      <div className="min-w-0 space-y-0.5">
+                        <span className="block text-sm sm:text-base font-extrabold text-[#1E293B] tracking-wide">
                           Order #{order.order_number}
                         </span>
-                        <div className="text-xs text-[#64748B] font-medium">
+                        <div className="text-sm text-[#475569] font-medium leading-5">
                           {formatDate(order.date_created)}
                         </div>
                       </div>

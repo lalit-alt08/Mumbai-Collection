@@ -12,6 +12,10 @@ export const DEFAULT_THIN_BANNER = {
   title: "Welcome to Mumbai Collection",
   link: "",
   image: "/banners/welcome-thin-banner.webp",
+  media_id: null,
+  media_type: "image",
+  video_url: "",
+  video_media_id: null,
   is_active: true,
 };
 
@@ -75,12 +79,17 @@ export const sanitizeBannerItem = (item, index) => {
  */
 export const sanitizeThinBanner = (item) => {
   if (!item || typeof item !== "object") return DEFAULT_THIN_BANNER;
+  const rawMediaType = String(item.media_type || "").trim().toLowerCase();
+  const media_type = rawMediaType === "video" ? "video" : "image";
   return {
     id: String(item.id || "thin-banner-1").trim(),
     title: String(item.title || "Welcome to Mumbai Collection").trim(),
     link: sanitizeBannerLink(item.link),
     image: String(item.image || "").trim(),
     media_id: item.media_id ? Number(item.media_id) : null,
+    media_type,
+    video_url: String(item.video_url || "").trim(),
+    video_media_id: item.video_media_id ? Number(item.video_media_id) : null,
     is_active: item.is_active !== false,
   };
 };
@@ -232,11 +241,33 @@ export const saveBanners = async ({ banners, thin_banner } = {}) => {
     if (!response.data?.thin_banner) {
       throw new Error("WordPress failed to confirm saving the mobile thin banner.");
     }
+    const wpSavedThin = response.data.thin_banner;
     // Verify stored active state strictly matches the requested active state
-    if (response.data.thin_banner.is_active !== sanitizedThin.is_active) {
+    if (wpSavedThin.is_active !== sanitizedThin.is_active) {
       throw new Error(
-        `WordPress stored thin banner active state (${response.data.thin_banner.is_active}) did not match requested state (${sanitizedThin.is_active}).`
+        `WordPress stored thin banner active state (${wpSavedThin.is_active}) did not match requested state (${sanitizedThin.is_active}).`
       );
+    }
+    // Confirm saved mode and attachment ID
+    const expectedMode = sanitizedThin.media_type || "image";
+    const actualMode = wpSavedThin.media_type || "image";
+    if (actualMode !== expectedMode) {
+      throw new Error(
+        `WordPress stored thin banner media type (${actualMode}) did not match requested mode (${expectedMode}).`
+      );
+    }
+    if (expectedMode === "video" && sanitizedThin.is_active && (!sanitizedThin.video_media_id || !sanitizedThin.media_id)) {
+      throw new Error("WordPress did not confirm both the video and poster attachments for the active banner.");
+    }
+    if (expectedMode === "video" && sanitizedThin.video_media_id) {
+      if (Number(wpSavedThin.video_media_id) !== Number(sanitizedThin.video_media_id)) {
+        throw new Error(
+          `WordPress stored thin banner video ID (${wpSavedThin.video_media_id}) did not match requested ID (${sanitizedThin.video_media_id}).`
+        );
+      }
+    }
+    if (expectedMode === "video" && sanitizedThin.is_active && Number(wpSavedThin.media_id) !== Number(sanitizedThin.media_id)) {
+      throw new Error("WordPress did not confirm the requested video poster attachment.");
     }
   }
 

@@ -62,6 +62,13 @@ function Home() {
 
   useEffect(() => {
     let isMounted = true;
+    let retryTimer;
+    const scheduleRetry = () => {
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        if (isMounted && document.visibilityState === "visible") loadHomeData({ force: true });
+      }, 30000);
+    };
     const loadHomeData = async ({ force = false } = {}) => {
       if (!force && Date.now() - lastHomeFetchAt.current < HOME_RESUME_REFRESH_COOLDOWN_MS) return;
       lastHomeFetchAt.current = Date.now();
@@ -77,7 +84,15 @@ function Home() {
         if (isMounted) {
           if (homeDataResult.status === "fulfilled") {
             const data = homeDataResult.value || {};
-            const shelfList = (Array.isArray(data.shelves) ? data.shelves : []).slice(0, 6);
+            if (data.degraded) scheduleRetry();
+            else clearTimeout(retryTimer);
+            const incomingShelves = Array.isArray(data.shelves) ? data.shelves : [];
+            if (data.degraded && !incomingShelves.length && !cachedHomeData.shelves?.length) {
+              throw new Error("Home catalog temporarily unavailable");
+            }
+            const shelvesById = new Map((data.degraded ? cachedHomeData.shelves || [] : []).map((shelf) => [Number(shelf.id), shelf]));
+            incomingShelves.forEach((shelf) => shelvesById.set(Number(shelf.id), shelf));
+            const shelfList = [...shelvesById.values()].slice(0, 6);
             const catList = Array.isArray(data.categories) ? data.categories : [];
             const productMap = new Map();
             shelfList.forEach((shelf) => {
@@ -103,7 +118,10 @@ function Home() {
           cachedHomeData.timestamp = Date.now();
         }
       } catch {
-        if (isMounted) setLoadError("We could not refresh the store catalog. Check your connection and try again.");
+        if (isMounted) {
+          setLoadError("We could not refresh the store catalog. Check your connection and try again.");
+          scheduleRetry();
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -113,14 +131,18 @@ function Home() {
       if (document.visibilityState === "visible") loadHomeData();
     };
     const refreshOnPageShow = () => loadHomeData();
+    const refreshOnOnline = () => loadHomeData({ force: true });
 
     loadHomeData({ force: true });
     document.addEventListener("visibilitychange", refreshWhenVisible);
     window.addEventListener("pageshow", refreshOnPageShow);
+    window.addEventListener("online", refreshOnOnline);
     return () => {
       isMounted = false;
+      clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       window.removeEventListener("pageshow", refreshOnPageShow);
+      window.removeEventListener("online", refreshOnOnline);
     };
   }, [reloadKey]);
 

@@ -3,7 +3,8 @@ import {
   saveBanners,
   DEFAULT_THIN_BANNER,
 } from "../services/bannerService.js";
-import { transformMediaUrls } from "../utils/mediaUrl.js";
+import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
+import { uploadVideoMedia } from "../services/wordpressMediaService.js";
 import { logError } from "../utils/logger.js";
 
 /**
@@ -18,13 +19,21 @@ export const getPublicBanners = async (req, res) => {
     const activeBanners = banners.filter((b) => b.is_active !== false);
     const thinBanner = data.thin_banner || DEFAULT_THIN_BANNER;
 
+    let publicThin = null;
+    if (thinBanner && thinBanner.is_active !== false && thinBanner.image) {
+      const transformedThin = transformMediaUrls([thinBanner], req)[0];
+      // If video mode is active but video URL is unavailable, storefront falls back to poster image
+      if (transformedThin && transformedThin.media_type === "video" && !transformedThin.video_url) {
+        transformedThin.media_type = "image";
+      }
+      publicThin = transformedThin;
+    }
+
     res.json({
       success: true,
       count: activeBanners.length,
       banners: transformMediaUrls(activeBanners, req),
-      thin_banner: thinBanner && thinBanner.is_active !== false && thinBanner.image
-        ? transformMediaUrls([thinBanner], req)[0]
-        : null,
+      thin_banner: publicThin,
     });
   } catch (error) {
     logError(req, error, "Get public banners error");
@@ -72,6 +81,16 @@ export const updateEmployeeBanners = async (req, res) => {
   try {
     const { banners, thin_banner } = req.body;
 
+    if (thin_banner?.media_type === "video" && thin_banner?.is_active !== false) {
+      const validId = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
+      if (!validId(thin_banner.video_media_id) || !validId(thin_banner.media_id)) {
+        return res.status(400).json({
+          success: false,
+          message: "An uploaded MP4 video and an uploaded poster image are required before publishing Video mode.",
+        });
+      }
+    }
+
     if (banners !== undefined && !Array.isArray(banners)) {
       return res.status(400).json({
         success: false,
@@ -103,6 +122,41 @@ export const updateEmployeeBanners = async (req, res) => {
     res.status(statusCode).json({
       success: false,
       message: error.response?.data?.message || error.message || "Failed to update banners in WordPress.",
+    });
+  }
+};
+
+/**
+ * Employee Endpoint: Upload Mobile Thin Banner Video
+ * POST /api/employee/banners/video
+ */
+export const uploadBannerVideo = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No video file provided.",
+      });
+    }
+
+    const uploaderId = req.user?.id || req.user?.userId || 0;
+    const { id, url } = await uploadVideoMedia(req.file, { uploaderId });
+
+    const clientUrl = transformMediaUrl(url, req);
+
+    res.status(201).json({
+      success: true,
+      id,
+      url: clientUrl,
+      source_url: clientUrl,
+      message: "Banner video uploaded successfully.",
+    });
+  } catch (error) {
+    logError(req, error, "Upload banner video error");
+    const statusCode = error.statusCode || error.response?.status || 400;
+    res.status(statusCode).json({
+      success: false,
+      message: error.response?.data?.message || error.message || "Failed to upload banner video.",
     });
   }
 };

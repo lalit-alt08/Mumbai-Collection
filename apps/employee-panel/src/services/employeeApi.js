@@ -196,6 +196,24 @@ export const uploadProductImage = async (file, options = {}) => {
   return res.data;
 };
 
+export const uploadBannerVideo = async (file, options = {}) => {
+  const formData = new FormData();
+  formData.append("video", file);
+
+  const config = {
+    timeout: 60000,
+  };
+  if (options.onUploadProgress) {
+    config.onUploadProgress = options.onUploadProgress;
+  }
+  if (options.signal) {
+    config.signal = options.signal;
+  }
+
+  const res = await api.post("/banners/video", formData, config);
+  return res.data;
+};
+
 export const deleteMedia = async (mediaId) => {
   const res = await api.delete(`/media/${mediaId}`);
   return res.data;

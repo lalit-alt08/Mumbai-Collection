@@ -66,6 +66,7 @@ app.use(
           "https://api.razorpay.com",
         ],
         imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        mediaSrc: ["'self'", "data:", "blob:", "https:", "http:"],
         objectSrc: ["'none'"],
         // Google SSO + pre-whitelisting for future Razorpay script SDK
         scriptSrc: [
@@ -135,6 +136,9 @@ app.use(
       "cart-token",
       "Retry-After",
       "retry-after",
+      "Content-Range",
+      "Accept-Ranges",
+      "Content-Length",
     ],
     credentials: true,
     maxAge: 86400,

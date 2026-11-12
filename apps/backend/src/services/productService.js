@@ -375,7 +375,7 @@ export const searchProducts = async (search, { page = 1, per_page = 20 } = {}) =
 
 export const fetchProductsByCategory = async (
   categoryId,
-  { page = 1, per_page = 20, sort = "default", price_range = "all", in_stock = "0", suggestions = false } = {}
+  { page = 1, per_page = 20, sort = "default", price_range = "all", in_stock = "0", suggestions = false, verifiedCategory = false, timeout } = {}
 ) => {
   let targetCategory = categoryId;
 
@@ -406,7 +406,7 @@ export const fetchProductsByCategory = async (
   }
 
   const verifiedKey = `category:verified_id:${targetCategory}`;
-  await serverCache.getOrFetch(verifiedKey, async () => {
+  if (!verifiedCategory) await serverCache.getOrFetch(verifiedKey, async () => {
     let category;
     try {
       category = await api.get(`products/categories/${targetCategory}`, { _fields: "id" });
@@ -442,7 +442,7 @@ export const fetchProductsByCategory = async (
     ...(sortOptions[sort] || {}),
     ...(priceOptions[price_range] || {}),
     ...(in_stock === "1" ? { stock_status: "instock" } : {}),
-  }, suggestions ? { timeout: 5000 } : {});
+  }, timeout ? { timeout } : suggestions ? { timeout: 5000 } : {});
 
   if (!Array.isArray(response.data)) {
     throw new Error("Invalid WooCommerce category products response");
