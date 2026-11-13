@@ -26,6 +26,23 @@
   color: #A43748;
   box-shadow: 0 1px 2px rgb(100 36 48 / 8%);
 }
+.cart-stock-alert { background: #FFF4F3; border: 1px solid #D98A94; color: #65232D; }
+.cart-stock-alert-icon { background: #FCE5E7; border: 1px solid #D98A94; color: #8F2635; }
+.cart-stock-alert-title { color: #65232D; }
+.cart-stock-alert-copy { color: #71313B; }
+.cart-stock-alert-action { background: #A32E3D; border: 1px solid #8F2635; color: #FFFFFF; }
+.cart-stock-alert-action:hover { background: #852532; }
+.cart-item-stock-issue { background: #FFF4F3; border-color: #D98A94; }
+.cart-item-sold-out { background: #FCE5E7; border-color: #D98A94; color: #852532; }
+.minimum-order-notice { background: #FFF8E8; border-color: #C69A45; color: #4E3B16; }
+.minimum-order-title, .minimum-order-shortfall { color: #684A0B; }
+.minimum-order-badge { background: #F4E4BD; border-color: #C69A45; color: #684A0B; }
+.minimum-order-copy { color: #4E3B16; }
+.minimum-order-footnote { color: #66552E; }
+.minimum-order-progress { background: #F0E4C7; border-color: #D2BD8D; }
+.pending-checkout-label { color: #465466; }
+.pending-checkout-cancel { color: #A32E3D; }
+.pending-checkout-cancel:hover { color: #7D1F2D; }
 .account-delete { background: #FFF6F5; border-color: #E7B8B7; }
 .account-delete-title { color: #A32E3D; }
 .account-delete-button { background: #FFFFFF; border-color: #C8737A; color: #A32E3D; }
@@ -37,6 +54,24 @@ html[data-store-theme="dark"] .store-out-of-stock {
   color: #FFD0D5;
   box-shadow: none;
 }
+html[data-store-theme="dark"] .cart-stock-alert { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .cart-stock-alert-icon { background: #49353B; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .cart-stock-alert-title { color: #FFE4E6; }
+html[data-store-theme="dark"] .cart-stock-alert-copy { color: #F3C7CC; }
+html[data-store-theme="dark"] .cart-stock-alert-action { background: #A32E3D; border-color: #D0808A; color: #FFFFFF; }
+html[data-store-theme="dark"] .cart-stock-alert-action:hover { background: #B83B4B; }
+html[data-store-theme="dark"] .cart-item-stock-issue { background: #3C2D32; border-color: #A05A66; }
+html[data-store-theme="dark"] .cart-item-sold-out { background: #49353B; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .minimum-order-notice { background: #3A3528; border-color: #AA8643; color: #F8EBCB; }
+html[data-store-theme="dark"] .minimum-order-title,
+html[data-store-theme="dark"] .minimum-order-shortfall { color: #FFE3A0; }
+html[data-store-theme="dark"] .minimum-order-badge { background: #554729; border-color: #AA8643; color: #FFE3A0; }
+html[data-store-theme="dark"] .minimum-order-copy { color: #F8EBCB; }
+html[data-store-theme="dark"] .minimum-order-footnote { color: #E2D4B3; }
+html[data-store-theme="dark"] .minimum-order-progress { background: #292A2B; border-color: #796943; }
+html[data-store-theme="dark"] .pending-checkout-label { color: #D1D5D8; }
+html[data-store-theme="dark"] .pending-checkout-cancel { color: #FFB2B7; }
+html[data-store-theme="dark"] .pending-checkout-cancel:hover { color: #FFD2D4; }
 html[data-store-theme="dark"] .account-delete { background: #3C2D32; border-color: #A05A66; }
 html[data-store-theme="dark"] .account-delete-title { color: #FFB2B7; }
 html[data-store-theme="dark"] .account-delete-button { background: #49353B; border-color: #D0808A; color: #FFD2D4; }

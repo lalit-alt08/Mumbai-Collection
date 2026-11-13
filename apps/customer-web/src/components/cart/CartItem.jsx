@@ -32,7 +32,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
       tabIndex={isOutOfStock ? -1 : undefined}
       className={`flex items-center gap-3 rounded-[18px] p-3 shadow-[0_6px_22px_rgba(0,0,0,0.2)] transition-all duration-300 hover:-translate-y-0.5 ${
         isOutOfStock
-          ? "bg-rose-950/30 border border-rose-800/60"
+          ? "cart-item-stock-issue border"
           : "bg-[#FFFFFF] border border-[#E2E8F0]/80 hover:border-[#22499F]/50"
       }`}
     >
@@ -62,7 +62,7 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
             {cleanProductTitle(item.name)}
           </h2>
           {isFullyOutOfStock ? (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-rose-950/40 px-2 py-0.5 text-[10px] font-extrabold text-rose-300 border border-rose-800/60">
+            <span className="cart-item-sold-out mt-1 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-extrabold">
               Sold out
             </span>
           ) : isQuantityShort ? (

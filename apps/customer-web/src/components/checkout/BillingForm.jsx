@@ -1571,14 +1571,14 @@ function BillingForm({
           <div className="w-full">
             {hasActivePendingPayment && (
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <span className="text-[11.5px] font-semibold text-amber-300/90 truncate">
+                <span className="pending-checkout-label text-[11.5px] font-semibold truncate">
                   Unpaid checkout attempt in progress
                 </span>
                 <button
                   type="button"
                   onClick={handleCancelUnpaidCheckout}
                   disabled={cancellingPending}
-                  className="text-[11.5px] font-bold text-rose-400 hover:text-rose-300 underline underline-offset-2 cursor-pointer disabled:opacity-50 shrink-0"
+                  className="pending-checkout-cancel text-[11.5px] font-bold underline underline-offset-2 cursor-pointer disabled:opacity-50 shrink-0"
                 >
                   {cancellingPending ? "Cancelling..." : "Cancel unpaid checkout"}
                 </button>

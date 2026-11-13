@@ -888,16 +888,16 @@ function Cart() {
 
           {/* Out of Stock Notice Banner */}
           {hasOutOfStockItems && (
-            <div className="rounded-[22px] bg-rose-950/40 border border-rose-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="cart-stock-alert rounded-[22px] p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-900/50 text-rose-300 border border-rose-800/60">
+                <div className="cart-stock-alert-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
                   <AlertTriangle size={20} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs sm:text-[13px] font-bold text-rose-200 leading-snug">
+                  <p className="cart-stock-alert-title text-xs sm:text-[13px] font-bold leading-snug">
                     Some cart quantities are no longer available
                   </p>
-                  <p className="text-[11px] text-rose-400 leading-tight">
+                  <p className="cart-stock-alert-copy text-[11px] leading-tight">
                     The highlighted item shows how many are available. Adjust its quantity to continue.
                   </p>
                 </div>
@@ -905,7 +905,7 @@ function Cart() {
               <button
                 type="button"
                 onClick={handleRemoveAllOutOfStock}
-                className="flex items-center gap-1.5 rounded-xl bg-rose-900/60 border border-rose-700/60 px-3 py-1.5 text-xs font-bold text-rose-200 shadow-xs hover:bg-rose-800/60 transition active:scale-95 cursor-pointer flex-shrink-0"
+                className="cart-stock-alert-action flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer flex-shrink-0"
               >
                 <Trash2 size={13} />
                 Adjust quantities
