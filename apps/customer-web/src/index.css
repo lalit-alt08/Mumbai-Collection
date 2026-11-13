@@ -43,6 +43,12 @@
 .pending-checkout-label { color: #465466; }
 .pending-checkout-cancel { color: #A32E3D; }
 .pending-checkout-cancel:hover { color: #7D1F2D; }
+.checkout-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
+.auth-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
+.order-status-cancelled { background: #FCE5E7; border-color: #D98A94; color: #852532; }
+.order-invoice-toggle-expanded { background: #22499F; border-color: #22499F; color: #FFFFFF; }
+.store-payment-loading { background: #17243B; border: 1px solid #4766A7; color: #FFFFFF; box-shadow: 0 0 18px rgb(34 73 159 / 20%); }
+.store-payment-spinner { color: #FF942F; }
 .account-delete { background: #FFF6F5; border-color: #E7B8B7; }
 .account-delete-title { color: #A32E3D; }
 .account-delete-button { background: #FFFFFF; border-color: #C8737A; color: #A32E3D; }
@@ -72,6 +78,12 @@ html[data-store-theme="dark"] .minimum-order-progress { background: #292A2B; bor
 html[data-store-theme="dark"] .pending-checkout-label { color: #D1D5D8; }
 html[data-store-theme="dark"] .pending-checkout-cancel { color: #FFB2B7; }
 html[data-store-theme="dark"] .pending-checkout-cancel:hover { color: #FFD2D4; }
+html[data-store-theme="dark"] .checkout-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .auth-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .order-status-cancelled { background: #49353B; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .order-invoice-toggle-expanded { background: #FF942F; border-color: #FF942F; color: #1F272E; }
+html[data-store-theme="dark"] .store-payment-loading { background: #303A43; border-color: #C68042; color: #FAF8F4; box-shadow: 0 0 18px rgb(255 148 47 / 18%); }
+html[data-store-theme="dark"] .store-payment-spinner { color: #FFBF80; }
 html[data-store-theme="dark"] .account-delete { background: #3C2D32; border-color: #A05A66; }
 html[data-store-theme="dark"] .account-delete-title { color: #FFB2B7; }
 html[data-store-theme="dark"] .account-delete-button { background: #49353B; border-color: #D0808A; color: #FFD2D4; }
@@ -79,6 +91,7 @@ html[data-store-theme="dark"] .account-delete-button:hover { background: #A32E3D
 
 html[data-store-theme="dark"] { color-scheme: dark; }
 html[data-store-theme="dark"], html[data-store-theme="dark"] body { background: #1F272E; color: #FAF8F4; }
+html[data-store-theme="dark"] .store-product-title { color: #FAF8F4; }
 html[data-store-theme="dark"] :is([class~="bg-[#F0F8E8]"],[class~="bg-[#F0F8E8]/50"],[class~="bg-[#F0F8E8]/60"],[class~="bg-[#F0F8E8]/70"],[class~="bg-[#F0F8E8]/75"],[class~="bg-[#F0F8E8]/80"],[class~="bg-[#F0F8E8]/90"],[class~="bg-[#F0F8E8]/95"]) { background-color: #1F272E; }
 html[data-store-theme="dark"] :is([class~="bg-[#FFFFFF]"],[class~="bg-[#FFFFFF]/30"],[class~="bg-[#FFFFFF]/50"],[class~="bg-[#FFFFFF]/60"],[class~="bg-[#FFFFFF]/70"],[class~="bg-[#FFFFFF]/80"],[class~="bg-[#FFFFFF]/90"],[class~="bg-[#FFFFFF]/95"],[class~="bg-[#F8FAF6]"],[class~="bg-[#E2E8F0]"],[class~="bg-[#E2E8F0]/40"],[class~="bg-[#E2E8F0]/60"]) { background-color: #3A434C; }
 html[data-store-theme="dark"] :is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"]) { background-color: #FF942F; color: #1F272E; }

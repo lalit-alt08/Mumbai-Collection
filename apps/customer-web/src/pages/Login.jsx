@@ -203,7 +203,7 @@ function Login() {
 
             {/* Error Message */}
             {error && (
-              <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
+              <div className="auth-error-banner rounded-xl border p-4 text-[13px] font-medium">
                 {error}
               </div>
             )}

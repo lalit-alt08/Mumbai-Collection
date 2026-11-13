@@ -1121,7 +1121,7 @@ function BillingForm({
       )}
       {/* Error Banner */}
       {error && (
-        <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 px-3.5 py-2.5 text-xs font-bold text-rose-300 shadow-xs">
+        <div className="checkout-error-banner rounded-xl border px-3.5 py-2.5 text-xs font-bold shadow-xs">
           {error}
         </div>
       )}
@@ -1615,7 +1615,7 @@ function BillingForm({
                 disabled={isDisabled}
                 className={`store-primary-action group flex-1 flex items-center justify-center gap-2 h-[50px] sm:h-[52px] px-4 sm:px-5 rounded-full font-black text-[13.5px] sm:text-[14.5px] transition-all shadow-[0_6px_20px_rgba(66, 214, 232,0.28)] active:scale-[0.98] ${
                   loading
-                    ? "bg-[#0B1728] text-white border border-[#22499F]/40 shadow-[0_0_24px_rgba(66, 214, 232,0.25)] cursor-wait"
+                    ? "store-payment-loading cursor-wait"
                     : isDisabled
                     ? "bg-[#FFFFFF] text-[#64748B] border border-[#E2E8F0] shadow-none cursor-not-allowed opacity-80"
                     : "bg-gradient-to-r from-[#22499F] to-[#1B3B82] text-[#FFFFFF] hover:from-[#1B3B82] hover:to-[#1B3B82] hover:text-[#FFFFFF] cursor-pointer"
@@ -1624,7 +1624,7 @@ function BillingForm({
                 {loading ? (
                   <>
                     <svg
-                      className="h-4.5 w-4.5 sm:h-5 sm:w-5 animate-spin text-[#22499F] shrink-0"
+                      className="store-payment-spinner h-4.5 w-4.5 sm:h-5 sm:w-5 animate-spin shrink-0"
                       style={{ animation: "spin 0.85s linear infinite" }}
                       viewBox="0 0 24 24"
                       fill="none"

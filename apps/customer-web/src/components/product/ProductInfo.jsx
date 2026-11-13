@@ -258,18 +258,18 @@ function ProductInfo({ product }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#CBD5E1] pt-4">
-          <div>
-            <div className="mb-1 flex items-end gap-3">
-              <span className="text-[34px] font-black leading-none tracking-[-0.035em] text-[#17233A]">
+        <div className="product-price-purchase-row flex min-w-0 items-center justify-between border-t border-[#CBD5E1] pt-4">
+          <div className="product-price-details min-w-0 flex-1">
+            <div className="mb-1 flex flex-wrap items-end gap-x-2 gap-y-1 sm:gap-x-3">
+              <span className="text-[30px] sm:text-[34px] font-black leading-none tracking-[-0.035em] text-[#17233A] whitespace-nowrap">
                 ₹{product.price}
               </span>
               {isOnSale && (
                 <>
-                  <span className="mb-1.5 text-[16px] font-medium text-[#64748B] line-through">
+                  <span className="mb-0.5 shrink-0 text-[14px] sm:text-[16px] font-medium text-[#64748B] line-through whitespace-nowrap">
                     ₹{product.regular_price}
                   </span>
-                  <span className="mb-1.5 rounded-md bg-[#22499F] px-2 py-1 text-[11px] font-extrabold tracking-[0.02em] text-[#FFFFFF]">
+                  <span className="mb-0.5 shrink-0 rounded-md bg-[#22499F] px-2 py-1 text-[10px] sm:text-[11px] font-extrabold tracking-[0.02em] text-[#FFFFFF] whitespace-nowrap">
                     {discountPercent}% OFF
                   </span>
                 </>
@@ -279,7 +279,7 @@ function ProductInfo({ product }) {
           </div>
 
           {/* Action Area: Desktop Add/Stepper + Buy Now Button */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="product-purchase-actions flex shrink-0 items-center gap-2.5 sm:gap-3">
             {/* Desktop Add to Cart / Quantity Stepper */}
             <div className="hidden lg:flex flex-col items-end">
               {isOutOfStock ? (
@@ -353,7 +353,7 @@ function ProductInfo({ product }) {
                   type="button"
                   onClick={handleBuyNow}
                   disabled={loading}
-                  className="flex h-[40px] sm:h-[42px] items-center justify-center gap-1.5 rounded-[11px] bg-[#22499F] px-4 sm:px-4.5 text-[13.5px] sm:text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                  className="product-buy-now flex h-[40px] sm:h-[42px] min-w-[108px] items-center justify-center gap-1.5 rounded-[11px] bg-[#22499F] px-3 sm:px-4 text-[13px] sm:text-[14px] font-black text-[#FFFFFF] whitespace-nowrap shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
                   <Zap size={14} className="fill-current shrink-0" />
                   <span>Buy Now</span>

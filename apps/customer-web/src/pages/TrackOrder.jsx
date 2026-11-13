@@ -424,7 +424,7 @@ function TrackOrder() {
                           : order.status === "out-for-delivery" || order.status === "dispatched"
                           ? "bg-[#22499F]/15 text-[#22499F] border border-[#22499F]/30"
                           : isCancelled
-                          ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                          ? "order-status-cancelled"
                           : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
                       }`}
                     >

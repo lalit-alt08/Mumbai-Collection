@@ -92,8 +92,8 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
     <div className="w-full space-y-3">
       {linked && <p role="status" className="text-sm text-emerald-400">Google account linked successfully.</p>}
       {internalError && (
-        <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-950/20 px-3.5 py-2.5 text-xs font-semibold text-rose-400">
-          <AlertCircle size={15} className="shrink-0" />
+        <div className="auth-error-banner flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-semibold">
+          <AlertCircle size={15} className="shrink-0" aria-hidden="true" />
           <span>{internalError}</span>
         </div>
       )}

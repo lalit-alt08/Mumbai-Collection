@@ -222,7 +222,7 @@ function Orders() {
       case "cancelled":
       case "failed":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-950/40 px-3 py-1 text-xs font-bold text-rose-300 border border-rose-800/60">
+          <span className="order-status-cancelled inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold">
             <AlertCircle size={13} />
             {displayStatus || "Cancelled"}
           </span>
@@ -506,14 +506,14 @@ function Orders() {
                           onClick={() => toggleExpandOrder(order.id)}
                           className={`col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border px-3 sm:px-4 text-xs font-bold transition-all select-none cursor-pointer whitespace-nowrap active:scale-[0.98] ${
                             isExpanded
-                              ? "border-[#22499F]/50 bg-[#112440] text-[#22499F] shadow-xs"
+                              ? "order-invoice-toggle-expanded shadow-xs"
                               : "border-[#E2E8F0] bg-[#FFFFFF] text-[#475569] hover:bg-[#F0F8E8] hover:text-[#22499F] hover:border-[#22499F]/50"
                           }`}
                         >
-                          <Receipt size={14} className={`shrink-0 transition-colors ${isExpanded ? "text-[#22499F]" : "text-[#64748B]"}`} />
+                          <Receipt size={14} className={`shrink-0 transition-colors ${isExpanded ? "text-current" : "text-[#64748B]"}`} />
                           <span>{isExpanded ? "Hide Details" : "Invoice Details"}</span>
                           {isExpanded ? (
-                            <ChevronUp size={13} className="shrink-0 text-[#22499F]" />
+                            <ChevronUp size={13} className="shrink-0 text-current" />
                           ) : (
                             <ChevronDown size={13} className="shrink-0 text-[#64748B]" />
                           )}
