@@ -15,20 +15,20 @@ function Terms() {
   return (
     <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] pb-24 lg:pb-16">
       {/* ================= STICKY APP-BAR ================= */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E2E8F0]/80 bg-[#F0F8E8]/95 px-4 py-3 backdrop-blur-md sm:px-6 md:px-8">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#C9D2DF] bg-[#F0F8E8]/95 px-4 py-3.5 backdrop-blur-md sm:px-6 md:px-8">
         <div className="flex items-center gap-3">
           <button
             onClick={handleBack}
             aria-label="Go back"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FFFFFF] text-[#1E293B] border border-[#E2E8F0] transition hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#BAC7D8] bg-[#FFFFFF] text-[#1E293B] shadow-[0_3px_8px_rgba(30,41,59,0.15)] transition hover:text-[#22499F] active:scale-95 cursor-pointer"
           >
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-[#1E293B] sm:text-lg leading-tight">
+            <h1 className="text-[17px] font-extrabold leading-tight tracking-[-0.01em] text-[#17233A] sm:text-lg">
               Terms & Conditions
             </h1>
-            <p className="text-[11px] font-medium text-[#64748B]">
+            <p className="text-[12px] font-medium text-[#60718A]">
               Mumbai Collection • Legal & Terms of Use
             </p>
           </div>
@@ -37,28 +37,28 @@ function Terms() {
 
       {/* ================= CONTENT CONTAINER ================= */}
       <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6">
-        <div className="rounded-[24px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-6 shadow-lg sm:p-8 md:p-10 space-y-6">
+        <div className="rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] sm:p-8 md:p-10 space-y-7">
           {/* Header Introduction */}
           <div className="border-b border-[#E2E8F0]/60 pb-6 space-y-2">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-3.5 py-1 text-xs font-bold text-[#22499F]">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-[#AFC3E3] bg-[#F5F8FF] px-3.5 py-1.5 text-xs font-extrabold text-[#22499F]">
               <FileText size={14} /> Legal Agreement
             </div>
-            <h1 className="text-2xl font-extrabold text-[#1E293B] sm:text-3xl tracking-tight">
+            <h1 className="text-[28px] font-black tracking-[-0.03em] text-[#17233A] sm:text-3xl">
               Terms & Conditions
             </h1>
             <p className="text-xs font-semibold text-[#64748B]">
               Last Updated: September 2026
             </p>
-            <p className="pt-2 text-xs sm:text-sm leading-relaxed text-[#64748B]">
+            <p className="pt-2 text-[15px] leading-7 text-[#52647E] sm:text-[16px]">
               Welcome to <strong className="text-[#1E293B]">Mumbai Collection</strong>. These Terms & Conditions govern your access to and use of our website and your purchase of products through our platform. By using our website or placing an order, you agree to these Terms & Conditions.
             </p>
           </div>
 
           {/* 24 Sections */}
-          <div className="space-y-6 text-xs sm:text-sm leading-relaxed text-[#64748B]">
+          <div className="policy-reading space-y-7 text-[15px] leading-7 text-[#52647E] sm:text-[16px]">
             {/* 1 */}
             <section className="space-y-2">
-              <h2 className="text-sm sm:text-base font-bold text-[#1E293B]">
+              <h2 className="text-[17px] font-extrabold leading-tight tracking-[-0.012em] text-[#17233A] sm:text-lg">
                 1. About Mumbai Collection
               </h2>
               <p>

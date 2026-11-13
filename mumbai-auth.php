@@ -1806,33 +1806,8 @@ function mumbai_normalize_phone($phone) {
  * Phone numbers are billing/shipping contact data and are not OTP-verified.
  */
 function mumbai_get_user_contact_phone($user_id) {
-    if (!$user_id) {
-        return '';
-    }
-
-    $candidates = [(string) get_user_meta($user_id, 'billing_phone', true)];
-    $profile = get_user_meta($user_id, '_mumbai_user_profile', true);
-    if (is_array($profile) && !empty($profile['phone'])) {
-        $candidates[] = (string) $profile['phone'];
-    }
-
-    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
-    if (is_array($addresses)) {
-        foreach ($addresses as $addr) {
-            if (!empty($addr['phone'])) {
-                $candidates[] = (string) $addr['phone'];
-            }
-        }
-    }
-
-    foreach ($candidates as $candidate) {
-        $clean_phone = mumbai_normalize_phone($candidate);
-        if (preg_match('/^[6-9][0-9]{9}$/', $clean_phone)) {
-            return $clean_phone;
-        }
-    }
-
-    return '';
+    $phones = mumbai_get_user_all_contact_phones($user_id);
+    return !empty($phones) ? $phones[0] : '';
 }
 
 /**
@@ -2174,18 +2149,14 @@ function mumbai_get_addresses(WP_REST_Request $request)
  * ADDRESSES: SAVE (POST)
  * ─────────────────────────────────────────────
  */
-function mumbai_save_address(WP_REST_Request $request)
+/**
+ * Sanitizes and validates address input from REST request.
+ *
+ * @param WP_REST_Request $request
+ * @return array|WP_Error Cleaned fields on success, WP_Error on validation failure.
+ */
+function mumbai_validate_address_input(WP_REST_Request $request)
 {
-    $user_id = absint(
-        $request->get_header('X-Mumbai-User-ID')
-    );
-    if (!$user_id) {
-        return new WP_Error(
-            'missing_user_id',
-            'User ID is required.',
-            ['status' => 401]
-        );
-    }
     $type          = sanitize_key($request->get_param('type'));
     $first_name    = sanitize_text_field($request->get_param('first_name'));
     $last_name     = sanitize_text_field($request->get_param('last_name'));
@@ -2258,12 +2229,8 @@ function mumbai_save_address(WP_REST_Request $request)
             ['status' => 400]
         );
     }
-    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
-    if (!is_array($addresses)) {
-        $addresses = [];
-    }
-    $new_address = [
-        'id'            => wp_generate_uuid4(),
+
+    return [
         'type'          => $type,
         'first_name'    => $first_name,
         'last_name'     => $last_name,
@@ -2273,12 +2240,49 @@ function mumbai_save_address(WP_REST_Request $request)
         'address_line2' => $address_line2,
         'city'          => $city,
         'state'         => $state,
-        'pincode'       => $pincode ? $pincode : '',
+        'pincode'       => $pincode,
+    ];
+}
+
+function mumbai_save_address(WP_REST_Request $request)
+{
+    $user_id = absint(
+        $request->get_header('X-Mumbai-User-ID')
+    );
+    if (!$user_id) {
+        return new WP_Error(
+            'missing_user_id',
+            'User ID is required.',
+            ['status' => 401]
+        );
+    }
+
+    $validated = mumbai_validate_address_input($request);
+    if (is_wp_error($validated)) {
+        return $validated;
+    }
+
+    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+    if (!is_array($addresses)) {
+        $addresses = [];
+    }
+    $new_address = [
+        'id'            => wp_generate_uuid4(),
+        'type'          => $validated['type'],
+        'first_name'    => $validated['first_name'],
+        'last_name'     => $validated['last_name'],
+        'full_name'     => $validated['full_name'],
+        'phone'         => $validated['phone'],
+        'address_line1' => $validated['address_line1'],
+        'address_line2' => $validated['address_line2'],
+        'city'          => $validated['city'],
+        'state'         => $validated['state'],
+        'pincode'       => $validated['pincode'] ? $validated['pincode'] : '',
     ];
     // Replace existing address of same type
     $updated = false;
     foreach ($addresses as $index => $address) {
-        if (isset($address['type']) && $address['type'] === $type) {
+        if (isset($address['type']) && $address['type'] === $validated['type']) {
             $addresses[$index] = $new_address;
             $updated = true;
             break;
@@ -2288,12 +2292,12 @@ function mumbai_save_address(WP_REST_Request $request)
         $addresses[] = $new_address;
     }
     update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
-    if (!empty($phone)) {
-        update_user_meta($user_id, 'billing_phone', $phone);
+    if (!empty($validated['phone'])) {
+        update_user_meta($user_id, 'billing_phone', $validated['phone']);
     }
     return [
         'success'   => true,
-        'message'   => ucfirst($type) . ' address saved successfully.',
+        'message'   => ucfirst($validated['type']) . ' address saved successfully.',
         'address'   => $new_address,
         'addresses' => $addresses,
     ];
@@ -2321,78 +2325,12 @@ function mumbai_update_address(WP_REST_Request $request)
             ['status' => 400]
         );
     }
-    $type          = sanitize_key($request->get_param('type'));
-    $first_name    = sanitize_text_field($request->get_param('first_name'));
-    $last_name     = sanitize_text_field($request->get_param('last_name'));
-    $full_name     = sanitize_text_field($request->get_param('full_name'));
-    $phone         = sanitize_text_field($request->get_param('phone'));
-    $address_line1 = sanitize_text_field($request->get_param('address_line1'));
-    $address_line2 = sanitize_text_field($request->get_param('address_line2'));
-    $city          = sanitize_text_field($request->get_param('city'));
-    $state         = sanitize_text_field($request->get_param('state'));
-    $pincode       = sanitize_text_field($request->get_param('pincode'));
 
-    if (empty($first_name) || empty($last_name)) {
-        if (!empty($full_name)) {
-            $parts = preg_split('/\s+/', trim($full_name));
-            if (empty($first_name) && !empty($parts[0])) {
-                $first_name = $parts[0];
-            }
-            if (empty($last_name) && count($parts) > 1) {
-                $last_name = implode(' ', array_slice($parts, 1));
-            }
-        }
+    $validated = mumbai_validate_address_input($request);
+    if (is_wp_error($validated)) {
+        return $validated;
     }
 
-    $first_name = mumbai_normalize_name($first_name);
-    $last_name  = mumbai_normalize_name($last_name);
-
-    if (empty($first_name)) {
-        return new WP_Error(
-            'missing_first_name',
-            'First name is required.',
-            ['status' => 400]
-        );
-    }
-    if (!mumbai_is_valid_person_name($first_name)) {
-        return new WP_Error(
-            'invalid_first_name',
-            'First name can only contain letters, spaces, hyphens, apostrophes, and periods.',
-            ['status' => 400]
-        );
-    }
-
-    if (empty($last_name)) {
-        return new WP_Error(
-            'missing_last_name',
-            'Last name is required.',
-            ['status' => 400]
-        );
-    }
-    if (!mumbai_is_valid_person_name($last_name)) {
-        return new WP_Error(
-            'invalid_last_name',
-            'Last name can only contain letters, spaces, hyphens, apostrophes, and periods.',
-            ['status' => 400]
-        );
-    }
-
-    $clean_full_name = trim("{$first_name} {$last_name}");
-
-    if (!in_array($type, ['home', 'office'], true)) {
-        return new WP_Error(
-            'invalid_address_type',
-            'Address type must be home or office.',
-            ['status' => 400]
-        );
-    }
-    if (!$phone || !$address_line1 || !$city || !$state) {
-        return new WP_Error(
-            'missing_address_fields',
-            'Please provide all required address fields.',
-            ['status' => 400]
-        );
-    }
     $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
     if (!is_array($addresses)) {
         $addresses = [];
@@ -2403,16 +2341,16 @@ function mumbai_update_address(WP_REST_Request $request)
         if (isset($address['id']) && $address['id'] === $address_id) {
             $addresses[$index] = [
                 'id'            => $address_id,
-                'type'          => $type,
-                'first_name'    => $first_name,
-                'last_name'     => $last_name,
-                'full_name'     => $clean_full_name,
-                'phone'         => $phone,
-                'address_line1' => $address_line1,
-                'address_line2' => $address_line2,
-                'city'          => $city,
-                'state'         => $state,
-                'pincode'       => $pincode !== '' ? $pincode : ($address['pincode'] ?? ''),
+                'type'          => $validated['type'],
+                'first_name'    => $validated['first_name'],
+                'last_name'     => $validated['last_name'],
+                'full_name'     => $validated['full_name'],
+                'phone'         => $validated['phone'],
+                'address_line1' => $validated['address_line1'],
+                'address_line2' => $validated['address_line2'],
+                'city'          => $validated['city'],
+                'state'         => $validated['state'],
+                'pincode'       => $validated['pincode'] !== '' ? $validated['pincode'] : ($address['pincode'] ?? ''),
             ];
             $updated      = true;
             $updated_addr = $addresses[$index];
@@ -2427,8 +2365,8 @@ function mumbai_update_address(WP_REST_Request $request)
         );
     }
     update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
-    if (!empty($phone)) {
-        update_user_meta($user_id, 'billing_phone', $phone);
+    if (!empty($validated['phone'])) {
+        update_user_meta($user_id, 'billing_phone', $validated['phone']);
     }
     return [
         'success'   => true,
@@ -9433,20 +9371,93 @@ function mumbai_admin_customer_suspension_unsuspend(WP_REST_Request $request) {
  * ─────────────────────────────────────────────
  */
 
-function mumbai_run_durable_payments_migration() {
+/**
+ * Verifies that the durable payment tables, required columns, and primary keys exist.
+ *
+ * @return bool True if all tables, required columns, and primary keys are present; false otherwise.
+ */
+function mumbai_verify_durable_payments_schema() {
+    global $wpdb;
+
+    $schema = [
+        $wpdb->prefix . 'mumbai_payment_intents' => [
+            'pk' => ['rzp_order_id'],
+            'cols' => [
+                'rzp_order_id', 'user_id', 'amount_paise', 'captured_amount_paise',
+                'status', 'cart_fingerprint', 'checkout_payload', 'rzp_payment_id',
+                'wc_order_id', 'refund_id', 'error_reason', 'attempts',
+                'last_attempt_at', 'first_paid_at', 'created_at', 'updated_at',
+            ],
+        ],
+        $wpdb->prefix . 'mumbai_webhook_events' => [
+            'pk' => ['event_id'],
+            'cols' => [
+                'event_id', 'event_type', 'rzp_order_id', 'rzp_payment_id',
+                'raw_payload', 'status', 'created_at',
+            ],
+        ],
+        $wpdb->prefix . 'mumbai_locks' => [
+            'pk' => ['lock_key'],
+            'cols' => ['lock_key', 'worker_id', 'locked_at'],
+        ],
+        $wpdb->prefix . 'mumbai_stock_reservations' => [
+            'pk' => ['reservation_id', 'product_id'],
+            'cols' => ['reservation_id', 'product_id', 'quantity', 'expires_at'],
+        ],
+    ];
+
+    foreach ($schema as $table => $definition) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+            return false;
+        }
+
+        $col_rows = $wpdb->get_col("DESCRIBE `{$table}`");
+        if (!is_array($col_rows)) {
+            return false;
+        }
+        $missing_cols = array_diff($definition['cols'], $col_rows);
+        if (!empty($missing_cols)) {
+            return false;
+        }
+
+        $pk_rows = $wpdb->get_results("SHOW INDEX FROM `{$table}` WHERE Key_name = 'PRIMARY'", ARRAY_A);
+        if (!is_array($pk_rows)) {
+            return false;
+        }
+        $actual_pks = array_column($pk_rows, 'Column_name');
+        if (array_values($definition['pk']) !== array_values($actual_pks)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function mumbai_run_durable_payments_migration($force = false) {
     global $wpdb;
     static $already_checked = false;
-    if ($already_checked) {
+    if ($already_checked && !$force) {
         return;
     }
-    $already_checked = true;
 
     $installed_ver = (int) get_option('mumbai_durable_db_ver', 0);
     $target_ver = 3;
 
-    // Fast path: In WordPress, options are autoloaded into memory. If already installed, skip all DB queries!
-    if ($installed_ver >= $target_ver) {
-        return;
+    // Fast path: In WordPress, options are autoloaded into memory.
+    // If already installed and verified, skip all DB queries.
+    if ($installed_ver >= $target_ver && !$force) {
+        if (get_option('mumbai_durable_db_v3_verified')) {
+            $already_checked = true;
+            return;
+        }
+        // One-time check for stores already marked version 3 without prior verification
+        if (mumbai_verify_durable_payments_schema()) {
+            update_option('mumbai_durable_db_v3_verified', 1);
+            $already_checked = true;
+            return;
+        }
+        // Schema is incomplete on an existing v3 store: proceed to repair below without dropping tables
+        error_log('[Mumbai Auth] Durable payment schema incomplete on v3 store; running repair.');
     }
 
     $table_intents = $wpdb->prefix . 'mumbai_payment_intents';
@@ -9457,64 +9468,71 @@ function mumbai_run_durable_payments_migration() {
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     $charset_collate = $wpdb->get_charset_collate();
 
-        $sql_intents = "CREATE TABLE {$table_intents} (
-            rzp_order_id varchar(64) NOT NULL,
-            user_id bigint(20) unsigned NOT NULL,
-            amount_paise bigint(20) unsigned NOT NULL,
-            captured_amount_paise bigint(20) unsigned DEFAULT 0,
-            status varchar(32) NOT NULL DEFAULT 'created',
-            cart_fingerprint varchar(64) NOT NULL,
-            checkout_payload longtext,
-            rzp_payment_id varchar(64) DEFAULT NULL,
-            wc_order_id bigint(20) unsigned DEFAULT NULL,
-            refund_id varchar(64) DEFAULT NULL,
-            error_reason text DEFAULT NULL,
-            attempts int(10) unsigned NOT NULL DEFAULT 0,
-            last_attempt_at datetime DEFAULT NULL,
-            first_paid_at datetime DEFAULT NULL,
-            created_at datetime NOT NULL,
-            updated_at datetime NOT NULL,
-            PRIMARY KEY  (rzp_order_id),
-            KEY idx_status_created (status, created_at),
-            KEY idx_rzp_payment (rzp_payment_id),
-            KEY idx_user (user_id)
-        ) {$charset_collate};";
+    $sql_intents = "CREATE TABLE {$table_intents} (
+        rzp_order_id varchar(64) NOT NULL,
+        user_id bigint(20) unsigned NOT NULL,
+        amount_paise bigint(20) unsigned NOT NULL,
+        captured_amount_paise bigint(20) unsigned DEFAULT 0,
+        status varchar(32) NOT NULL DEFAULT 'created',
+        cart_fingerprint varchar(64) NOT NULL,
+        checkout_payload longtext,
+        rzp_payment_id varchar(64) DEFAULT NULL,
+        wc_order_id bigint(20) unsigned DEFAULT NULL,
+        refund_id varchar(64) DEFAULT NULL,
+        error_reason text DEFAULT NULL,
+        attempts int(10) unsigned NOT NULL DEFAULT 0,
+        last_attempt_at datetime DEFAULT NULL,
+        first_paid_at datetime DEFAULT NULL,
+        created_at datetime NOT NULL,
+        updated_at datetime NOT NULL,
+        PRIMARY KEY  (rzp_order_id),
+        KEY idx_status_created (status, created_at),
+        KEY idx_rzp_payment (rzp_payment_id),
+        KEY idx_user (user_id)
+    ) {$charset_collate};";
 
-        $sql_events = "CREATE TABLE {$table_events} (
-            event_id varchar(64) NOT NULL,
-            event_type varchar(64) NOT NULL,
-            rzp_order_id varchar(64) DEFAULT NULL,
-            rzp_payment_id varchar(64) DEFAULT NULL,
-            raw_payload longtext NOT NULL,
-            status varchar(32) NOT NULL DEFAULT 'stored',
-            created_at datetime NOT NULL,
-            PRIMARY KEY  (event_id),
-            KEY idx_rzp_order (rzp_order_id),
-            KEY idx_status (status)
-        ) {$charset_collate};";
+    $sql_events = "CREATE TABLE {$table_events} (
+        event_id varchar(64) NOT NULL,
+        event_type varchar(64) NOT NULL,
+        rzp_order_id varchar(64) DEFAULT NULL,
+        rzp_payment_id varchar(64) DEFAULT NULL,
+        raw_payload longtext NOT NULL,
+        status varchar(32) NOT NULL DEFAULT 'stored',
+        created_at datetime NOT NULL,
+        PRIMARY KEY  (event_id),
+        KEY idx_rzp_order (rzp_order_id),
+        KEY idx_status (status)
+    ) {$charset_collate};";
 
-        $sql_locks = "CREATE TABLE {$table_locks} (
-            lock_key varchar(64) NOT NULL,
-            worker_id varchar(64) NOT NULL,
-            locked_at int(10) unsigned NOT NULL,
-            PRIMARY KEY  (lock_key)
-        ) {$charset_collate};";
+    $sql_locks = "CREATE TABLE {$table_locks} (
+        lock_key varchar(64) NOT NULL,
+        worker_id varchar(64) NOT NULL,
+        locked_at int(10) unsigned NOT NULL,
+        PRIMARY KEY  (lock_key)
+    ) {$charset_collate};";
 
-        $sql_stock = "CREATE TABLE {$table_stock} (
-            reservation_id varchar(64) NOT NULL,
-            product_id bigint(20) unsigned NOT NULL,
-            quantity decimal(20,6) unsigned NOT NULL,
-            expires_at datetime NOT NULL,
-            PRIMARY KEY  (reservation_id, product_id),
-            KEY idx_product_expiry (product_id, expires_at)
-        ) ENGINE=InnoDB {$charset_collate};";
+    $sql_stock = "CREATE TABLE {$table_stock} (
+        reservation_id varchar(64) NOT NULL,
+        product_id bigint(20) unsigned NOT NULL,
+        quantity decimal(20,6) unsigned NOT NULL,
+        expires_at datetime NOT NULL,
+        PRIMARY KEY  (reservation_id, product_id),
+        KEY idx_product_expiry (product_id, expires_at)
+    ) ENGINE=InnoDB {$charset_collate};";
 
-        dbDelta($sql_intents);
-        dbDelta($sql_events);
-        dbDelta($sql_locks);
-        dbDelta($sql_stock);
+    dbDelta($sql_intents);
+    dbDelta($sql_events);
+    dbDelta($sql_locks);
+    dbDelta($sql_stock);
 
+    if (mumbai_verify_durable_payments_schema()) {
         update_option('mumbai_durable_db_ver', $target_ver);
+        update_option('mumbai_durable_db_v3_verified', 1);
+        $already_checked = true;
+    } else {
+        $already_checked = false;
+        error_log('[Mumbai Auth] Durable payment migration failed schema verification; version not bumped.');
+    }
 }
 add_action('init', 'mumbai_run_durable_payments_migration');
 

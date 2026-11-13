@@ -20,11 +20,23 @@
 .store-theme-options button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; color: #1E293B; font-size: 0.875rem; font-weight: 700; cursor: pointer; }
 .store-theme-options button[aria-pressed="true"] { background: #22499F; color: #FFFFFF; }
 .store-low-stock { background: #FFF3E6; border: 1px solid #D99851; color: #88420C; }
+.store-out-of-stock {
+  background: #FFF4F3;
+  border: 1px solid #E3A0A7;
+  color: #A43748;
+  box-shadow: 0 1px 2px rgb(100 36 48 / 8%);
+}
 .account-delete { background: #FFF6F5; border-color: #E7B8B7; }
 .account-delete-title { color: #A32E3D; }
 .account-delete-button { background: #FFFFFF; border-color: #C8737A; color: #A32E3D; }
 .account-delete-button:hover { background: #A32E3D; border-color: #A32E3D; color: #FFFFFF; }
 html[data-store-theme="dark"] .store-low-stock { background: #493826; border-color: #C68042; color: #FFBF80; }
+html[data-store-theme="dark"] .store-out-of-stock {
+  background: #4A3037;
+  border-color: #A95D6A;
+  color: #FFD0D5;
+  box-shadow: none;
+}
 html[data-store-theme="dark"] .account-delete { background: #3C2D32; border-color: #A05A66; }
 html[data-store-theme="dark"] .account-delete-title { color: #FFB2B7; }
 html[data-store-theme="dark"] .account-delete-button { background: #49353B; border-color: #D0808A; color: #FFD2D4; }
@@ -243,6 +255,31 @@ img {
 }
 
 @layer components {
+  .policy-reading h2 {
+    color: #17233A;
+    font-size: 1.0625rem;
+    font-weight: 800;
+    letter-spacing: -0.012em;
+    line-height: 1.35;
+  }
+
+  .policy-reading p,
+  .policy-reading li {
+    color: #52647E;
+    font-weight: 500;
+  }
+
+  .policy-reading strong {
+    color: #1E293B;
+    font-weight: 750;
+  }
+
+  @media (min-width: 640px) {
+    .policy-reading h2 {
+      font-size: 1.125rem;
+    }
+  }
+
   /*
    * iOS Safari's native checkbox-switch can emit one system haptic on direct
    * touch. Keep its native appearance intact and make it an invisible overlay;

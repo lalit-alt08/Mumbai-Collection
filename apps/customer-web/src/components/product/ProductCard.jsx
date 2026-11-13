@@ -138,7 +138,7 @@ function ProductCard({ product }) {
         </div>
 
         {/* Product Title with Locked 2-Line Height */}
-        <h2 className="mt-2.5 line-clamp-2 min-h-[40px] sm:min-h-[44px] h-[40px] sm:h-[44px] text-[14px] sm:text-[15px] font-semibold leading-snug text-[#1E293B] group-hover:text-[#22499F] transition-colors">
+        <h2 className="mt-3 h-[42px] min-h-[42px] line-clamp-2 text-[15px] font-bold leading-[1.38] tracking-[-0.012em] text-[#17233A] transition-colors group-hover:text-[#22499F] sm:h-[46px] sm:min-h-[46px] sm:text-[16px]">
           {cleanProductTitle(product.name)}
         </h2>
       </div>

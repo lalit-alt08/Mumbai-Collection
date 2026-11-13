@@ -188,9 +188,9 @@ function ProductInfo({ product }) {
   return (
     <>
       {/* Main Product Info Card */}
-      <div className="rounded-[24px] bg-[#FFFFFF] border border-[#E2E8F0]/80 p-5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] md:p-6 space-y-4">
+      <div className="rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-5 shadow-[0_7px_18px_rgba(30,41,59,0.16)] md:p-6 space-y-4">
         <div>
-          <h1 className="text-[22px] font-bold leading-snug text-[#1E293B] md:text-[26px]">
+          <h1 className="text-[23px] font-extrabold leading-[1.18] tracking-[-0.02em] text-[#17233A] md:text-[28px]">
             {cleanProductTitle(product.name)}
           </h1>
 
@@ -226,7 +226,7 @@ function ProductInfo({ product }) {
                     el.scrollIntoView({ behavior: "smooth" });
                   }
                 }}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-[#475569] hover:text-[#22499F] transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#50617B] hover:text-[#22499F] transition cursor-pointer"
               >
                 <Star size={12} className="text-[#64748B]" />
                 <span>No reviews yet • Be the first to review</span>
@@ -235,9 +235,9 @@ function ProductInfo({ product }) {
           </div>
 
           {/* Stock Availability Badge */}
-          <div className="mt-2.5">
+          <div className="mt-3">
             {isOutOfStock || isMaxReached ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-950/40 px-3 py-1 text-xs font-bold text-rose-300 border border-rose-800/60">
+              <span className="store-out-of-stock inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-extrabold tracking-[0.01em]">
                 <ShieldAlert size={14} /> Out of Stock
               </span>
             ) : remainingStock <= 5 ? (
@@ -246,7 +246,7 @@ function ProductInfo({ product }) {
                 Only {remainingStock} left in stock
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B7C8E3] bg-[#F5F8FF] px-3.5 py-1.5 text-xs font-bold text-[#22499F]">
                 <CheckCircle2 size={14} /> {stockProduct.manage_stock ? `In Stock (${remainingStock} available in Vasai shop)` : "In Stock"}
               </span>
             )}
@@ -258,10 +258,10 @@ function ProductInfo({ product }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#E2E8F0]/70 pt-4">
+        <div className="flex items-center justify-between border-t border-[#CBD5E1] pt-4">
           <div>
             <div className="mb-1 flex items-end gap-3">
-              <span className="text-[32px] font-extrabold leading-none text-[#1E293B]">
+              <span className="text-[34px] font-black leading-none tracking-[-0.035em] text-[#17233A]">
                 ₹{product.price}
               </span>
               {isOnSale && (
@@ -269,13 +269,13 @@ function ProductInfo({ product }) {
                   <span className="mb-1.5 text-[16px] font-medium text-[#64748B] line-through">
                     ₹{product.regular_price}
                   </span>
-                  <span className="mb-1.5 rounded-md bg-[#22499F] px-1.5 py-0.5 text-[11px] font-black text-[#FFFFFF]">
+                  <span className="mb-1.5 rounded-md bg-[#22499F] px-2 py-1 text-[11px] font-extrabold tracking-[0.02em] text-[#FFFFFF]">
                     {discountPercent}% OFF
                   </span>
                 </>
               )}
             </div>
-            <p className="text-[11px] text-[#64748B]">(Inclusive of all taxes)</p>
+            <p className="text-[12px] font-medium text-[#596B86]">Inclusive of all taxes</p>
           </div>
 
           {/* Action Area: Desktop Add/Stepper + Buy Now Button */}
@@ -298,7 +298,7 @@ function ProductInfo({ product }) {
                   <button
                     type="button"
                     disabled
-                    className="flex h-[40px] px-8 items-center justify-center rounded-xl bg-[#FFFFFF] text-[14px] font-bold text-[#64748B] cursor-not-allowed border border-[#E2E8F0] select-none"
+                    className="store-out-of-stock flex h-[40px] px-8 items-center justify-center rounded-xl text-[14px] font-bold cursor-not-allowed select-none"
                   >
                     Out of Stock
                   </button>
@@ -363,7 +363,7 @@ function ProductInfo({ product }) {
               <button
                 type="button"
                 disabled
-                className="lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-[11px] bg-[#FFFFFF] px-4 text-[12.5px] font-bold text-[#64748B] cursor-not-allowed border border-[#E2E8F0] select-none"
+                className="store-out-of-stock lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-[11px] px-4 text-[13px] font-bold cursor-not-allowed select-none"
               >
                 Out of Stock
               </button>
@@ -373,17 +373,17 @@ function ProductInfo({ product }) {
       </div>
 
       {/* Service Cards Grid */}
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-3">
         <Link
           to="/return-policy"
-          className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] cursor-pointer group"
+          className="flex min-h-[112px] flex-col items-center justify-center gap-2.5 rounded-2xl border border-[#C9D2DF] bg-[#FFFFFF] p-4 text-center shadow-[0_4px_12px_rgba(30,41,59,0.12)] transition-all hover:-translate-y-0.5 hover:border-[#22499F]/70 hover:shadow-[0_6px_16px_rgba(34,73,159,0.16)] cursor-pointer group"
         >
-          <PackageX size={24} className="text-[#22499F] transition-transform group-hover:scale-105" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#1E293B] group-hover:text-[#22499F] transition-colors">No Return or Exchange</span>
+          <PackageX size={25} className="text-[#22499F] transition-transform group-hover:scale-105" strokeWidth={1.9} />
+          <span className="text-[13px] font-extrabold leading-snug text-[#1E293B] group-hover:text-[#22499F] transition-colors">No Return or Exchange</span>
         </Link>
-        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3.5 text-center shadow-[0_4px_12px_rgba(0,0,0,0.15)] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF]">
-          <Truck size={24} className="text-[#22499F]" strokeWidth={1.75} />
-          <span className="text-xs font-bold text-[#1E293B]">Local Delivery</span>
+        <div className="flex min-h-[112px] flex-col items-center justify-center gap-2.5 rounded-2xl border border-[#C9D2DF] bg-[#FFFFFF] p-4 text-center shadow-[0_4px_12px_rgba(30,41,59,0.12)]">
+          <Truck size={25} className="text-[#22499F]" strokeWidth={1.9} />
+          <span className="text-[13px] font-extrabold leading-snug text-[#1E293B]">Local Delivery</span>
         </div>
       </div>
 
@@ -432,7 +432,7 @@ function ProductInfo({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="flex h-[42px] w-full items-center justify-center rounded-full bg-[#FFFFFF] text-[14px] font-bold text-[#64748B] cursor-not-allowed border border-[#E2E8F0] select-none"
+                    className="store-out-of-stock flex h-[42px] w-full items-center justify-center rounded-full text-[14px] font-bold cursor-not-allowed select-none"
                 >
                   Out of Stock
                 </button>

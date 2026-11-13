@@ -17,7 +17,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://bacterial-gdp-boxed-frederick.trycloudflare.com/api/:path*"
+      "destination": "https://lap-dedicated-transparency-libraries.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",
