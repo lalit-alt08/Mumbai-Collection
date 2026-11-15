@@ -17,13 +17,10 @@ const email = z.string().trim().max(254).email().refine((value) => {
   if (!local || !domain || extra.length || local.length > 64 || local.startsWith(".") || local.endsWith(".") || local.includes("..")) {
     return false;
   }
-
   const labels = domain.split(".");
-  return labels.length >= 2 && labels.every((label) =>
-    label.length > 0 && label.length <= 63 &&
-    /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/i.test(label)
-  ) && /^[a-z]{2,63}$/i.test(labels.at(-1));
+  return labels.length >= 2 && labels.every((l) => l.length > 0 && l.length <= 63 && /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/i.test(l)) && /^[a-z]{2,63}$/i.test(labels.at(-1));
 }, "Please enter a valid email address.");
+
 const loginPassword = z.string().min(1, "Password is required.").max(256);
 const strongPassword = z
   .string()
@@ -45,6 +42,41 @@ const personName = (max = 100) =>
       (val) => !val || (/^[\p{L}\p{M}][\p{L}\p{M}\s.'’\-]*$/u.test(val) && /[\p{L}\p{M}]/u.test(val)),
       "Name can only contain letters, spaces, hyphens, apostrophes, and periods."
     );
+
+const personNameFields = {
+  first_name: personName(100).optional(),
+  last_name: personName(100).optional(),
+  firstName: personName(100).optional(),
+  lastName: personName(100).optional(),
+  name: personName(200).optional(),
+  full_name: personName(200).optional(),
+};
+
+const withPhoneOrEmail = (schema) =>
+  schema.refine((data) => Boolean(data.phone || data.email), {
+    message: "Email or phone number is required.",
+    path: ["phone"],
+  });
+
+const peakFields = {
+  is_peak_hours: z.boolean().optional(),
+  peak_delivery_text: boundedString(200).optional(),
+  normal_delivery_text: boundedString(200).optional(),
+  peak_notice_message: boundedString(1000).optional(),
+  peak_notice: boundedString(1000).optional(),
+};
+
+const addressFields = {
+  first_name: boundedString(100).min(1, "Recipient first name is required"),
+  last_name: boundedString(100).optional(),
+  phone: boundedString(20).min(1, "Phone number is required"),
+  address_1: boundedString(200).min(1, "Street address is required"),
+  address_2: boundedString(200).optional(),
+  city: boundedString(100).min(1, "Delivery region/city is required"),
+  state: boundedString(100).optional(),
+  postcode: boundedString(20).optional(),
+  country: boundedString(10).optional(),
+};
 
 export const schemas = {
   login: z.object({ email, password: loginPassword, context }),
@@ -77,36 +109,29 @@ export const schemas = {
       message: "Provide either a Google ID credential or an authorization code, but not both.",
       path: ["credential"],
     }),
-  otpSend: z
-    .object({
+  otpSend: withPhoneOrEmail(
+    z.object({
       phone: z.string().trim().min(3).max(254).optional(),
       email: email.optional(),
       purpose: z.enum(["reset_password", "register"]),
     })
-    .refine((data) => !!(data.phone || data.email), {
-      message: "Email or phone number is required.",
-      path: ["phone"],
-    }),
-  otpVerify: z
-    .object({
+  ),
+  otpVerify: withPhoneOrEmail(
+    z.object({
       phone: z.string().trim().min(3).max(254).optional(),
       email: email.optional(),
       otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
       purpose: z.enum(["reset_password", "register"]),
     })
-    .refine((data) => !!(data.phone || data.email), {
-      message: "Email or phone number is required.",
-      path: ["phone"],
-    }),
-  otpResetPassword: z.object({
-    phone: z.string().trim().min(3).max(254).optional(),
-    email: email.optional(),
-    reset_token: z.string().trim().min(1).max(512),
-    new_password: strongPassword,
-  }).refine((data) => !!(data.phone || data.email), {
-    message: "Email or phone number is required.",
-    path: ["phone"],
-  }),
+  ),
+  otpResetPassword: withPhoneOrEmail(
+    z.object({
+      phone: z.string().trim().min(3).max(254).optional(),
+      email: email.optional(),
+      reset_token: z.string().trim().min(1).max(512),
+      new_password: strongPassword,
+    })
+  ),
   productCreate: z.object({
     name: boundedString(200).min(1),
     regular_price: z.union([numericString(), z.number().finite().nonnegative()]),
@@ -149,25 +174,15 @@ export const schemas = {
     description: boundedString(5000).optional(),
     parent: nonNegativeParentId.optional(),
   }),
-  categoryReorder: z.object({
-    category_ids: z.array(positiveId).min(1).max(500),
-  }),
+  categoryReorder: z.object({ category_ids: z.array(positiveId).min(1).max(500) }),
   orderStatus: z.object({
     status: z.enum(["pending", "processing", "packed", "out-for-delivery", "dispatched", "completed", "cancelled", "failed"]),
   }),
-  employeeAccess: z.object({
-    email,
-    role: z.literal("employee").optional(),
-    notes: boundedString(500).optional(),
-  }),
+  employeeAccess: z.object({ email, role: z.literal("employee").optional(), notes: boundedString(500).optional() }),
   employeeRole: z.object({ role: z.literal("employee").optional() }),
   employeeReject: z.object({ reason: boundedString(500).optional() }),
   employeeStatus: z.object({ status: z.enum(["active", "deactivated"]) }),
-  suspension: z.object({
-    email,
-    duration: z.enum(["3_months", "6_months", "permanent"]),
-    reason: boundedString(1000).optional(),
-  }),
+  suspension: z.object({ email, duration: z.enum(["3_months", "6_months", "permanent"]), reason: boundedString(1000).optional() }),
   suspensionLookup: z.object({ email }),
   unsuspension: z.object({ email }),
   storeHoursUpdate: z.object({
@@ -180,19 +195,9 @@ export const schemas = {
     })).optional(),
     notice_message: boundedString(1000).optional(),
     closed_message: boundedString(1000).optional(),
-    is_peak_hours: z.boolean().optional(),
-    peak_delivery_text: boundedString(200).optional(),
-    normal_delivery_text: boundedString(200).optional(),
-    peak_notice_message: boundedString(1000).optional(),
-    peak_notice: boundedString(1000).optional(),
+    ...peakFields,
   }),
-  storeHoursPeakToggle: z.object({
-    is_peak_hours: z.boolean().optional(),
-    peak_delivery_text: boundedString(200).optional(),
-    normal_delivery_text: boundedString(200).optional(),
-    peak_notice_message: boundedString(1000).optional(),
-    peak_notice: boundedString(1000).optional(),
-  }),
+  storeHoursPeakToggle: z.object(peakFields),
   review: z.object({
     rating: z.coerce.number().int().min(1).max(5),
     review: boundedString(2000).min(1),
@@ -200,29 +205,8 @@ export const schemas = {
   paymentCreateOrder: z.object({
     order_id: positiveId.optional(),
     expected_total_paise: z.number().int().nonnegative().safe().optional(),
-    billing_address: z.object({
-      first_name: boundedString(100).min(1, "Recipient first name is required"),
-      last_name: boundedString(100).optional(),
-      email: email.optional(),
-      phone: boundedString(20).min(1, "Phone number is required"),
-      address_1: boundedString(200).min(1, "Street address is required"),
-      address_2: boundedString(200).optional(),
-      city: boundedString(100).min(1, "Delivery region/city is required"),
-      state: boundedString(100).optional(),
-      postcode: boundedString(20).optional(),
-      country: boundedString(10).optional(),
-    }),
-    shipping_address: z.object({
-      first_name: boundedString(100).min(1, "Recipient first name is required"),
-      last_name: boundedString(100).optional(),
-      phone: boundedString(20).min(1, "Phone number is required"),
-      address_1: boundedString(200).min(1, "Street address is required"),
-      address_2: boundedString(200).optional(),
-      city: boundedString(100).min(1, "Delivery region/city is required"),
-      state: boundedString(100).optional(),
-      postcode: boundedString(20).optional(),
-      country: boundedString(10).optional(),
-    }),
+    billing_address: z.object({ ...addressFields, email: email.optional() }),
+    shipping_address: z.object(addressFields),
   }),
   paymentVerify: z.object({
     order_id: positiveId.optional().nullable(),
@@ -230,20 +214,11 @@ export const schemas = {
     razorpay_payment_id: boundedString(100),
     razorpay_signature: boundedString(256),
   }),
-  paymentCheckStatus: z.object({
-    razorpay_order_id: boundedString(100),
-  }),
-  paymentCancel: z.object({
-    razorpay_order_id: boundedString(100),
-  }),
+  paymentCheckStatus: z.object({ razorpay_order_id: boundedString(100) }),
+  paymentCancel: z.object({ razorpay_order_id: boundedString(100) }),
   address: z.object({
     type: z.enum(["home", "office"]).optional(),
-    first_name: personName(100).optional(),
-    last_name: personName(100).optional(),
-    firstName: personName(100).optional(),
-    lastName: personName(100).optional(),
-    name: personName(200).optional(),
-    full_name: personName(200).optional(),
+    ...personNameFields,
     address_line1: boundedString(200).optional(),
     address_line2: boundedString(200).optional(),
     city: boundedString(100).optional(),
@@ -252,24 +227,14 @@ export const schemas = {
     phone: boundedString(30).optional(),
   }),
   profile: z.object({
-    first_name: personName(100).optional(),
-    last_name: personName(100).optional(),
-    firstName: personName(100).optional(),
-    lastName: personName(100).optional(),
-    name: personName(200).optional(),
-    full_name: personName(200).optional(),
+    ...personNameFields,
     phone: indianMobile.optional(),
     password: strongPassword.optional(),
     current_password: loginPassword.optional(),
   }),
   idParam: z.object({ id: positiveId }),
-  addressIdParam: z.object({
-    id: z.string().trim().regex(/^[a-zA-Z0-9-]+$/).min(1).max(64),
-  }),
-  // Category endpoints accept either a WooCommerce numeric term ID or slug.
-  categoryIdParam: z.object({
-    categoryId: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/),
-  }),
+  addressIdParam: z.object({ id: z.string().trim().regex(/^[a-zA-Z0-9-]+$/).min(1).max(64) }),
+  categoryIdParam: z.object({ categoryId: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/) }),
   productIdParam: z.object({ productId: positiveId }),
   categoryProductsQuery: z.object({
     page: z.coerce.number().int().positive().max(500).optional(),
@@ -342,12 +307,7 @@ export const validateRequest = ({ body, query, params } = {}) => (req, res, next
     if (body) req.body = body.parse(req.body || {});
     if (query) {
       const parsedQuery = query.parse(req.query || {});
-      Object.defineProperty(req, "query", {
-        value: parsedQuery,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
+      Object.defineProperty(req, "query", { value: parsedQuery, writable: true, enumerable: true, configurable: true });
     }
     if (params) req.params = params.parse(req.params || {});
     return next();

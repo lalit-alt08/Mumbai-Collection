@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useRef } from "react";
+import { clearDashboardCache } from "../utils/dashboardCache.js";
 import {
   getCurrentUser,
   loginEmployee,
@@ -10,6 +11,9 @@ const EmployeeAuthContext = createContext(null);
 
 export const EmployeeAuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  useEffect(() => {
+    if (!user) clearDashboardCache();
+  }, [user]);
   const [loading, setLoading] = useState(true);
   const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
   const [expiryWarning, setExpiryWarning] = useState(null);
@@ -228,6 +232,7 @@ export const EmployeeAuthProvider = ({ children }) => {
   };
 
   const logout = async (options = {}) => {
+    clearDashboardCache();
     const isForce = options?.force === true;
     try {
       try {

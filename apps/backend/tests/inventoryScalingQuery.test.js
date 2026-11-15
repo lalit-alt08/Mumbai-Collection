@@ -341,4 +341,21 @@ test("Phase 1: Inventory/Catalog Scaling Query Architecture Test Suite", async (
     await getAdminProducts(getReq, getRes);
     assert.equal(getCallCount, 2, "Should re-fetch from WooCommerce after createProduct mutation");
   });
+
+  await t.test("9. Omitted stock creates a product with zero inventory", async () => {
+    let savedPayload;
+    api.get = async (endpoint) => endpoint === "products/categories"
+      ? { data: [{ id: 9, name: "Test Department", slug: "test-department", parent: 0 }] }
+      : { data: [], headers: { "x-wp-total": "0", "x-wp-totalpages": "0" } };
+    api.post = async (_endpoint, payload) => {
+      savedPayload = payload;
+      return { data: { id: 603, ...payload } };
+    };
+    let result;
+    const res = { status() { return this; }, json(body) { result = body; return this; } };
+    await createProduct({ body: { name: "New Product", regular_price: "1200", category_ids: [9] } }, res);
+    assert.equal(result.success, true);
+    assert.equal(savedPayload.stock_quantity, 0);
+    assert.equal(savedPayload.stock_status, "outofstock");
+  });
 });

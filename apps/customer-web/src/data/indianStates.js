@@ -60,9 +60,28 @@ export const getIndianStateCode = (input) => {
   return "MH";
 };
 
+// Normalize phone input from manual entry or browser autofill (+91, 0 prefix, spaces, dashes)
+export const normalizeIndianPhone = (phone) => {
+  if (!phone || typeof phone !== "string") return "";
+  let digits = phone.replace(/\D/g, "");
+  // If digits exceed 10, strip international prefix (+91, 0091) or trunk prefix (0)
+  if (digits.length > 10) {
+    if (digits.startsWith("0091")) {
+      digits = digits.slice(4);
+    } else if (digits.startsWith("91")) {
+      digits = digits.slice(2);
+    } else if (digits.startsWith("0")) {
+      digits = digits.slice(1);
+    } else {
+      digits = digits.slice(-10);
+    }
+  }
+  return digits.slice(0, 10);
+};
+
 // Validation helpers
 export const isValidIndianPhone = (phone) => {
-  const digits = (phone || "").replace(/\D/g, "");
+  const digits = normalizeIndianPhone(phone);
   return /^[6-9]\d{9}$/.test(digits);
 };
 

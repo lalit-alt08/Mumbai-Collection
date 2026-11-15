@@ -23,15 +23,15 @@
           "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|TelegramBot|Slackbot).*"
         }
       ],
-      "destination": "https://lap-dedicated-transparency-libraries.trycloudflare.com/api/products/:id/social-preview"
+      "destination": "https://dna-committed-collapse-wesley.trycloudflare.com/api/products/:id/social-preview"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "https://lap-dedicated-transparency-libraries.trycloudflare.com/sitemap.xml"
+      "destination": "https://dna-committed-collapse-wesley.trycloudflare.com/sitemap.xml"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://lap-dedicated-transparency-libraries.trycloudflare.com/api/:path*"
+      "destination": "https://dna-committed-collapse-wesley.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",

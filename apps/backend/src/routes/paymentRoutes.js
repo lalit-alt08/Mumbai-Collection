@@ -7,7 +7,7 @@
  * Middleware chain:
  * 1. checkoutLimiter — rate limiting (reuses existing checkout rate limiter)
  * 2. requireAuth("customer") — session authentication
- * 3. requireVerifiedPhone — phone verification enforcement
+ * 3. requireVerifiedPhone — valid delivery contact phone (account verification is not required)
  * 4. requireIdempotency — duplicate request prevention
  */
 

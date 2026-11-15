@@ -179,7 +179,7 @@ function FloatingCartBar() {
           </span>
         </div>
 
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white ml-0.5 transition-colors group-hover:bg-white/25">
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#1F272E]/75 text-[#FFBF80] ml-0.5 transition-colors group-hover:bg-[#1F272E] group-hover:text-[#FFAC5C]">
           <ChevronRight size={17} strokeWidth={2.8} />
         </div>
       </Link>

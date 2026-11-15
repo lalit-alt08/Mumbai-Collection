@@ -55,7 +55,7 @@ function AddProduct() {
     description: "",
     regular_price: "",
     sale_price: "",
-    stock_quantity: 10,
+    stock_quantity: 0,
     category_id: initialCategoryId,
   });
   const [subcategoryId, setSubcategoryId] = useState("");
@@ -312,42 +312,24 @@ function AddProduct() {
 
       setImages((prev) => [...prev, newImg]);
 
+      const updateImage = (changes) => {
+        setImages((prev) =>
+          prev.map((img) => img.id === newImg.id ? { ...img, ...changes } : img)
+        );
+      };
+
       // Automatically upload compressed file to WordPress Media Library
       try {
         const uploadRes = await uploadProductImage(fileToUpload);
         if (uploadRes.success && (uploadRes.url || uploadRes.id)) {
-          setImages((prev) =>
-            prev.map((img) =>
-              img.id === newImg.id
-                ? {
-                    ...img,
-                    url: uploadRes.url,
-                    mediaId: uploadRes.id,
-                    uploaded: true,
-                    uploading: false,
-                  }
-                : img
-            )
-          );
+          updateImage({ url: uploadRes.url, mediaId: uploadRes.id, uploaded: true, uploading: false });
           showToast("Image uploaded to WordPress Media Library!");
         } else {
-          setImages((prev) =>
-            prev.map((img) =>
-              img.id === newImg.id
-                ? { ...img, uploading: false, error: "Upload failed" }
-                : img
-            )
-          );
+          updateImage({ uploading: false, error: "Upload failed" });
           showToast("Failed to upload image.", "error");
         }
       } catch (err) {
-        setImages((prev) =>
-          prev.map((img) =>
-            img.id === newImg.id
-              ? { ...img, uploading: false, error: err.message }
-              : img
-          )
-        );
+        updateImage({ uploading: false, error: err.message });
         showToast(err.response?.data?.message || "Failed to upload image.", "error");
       }
     }
@@ -505,7 +487,7 @@ function AddProduct() {
       description: "",
       regular_price: "",
       sale_price: "",
-      stock_quantity: 10,
+      stock_quantity: 0,
       category_id: "",
     });
     setSubcategoryId("");
@@ -925,7 +907,7 @@ function AddProduct() {
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Take live photos or upload up to 3 photos to the WordPress Media Library (JPG, PNG, WebP up to 10MB).
+                  Take live photos or upload up to 3 JPG, PNG, or WebP images. Each image must be 5 MB or less after compression.
                 </p>
               </div>
 

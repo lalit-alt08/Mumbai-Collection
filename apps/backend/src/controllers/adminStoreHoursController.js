@@ -14,6 +14,7 @@ export const getAdminStoreHours = async (req, res) => {
       success: true,
       config,
       status,
+      version: config.version || 1,
       ...config,
       ...status,
       current_ist_time: status.current_time_ist || status.current_ist_time,
@@ -21,11 +22,10 @@ export const getAdminStoreHours = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "[AdminStoreHours] Error fetching config");
-    return res.status(500).json({
+    return res.status(503).json({
       success: false,
-      message: error.message || "Failed to load store hours configuration.",
-      config: storeHoursService.DEFAULT_STORE_HOURS_CONFIG,
-      ...storeHoursService.DEFAULT_STORE_HOURS_CONFIG,
+      message: "Store operating hours are temporarily unavailable from upstream database. Please retry before modifying checkout settings.",
+      config: null,
     });
   }
 };
@@ -45,15 +45,33 @@ export const updateAdminStoreHours = async (req, res) => {
       });
     }
 
-    const savedConfig = await storeHoursService.saveStoreHoursConfig(payload);
-    const currentStatus = storeHoursService.evaluateStoreStatus(savedConfig);
+    const rawExpected =
+      payload.expected_version !== undefined
+        ? payload.expected_version
+        : (payload.version !== undefined ? payload.version : undefined);
 
+    const expectedVersion =
+      rawExpected !== undefined && rawExpected !== null && rawExpected !== ""
+        ? Number(rawExpected)
+        : null;
+
+    if (expectedVersion === null || !Number.isSafeInteger(expectedVersion) || expectedVersion <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "MISSING_VERSION",
+        message: "expected_version is required and must be a positive integer.",
+      });
+    }
+
+    const savedConfig = await storeHoursService.saveStoreHoursConfig(payload, { expectedVersion });
+    const currentStatus = storeHoursService.evaluateStoreStatus(savedConfig);
 
     return res.json({
       success: true,
       message: "Store hours updated successfully.",
       config: savedConfig,
       status: currentStatus,
+      version: savedConfig.version || 1,
       ...savedConfig,
       ...currentStatus,
       current_ist_time: currentStatus.current_time_ist || currentStatus.current_ist_time,
@@ -61,9 +79,32 @@ export const updateAdminStoreHours = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "[AdminStoreHours] Error saving config");
-    return res.status(400).json({
+
+    const upstreamStatus = error.response?.status || error.status;
+    const upstreamCode = error.response?.data?.code || error.code;
+    const upstreamData = error.response?.data;
+
+    if (upstreamStatus === 409 || upstreamCode === "store_hours_conflict") {
+      return res.status(409).json({
+        success: false,
+        error: "STORE_HOURS_CONFLICT",
+        code: "store_hours_conflict",
+        message:
+          "Another administrator updated the store operating hours while you were editing.",
+        current_version: upstreamData?.data?.current_version || upstreamData?.current_version || null,
+      });
+    }
+
+    if (upstreamStatus === 400 || upstreamCode === "missing_version" || error.message?.includes("expected_version is required")) {
+      return res.status(400).json({
+        success: false,
+        message: "expected_version is required to safely update store operating hours.",
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: error.message || "Failed to update store hours configuration.",
+      message: "Failed to update store hours configuration. Please retry.",
     });
   }
 };
@@ -74,7 +115,25 @@ export const updateAdminStoreHours = async (req, res) => {
  */
 export const toggleAdminPeakHours = async (req, res) => {
   try {
-    const currentConfig = await storeHoursService.getStoreHoursConfig();
+    const rawExpected =
+      req.body?.expected_version !== undefined
+        ? req.body.expected_version
+        : (req.body?.version !== undefined ? req.body.version : undefined);
+
+    const expectedVersion =
+      rawExpected !== undefined && rawExpected !== null && rawExpected !== ""
+        ? Number(rawExpected)
+        : null;
+
+    if (expectedVersion === null || !Number.isSafeInteger(expectedVersion) || expectedVersion <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "MISSING_VERSION",
+        message: "expected_version is required and must be a positive integer.",
+      });
+    }
+
+    const currentConfig = await storeHoursService.getStoreHoursConfig(true);
     const isPeak =
       typeof req.body?.is_peak_hours === "boolean"
         ? req.body.is_peak_hours
@@ -86,9 +145,8 @@ export const toggleAdminPeakHours = async (req, res) => {
       ...(typeof req.body?.peak_delivery_text === "string" ? { peak_delivery_text: req.body.peak_delivery_text } : {}),
       ...(typeof req.body?.peak_notice_message === "string" ? { peak_notice_message: req.body.peak_notice_message } : {}),
       ...(typeof req.body?.normal_delivery_text === "string" ? { normal_delivery_text: req.body.normal_delivery_text } : {}),
-    });
+    }, { expectedVersion });
     const currentStatus = storeHoursService.evaluateStoreStatus(savedConfig);
-
 
     return res.json({
       success: true,
@@ -97,14 +155,38 @@ export const toggleAdminPeakHours = async (req, res) => {
       delivery_eta_text: currentStatus.delivery_eta_text,
       config: savedConfig,
       status: currentStatus,
+      version: savedConfig.version || 1,
       ...savedConfig,
       ...currentStatus,
     });
   } catch (error) {
     logError(req, error, "[AdminStoreHours] Error toggling peak hours");
+
+    const upstreamStatus = error.response?.status || error.status;
+    const upstreamCode = error.response?.data?.code || error.code;
+    const upstreamData = error.response?.data;
+
+    if (upstreamStatus === 409 || upstreamCode === "store_hours_conflict") {
+      return res.status(409).json({
+        success: false,
+        error: "STORE_HOURS_CONFLICT",
+        code: "store_hours_conflict",
+        message:
+          "Another administrator updated the store operating hours while you were editing.",
+        current_version: upstreamData?.data?.current_version || upstreamData?.current_version || null,
+      });
+    }
+
+    if (upstreamStatus === 400 || upstreamCode === "missing_version" || error.message?.includes("expected_version is required")) {
+      return res.status(400).json({
+        success: false,
+        message: "expected_version is required to safely toggle peak hours.",
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to toggle peak hours.",
+      message: "Failed to toggle peak hours. Please retry.",
     });
   }
 };

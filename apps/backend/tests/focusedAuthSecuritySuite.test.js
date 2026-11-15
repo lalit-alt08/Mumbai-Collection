@@ -12,6 +12,9 @@ import {
   invalidateSessionCache,
 } from "../src/middlewares/authMiddleware.js";
 
+const makeCookie = (token) =>
+  `wordpress_logged_in_test=user|${Math.floor(Date.now() / 1000) + 3600}|${token}|test_hmac`;
+
 // Helper to simulate an Express request through a middleware or controller
 const simulate = async (fn, req) => {
   let statusCode = 200;
@@ -92,7 +95,8 @@ test("Focused Authentication & Role Isolation Security Suite", async (suite) => 
   // ─────────────────────────────────────────────────────────────
   await suite.test("2. requireAuth rejects mismatched role sessions (VIP Door Security)", async () => {
     const adminAuth = requireAuth("admin");
-    const customerCookie = `logged_in=customer_sess_${crypto.randomBytes(8).toString("hex")}`;
+    const customerCookie = makeCookie(`customer_${crypto.randomBytes(8).toString("hex")}`);
+    axios.get = async () => ({ data: { logged_in: true, current_user_id: 77, roles: ["customer"], email: "customer@example.com" } });
 
     // Seed session cache with a legitimate CUSTOMER session
     setSessionCache(customerCookie, {
@@ -119,7 +123,8 @@ test("Focused Authentication & Role Isolation Security Suite", async (suite) => 
 
   await suite.test("3. requireAuth accepts legitimate matching role sessions", async () => {
     const adminAuth = requireAuth("admin");
-    const adminCookie = `logged_in=admin_sess_${crypto.randomBytes(8).toString("hex")}`;
+    const adminCookie = makeCookie(`admin_${crypto.randomBytes(8).toString("hex")}`);
+    axios.get = async () => ({ data: { logged_in: true, current_user_id: 1, roles: ["administrator"], email: "admin@mumbaicollection.in" } });
 
     setSessionCache(adminCookie, {
       userId: 1,
@@ -184,7 +189,11 @@ test("Focused Authentication & Role Isolation Security Suite", async (suite) => 
   // 4. Logout & Session Invalidation
   // ─────────────────────────────────────────────────────────────
   await suite.test("5. Logout invalidates session in cache and clears panel cookies", async () => {
-    const testCookie = `logged_in=logout_test_${crypto.randomBytes(8).toString("hex")}`;
+    const testCookie = makeCookie(`logout_${crypto.randomBytes(8).toString("hex")}`);
+    let wpLogoutCalled = false;
+    axios.get = async () => ({ data: wpLogoutCalled
+      ? { logged_in: false }
+      : { logged_in: true, current_user_id: 55, roles: ["customer"], email: "logout@test.com" } });
     setSessionCache(testCookie, {
       userId: 55,
       name: "Logout User",
@@ -196,7 +205,6 @@ test("Focused Authentication & Role Isolation Security Suite", async (suite) => 
     const initial = await getSessionValidation(testCookie);
     assert.strictEqual(initial.valid, true, "Session must be valid initially");
 
-    let wpLogoutCalled = false;
     axios.post = async (url) => {
       if (url.includes("/logout")) {
         wpLogoutCalled = true;
@@ -224,7 +232,8 @@ test("Focused Authentication & Role Isolation Security Suite", async (suite) => 
   // 5. /auth/me Session Restoration & Cache
   // ─────────────────────────────────────────────────────────────
   await suite.test("6. /auth/me restores authenticated profile from session cache", async () => {
-    const meCookie = `logged_in=me_test_${crypto.randomBytes(8).toString("hex")}`;
+    const meCookie = makeCookie(`me_${crypto.randomBytes(8).toString("hex")}`);
+    axios.get = async () => ({ data: { logged_in: true, current_user_id: 88, roles: ["customer"], name: "Cached Profile User", username: "cacheduser", email: "cached@example.com" } });
     setSessionCache(meCookie, {
       userId: 88,
       name: "Cached Profile User",

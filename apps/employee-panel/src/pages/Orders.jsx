@@ -1,11 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useOutletContext } from "react-router-dom";
 import {
-  Package,
   Search,
   Truck,
   CheckCircle2,
-  Clock,
   AlertCircle,
   RotateCcw,
   Eye,
@@ -79,6 +77,10 @@ import {
   getOrderLocationInfo,
   getLocationBadgeClass,
 } from "../utils/orderLocation.js";
+import { OrderDetailsModal } from "../components/orders/OrderDetailsModal.jsx";
+import { OrderCustomDateModal } from "../components/orders/OrderCustomDateModal.jsx";
+import { OrderMobileFiltersModal } from "../components/orders/OrderMobileFiltersModal.jsx";
+import { OrderBulkModals } from "../components/orders/OrderBulkModals.jsx";
 
 export { resolveTabFromStatusParam, getOrderDateIST, getOrderTimestampDate, getCleanCustomerName };
 
@@ -115,38 +117,14 @@ const getScheduledOrderMeta = (order) => {
   return isScheduled ? { review: false, date: scheduledDate, label: scheduledLabel } : null;
 };
 
-/**
- * Determines whether a delivered order's fulfillment status change is locked.
- * Rule:
- * - Once an order reaches "completed" (Delivered), status changes are allowed for <24h only.
- * - At >= 24h from actual delivery/completion timestamp, the control is locked.
- * - Non-completed orders are never locked.
- * Priority:
- * 1. _delivery_completed_at / delivery_completed_at
- * 2. date_completed_gmt
- * 3. date_completed
- * 4. date_created_gmt
- * 5. date_created
- * Fail-closed:
- * - If status is completed/delivered and is_status_locked is true, lock immediately.
- * - If status is completed/delivered and no valid timestamp exists, fail closed (lock).
- * (date_modified is NOT used as unrelated edits affect it).
- */
 export const isOrderDeliveredLocked = (order, now = Date.now()) => {
   if (!order) return false;
   const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
   const effectiveStatus = deliveryMeta?.value || order.status;
-  const isDelivered = effectiveStatus === "completed";
-  if (!isDelivered) return false;
-
-  // If server explicitly marked it as locked, lock immediately
-  if (order.is_status_locked === true) {
-    return true;
-  }
+  if (effectiveStatus !== "completed") return false;
+  if (order.is_status_locked === true) return true;
 
   let timestamp = null;
-
-  // 1. _delivery_completed_at / delivery_completed_at
   const deliveryCompletedAt =
     order.delivery_completed_at ||
     order.meta_data?.find((m) => m.key === "_delivery_completed_at")?.value ||
@@ -156,45 +134,21 @@ export const isOrderDeliveredLocked = (order, now = Date.now()) => {
     const t = new Date(deliveryCompletedAt).getTime();
     if (!isNaN(t) && t > 0) timestamp = t;
   }
-
-  // 2. date_completed_gmt
-  if (!timestamp && order.date_completed_gmt) {
-    const s = order.date_completed_gmt.endsWith("Z")
-      ? order.date_completed_gmt
-      : `${order.date_completed_gmt}Z`;
+  const parseTs = (raw, isGmt) => {
+    if (!raw) return null;
+    const s = isGmt ? (raw.endsWith("Z") ? raw : `${raw}Z`) : (/(Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : `${raw}+05:30`);
     const t = new Date(s).getTime();
-    if (!isNaN(t) && t > 0) timestamp = t;
-  }
+    return !isNaN(t) && t > 0 ? t : null;
+  };
 
-  // 3. date_completed
-  if (!timestamp && order.date_completed) {
-    const s = /(Z|[+-]\d{2}:?\d{2})$/.test(order.date_completed) ? order.date_completed : order.date_completed + "+05:30";
-    const t = new Date(s).getTime();
-    if (!isNaN(t) && t > 0) timestamp = t;
-  }
-
-  // 4. date_created_gmt
-  if (!timestamp && order.date_created_gmt) {
-    const s = order.date_created_gmt.endsWith("Z")
-      ? order.date_created_gmt
-      : `${order.date_created_gmt}Z`;
-    const t = new Date(s).getTime();
-    if (!isNaN(t) && t > 0) timestamp = t;
-  }
-
-  // 5. date_created
-  if (!timestamp && order.date_created) {
-    const s = /(Z|[+-]\d{2}:?\d{2})$/.test(order.date_created) ? order.date_created : order.date_created + "+05:30";
-    const t = new Date(s).getTime();
-    if (!isNaN(t) && t > 0) timestamp = t;
-  }
+  timestamp = timestamp || parseTs(order.date_completed_gmt, true) ||
+    parseTs(order.date_completed, false) ||
+    parseTs(order.date_created_gmt, true) ||
+    parseTs(order.date_created, false);
 
   if (timestamp) {
-    const SEVENTY_TWO_HOURS_MS = 72 * 60 * 60 * 1000;
-    return (now - timestamp) >= SEVENTY_TWO_HOURS_MS;
+    return (now - timestamp) >= 72 * 60 * 60 * 1000;
   }
-
-  // Fail closed: completed order with no usable timestamps is locked
   return true;
 };
 
@@ -210,6 +164,7 @@ function Orders() {
   const bulkBusyRef = useRef(false);
   const [bulkConfirm, setBulkConfirm] = useState(null);
   const [alarmDegraded, setAlarmDegraded] = useState(false);
+  const [lastAlarmCheck, setLastAlarmCheck] = useState(null);
   const [bulkResults, setBulkResults] = useState([]);
   const [ordersQueryKey, setOrdersQueryKey] = useState("");
   const [loading, setLoading] = useState(true);
@@ -449,6 +404,7 @@ function Orders() {
       setAlarmDegraded(true);
     } else if (res?.status === "success" && !res?.discovery_unavailable && !res?.partial_discovery_failure) {
       setAlarmDegraded(false);
+      setLastAlarmCheck(Date.now());
     }
   }, []);
 
@@ -585,8 +541,8 @@ function Orders() {
           try {
             const data = JSON.parse(event.data);
             if (data?.event === "ORDER_CREATED") {
-              // Direct notification from event payload, deduplicated session-wide
-              triggerNewOrderNotification({ orderId: data.orderId });
+              // Check the authoritative packing queue before sounding an alarm.
+              runAlarmCheck();
               scheduleEventRefresh();
             } else if (data?.event === "ORDER_ACKNOWLEDGED") {
               // Cross-device sync: staff acknowledged on another phone
@@ -646,10 +602,14 @@ function Orders() {
     window.addEventListener("online", handleOnline);
 
     // 8-second fallback polling for rapid auto-detection of incoming counter orders
+    let listPollTicks = 0;
     const pollInterval = setInterval(() => {
       if (!document.hidden) {
         runAlarmCheck();
-        fetchOrderList(true);
+        listPollTicks += 1;
+        if (!eventSource || eventSource.readyState !== EventSource.OPEN || listPollTicks % 4 === 0) {
+          fetchOrderList(true);
+        }
       }
     }, 8000);
 
@@ -899,6 +859,18 @@ function Orders() {
     }
   };
 
+  const STATUS_BADGE_CONFIG = {
+    completed: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500", label: "Delivered" },
+    processing: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500 animate-pulse", label: "To Pack" },
+    packed: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200", dot: "bg-purple-500", label: "Packed" },
+    "out-for-delivery": { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500", label: "Out for Delivery" },
+    dispatched: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500", label: "Out for Delivery" },
+    cancelled: { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200", dot: "bg-rose-500", label: "Cancelled" },
+    "on-hold": { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200", dot: "bg-orange-500", label: "On Hold" },
+    refunded: { bg: "bg-gray-50", text: "text-gray-700", border: "border-gray-200", dot: "bg-gray-500", label: "Refunded" },
+    failed: { bg: "bg-red-50", text: "text-red-700", border: "border-red-200", dot: "bg-red-500", label: "Failed" },
+  };
+
   const getStatusBadge = (status, isUnpaid = false) => {
     if (isUnpaid) {
       return (
@@ -908,52 +880,15 @@ function Orders() {
         </span>
       );
     }
-
-    switch (status) {
-      case "completed":
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 border border-emerald-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-            Delivered
-          </span>
-        );
-      case "processing":
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 border border-amber-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
-            To Pack
-          </span>
-        );
-      case "packed":
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-bold text-purple-700 border border-purple-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-purple-500 shrink-0" />
-            Packed
-          </span>
-        );
-      case "out-for-delivery":
-      case "dispatched":
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 border border-blue-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
-            Out for Delivery
-          </span>
-        );
-      case "cancelled":
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700 border border-rose-200">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" />
-            Cancelled
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-bold text-gray-700 capitalize">
-            <span className="h-1.5 w-1.5 rounded-full bg-gray-400 shrink-0" />
-            {status}
-          </span>
-        );
-    }
+    const cfg = STATUS_BADGE_CONFIG[status] || {
+      bg: "bg-gray-100", text: "text-gray-700", border: "border-gray-200", dot: "bg-gray-400", label: status || "Unknown",
+    };
+    return (
+      <span className={`inline-flex items-center gap-1.5 rounded-full ${cfg.bg} px-2.5 py-1 text-[11px] font-bold ${cfg.text} border ${cfg.border}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} shrink-0`} />
+        {cfg.label}
+      </span>
+    );
   };
 
   // Date Filtering Engine (Store Timezone Asia/Kolkata)
@@ -1253,25 +1188,7 @@ function Orders() {
       );
     }
 
-    if (order.status === "processing") {
-      return (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleStatusUpdate(order.id, "out-for-delivery");
-          }}
-          disabled={isUpdating}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 font-bold text-white shadow-xs hover:bg-blue-500 active:scale-95 transition cursor-pointer disabled:opacity-50 ${
-            isMobile ? "w-full py-2.5 text-xs" : "px-3 py-1.5 text-xs"
-          }`}
-        >
-          {isUpdating ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Truck size={13} className="shrink-0" />}
-          <span>{isUpdating ? "Updating..." : "Dispatch"}</span>
-        </button>
-      );
-    }
-
-    if (order.status === "packed") {
+    if (order.status === "processing" || order.status === "packed") {
       return (
         <button
           onClick={(e) => {
@@ -1326,6 +1243,13 @@ function Orders() {
 
   return (
     <div className="space-y-3.5 sm:space-y-4">
+      {alarmDegraded && (
+        <div role="alert" className="rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
+          Order alerts are temporarily unavailable. Check your connection and retry.
+          {lastAlarmCheck && <span> Last successful check: {new Date(lastAlarmCheck).toLocaleTimeString()}.</span>}
+          <button type="button" onClick={runAlarmCheck} className="ml-3 underline">Retry</button>
+        </div>
+      )}
       {/* Toast Notification */}
       {toast && (
         <div
@@ -1727,66 +1651,14 @@ function Orders() {
               </button>
             </div>
           )}
-          {bulkResults.length > 0 && (
-            <div
-              role="alert"
-              className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800 space-y-1"
-            >
-              {bulkResults.map((row) => (
-                <p key={row.id}>
-                  Order #{row.id}: {row.message || "Dispatch failed"}
-                </p>
-              ))}
-              <p className="font-semibold pt-1">
-                Failed orders remain selected. Review them before retrying.
-              </p>
-            </div>
-          )}
+          <OrderBulkModals
+            bulkConfirm={bulkConfirm}
+            onCloseConfirm={() => setBulkConfirm(null)}
+            onConfirmDispatch={handleConfirmDispatch}
+            bulkBusy={bulkBusy}
+            bulkResults={bulkResults}
+          />
         </div>
-        {bulkConfirm && (
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm bulk dispatch"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5"
-          >
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4 shadow-xl">
-              <h2 className="text-base font-bold text-gray-900">
-                Dispatch {bulkConfirm.reviewedIds?.length || 0} packed{" "}
-                {bulkConfirm.reviewedIds?.length === 1 ? "order" : "orders"}?
-              </h2>
-              <div className="text-sm text-gray-600 space-y-1">
-                {Object.entries(bulkConfirm.groups || {}).map(([location, count]) => (
-                  <p key={location} className="flex justify-between">
-                    <span>{location}</span>
-                    <span className="font-semibold text-gray-800">{count}</span>
-                  </p>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500">
-                Customer tracking updates on its next refresh. Each order is checked again before dispatch.
-              </p>
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  disabled={bulkBusy}
-                  onClick={() => setBulkConfirm(null)}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={bulkBusy}
-                  onClick={handleConfirmDispatch}
-                  className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50 transition cursor-pointer"
-                >
-                  {bulkBusy ? "Dispatching…" : "Confirm dispatch"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
         {!hasCurrentOrders && error ? (
           <div className="p-8 text-center text-rose-600">
             <p className="text-sm font-bold">{error}</p>
@@ -2093,657 +1965,59 @@ function Orders() {
       </div>
 
       {/* MOBILE FILTERS BOTTOM SHEET / DRAWER */}
-      {isMobileFiltersOpen && (
-        <div
-          onClick={() => setIsMobileFiltersOpen(false)}
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs sm:hidden animate-in fade-in duration-200"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-h-[85vh] bg-white rounded-t-[28px] p-5 shadow-2xl space-y-4 overflow-y-auto animate-in slide-in-from-bottom duration-200"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal size={16} className="text-emerald-600" />
-                <h3 className="text-base font-black text-gray-900">Order Filters</h3>
-              </div>
-              <button
-                onClick={() => setIsMobileFiltersOpen(false)}
-                className="rounded-xl border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-700"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Status Filters */}
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                Fulfillment Status
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {tabs.map((tab) => {
-                  const isSelected = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => {
-                        handleTabChange(tab.id);
-                      }}
-                      className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition text-left cursor-pointer border ${
-                        isSelected
-                          ? "bg-emerald-50 text-emerald-900 border-emerald-300 shadow-2xs"
-                          : "bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100"
-                      }`}
-                    >
-                      <span className="truncate">{tab.label}</span>
-                      {isSelected && <Check size={13} className="text-emerald-600 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Date Filters in Bottom Sheet */}
-            <div className="space-y-2 pt-2 border-t border-gray-100">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                Date Window
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {DATE_FILTERS.map((f) => {
-                  const isSelected = dateFilter === f.id;
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => {
-                        handleDateFilterSelect(f.id);
-                      }}
-                      className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition text-left cursor-pointer border ${
-                        isSelected
-                          ? "bg-emerald-50 text-emerald-900 border-emerald-300 shadow-2xs"
-                          : "bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100"
-                      }`}
-                    >
-                      <span className="truncate">{f.label}</span>
-                      {isSelected && <Check size={13} className="text-emerald-600 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Location Filters in Bottom Sheet */}
-            <div className="space-y-2 pt-2 border-t border-gray-100">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                Delivery Location
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {LOCATION_OPTIONS.map((loc) => {
-                  const isSelected = locationFilter === loc.id;
-                  return (
-                    <button
-                      key={loc.id}
-                      type="button"
-                      onClick={() => {
-                        setLocationFilter(loc.id);
-                        setPage(1);
-                      }}
-                      className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-bold transition text-left cursor-pointer border ${
-                        isSelected
-                          ? "bg-purple-50 text-purple-900 border-purple-300 shadow-2xs"
-                          : "bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100"
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className={`h-2 w-2 rounded-full shrink-0 ${loc.dot}`} />
-                        <span className="truncate">{loc.label}</span>
-                      </div>
-                      {isSelected && <Check size={13} className="text-purple-600 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("all");
-                  setDateFilter("today");
-                  setLocationFilter("all");
-                  setPage(1);
-                  setIsMobileFiltersOpen(false);
-                }}
-                className="text-xs font-bold text-gray-500 hover:text-gray-900 underline px-2 py-2"
-              >
-                Reset All
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsMobileFiltersOpen(false)}
-                className="flex-1 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-500 active:scale-95 transition cursor-pointer"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <OrderMobileFiltersModal
+        isOpen={isMobileFiltersOpen}
+        onClose={() => setIsMobileFiltersOpen(false)}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        dateFilters={DATE_FILTERS}
+        dateFilter={dateFilter}
+        onDateFilterSelect={handleDateFilterSelect}
+        locationOptions={LOCATION_OPTIONS}
+        locationFilter={locationFilter}
+        setLocationFilter={setLocationFilter}
+        setPage={setPage}
+        onResetAll={() => {
+          setActiveTab("all");
+          setDateFilter("today");
+          setLocationFilter("all");
+          setPage(1);
+          setIsMobileFiltersOpen(false);
+        }}
+      />
 
       {/* CUSTOM DATE RANGE MODAL */}
-      {isCustomModalOpen && (
-        <div
-          onClick={() => setIsCustomModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-5 animate-in zoom-in-95 duration-200"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="custom-date-title"
-          >
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Calendar size={18} className="text-emerald-600" />
-                <h3 id="custom-date-title" className="text-base font-black text-gray-900">
-                  Custom Date Window
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsCustomModalOpen(false)}
-                className="rounded-xl border border-gray-200 p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-700 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Quick Presets */}
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                Quick Shortcuts
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPresetRange(14)}
-                  className="rounded-xl bg-slate-100 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-bold text-slate-700 transition active:scale-95 cursor-pointer"
-                >
-                  Last 14 Days
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPresetRange(30)}
-                  className="rounded-xl bg-slate-100 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-bold text-slate-700 transition active:scale-95 cursor-pointer"
-                >
-                  Last 30 Days
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMonthPreset()}
-                  className="rounded-xl bg-slate-100 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-bold text-slate-700 transition active:scale-95 cursor-pointer"
-                >
-                  This Month
-                </button>
-              </div>
-            </div>
-
-            {/* Date Pickers */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-gray-500 uppercase">
-                  From Date
-                </label>
-                <input
-                  type="date"
-                  value={tempDateRange.start}
-                  onChange={(e) => setTempDateRange((prev) => ({ ...prev, start: e.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 text-xs font-semibold text-gray-800 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-gray-500 uppercase">
-                  To Date
-                </label>
-                <input
-                  type="date"
-                  value={tempDateRange.end}
-                  onChange={(e) => setTempDateRange((prev) => ({ ...prev, end: e.target.value }))}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 text-xs font-semibold text-gray-800 outline-none focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => setIsCustomModalOpen(false)}
-                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleApplyCustomRange}
-                disabled={!tempDateRange.start || !tempDateRange.end}
-                className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-extrabold text-white shadow-sm hover:bg-emerald-500 active:scale-95 transition disabled:opacity-40 cursor-pointer"
-              >
-                Apply Range
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <OrderCustomDateModal
+        isOpen={isCustomModalOpen}
+        onClose={() => setIsCustomModalOpen(false)}
+        tempDateRange={tempDateRange}
+        setTempDateRange={setTempDateRange}
+        onApply={handleApplyCustomRange}
+        setPresetRange={setPresetRange}
+        setMonthPreset={setMonthPreset}
+      />
 
       {/* Order Details Drawer / Modal */}
-      {selectedOrder && (
-        <div
-          onClick={() => { setCancelConfirmPending(false); setSelectedOrder(null); }}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-end bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[92vh] sm:max-h-[95vh] h-full w-full max-w-full sm:max-w-xl flex-col bg-white shadow-2xl rounded-t-[28px] sm:rounded-3xl border border-gray-100 overflow-hidden"
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-gray-100 p-4 sm:p-6 shrink-0 bg-white">
-              <div className="min-w-0 flex-1 pr-3">
-                <h3 className="text-lg sm:text-xl font-black text-gray-900 truncate">
-                  Order #{selectedOrder.id}
-                </h3>
-                <p className="text-sm font-medium text-gray-600 truncate mt-1">
-                  Placed on{" "}
-                  {(() => {
-                    const d = getOrderTimestampDate(selectedOrder);
-                    return d
-                      ? d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-                      : "N/A";
-                  })()}
-                </p>
-              </div>
-
-              <button
-                onClick={() => { setCancelConfirmPending(false); setSelectedOrder(null); }}
-                aria-label="Close order details"
-                className="rounded-xl border border-gray-300 p-2.5 text-gray-600 hover:bg-gray-50 hover:text-gray-900 cursor-pointer shrink-0"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Modal Scroll Content */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
-              {/* Status Selector Card */}
-              <div className="rounded-2xl border border-gray-200 bg-gray-50/80 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-xs sm:text-sm font-bold text-gray-800 uppercase tracking-wide">
-                    Current Fulfillment Status
-                  </span>
-                  {getStatusBadge(selectedOrder.status, selectedOrder.is_unpaid)}
-                </div>
-
-                {selectedOrder.status === "completed" || isOrderDeliveredLocked(selectedOrder) ? (
-                  <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-xs space-y-1.5 shadow-2xs">
-                    <div className="flex items-center gap-2 font-bold text-gray-800">
-                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
-                      <span>Delivered (Completed)</span>
-                    </div>
-                    <p className="text-[11px] font-medium text-gray-400 flex items-center gap-1.5">
-                      <Lock size={12} className="text-gray-400 shrink-0" />
-                      <span>Delivered orders are final and cannot be reopened here.</span>
-                    </p>
-                  </div>
-                ) : selectedOrder.is_unpaid ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-xs space-y-1.5 shadow-2xs">
-                    <div className="flex items-center gap-2 font-bold text-amber-900">
-                      <AlertCircle size={15} className="text-amber-600 shrink-0" />
-                      <span>Awaiting Online Payment</span>
-                    </div>
-                    <p className="text-[11px] font-medium text-amber-700">
-                      Online payment has not been received. Orders cannot be packed or delivered until payment is captured.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="relative w-full" ref={statusDropdownRef}>
-                    <button
-                      type="button"
-                      disabled={updatingIds.has(selectedOrder.id)}
-                      onClick={() => setIsStatusDropdownOpen((prev) => !prev)}
-                      className="w-full flex items-center justify-between rounded-xl border border-gray-300 bg-white px-3.5 py-3 text-sm font-bold text-gray-900 outline-none hover:border-emerald-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-2xs cursor-pointer disabled:opacity-60"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                            ALL_STATUS_BADGES.find((o) => o.value === selectedOrder.status)?.dot || "bg-gray-400"
-                          }`}
-                        />
-                        <span className="truncate">
-                          {ALL_STATUS_BADGES.find((o) => o.value === selectedOrder.status)?.label || selectedOrder.status}
-                        </span>
-                      </div>
-                      <ChevronDown
-                        size={15}
-                        className={`text-gray-500 transition-transform duration-200 shrink-0 ml-2 ${
-                          isStatusDropdownOpen ? "rotate-180 text-emerald-600" : ""
-                        }`}
-                      />
-                    </button>
-
-                    {/* Custom In-DOM Dropdown Menu */}
-                    {isStatusDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 z-40 mt-1.5 w-full rounded-xl bg-white border border-gray-200 shadow-xl overflow-hidden py-1 max-h-72 overflow-y-auto divide-y divide-gray-50 animate-in fade-in zoom-in-95 duration-150">
-                        {STATUS_OPTIONS.filter((option) => option.value === selectedOrder.status || (selectedOrder.allowed_next_statuses || []).includes(option.value)).map((option) => {
-                          const isSelected = selectedOrder.status === option.value;
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() => {
-                                setIsStatusDropdownOpen(false);
-                                if (!isSelected) {
-                                  handleStatusUpdate(selectedOrder.id, option.value);
-                                }
-                              }}
-                              className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer text-left ${
-                                isSelected
-                                  ? "bg-emerald-50/80 text-emerald-900 font-extrabold"
-                                  : "text-gray-700 font-semibold hover:bg-gray-50"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${option.dot}`} />
-                                <span className="truncate">{option.label}</span>
-                              </div>
-                              {isSelected && (
-                                <Check size={14} className="text-emerald-600 shrink-0 ml-2" />
-                              )}
-                            </button>
-                          );
-                        })}
-                        {(() => {
-                          const refundEmailSent = selectedOrder.manual_refund_email_sent_at ||
-                            selectedOrder.meta_data?.find((meta) => meta.key === "_manual_refund_email_sent_at")?.value;
-                          const refundEmailLabel = String(refundEmailSent || "").startsWith("sending:")
-                            ? "Refund email pending"
-                            : "Refund email sent";
-                          return (
-                            <button
-                              type="button"
-                              disabled={updatingIds.has(selectedOrder.id) || Boolean(refundEmailSent)}
-                              onClick={() => handleSendRefundEmail(selectedOrder)}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-left font-semibold text-rose-700 transition hover:bg-rose-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              <Mail size={14} className="shrink-0" />
-                              <span>{refundEmailSent ? refundEmailLabel : "Send refund email"}</span>
-                              {refundEmailSent && <Check size={14} className="ml-auto text-emerald-600" />}
-                            </button>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Delivery Address & Customer Info */}
-              <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-gray-700 flex items-center gap-1.5">
-                    <MapPin size={14} className="text-emerald-600 shrink-0" />
-                    <span>Delivery & Contact Information</span>
-                  </h4>
-                  {(() => {
-                    const selLoc = getOrderLocationInfo(selectedOrder);
-                    return (
-                      <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold ${getLocationBadgeClass(selLoc.location_key)}`}>
-                        <MapPin size={11} className="shrink-0" />
-                        <span>{selLoc.location}</span>
-                      </span>
-                    );
-                  })()}
-                </div>
-
-                <div className="space-y-1.5 text-sm leading-relaxed text-gray-800 font-medium">
-                  <p className="font-bold text-gray-900 text-base">
-                    {getCleanCustomerName(selectedOrder.customer_name, selectedOrder.billing?.first_name, selectedOrder.billing?.last_name, "Customer")}
-                  </p>
-                  <p className="text-gray-700 break-words [overflow-wrap:anywhere]">
-                    {selectedOrder.shipping?.address_1 || selectedOrder.billing?.address_1 || "No street address provided"}
-                    {(selectedOrder.shipping?.address_2 || selectedOrder.billing?.address_2) && `, ${selectedOrder.shipping?.address_2 || selectedOrder.billing?.address_2}`}
-                  </p>
-                  <p className="text-gray-700 break-words font-semibold">
-                    {[
-                      selectedOrder.shipping?.city || selectedOrder.billing?.city,
-                      selectedOrder.shipping?.state || selectedOrder.billing?.state,
-                      selectedOrder.shipping?.postcode || selectedOrder.billing?.postcode,
-                    ]
-                      .filter(Boolean)
-                      .join(", ") || "Vasai, Maharashtra"}
-                  </p>
-                  <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
-                    <a
-                      href={`tel:${selectedOrder.phone || selectedOrder.billing?.phone}`}
-                      className="inline-flex items-center gap-1.5 text-emerald-700 font-bold hover:underline"
-                    >
-                      <Phone size={12} /> {selectedOrder.phone || selectedOrder.billing?.phone || "No Phone"}
-                    </a>
-                    {selectedOrder.billing?.email && (
-                      <a
-                        href={`mailto:${selectedOrder.billing.email}`}
-                        className="inline-flex min-w-0 items-center gap-1.5 text-gray-700 hover:underline break-all"
-                      >
-                        <Mail size={12} /> {selectedOrder.billing.email}
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Items List */}
-              <div className="space-y-3">
-                <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-gray-700 flex items-center gap-1.5">
-                  <Boxes size={14} className="text-emerald-600 shrink-0" />
-                  <span>Order Items ({selectedOrder.items?.length || 0})</span>
-                </h4>
-
-                <div className="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white overflow-hidden">
-                  {selectedOrder.items?.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3.5 sm:p-4 gap-3">
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <img
-                          src={item.image || "https://placehold.co/40x40?text=Item"}
-                          alt={item.name}
-                          className="h-10 w-10 rounded-lg object-cover bg-gray-100 border border-gray-200 shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-bold text-gray-900 leading-snug break-words">{item.name}</p>
-                          <p className="text-xs font-medium text-gray-600 mt-1">
-                            Qty: {item.quantity} × ₹{item.price || (item.total && item.quantity ? Math.round(item.total / item.quantity) : 0)}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-sm font-bold text-gray-900 shrink-0">
-                        ₹{item.total || 0}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Customer Delivery Instructions (if provided) */}
-              {Boolean(selectedOrder.customer_note && String(selectedOrder.customer_note).trim()) && (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/75 p-3.5 sm:p-4 space-y-1.5 shadow-2xs">
-                  <h4 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
-                    <Receipt size={14} className="text-amber-600 shrink-0" />
-                    <span>Customer Delivery Instructions</span>
-                  </h4>
-                  <p className="text-xs text-amber-950 font-medium whitespace-pre-wrap leading-relaxed">
-                    "{String(selectedOrder.customer_note).trim()}"
-                  </p>
-                </div>
-              )}
-
-              {/* Order Financials */}
-              {(() => {
-                const itemsSubtotal = (selectedOrder.items || []).reduce(
-                  (sum, item) => sum + (Number(item.total) || 0),
-                  0
-                );
-                const discountTotal = Number(selectedOrder.discount_total) || 0;
-                const shippingTotal = Number(selectedOrder.shipping_total) || 0;
-                const taxTotal = Number(selectedOrder.total_tax) || 0;
-                const feeTotal = Number(selectedOrder.fee_total) || 0;
-                const orderTotal = Number(selectedOrder.total) || 0;
-                const calculatedSubtotal =
-                  itemsSubtotal > 0
-                    ? itemsSubtotal + discountTotal
-                    : Math.max(0, orderTotal - shippingTotal - taxTotal - feeTotal + discountTotal);
-
-                return (
-                  <div className="rounded-2xl border border-gray-200 bg-gray-50/75 p-4 space-y-3 text-sm font-medium leading-relaxed">
-                    <div className="flex justify-between text-gray-600">
-                      <span>Payment Method:</span>
-                      <span className="font-bold text-gray-900 uppercase text-right">
-                        {selectedOrder.payment_method_title || selectedOrder.payment_method || "COD"}
-                      </span>
-                    </div>
-
-                    <div className="border-t border-gray-200/60 my-1" />
-
-                    <div className="flex justify-between text-gray-600">
-                      <span>Items Subtotal:</span>
-                      <span className="font-semibold text-gray-900">
-                        ₹{calculatedSubtotal.toFixed(2)}
-                      </span>
-                    </div>
-
-                    {discountTotal > 0 && (
-                      <div className="flex justify-between text-emerald-700 font-semibold">
-                        <span>Discount / Coupon:</span>
-                        <span>-₹{discountTotal.toFixed(2)}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between text-gray-600">
-                      <span>Delivery / Shipping:</span>
-                      <span className="font-semibold text-gray-900">
-                        {shippingTotal > 0 ? `₹${shippingTotal.toFixed(2)}` : "Free Delivery"}
-                      </span>
-                    </div>
-
-                    {taxTotal > 0 && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Taxes:</span>
-                        <span className="font-semibold text-gray-900">₹{taxTotal.toFixed(2)}</span>
-                      </div>
-                    )}
-
-                    {feeTotal > 0 && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Additional Fees:</span>
-                        <span className="font-semibold text-gray-900">₹{feeTotal.toFixed(2)}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between border-t border-gray-200 pt-3 text-base font-black text-gray-900">
-                      <span>Total Amount:</span>
-                      <span className="text-emerald-700">₹{selectedOrder.total || "0.00"}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* Modal Footer Quick Dispatch */}
-            <div className="border-t border-gray-100 p-3.5 sm:p-4 bg-white flex flex-wrap gap-2 shrink-0 justify-between">
-              {/* Inline cancel confirmation */}
-              {cancelConfirmPending ? (
-                <div className="w-full flex flex-col gap-2">
-                  <p className="text-sm font-semibold text-rose-700 text-center">Cancel this order?</p>
-                  <p className="text-xs text-gray-500 text-center">This action cannot be undone.</p>
-                  <div className="flex gap-2 w-full">
-                    <button
-                      onClick={() => setCancelConfirmPending(false)}
-                      className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
-                    >
-                      Keep Order
-                    </button>
-                    <button
-                      onClick={() => {
-                        setCancelConfirmPending(false);
-                        handleStatusUpdate(selectedOrder.id, "cancelled");
-                      }}
-                      disabled={updatingIds.has(selectedOrder.id)}
-                      className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-500 transition cursor-pointer disabled:opacity-50"
-                    >
-                      Yes, Cancel Order
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-              <button
-                onClick={() => { setCancelConfirmPending(false); setSelectedOrder(null); }}
-                className="rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
-              >
-                Close
-              </button>
-
-              {/* Cancellation button where permitted */}
-              {["processing", "packed"].includes(selectedOrder.status) && (
-                <button
-                  onClick={() => setCancelConfirmPending(true)}
-                  disabled={updatingIds.has(selectedOrder.id)}
-                  className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition cursor-pointer disabled:opacity-50"
-                >
-                  Cancel Order
-                </button>
-              )}
-
-              {selectedOrder.status === "processing" && (
-                <button
-                  onClick={() => handleStatusUpdate(selectedOrder.id, "out-for-delivery")}
-                  disabled={updatingIds.has(selectedOrder.id)}
-                  className="flex-1 rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
-                >
-                  <Truck size={14} />
-                  <span>Dispatch Rider</span>
-                </button>
-              )}
-
-              {selectedOrder.status === "packed" && (
-                <button
-                  onClick={() => handleStatusUpdate(selectedOrder.id, "out-for-delivery")}
-                  disabled={updatingIds.has(selectedOrder.id)}
-                  className="flex-1 rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
-                >
-                  <Truck size={14} />
-                  <span>Dispatch Rider Now</span>
-                </button>
-              )}
-
-              {(selectedOrder.status === "out-for-delivery" || selectedOrder.status === "dispatched") && (
-                <button
-                  onClick={() => handleStatusUpdate(selectedOrder.id, "completed")}
-                  disabled={updatingIds.has(selectedOrder.id)}
-                  className="flex-1 rounded-xl bg-emerald-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
-                >
-                  <CheckCircle2 size={14} />
-                  <span>Mark Delivered</span>
-                </button>
-              )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <OrderDetailsModal
+        order={selectedOrder}
+        onClose={() => {
+          setCancelConfirmPending(false);
+          setSelectedOrder(null);
+        }}
+        onStatusUpdate={handleStatusUpdate}
+        onSendRefundEmail={handleSendRefundEmail}
+        updatingIds={updatingIds}
+        isStatusDropdownOpen={isStatusDropdownOpen}
+        setIsStatusDropdownOpen={setIsStatusDropdownOpen}
+        statusDropdownRef={statusDropdownRef}
+        cancelConfirmPending={cancelConfirmPending}
+        setCancelConfirmPending={setCancelConfirmPending}
+        statusOptions={STATUS_OPTIONS}
+        allStatusBadges={ALL_STATUS_BADGES}
+        getStatusBadge={getStatusBadge}
+        isOrderDeliveredLocked={isOrderDeliveredLocked}
+      />
     </div>
   );
 }

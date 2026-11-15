@@ -1,16 +1,5 @@
-# React + Vite
+# Customer storefront
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React/Vite application for browsing products, accounts, cart and checkout. Run `pnpm install --frozen-lockfile` and `pnpm dev` in this directory. Use `pnpm test` and `pnpm build` for checks.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The development port is normally 5173. `VITE_API_URL` overrides the API endpoint; see `src/config/api.js` and `vite.config.js` for defaults and proxies. See the [project guide](../../README.md) and [feature map](../../docs/feature-map.md).

@@ -30,6 +30,14 @@ import {
   lookupPaymentReference,
 } from "../services/adminApi";
 
+const getCustomerInitials = (name) =>
+  (name || "Customer")
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
 // Fixed delivery zone filter options
 const LOCATION_FILTER_OPTIONS = [
   {
@@ -638,12 +646,7 @@ function Customers() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
                   {processedCustomers.map((c, idx) => {
-                    const initials = (c.name || "Customer")
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")
-                      .slice(0, 2)
-                      .toUpperCase();
+                    const initials = getCustomerInitials(c.name);
 
                     return (
                       <tr key={c.id || c.email || idx} className="hover:bg-amber-50/30 transition">
@@ -751,12 +754,7 @@ function Customers() {
             {/* MOBILE STACKED CARDS (Zero Horizontal Scroll) */}
             <div className="block sm:hidden divide-y divide-gray-100">
               {processedCustomers.map((c, idx) => {
-                const initials = (c.name || "Customer")
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase();
+                const initials = getCustomerInitials(c.name);
 
                 return (
                   <div key={c.id || c.email || idx} className="p-3.5 space-y-3 bg-white hover:bg-gray-50/60 transition">

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { getBanners } from "../../services/productService.js";
 import { resolveMediaUrl } from "../../utils/imageUtils.js";
+import { createBannerVideoRetryManager } from "../../utils/bannerVideoRetry.js";
 
 /**
  * Mobile-only homepage banner (3:1 / recommended 1200x400 source image/video)
@@ -19,10 +20,29 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
   // Video playback states
   const containerRef = useRef(null);
   const videoRef = useRef(null);
+  const retryManagerRef = useRef(null);
+  if (!retryManagerRef.current) {
+    retryManagerRef.current = createBannerVideoRetryManager({
+      onScheduleRetry: () => {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+        setAttemptEpoch(retryManagerRef.current.getPlaybackEpoch());
+        setIsPlaybackFailed(false);
+      },
+      onResetState: () => {
+        setAttemptEpoch(retryManagerRef.current.getPlaybackEpoch());
+        setIsVideoReady(false);
+        setIsPlaybackFailed(false);
+      },
+    });
+  }
   const [hasEnteredView, setHasEnteredView] = useState(false);
   const [isInView, setIsInView] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [isPlaybackFailed, setIsPlaybackFailed] = useState(false);
+  const [attemptEpoch, setAttemptEpoch] = useState(0);
+  const mediaIdentity = `${banner?.video_url || ""}|${banner?.image || ""}|${banner?.media_type || ""}`;
+  const currentMediaRef = useRef(mediaIdentity);
+  currentMediaRef.current = mediaIdentity;
 
   // Monitor viewport match
   useEffect(() => {
@@ -95,11 +115,30 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
     ? resolveMediaUrl(banner.video_url)
     : "";
 
+  // Unified failure recovery with exponential backoff, retry cap, and dual-error deduplication
+  const scheduleRetryOrGiveUp = useCallback((reason = "error", epoch = undefined) => {
+    if (epoch !== retryManagerRef.current?.getPlaybackEpoch()) return;
+    setIsVideoReady(false);
+    setIsPlaybackFailed(true);
+    retryManagerRef.current?.handleFailure({ reason, epoch });
+  }, []);
+
   // Reset playback failure/ready state if banner media changes
   useEffect(() => {
-    setIsVideoReady(false);
-    setIsPlaybackFailed(false);
+    retryManagerRef.current?.reset();
   }, [banner?.video_url, banner?.image, banner?.media_type]);
+
+  // Re-attempt video playback when device returns online or recovers connectivity
+  useEffect(() => {
+    const handleOnline = () => {
+      retryManagerRef.current?.reset();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      retryManagerRef.current?.dispose();
+    };
+  }, []);
 
   // Attach video source only when the mobile banner enters view
   useEffect(() => {
@@ -131,15 +170,30 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
     let cancelled = false;
+    const playbackEpoch = attemptEpoch;
+    const playbackMedia = mediaIdentity;
+
+    // Defensively enforce muted properties on DOM element
+    video.muted = true;
+    video.defaultMuted = true;
+
     const syncPlayback = () => {
       if (!isInView || document.visibilityState === "hidden") {
         video.pause();
       } else {
         video.muted = true;
-        video.play()?.catch((err) => {
-          if (cancelled || videoRef.current !== video || err.name === "AbortError") return;
-          setIsPlaybackFailed(true);
-        });
+        video.defaultMuted = true;
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch((err) => {
+            if (cancelled || videoRef.current !== video || playbackMedia !== currentMediaRef.current || err.name === "AbortError") return;
+            // On mobile devices, autoplay can be temporarily prevented prior to first user touch (NotAllowedError).
+            // Do NOT permanently discard the video on NotAllowedError; keep it mounted so user scroll/touch can engage it.
+            if (err.name !== "NotAllowedError") {
+              scheduleRetryOrGiveUp(err.name || "play_rejection", playbackEpoch);
+            }
+          });
+        }
       }
     };
     syncPlayback();
@@ -148,7 +202,43 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
       cancelled = true;
       document.removeEventListener("visibilitychange", syncPlayback);
     };
-  }, [videoSrc, isInView]);
+  }, [videoSrc, isInView, scheduleRetryOrGiveUp, attemptEpoch, mediaIdentity]);
+
+  // Seamless engagement on user scroll or touch if mobile autoplay was initially held back
+  useEffect(() => {
+    if (!canObserveVideo || isVideoReady || isPlaybackFailed) return;
+    const playbackEpoch = attemptEpoch;
+    const playbackMedia = mediaIdentity;
+    let cancelled = false;
+    const resumeOnInteraction = () => {
+      const video = videoRef.current;
+      if (video && video.paused && isInView) {
+        video.muted = true;
+        video.defaultMuted = true;
+        const p = video.play();
+        if (p && typeof p.then === "function") {
+          p.then(() => {
+            if (cancelled || videoRef.current !== video || playbackMedia !== currentMediaRef.current || playbackEpoch !== retryManagerRef.current?.getPlaybackEpoch()) return;
+            retryManagerRef.current?.handleSuccess();
+            setIsVideoReady(true);
+            setIsPlaybackFailed(false);
+          }).catch((err) => {
+            if (cancelled || videoRef.current !== video || playbackMedia !== currentMediaRef.current) return;
+            if (err?.name !== "NotAllowedError" && err?.name !== "AbortError") {
+              scheduleRetryOrGiveUp(err?.name || "interaction_play_rejection", playbackEpoch);
+            }
+          });
+        }
+      }
+    };
+    window.addEventListener("touchstart", resumeOnInteraction, { passive: true });
+    window.addEventListener("scroll", resumeOnInteraction, { passive: true });
+    return () => {
+      cancelled = true;
+      window.removeEventListener("touchstart", resumeOnInteraction);
+      window.removeEventListener("scroll", resumeOnInteraction);
+    };
+  }, [canObserveVideo, isVideoReady, isPlaybackFailed, isInView, scheduleRetryOrGiveUp, attemptEpoch, mediaIdentity]);
 
   // Completely omit from desktop DOM to avoid eager high-priority downloads
   if (!isMobile) {
@@ -182,20 +272,25 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
       {/* 2. Video Player (Source attached when entering view; plays muted inline) */}
       {showVideo && (
         <video
-          key={videoSrc}
+          key={`${videoSrc}:${attemptEpoch}`}
           ref={videoRef}
           src={videoSrc}
           poster={posterSrc}
-          preload="metadata"
+          autoPlay
           playsInline
           muted
+          defaultMuted
           loop
-          onPlaying={() => {
+          preload="metadata"
+          onPlaying={(event) => {
+            if (event.currentTarget !== videoRef.current || mediaIdentity !== currentMediaRef.current || attemptEpoch !== retryManagerRef.current?.getPlaybackEpoch()) return;
+            retryManagerRef.current?.handleSuccess();
             setIsVideoReady(true);
             setIsPlaybackFailed(false);
           }}
-          onError={() => {
-            setIsPlaybackFailed(true);
+          onError={(event) => {
+            if (event.currentTarget !== videoRef.current || mediaIdentity !== currentMediaRef.current) return;
+            scheduleRetryOrGiveUp("media_onError", attemptEpoch);
           }}
           className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
             isVideoReady ? "opacity-100" : "opacity-0"

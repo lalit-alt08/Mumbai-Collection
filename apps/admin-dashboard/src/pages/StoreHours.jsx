@@ -148,6 +148,7 @@ function StoreHours() {
   const [togglingOverride, setTogglingOverride] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [hoursVersion, setHoursVersion] = useState(null);
 
   const [manualOverride, setManualOverride] = useState("auto");
   const [closedMessage, setClosedMessage] = useState("");
@@ -169,12 +170,15 @@ function StoreHours() {
     return JSON.stringify(schedule) !== JSON.stringify(savedSchedule);
   }, [schedule, savedSchedule]);
 
-  const loadData = async () => {
+  const loadData = async (preserveError = false) => {
     try {
       setLoading(true);
-      setError("");
+      if (!preserveError) {
+        setError("");
+      }
       const data = await getStoreHours();
       if (data) {
+        setHoursVersion(data.version || data.config?.version || 1);
         setManualOverride(data.manual_override || "auto");
         setClosedMessage(data.closed_message || data.notice_message || "");
         setIsPeakHours(Boolean(data.is_peak_hours));
@@ -228,6 +232,7 @@ function StoreHours() {
       setError("");
 
       const payload = {
+        expected_version: hoursVersion,
         manual_override: targetMode,
         closed_message: closedMessage.trim(),
         is_peak_hours: isPeakHours,
@@ -239,6 +244,7 @@ function StoreHours() {
 
       const res = await updateStoreHours(payload);
       if (res) {
+        if (res.version) setHoursVersion(res.version);
         setManualOverride(targetMode);
 
         if (targetMode === "closed") {
@@ -250,6 +256,11 @@ function StoreHours() {
         }
       }
     } catch (err) {
+      if (err.response?.status === 409) {
+        setError("Another administrator updated store hours while you were editing. Fresh settings have been reloaded.");
+        await loadData(true);
+        return;
+      }
       setError(
         err.response?.data?.message || "Failed to switch store operational mode."
       );
@@ -265,12 +276,14 @@ function StoreHours() {
       setError("");
       const nextState = forcedState !== null ? forcedState : !isPeakHours;
       const res = await togglePeakHours(nextState, {
+        expected_version: hoursVersion,
         peak_delivery_text: (customParams.peak_delivery_text || peakDeliveryText).trim(),
         normal_delivery_text: normalDeliveryText.trim(),
         peak_notice_message: (customParams.peak_notice_message || peakNoticeMessage).trim(),
       });
 
       if (res) {
+        if (res.version) setHoursVersion(res.version);
         setIsPeakHours(Boolean(res.is_peak_hours));
         showToast(
           res.is_peak_hours
@@ -279,6 +292,11 @@ function StoreHours() {
         );
       }
     } catch (err) {
+      if (err.response?.status === 409) {
+        setError("Another administrator updated store hours while you were editing. Fresh settings have been reloaded.");
+        await loadData(true);
+        return;
+      }
       setError(
         err.response?.data?.message || "Failed to toggle peak hours mode."
       );
@@ -314,6 +332,7 @@ function StoreHours() {
     if (manualOverride === "closed") {
       try {
         const res = await updateStoreHours({
+          expected_version: hoursVersion,
           manual_override: "closed",
           closed_message: preset.text,
           is_peak_hours: isPeakHours,
@@ -323,9 +342,15 @@ function StoreHours() {
           schedule,
         });
         if (res) {
+          if (res.version) setHoursVersion(res.version);
           showToast(`Applied notice: "${preset.label}"`);
         }
       } catch (err) {
+        if (err.response?.status === 409) {
+          setError("Another administrator updated store hours while you were editing. Fresh settings have been reloaded.");
+          await loadData(true);
+          return;
+        }
         setError(err.response?.data?.message || "Failed to update closed message.");
       }
     } else {
@@ -374,6 +399,7 @@ function StoreHours() {
       setError("");
 
       const payload = {
+        expected_version: hoursVersion,
         manual_override: manualOverride,
         closed_message: closedMessage.trim(),
         is_peak_hours: isPeakHours,
@@ -385,10 +411,16 @@ function StoreHours() {
 
       const res = await updateStoreHours(payload);
       if (res) {
+        if (res.version) setHoursVersion(res.version);
         setSavedSchedule(schedule);
         showToast(res.message || "Store operating hours updated successfully!");
       }
     } catch (err) {
+      if (err.response?.status === 409) {
+        setError("Another administrator updated store hours while you were editing. Fresh settings have been reloaded.");
+        await loadData(true);
+        return;
+      }
       setError(
         err.response?.data?.message ||
           "Failed to save changes. Please try again."

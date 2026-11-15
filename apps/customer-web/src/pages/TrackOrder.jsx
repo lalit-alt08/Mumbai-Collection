@@ -157,8 +157,10 @@ function TrackOrder() {
       return;
     }
 
+    let isDisposed = false;
+
     const scheduleNextPoll = () => {
-      if (!pollTimerRef.current && !document.hidden) {
+      if (!pollTimerRef.current && !document.hidden && !isDisposed) {
         pollCountRef.current += 1;
         // Adaptive polling interval: 30s initial, 60s medium, 120s long-stay
         const baseInterval =
@@ -170,9 +172,11 @@ function TrackOrder() {
         const jitterMs = Math.floor(Math.random() * 5000);
         pollTimerRef.current = setTimeout(async () => {
           pollTimerRef.current = null;
-          if (document.hidden) return;
+          if (document.hidden || isDisposed) return;
           await fetchOrder(activeOrderId, true);
-          scheduleNextPoll();
+          if (!isDisposed) {
+            scheduleNextPoll();
+          }
         }, baseInterval + jitterMs);
       }
     };
@@ -188,8 +192,13 @@ function TrackOrder() {
       if (document.hidden) {
         stopPolling();
       } else {
+        if (isDisposed) return;
         pollCountRef.current = 0; // Reset backoff counter when customer returns to tab
-        void fetchOrder(activeOrderId, true).finally(scheduleNextPoll);
+        void fetchOrder(activeOrderId, true).finally(() => {
+          if (!isDisposed) {
+            scheduleNextPoll();
+          }
+        });
       }
     };
 
@@ -197,6 +206,7 @@ function TrackOrder() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      isDisposed = true;
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

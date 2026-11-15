@@ -61,6 +61,7 @@ export const getEmployeeBanners = async (req, res) => {
       count: banners.length,
       banners: transformMediaUrls(banners, req),
       thin_banner: transformMediaUrls([thinBanner], req)[0],
+      version: data.version || 1,
     });
   } catch (error) {
     logError(req, error, "Get employee banners error");
@@ -105,7 +106,8 @@ export const updateEmployeeBanners = async (req, res) => {
       });
     }
 
-    const savedResult = await saveBanners({ banners, thin_banner });
+    const expected_version = req.body?.expected_version;
+    const savedResult = await saveBanners({ banners, thin_banner, expected_version });
     const savedBanners = Array.isArray(savedResult) ? savedResult : [];
     const savedThin = savedResult.thin_banner || null;
 
@@ -115,13 +117,19 @@ export const updateEmployeeBanners = async (req, res) => {
       count: savedBanners.length,
       banners: transformMediaUrls(savedBanners, req),
       thin_banner: savedThin ? transformMediaUrls([savedThin], req)[0] : null,
+      version: savedResult.version || null,
     });
   } catch (error) {
     logError(req, error, "Update employee banners error");
     const statusCode = error.response?.status || 400;
+    const isConflict = statusCode === 409;
     res.status(statusCode).json({
       success: false,
-      message: error.response?.data?.message || error.message || "Failed to update banners in WordPress.",
+      code: isConflict ? "BANNER_CONFLICT" : "BANNER_UPDATE_FAILED",
+      message: isConflict
+        ? (error.response?.data?.message || "Another staff member updated the banners while you were editing. Please reload and review the latest banners before saving.")
+        : "Failed to update banners. Please check the banner details and try again.",
+      current_version: error.response?.data?.data?.current_version || null,
     });
   }
 };
@@ -156,7 +164,7 @@ export const uploadBannerVideo = async (req, res) => {
     const statusCode = error.statusCode || error.response?.status || 400;
     res.status(statusCode).json({
       success: false,
-      message: error.response?.data?.message || error.message || "Failed to upload banner video.",
+      message: "Failed to upload banner video. Please try again.",
     });
   }
 };

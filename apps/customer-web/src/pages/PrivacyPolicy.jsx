@@ -16,7 +16,7 @@ function PrivacyPolicy() {
         </div>
       </header>
       <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6">
-      <div className="rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] md:p-12">
+      <div className="policy-page-card rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] md:p-12">
         {/* Back Link */}
         <Link
           to="/"

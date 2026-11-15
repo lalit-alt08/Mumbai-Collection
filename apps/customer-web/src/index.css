@@ -98,6 +98,12 @@ html[data-store-theme="dark"] :is([class~="bg-[#22499F]"],[class~="bg-[#1B3B82]"
 html[data-store-theme="dark"] :is([class~="bg-[#22499F]/10"],[class~="bg-[#22499F]/15"],[class~="bg-[#22499F]/20"]) { background-color: #4B535C; }
 html[data-store-theme="dark"] :is([class~="text-[#1E293B]"],[class~="text-[#334155]"],[class~="text-[#475569]"]) { color: #FAF8F4; }
 html[data-store-theme="dark"] :is([class~="text-[#64748B]"],[class~="text-[#64748B]/50"],[class~="text-[#94A3B8]"],[class~="text-[#CBD5E1]"]) { color: #D1D5D8; }
+/* Apply theme colors to responsive Tailwind utilities as well as plain utilities. */
+html[data-store-theme="dark"] :is([class*="bg-[#FFFFFF]"],[class*="bg-white"],[class*="bg-[#F8FAF6]"],[class*="bg-[#F4FAEF]"],[class*="bg-[#E2E8F0]"]) { background-color: #3A434C; }
+html[data-store-theme="dark"] [class*="bg-[#F0F8E8]"] { background-color: #1F272E; }
+html[data-store-theme="dark"] :is([class*="text-[#17233A]"],[class*="text-[#1E293B]"]) { color: #FAF8F4; }
+html[data-store-theme="dark"] :is([class*="text-[#334155]"],[class*="text-[#43546D]"],[class*="text-[#475569]"],[class*="text-[#50617B]"],[class*="text-[#596B86]"],[class*="text-[#60718A]"],[class*="text-[#64748B]"],[class*="text-[#94A3B8]"],[class*="text-[#CBD5E1]"]) { color: #D1D5D8; }
+html[data-store-theme="dark"] :is([class*="border-[#E2E8F0]"],[class*="border-[#C9D2DF]"],[class*="border-[#C4D6B8]"],[class*="border-[#BAC7D8]"]) { border-color: #66717A; }
 html[data-store-theme="dark"] :is([class~="text-[#22499F]"],[class~="text-[#1B3B82]"]) { color: #FFBF80; }
 html[data-store-theme="dark"] [class~="text-[#F4B54B]"] { color: #FFBF80; }
 html[data-store-theme="dark"] [class~="fill-[#F4B54B]"] { fill: #FFBF80; }
@@ -274,23 +280,53 @@ img {
   user-select: none;
 }
 
-/* Custom Scrollbar for sleek UI */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Custom Scrollbar (Modern Baseline standard + legacy fallback) */
+html, body {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+/* Explicitly preserve hidden-scrollbar controls for horizontal category and product strips */
+[class*="scrollbar-width:none"],
+[class*="scrollbar-none"],
+.no-scrollbar,
+.scrollbar-none {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #E2E8F0;
-  border-radius: 9999px;
+:where(main, section, article, aside, div, pre, table, textarea):not([class*="scrollbar-width:none"]):not([class*="scrollbar-none"]):not(.no-scrollbar):not(.scrollbar-none) {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #22499F;
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #E2E8F0;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #22499F;
+  }
+
+  [class*="scrollbar-width:none"]::-webkit-scrollbar,
+  [class*="scrollbar-none"]::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar,
+  .scrollbar-none::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
 }
 
 @keyframes fadeIn {
@@ -321,6 +357,20 @@ img {
     color: #1E293B;
     font-weight: 750;
   }
+
+  /* Legal policy cards contain explicit light palette utilities. Override them
+     after the typography layer so dark mode keeps the copy readable. */
+  html[data-store-theme="dark"] .policy-page-card { background: #303A43; border-color: #66717A; }
+  html[data-store-theme="dark"] .policy-reading,
+  html[data-store-theme="dark"] .policy-reading p,
+  html[data-store-theme="dark"] .policy-reading li { color: #E3E7EA; }
+  html[data-store-theme="dark"] .policy-reading h2,
+  html[data-store-theme="dark"] .policy-reading strong { color: #FFFFFF; }
+  html[data-store-theme="dark"] .return-eligible-card { background: #253B32; border-color: #548B6D; }
+  html[data-store-theme="dark"] .return-ineligible-card { background: #442F35; border-color: #A05A66; }
+  html[data-store-theme="dark"] :is(.return-eligible-card, .return-ineligible-card) ul,
+  html[data-store-theme="dark"] :is(.return-eligible-card, .return-ineligible-card) ul li > span:last-child { color: #F1F3F4; }
+  html[data-store-theme="dark"] :is(.return-eligible-card, .return-ineligible-card) strong { color: #FFFFFF; }
 
   @media (min-width: 640px) {
     .policy-reading h2 {

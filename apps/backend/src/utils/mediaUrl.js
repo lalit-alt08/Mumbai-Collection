@@ -9,6 +9,7 @@ const APPROVED_WP_HOSTS = new Set([
   "mumbaicollection.local",
   "localhost",
   "127.0.0.1",
+  "wordpress.example",
   ...(configuredWpHost ? [configuredWpHost] : []),
 ]);
 

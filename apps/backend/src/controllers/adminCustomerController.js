@@ -159,6 +159,21 @@ function normalizeCustomerOrderDate(dateGmt, dateLocal) {
   return "";
 }
 
+const formatCustomerOrder = (o) => ({
+  id: o.id,
+  order_number: o.number || String(o.id),
+  date: normalizeCustomerOrderDate(o.date_created_gmt, o.date_created),
+  total: Number(o.total) || 0,
+  status: String(o.status || "").replace(/^wc-/, ""),
+  payment_method: o.payment_method_title || "Cash on Delivery",
+  items: (o.line_items || []).map((item) => ({
+    product_id: item.product_id,
+    name: item.name,
+    quantity: Number(item.quantity) || 1,
+    total: Number(item.total) || 0,
+  })),
+});
+
 /** Paginated order history for one customer; avoids truncating history on the directory page. */
 export const getAdminCustomerOrders = async (req, res) => {
   try {
@@ -215,20 +230,7 @@ export const getAdminCustomerOrders = async (req, res) => {
 
     const formattedOrders = rawOrders
       .filter((o) => o.status !== "trash")
-      .map((o) => ({
-        id: o.id,
-        order_number: o.number || String(o.id),
-        date: normalizeCustomerOrderDate(o.date_created_gmt, o.date_created),
-        total: Number(o.total) || 0,
-        status: String(o.status || "").replace(/^wc-/, ""),
-        payment_method: o.payment_method_title || "Cash on Delivery",
-        items: (o.line_items || []).map((item) => ({
-          product_id: item.product_id,
-          name: item.name,
-          quantity: Number(item.quantity) || 1,
-          total: Number(item.total) || 0,
-        })),
-      }));
+      .map(formatCustomerOrder);
 
     res.set?.("Cache-Control", "no-store, no-cache, must-revalidate, private");
     return res.json({
@@ -377,6 +379,34 @@ function verifyStoredOrderMatchesPayment(wcOrder, rzpData, localPayment) {
   };
 }
 
+const verifyLocalStoredOrder = async (localPayment, rzpData, ref) => {
+  try {
+    const wcRes = await api.get(`orders/${localPayment.wc_order_id}`);
+    const verified = verifyStoredOrderMatchesPayment(wcRes?.data, rzpData, localPayment);
+    if (!verified.valid || verified.status === "unavailable") {
+      return { checked: false, orderFound: false, wcOrderId: null, customerId: null };
+    }
+    if (verified.matches) {
+      return { checked: true, orderFound: true, wcOrderId: verified.orderId, customerId: verified.customerId };
+    }
+    return { checked: true, orderFound: false, wcOrderId: null, customerId: null };
+  } catch (wcErr) {
+    if (wcErr.response?.status === 404) {
+      return { checked: true, orderFound: false, wcOrderId: null, customerId: null };
+    }
+    logger.warn({ ref, wcOrderId: localPayment.wc_order_id, err: wcErr.message }, "[AdminCustomerPayments] Failed to verify stored WooCommerce order existence");
+    return { checked: false, orderFound: false, wcOrderId: null, customerId: null };
+  }
+};
+
+const formatPaiseAmount = (paise) => {
+  const num = Number(paise || 0);
+  const rupees = num / 100;
+  return Number.isInteger(rupees)
+    ? rupees.toLocaleString("en-IN")
+    : rupees.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 /**
  * Exact reference lookup (order_... or pay_...) for store staff.
  * Checks local payment records; when live=true, executes an authoritative gateway lookup,
@@ -512,32 +542,8 @@ export const lookupAdminPaymentReference = async (req, res) => {
               orderVerification.wcOrderId = matchedOrder.number || matchedOrder.id;
               orderVerification.customerId = matchedOrder.customer_id;
             } else if (localPayment?.wc_order_id) {
-              // Not matched by RZP order ID in HPOS table, but local record has a stored wc_order_id:
-              // Verify the stored WooCommerce order ID directly before reporting a live result.
-              try {
-                const wcRes = await api.get(`orders/${localPayment.wc_order_id}`);
-                const verified = verifyStoredOrderMatchesPayment(wcRes?.data, rzpData, localPayment);
-                if (!verified.valid || verified.status === "unavailable") {
-                  orderVerification.checked = false;
-                  orderVerification.orderFound = false;
-                } else if (verified.matches) {
-                  orderVerification.checked = true;
-                  orderVerification.orderFound = true;
-                  orderVerification.wcOrderId = verified.orderId;
-                  orderVerification.customerId = verified.customerId;
-                } else {
-                  orderVerification.checked = true;
-                  orderVerification.orderFound = false;
-                }
-              } catch (wcErr) {
-                if (wcErr.response?.status === 404) {
-                  orderVerification.orderFound = false;
-                } else {
-                  logger.warn({ ref, wcOrderId: localPayment.wc_order_id, err: wcErr.message }, "[AdminCustomerPayments] Failed to verify stored WooCommerce order existence");
-                  orderVerification.checked = false;
-                  orderVerification.orderFound = false;
-                }
-              }
+              const res = await verifyLocalStoredOrder(localPayment, rzpData, ref);
+              Object.assign(orderVerification, res);
             } else {
               orderVerification.orderFound = false;
             }
@@ -547,35 +553,9 @@ export const lookupAdminPaymentReference = async (req, res) => {
             orderVerification.orderFound = false;
           }
         } else if (localPayment?.wc_order_id) {
-          // Direct payment with stored local order ID: verify before reporting a live result
-          try {
-            const wcRes = await api.get(`orders/${localPayment.wc_order_id}`);
-            const verified = verifyStoredOrderMatchesPayment(wcRes?.data, rzpData, localPayment);
-            if (!verified.valid || verified.status === "unavailable") {
-              orderVerification.checked = false;
-              orderVerification.orderFound = false;
-            } else if (verified.matches) {
-              orderVerification.checked = true;
-              orderVerification.orderFound = true;
-              orderVerification.wcOrderId = verified.orderId;
-              orderVerification.customerId = verified.customerId;
-            } else {
-              orderVerification.checked = true;
-              orderVerification.orderFound = false;
-            }
-          } catch (wcErr) {
-            if (wcErr.response?.status === 404) {
-              orderVerification.checked = true;
-              orderVerification.orderFound = false;
-            } else {
-              logger.warn({ ref, wcOrderId: localPayment.wc_order_id, err: wcErr.message }, "[AdminCustomerPayments] Failed to verify stored WooCommerce order existence");
-              orderVerification.checked = false;
-              orderVerification.orderFound = false;
-            }
-          }
+          const res = await verifyLocalStoredOrder(localPayment, rzpData, ref);
+          Object.assign(orderVerification, res);
         } else {
-          // Direct payment without Razorpay order association and without local wc_order_id:
-          // Order check cannot be performed against WooCommerce, so order verification is unavailable
           orderVerification.checked = false;
           orderVerification.orderFound = false;
         }
@@ -585,13 +565,6 @@ export const lookupAdminPaymentReference = async (req, res) => {
       let outcome_type = "unconfirmed";
 
       const refundedPaise = Number(rzpData.amount_refunded || 0);
-      const formatPaiseAmount = (paise) => {
-        const num = Number(paise || 0);
-        const rupees = num / 100;
-        return Number.isInteger(rupees)
-          ? rupees.toLocaleString("en-IN")
-          : rupees.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      };
       const isPartiallyRefunded = rzpData.refund_status === "partial" || (refundedPaise > 0 && refundedPaise < amountPaise);
 
       if (status === "refunded" || rzpData.refund_status === "full" || (amountPaise > 0 && refundedPaise >= amountPaise)) {

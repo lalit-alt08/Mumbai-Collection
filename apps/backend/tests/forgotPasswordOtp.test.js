@@ -88,6 +88,14 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     });
   };
 
+  const makeUpstreamError = (message, status = 400) => {
+    const error = new Error(message);
+    error.response = { status, data: { success: false, message } };
+    return error;
+  };
+
+  const makeWpSuccess = (data = {}) => ({ data: { success: true, ...data } });
+
   // 1. Valid registered mobile -> OTP -> successful reset
   await suite.test("1. Valid registered mobile -> OTP -> successful reset", async () => {
     let capturedStorePayload = null;
@@ -97,32 +105,15 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, payload) => {
       if (url.includes("/otp/store")) {
         capturedStorePayload = payload;
-        return {
-          data: {
-            success: true,
-            user_found: true,
-            message: "If the number is registered, an OTP has been sent.",
-          },
-        };
+        return makeWpSuccess({ user_found: true, message: "If the number is registered, an OTP has been sent." });
       }
       if (url.includes("/otp/verify")) {
         capturedVerifyPayload = payload;
-        return {
-          data: {
-            success: true,
-            message: "OTP verified. Proceed to reset password.",
-            reset_token: "mock_reset_auth_token_64chars_abcdef123456",
-          },
-        };
+        return makeWpSuccess({ message: "OTP verified. Proceed to reset password.", reset_token: "mock_reset_auth_token_64chars_abcdef123456" });
       }
       if (url.includes("/otp/reset-password")) {
         capturedResetPayload = payload;
-        return {
-          data: {
-            success: true,
-            message: "Password reset successfully.",
-          },
-        };
+        return makeWpSuccess({ message: "Password reset successfully." });
       }
       return { data: {} };
     };
@@ -130,8 +121,6 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     // Step A: Send OTP (unauthenticated)
     const sendRes = await simulateHandler(sendOtp, {
       body: { phone: "9820123456", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
     assert.strictEqual(sendRes.status, 200);
     assert.strictEqual(sendRes.data.success, true);
@@ -141,8 +130,6 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     // Step B: Verify OTP
     const verifyRes = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "123456", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
     assert.strictEqual(verifyRes.status, 200);
     assert.strictEqual(verifyRes.data.success, true);
@@ -170,22 +157,13 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, payload) => {
       if (url.includes("/otp/store")) {
         capturedStorePayload = payload;
-        // WordPress returns user_found: false for unregistered numbers
-        return {
-          data: {
-            success: true,
-            user_found: false,
-            message: "If the number is registered, an OTP has been sent.",
-          },
-        };
+        return makeWpSuccess({ user_found: false, message: "If the number is registered, an OTP has been sent." });
       }
       return { data: {} };
     };
 
     const res = await simulateHandler(sendOtp, {
       body: { phone: "9820000000", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
 
     // Must return HTTP 200 with generic success message without leaking non-existence
@@ -198,21 +176,12 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   // 3. Wrong OTP rejection
   await suite.test("3. Wrong OTP: Rejected with 400 and generic error message", async () => {
     wp.post = async (url) => {
-      if (url.includes("/otp/verify")) {
-        const error = new Error("Invalid OTP");
-        error.response = {
-          status: 400,
-          data: { success: false, message: "Invalid OTP." },
-        };
-        throw error;
-      }
+      if (url.includes("/otp/verify")) throw makeUpstreamError("Invalid OTP.", 400);
       return { data: {} };
     };
 
     const res = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "000000", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
 
     assert.strictEqual(res.status, 400);
@@ -223,21 +192,12 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   // 4. Expired OTP rejection
   await suite.test("4. Expired OTP: Rejected when code is older than 5 minutes", async () => {
     wp.post = async (url) => {
-      if (url.includes("/otp/verify")) {
-        const error = new Error("Expired OTP");
-        error.response = {
-          status: 400,
-          data: { success: false, message: "OTP has expired." },
-        };
-        throw error;
-      }
+      if (url.includes("/otp/verify")) throw makeUpstreamError("OTP has expired.", 400);
       return { data: {} };
     };
 
     const res = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "123456", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
 
     assert.strictEqual(res.status, 400);
@@ -249,23 +209,13 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   await suite.test("5. Maximum Attempts: Locks out after 5 consecutive failures with 429", async () => {
     wp.post = async (url) => {
       if (url.includes("/otp/verify")) {
-        const error = new Error("Max attempts");
-        error.response = {
-          status: 429,
-          data: {
-            success: false,
-            message: "Too many failed attempts. Please request a new OTP.",
-          },
-        };
-        throw error;
+        throw makeUpstreamError("Too many failed attempts. Please request a new OTP.", 429);
       }
       return { data: {} };
     };
 
     const res = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "111111", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
 
     assert.strictEqual(res.status, 429);
@@ -286,22 +236,13 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
 
     wp.post = async (url) => {
       if (url.includes("/otp/store")) {
-        return {
-          data: {
-            success: true,
-            user_found: true,
-            rate_limited: true,
-            message: "If the number is registered, an OTP has been sent.",
-          },
-        };
+        return makeWpSuccess({ user_found: true, rate_limited: true, message: "If the number is registered, an OTP has been sent." });
       }
       return { data: {} };
     };
 
     const res = await simulateHandler(sendOtp, {
       body: { phone: "9820123456", purpose: "reset_password" },
-      wpUserId: 0,
-      user: null,
     });
 
     assert.strictEqual(res.status, 200);
@@ -315,14 +256,8 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     let callCount = 0;
     wp.post = async (url) => {
       if (url.includes("/otp/verify")) {
-        callCount++;
-        if (callCount === 1) {
-          return { data: { success: true, reset_token: "token_123" } };
-        }
-        // Second call with same OTP must fail because it was deleted
-        const error = new Error("Invalid or expired OTP.");
-        error.response = { status: 400, data: { success: false, message: "Invalid or expired OTP." } };
-        throw error;
+        if (++callCount === 1) return makeWpSuccess({ reset_token: "token_123" });
+        throw makeUpstreamError("Invalid or expired OTP.", 400);
       }
       return { data: {} };
     };
@@ -330,14 +265,12 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     // First attempt succeeds
     const firstRes = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "123456", purpose: "reset_password" },
-      wpUserId: 0,
     });
     assert.strictEqual(firstRes.status, 200);
 
     // Replay attempt fails
     const replayRes = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "123456", purpose: "reset_password" },
-      wpUserId: 0,
     });
     assert.strictEqual(replayRes.status, 400);
   });
@@ -346,7 +279,7 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   await suite.test("8. Invalidation: Reset authorization token is invalidated upon password update", async () => {
     wp.post = async (url) => {
       if (url.includes("/otp/reset-password")) {
-        return { data: { success: true, message: "Password reset successfully." } };
+        return makeWpSuccess({ message: "Password reset successfully." });
       }
       return { data: {} };
     };
@@ -368,16 +301,8 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     let resetCount = 0;
     wp.post = async (url) => {
       if (url.includes("/otp/reset-password")) {
-        resetCount++;
-        if (resetCount === 1) {
-          return { data: { success: true, message: "Password reset successfully." } };
-        }
-        const error = new Error("Token expired");
-        error.response = {
-          status: 401,
-          data: { success: false, message: "Reset session expired or invalid. Please verify OTP again." },
-        };
-        throw error;
+        if (++resetCount === 1) return makeWpSuccess({ message: "Password reset successfully." });
+        throw makeUpstreamError("Reset session expired or invalid. Please verify OTP again.", 401);
       }
       return { data: {} };
     };
@@ -397,16 +322,11 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
   // 10. User cannot use verify_phone OTP for password reset
   await suite.test("10. Purpose Isolation: verify_phone OTP cannot be used to reset password", async () => {
     wp.post = async (url, payload) => {
-      if (url.includes("/otp/verify")) {
-        // If purpose was verify_phone, reset_token is NOT issued
-        if (payload.purpose === "verify_phone") {
-          return { data: { success: true, message: "Phone verified successfully." } };
-        }
+      if (url.includes("/otp/verify") && payload.purpose === "verify_phone") {
+        return makeWpSuccess({ message: "Phone verified successfully." });
       }
       if (url.includes("/otp/reset-password")) {
-        const error = new Error("Missing reset token");
-        error.response = { status: 400, data: { success: false, message: "Missing parameters." } };
-        throw error;
+        throw makeUpstreamError("Missing parameters.", 400);
       }
       return { data: {} };
     };
@@ -430,21 +350,13 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, payload) => {
       if (url.includes("/otp/verify")) {
         assert.strictEqual(payload.purpose, "reset_password");
-        // WordPress implementation only sets _mumbai_is_phone_verified when purpose === 'verify_phone'
-        return {
-          data: {
-            success: true,
-            reset_token: "valid_reset_token",
-            // Notice: is_phone_verified is NOT returned or set for reset_password
-          },
-        };
+        return makeWpSuccess({ reset_token: "valid_reset_token" });
       }
       return { data: {} };
     };
 
     const res = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "123456", purpose: "reset_password" },
-      wpUserId: 0,
     });
 
     assert.strictEqual(res.status, 200);
@@ -459,11 +371,11 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, payload) => {
       if (url.includes("/forgot-password")) {
         capturedForgotPayload = payload;
-        return { data: { success: true, message: "Password reset email sent." } };
+        return makeWpSuccess({ message: "Password reset email sent." });
       }
       if (url.includes("/reset-password")) {
         capturedResetPayload = payload;
-        return { data: { success: true, message: "Password reset successful." } };
+        return makeWpSuccess({ message: "Password reset successful." });
       }
       return { data: {} };
     };
@@ -486,29 +398,21 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
 
   // 13. Google-authenticated users can still use mobile forgot-password
   await suite.test("13. Google Users: Customer who signed up with Google can use mobile OTP to reset password", async () => {
-    wp.post = async (url, payload) => {
-      if (url.includes("/otp/store")) {
-        return { data: { success: true, message: "If the number is registered, an OTP has been sent." } };
-      }
-      if (url.includes("/otp/verify")) {
-        return { data: { success: true, reset_token: "google_user_reset_token" } };
-      }
-      if (url.includes("/otp/reset-password")) {
-        return { data: { success: true, message: "Password reset successfully." } };
-      }
+    wp.post = async (url) => {
+      if (url.includes("/otp/store")) return makeWpSuccess({ message: "If the number is registered, an OTP has been sent." });
+      if (url.includes("/otp/verify")) return makeWpSuccess({ reset_token: "google_user_reset_token" });
+      if (url.includes("/otp/reset-password")) return makeWpSuccess({ message: "Password reset successfully." });
       return { data: {} };
     };
 
     // Google user with registered mobile requests reset
     const sendRes = await simulateHandler(sendOtp, {
       body: { phone: "9820123456", purpose: "reset_password" },
-      wpUserId: 0,
     });
     assert.strictEqual(sendRes.status, 200);
 
     const verifyRes = await simulateHandler(verifyOtp, {
       body: { phone: "9820123456", otp: "123456", purpose: "reset_password" },
-      wpUserId: 0,
     });
     assert.strictEqual(verifyRes.status, 200);
     assert.ok(verifyRes.data.reset_token);
@@ -526,14 +430,11 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
       if (url.includes("/wp-json/mumbai-auth/v1/login")) {
         assert.strictEqual(payload.email, "customer@example.com");
         assert.strictEqual(payload.password, "NewPassword123!");
-        return {
-          data: {
-            success: true,
-            session: "mock_session_token",
-            cookie_name: "wordpress_logged_in_xyz",
-            user: { id: 101, email: "customer@example.com", name: "Test User" },
-          },
-        };
+        return makeWpSuccess({
+          session: "mock_session_token",
+          cookie_name: "wordpress_logged_in_xyz",
+          user: { id: 101, email: "customer@example.com", name: "Test User" },
+        });
       }
       return { data: {} };
     };
@@ -561,14 +462,11 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
 
     axios.post = async (url) => {
       if (url.includes("/wp-json/mumbai-auth/v1/sso")) {
-        return {
-          data: {
-            success: true,
-            session: "mock_sso_session",
-            cookie_name: "wordpress_logged_in_abc",
-            user: { id: 102, email: "googleuser@gmail.com", name: "Google User" },
-          },
-        };
+        return makeWpSuccess({
+          session: "mock_sso_session",
+          cookie_name: "wordpress_logged_in_abc",
+          user: { id: 102, email: "googleuser@gmail.com", name: "Google User" },
+        });
       }
       return { data: {} };
     };
@@ -591,32 +489,17 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, data) => {
       if (url.includes("/otp/verify")) {
         capturedVerifyPhone = data.phone;
-        return {
-          data: {
-            success: true,
-            message: "OTP verified. Proceed to reset password.",
-            reset_token: "mock_reset_token_email_user",
-          },
-        };
+        return makeWpSuccess({ message: "OTP verified. Proceed to reset password.", reset_token: "mock_reset_token_email_user" });
       }
       if (url.includes("/otp/reset-password")) {
         capturedResetPhone = data.phone;
-        return {
-          data: {
-            success: true,
-            message: "Password reset successfully.",
-          },
-        };
+        return makeWpSuccess({ message: "Password reset successfully." });
       }
       return { data: {} };
     };
 
     const verifyRes = await simulateHandler(verifyOtp, {
-      body: {
-        phone: "customer@example.com",
-        otp: "123456",
-        purpose: "reset_password",
-      },
+      body: { phone: "customer@example.com", otp: "123456", purpose: "reset_password" },
     });
 
     assert.strictEqual(verifyRes.status, 200);
@@ -624,11 +507,7 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     assert.strictEqual(capturedVerifyPhone, "customer@example.com");
 
     const resetRes = await simulateHandler(resetPasswordOtp, {
-      body: {
-        phone: "customer@example.com",
-        reset_token: "mock_reset_token_email_user",
-        new_password: "NewPassword123!",
-      },
+      body: { phone: "customer@example.com", reset_token: "mock_reset_token_email_user", new_password: "NewPassword123!" },
     });
 
     assert.strictEqual(resetRes.status, 200);
@@ -664,23 +543,11 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, payload) => {
       if (url.includes("/otp/store")) {
         capturedStorePayload = payload;
-        return {
-          data: {
-            success: true,
-            user_found: true,
-            message: "OTP stored successfully.",
-          },
-        };
+        return makeWpSuccess({ user_found: true, message: "OTP stored successfully." });
       }
       if (url.includes("/otp/verify")) {
         capturedVerifyPayload = payload;
-        return {
-          data: {
-            success: true,
-            message: "OTP verified.",
-            reset_token: "mock_token_hmac",
-          },
-        };
+        return makeWpSuccess({ message: "OTP verified.", reset_token: "mock_token_hmac" });
       }
       return { data: {} };
     };
@@ -767,30 +634,16 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
             email: "cacheduser@example.com",
             is_phone_verified: true,
             is_suspended: false,
+            expires_at: Math.floor(Date.now() / 1000) + 86400,
           },
         };
       }
       return { status: 404, data: {} };
     };
 
-    wp.post = async (url, payload) => {
-      if (url.includes("/otp/reset-password")) {
-        return {
-          data: {
-            success: true,
-            message: "Password reset successfully.",
-            user_id: 42,
-          },
-        };
-      }
-      if (url.includes("/reset-password")) {
-        return {
-          data: {
-            success: true,
-            message: "Password reset successfully.",
-            user_id: 42,
-          },
-        };
+    wp.post = async (url) => {
+      if (url.includes("/otp/reset-password") || url.includes("/reset-password")) {
+        return makeWpSuccess({ message: "Password reset successfully.", user_id: 42 });
       }
       return { data: {} };
     };
@@ -869,35 +722,26 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
     wp.post = async (url, data) => {
       if (url.includes("/otp/store")) {
         capturedStore = data;
-        return {
-          data: {
-            success: true,
-            user_found: true,
-            email: "shopper@example.com",
-            name: "Shopper Jane",
-            message: "If an account is registered with this email, an OTP has been sent.",
-          },
-        };
+        return makeWpSuccess({
+          user_found: true,
+          email: "shopper@example.com",
+          name: "Shopper Jane",
+          message: "If an account is registered with this email, an OTP has been sent.",
+        });
       }
       if (url.includes("/otp/verify")) {
         capturedVerify = data;
-        return {
-          data: {
-            success: true,
-            message: "OTP verified. Proceed to reset password.",
-            reset_token: "reset_token_email_flow_987654",
-          },
-        };
+        return makeWpSuccess({
+          message: "OTP verified. Proceed to reset password.",
+          reset_token: "reset_token_email_flow_987654",
+        });
       }
       if (url.includes("/otp/reset-password")) {
         capturedReset = data;
-        return {
-          data: {
-            success: true,
-            message: "Password reset successfully.",
-            user_id: 88,
-          },
-        };
+        return makeWpSuccess({
+          message: "Password reset successfully.",
+          user_id: 88,
+        });
       }
       return { data: {} };
     };

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Heart, ShoppingBag, ArrowLeft,
-  ChevronLeft, ArrowRight } from "lucide-react";
+  ChevronLeft, ArrowRight, RotateCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { triggerHaptic } from '../utils/haptics';
 import { useFavorites } from "../context/FavoritesContext";
@@ -11,6 +11,7 @@ function Favorites() {
   const navigate = useNavigate();
   const {
     favorites,
+    favoriteError,
     loading,
     loadingMore,
     favoritePage,
@@ -78,6 +79,29 @@ function Favorites() {
                 className="h-72 rounded-[20px] bg-[#FFFFFF] animate-pulse border border-[#E2E8F0]/60"
               />
             ))}
+          </div>
+        ) : favoriteError && favorites.length === 0 ? (
+          /* Error / Outage State */
+          <div className="flex min-h-[45vh] flex-col items-center justify-center rounded-[22px] bg-[#FFFFFF] p-8 text-center shadow-lg border border-[#E2E8F0]/80">
+            <div className="mb-3.5 flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 shadow-xs border border-amber-200">
+              <RotateCw size={30} className="text-amber-600" />
+            </div>
+            <h2 className="text-base sm:text-lg font-extrabold text-[#1E293B]">
+              Unable to load wishlist
+            </h2>
+            <p className="max-w-sm text-xs font-semibold text-[#64748B] mt-1 mb-5">
+              We couldn't connect to our catalog to load your saved items right now. Your favorites are safe.
+            </p>
+            <button
+              onClick={() => {
+                triggerHaptic("light");
+                loadFullFavorites({ page: 1 });
+              }}
+              className="inline-flex items-center gap-2 rounded-full bg-[#22499F] px-7 py-2.5 text-xs sm:text-sm font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-95 cursor-pointer"
+            >
+              <RotateCw size={16} />
+              <span>Try Again</span>
+            </button>
           </div>
         ) : favorites.length === 0 ? (
           /* Empty State */

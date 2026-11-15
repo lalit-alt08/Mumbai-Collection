@@ -109,31 +109,32 @@ const getOutageFallback = () => {
 export const getBanners = async (forceFresh = false) => {
   const now = Date.now();
 
-  // 1. If cache is valid and fresh, serve directly
+  // 1. If cache is valid and fresh, serve directly for non-forced requests
   if (!forceFresh && bannersCache && now - bannersCache.timestamp < CACHE_TTL_MS) {
     return bannersCache.data;
   }
 
-  // 2. Coalesce concurrent calls across all shoppers into one shared in-flight Promise first!
-  // Any shopper arriving while an upstream read is in progress must wait for that read rather than receiving a fallback.
-  if (bannersFetchInFlight) {
+  // 2. Coalesce concurrent calls across shoppers into one shared in-flight Promise
+  if (!forceFresh && bannersFetchInFlight) {
     return bannersFetchInFlight;
   }
 
-  // 3. Enforce a minimum interval between upstream read attempts (applies to normal & forced requests, success & failure)
-  if (now - lastUpstreamFetchTimestamp < MIN_UPSTREAM_INTERVAL_MS) {
+  // 3. Enforce a minimum interval between upstream read attempts for public shoppers
+  if (!forceFresh && (now - lastUpstreamFetchTimestamp < MIN_UPSTREAM_INTERVAL_MS)) {
     return getOutageFallback();
   }
 
   const readSaveSeq = saveSequenceCounter;
   const reqStartedAt = now;
-  // Record the start of every WordPress read attempt so failed reads respect the cooldown
-  lastUpstreamFetchTimestamp = reqStartedAt;
+  if (!forceFresh) {
+    // Record the start of every public WordPress read attempt so failed reads respect the cooldown
+    lastUpstreamFetchTimestamp = reqStartedAt;
+  }
 
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
   const endpoint = `${wpBaseUrl}/wp-json/mumbai-auth/v1/banners`;
 
-  bannersFetchInFlight = (async () => {
+  const fetchPromise = (async () => {
     try {
       const response = await axios.get(endpoint, {
         headers: {
@@ -156,6 +157,11 @@ export const getBanners = async (forceFresh = false) => {
 
       const wpBanners = response.data?.banners;
       const wpThinBanner = response.data?.thin_banner;
+      const rawVersion = response.data?.version;
+
+      if (forceFresh && (!rawVersion || !Number.isFinite(Number(rawVersion)))) {
+        throw new Error("WordPress failed to return an authoritative banner version.");
+      }
 
       const sanitized = Array.isArray(wpBanners)
         ? wpBanners.map((b, idx) => sanitizeBannerItem(b, idx)).filter(Boolean).slice(0, 3)
@@ -166,6 +172,7 @@ export const getBanners = async (forceFresh = false) => {
         : DEFAULT_THIN_BANNER;
 
       sanitized.thin_banner = sanitizedThin;
+      sanitized.version = Number.isFinite(Number(rawVersion)) ? Number(rawVersion) : 1;
 
       bannersCache = {
         data: sanitized,
@@ -173,6 +180,11 @@ export const getBanners = async (forceFresh = false) => {
       };
       return sanitized;
     } catch (error) {
+      if (forceFresh) {
+        // Fail closed for staff management — never return cached fallback or fabricated version!
+        throw error;
+      }
+
       logger.warn(
         { err: error.response?.data?.message || error.message },
         "WordPress banners fetch fallback (using default static banners)"
@@ -181,17 +193,27 @@ export const getBanners = async (forceFresh = false) => {
       // Preserve the last confirmed state during a WordPress outage, or serve safe hidden fallback
       return getOutageFallback();
     } finally {
-      bannersFetchInFlight = null;
+      if (!forceFresh && bannersFetchInFlight === fetchPromise) {
+        bannersFetchInFlight = null;
+      }
     }
   })();
 
-  return bannersFetchInFlight;
+  if (!forceFresh) {
+    bannersFetchInFlight = fetchPromise;
+  }
+
+  return fetchPromise;
 };
 
 /**
  * Persist Homepage Banners and/or Thin Banner to WordPress
  */
-export const saveBanners = async ({ banners, thin_banner } = {}) => {
+export const saveBanners = async ({ banners, thin_banner, expected_version } = {}) => {
+  if (expected_version === undefined || expected_version === null || !Number.isFinite(Number(expected_version))) {
+    throw new Error("expected_version is required to safely update banners.");
+  }
+
   let sanitizedBanners = null;
   if (Array.isArray(banners)) {
     if (banners.length > 3) {
@@ -220,6 +242,9 @@ export const saveBanners = async ({ banners, thin_banner } = {}) => {
   const payload = {};
   if (sanitizedBanners !== null) payload.banners = sanitizedBanners;
   if (sanitizedThin !== null) payload.thin_banner = sanitizedThin;
+  if (expected_version !== undefined && expected_version !== null && Number.isFinite(Number(expected_version))) {
+    payload.expected_version = Number(expected_version);
+  }
 
   const response = await axios.post(
     endpoint,
@@ -279,8 +304,13 @@ export const saveBanners = async ({ banners, thin_banner } = {}) => {
     ? response.data.thin_banner
     : (bannersCache?.data?.thin_banner || DEFAULT_THIN_BANNER);
 
+  if (!response.data?.version || !Number.isFinite(Number(response.data.version))) {
+    throw new Error("WordPress failed to confirm the updated banner version.");
+  }
+
   const result = Array.isArray(savedBanners) ? [...savedBanners] : [];
   result.thin_banner = savedThin;
+  result.version = Number(response.data.version);
 
   // Increment save sequence counter and update timestamp
   saveSequenceCounter++;

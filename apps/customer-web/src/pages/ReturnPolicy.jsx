@@ -92,7 +92,7 @@ function ReturnPolicy() {
         </div>
 
         {/* ================= 1. CONTACT STORE FOR RETURN VERIFICATION CARD ================= */}
-        <div className="rounded-[22px] border border-[#C9D2DF] bg-[#FFFFFF] p-5 shadow-[0_6px_16px_rgba(30,41,59,0.13)] sm:p-6 space-y-4">
+        <div className="policy-page-card rounded-[22px] border border-[#C9D2DF] bg-[#FFFFFF] p-5 shadow-[0_6px_16px_rgba(30,41,59,0.13)] sm:p-6 space-y-4">
           <div className="flex items-center gap-3 border-b border-[#E2E8F0]/60 pb-3.5">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#22499F]/15 text-[#22499F] border border-[#22499F]/30">
               <MessageCircle size={20} />
@@ -170,7 +170,7 @@ function ReturnPolicy() {
           {/* Dual Column Checklist */}
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             {/* Accepted / Eligible */}
-          <div className="rounded-2xl border border-[#82CAA0] bg-[#EFFAF2] p-4 sm:p-4.5 space-y-3">
+          <div className="return-eligible-card rounded-2xl border border-[#82CAA0] bg-[#EFFAF2] p-4 sm:p-4.5 space-y-3">
               <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-emerald-400 uppercase tracking-wide">
                 <CheckCircle2 size={17} className="text-emerald-400 shrink-0" />
                 Eligible for Return / Exchange
@@ -196,7 +196,7 @@ function ReturnPolicy() {
             </div>
 
             {/* Rejected / Ineligible */}
-          <div className="rounded-2xl border border-[#E8A0AB] bg-[#FFF4F5] p-4 sm:p-4.5 space-y-3">
+          <div className="return-ineligible-card rounded-2xl border border-[#E8A0AB] bg-[#FFF4F5] p-4 sm:p-4.5 space-y-3">
               <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-rose-400 uppercase tracking-wide">
                 <XCircle size={17} className="text-rose-400 shrink-0" />
                 Not Eligible for Return

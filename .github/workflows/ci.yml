@@ -68,6 +68,10 @@ jobs:
         working-directory: apps/customer-web
         run: pnpm test
 
+      - name: Run admin-dashboard tests
+        working-directory: apps/admin-dashboard
+        run: pnpm test
+
       - name: Build employee-panel
         working-directory: apps/employee-panel
         run: pnpm build

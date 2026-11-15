@@ -31,6 +31,14 @@ export const getFavoriteIds = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Get favorite IDs error");
+    if (error.code === "FAVORITES_UNAVAILABLE" || error.statusCode === 503) {
+      return res.status(503).json({
+        success: false,
+        code: "FAVORITES_UNAVAILABLE",
+        message: "Favorites temporarily unavailable.",
+        productIds: [],
+      });
+    }
     return res.status(500).json({
       success: false,
       message: "Failed to load favorite IDs.",
@@ -135,6 +143,13 @@ export const getFavorites = async (req, res) => {
     }
   } catch (error) {
     logError(req, error, "Get favorites error");
+    if (error.code === "FAVORITES_UNAVAILABLE" || error.statusCode === 503) {
+      return res.status(503).json({
+        success: false,
+        code: "FAVORITES_UNAVAILABLE",
+        message: "Favorites temporarily unavailable.",
+      });
+    }
     res.status(500).json({
       success: false,
       message: "Failed to load favorites.",

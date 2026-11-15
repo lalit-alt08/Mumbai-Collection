@@ -4,6 +4,9 @@ import axios from "axios";
 import wcApi from "../src/config/woocommerce.js";
 import { me } from "../src/controllers/authController.js";
 
+const makeCookie = (name) =>
+  `wordpress_logged_in_test=${name}|${Math.floor(Date.now() / 1000) + 3600}|${name}_token|test_hmac`;
+
 const runMe = async ({ context, cookie, wpProfile }) => {
   const req = {
     query: { context },
@@ -66,7 +69,7 @@ test("/auth/me avoids WooCommerce customer lookup for staff and keeps it for cus
 
     const { statusCode, body } = await runMe({
       context,
-      cookie: `${context}-session`,
+      cookie: makeCookie(context),
       wpProfile: profile,
     });
 
@@ -87,7 +90,7 @@ test("/auth/me avoids WooCommerce customer lookup for staff and keeps it for cus
   };
   const { statusCode, body } = await runMe({
     context: "customer",
-    cookie: "customer-session",
+    cookie: makeCookie("customer"),
     wpProfile: profile,
   });
 

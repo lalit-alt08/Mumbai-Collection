@@ -143,21 +143,37 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
   const { default: api } = await import("../src/config/woocommerce.js");
   const { default: wp } = await import("../src/services/wordpress.js");
 
-  const originalGet = api.get;
+  const originalApiGet = api.get;
   const originalWpGet = wp.get;
-  wp.get = async () => { throw new Error("WP offline"); };
 
-  const restoreApi = () => {
-    api.get = originalGet;
-  };
+  const mockFreshSummary = (totalRevenue = 2500, totalOrders = 1) => ({
+    data: {
+      success: true,
+      totalRevenue,
+      completedRevenue: totalRevenue,
+      shippingRevenue: 50,
+      discountTotal: 0,
+      avgOrderValue: totalRevenue,
+      totalOrders,
+      statusCounts: { completed: totalOrders, processing: 0, cancelled: 0, refunded: 0 },
+      payments: {
+        cod: { count: totalOrders, revenue: totalRevenue },
+        online: { count: 0, revenue: 0 },
+      },
+      topProducts: [],
+      topCustomers: [],
+      customerMetrics: { totalUniqueCustomers: 1, repeatCustomerRate: 0 },
+      weeklyTrend: {},
+    },
+  });
 
   t.afterEach(() => {
-    restoreApi();
-    wp.get = async () => { throw new Error("WP offline"); };
+    api.get = originalApiGet;
+    wp.get = originalWpGet;
     serverCache.delete("admin:analytics:deep");
   });
 
-  await t.test("normal GET returns cached analytics without fetching WooCommerce", async () => {
+  await t.test("normal GET returns cached analytics without fetching upstream API", async () => {
     const cachedPayload = {
       success: true,
       data: {
@@ -169,10 +185,10 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
 
     serverCache.set("admin:analytics:deep", cachedPayload, 120000);
 
-    let apiCalled = false;
-    api.get = async () => {
-      apiCalled = true;
-      return { data: [], headers: { "x-wp-totalpages": "1" } };
+    let wpCalled = false;
+    wp.get = async () => {
+      wpCalled = true;
+      return mockFreshSummary();
     };
 
     let responseData = null;
@@ -182,15 +198,16 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
         responseData = data;
       },
       status: () => res,
+      set: () => {},
     };
 
     await getAdminAnalytics(req, res);
 
-    assert.equal(apiCalled, false, "WooCommerce API must not be called on cache hit");
+    assert.equal(wpCalled, false, "Upstream reporting API must not be called on cache hit");
     assert.deepEqual(responseData, cachedPayload, "Must return cached payload directly");
   });
 
-  await t.test("GET ?refresh=true bypasses cache, fetches fresh WooCommerce data, and updates cache", async () => {
+  await t.test("GET ?refresh=true bypasses cache, fetches fresh WordPress HPOS data, and updates cache", async () => {
     const stalePayload = {
       success: true,
       data: {
@@ -201,27 +218,11 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
 
     serverCache.set("admin:analytics:deep", stalePayload, 120000);
 
-    const freshOrders = [
-      {
-        id: 101,
-        status: "completed",
-        total: "2500",
-        shipping_total: "50",
-        discount_total: "0",
-        payment_method: "cod",
-        payment_method_title: "Cash on delivery",
-        billing: { first_name: "Fresh", last_name: "Buyer", email: "fresh@mumbai.com", phone: "9876543210" },
-        line_items: [
-          { product_id: 50, name: "Fresh Item", quantity: 2, total: "2450", image: { src: "https://img.test/50.jpg" } },
-        ],
-      },
-    ];
-
-    let apiCalled = false;
-    api.get = async (endpoint) => {
-      apiCalled = true;
-      assert.equal(endpoint, "orders");
-      return { data: freshOrders, headers: { "x-wp-totalpages": "1" } };
+    let wpCalled = false;
+    wp.get = async (url) => {
+      wpCalled = true;
+      assert.ok(url.includes("/wp-json/mumbai-auth/v1/admin/analytics-summary"), "Must query HPOS analytics summary");
+      return mockFreshSummary(2500, 1);
     };
 
     let responseData = null;
@@ -231,11 +232,12 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
         responseData = data;
       },
       status: () => res,
+      set: () => {},
     };
 
     await getAdminAnalytics(req, res);
 
-    assert.equal(apiCalled, true, "WooCommerce API MUST be called when refresh=true");
+    assert.equal(wpCalled, true, "WordPress HPOS reporting endpoint MUST be called when refresh=true");
     assert.notDeepEqual(responseData, stalePayload, "Response must not be stale payload");
     assert.equal(responseData.data.revenue.totalRevenue, 2500, "Must calculate fresh revenue");
     assert.equal(responseData.data.orders.total, 1, "Must calculate fresh order count");
@@ -253,10 +255,10 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
     };
     serverCache.set("admin:analytics:deep", stalePayload, 120000);
 
-    let apiCalled = false;
-    api.get = async () => {
-      apiCalled = true;
-      return { data: [], headers: { "x-wp-totalpages": "1" } };
+    let wpCalled = false;
+    wp.get = async () => {
+      wpCalled = true;
+      return mockFreshSummary(3200, 2);
     };
 
     let responseData = null;
@@ -266,22 +268,24 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
         responseData = data;
       },
       status: () => res,
+      set: () => {},
     };
 
     await getAdminAnalytics(req, res);
 
-    assert.equal(apiCalled, true, "WooCommerce API MUST be called when refresh=1");
+    assert.equal(wpCalled, true, "Reporting API MUST be called when refresh=1");
     assert.notDeepEqual(responseData, stalePayload);
+    assert.equal(responseData.data.revenue.totalRevenue, 3200);
   });
 
   await t.test("refresh does not invalidate unrelated caches", async () => {
     serverCache.set("employee:overview:summary", { untouched: true }, 60000);
     serverCache.set("catalog:products:list", { cat: true }, 60000);
 
-    api.get = async () => ({ data: [], headers: { "x-wp-totalpages": "1" } });
+    wp.get = async () => mockFreshSummary();
 
     const req = { query: { refresh: "true" } };
-    const res = { json: () => {}, status: () => res };
+    const res = { json: () => {}, status: () => res, set: () => {} };
 
     await getAdminAnalytics(req, res);
 
@@ -292,40 +296,55 @@ test("Analytics Accuracy — Manual Refresh (?refresh=true)", async (t) => {
     serverCache.delete("catalog:products:list");
   });
 
-  await t.test("subsequent normal GET receives the refreshed cached payload without calling WooCommerce", async () => {
-    const freshOrders = [
-      {
-        id: 202,
-        status: "completed",
-        total: "4000",
-        billing: { first_name: "Repeat", last_name: "Tester", email: "repeat@test.com" },
-        line_items: [],
-      },
-    ];
-
-    let apiCallCount = 0;
-    api.get = async () => {
-      apiCallCount++;
-      return { data: freshOrders, headers: { "x-wp-totalpages": "1" } };
+  await t.test("subsequent normal GET receives the refreshed cached payload without calling reporting API", async () => {
+    let wpCallCount = 0;
+    wp.get = async () => {
+      wpCallCount++;
+      return mockFreshSummary(4000, 3);
     };
 
     // 1. Initial refresh call to populate cache
     const refreshReq = { query: { refresh: "true" } };
     let refreshResData = null;
-    const refreshRes = { json: (d) => { refreshResData = d; }, status: () => refreshRes };
+    const refreshRes = { json: (d) => { refreshResData = d; }, status: () => refreshRes, set: () => {} };
     await getAdminAnalytics(refreshReq, refreshRes);
 
-    assert.equal(apiCallCount, 1, "API called once during refresh");
+    assert.equal(wpCallCount, 1, "API called once during refresh");
     assert.equal(refreshResData.data.revenue.totalRevenue, 4000);
 
     // 2. Subsequent normal GET call without refresh
     const normalReq = { query: {} };
     let normalResData = null;
-    const normalRes = { json: (d) => { normalResData = d; }, status: () => normalRes };
+    const normalRes = { json: (d) => { normalResData = d; }, status: () => normalRes, set: () => {} };
     await getAdminAnalytics(normalReq, normalRes);
 
-    assert.equal(apiCallCount, 1, "API must NOT be called on subsequent normal GET");
+    assert.equal(wpCallCount, 1, "API must NOT be called on subsequent normal GET");
     assert.deepEqual(normalResData, refreshResData, "Subsequent GET must receive the refreshed cached payload");
   });
-});
 
+  await t.test("fails closed with 503 when reporting endpoint is unavailable (never hangs on slow REST loop)", async () => {
+    wp.get = async () => {
+      throw new Error("WordPress reporting endpoint offline");
+    };
+
+    let statusCode = null;
+    let responseBody = null;
+    const req = { query: { refresh: "true" } };
+    const res = {
+      status: (code) => {
+        statusCode = code;
+        return res;
+      },
+      json: (data) => {
+        responseBody = data;
+      },
+      set: () => {},
+    };
+
+    await getAdminAnalytics(req, res);
+
+    assert.equal(statusCode, 503, "Must return HTTP 503 when reporting endpoint is offline");
+    assert.equal(responseBody.success, false);
+    assert.match(responseBody.message, /temporarily unavailable/i);
+  });
+});

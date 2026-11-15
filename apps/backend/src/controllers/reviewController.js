@@ -13,6 +13,24 @@ import wp from "../services/wordpress.js";
 const reviewMutex = new Map();
 
 /**
+ * Standard 404 response for review lookups (prevents IDOR leakage)
+ */
+const reviewNotFound = (res) =>
+  res.status(404).json({
+    success: false,
+    message: "Review not found.",
+  });
+
+/**
+ * Invalidate product review and catalog card caches
+ */
+const invalidateProductReviewCache = (productId) => {
+  if (!productId) return;
+  serverCache.delete(`reviews:product:${productId}`);
+  serverCache.delete(`catalog:product:${productId}`);
+};
+
+/**
  * Decode HTML entities returned by WordPress / WooCommerce
  */
 const decodeHtmlEntities = (str) => {
@@ -472,8 +490,7 @@ export const createOrUpdateReview = async (req, res) => {
       const resultReview = createRes.data;
 
       // Targeted cache invalidation: invalidate only this product's reviews and product card cache
-      serverCache.delete(`reviews:product:${productId}`);
-      serverCache.delete(`catalog:product:${productId}`);
+      invalidateProductReviewCache(productId);
 
       return res.status(200).json({
         success: true,
@@ -527,10 +544,7 @@ export const deleteReview = async (req, res) => {
       reviewData = reviewRes.data;
     } catch (_) {
       // Nonexistent review in WooCommerce -> generic 404 (prevents leaking 500 error)
-      return res.status(404).json({
-        success: false,
-        message: "Review not found.",
-      });
+      return reviewNotFound(res);
     }
 
     // Ownership check: If review does not exist or belongs to another user, return 404
@@ -540,10 +554,7 @@ export const deleteReview = async (req, res) => {
       !reviewData.reviewer_email ||
       reviewData.reviewer_email.toLowerCase() !== (reviewerEmail || "").toLowerCase()
     ) {
-      return res.status(404).json({
-        success: false,
-        message: "Review not found.",
-      });
+      return reviewNotFound(res);
     }
 
     await api.delete(`products/reviews/${reviewId}`, {
@@ -551,10 +562,7 @@ export const deleteReview = async (req, res) => {
     });
 
     // Note: Delete-then-re-post remains permitted by design. Rate limiting (reviewLimiter: 5/15m) bounds submissions.
-    if (reviewData?.product_id) {
-      serverCache.delete(`reviews:product:${reviewData.product_id}`);
-      serverCache.delete(`catalog:product:${reviewData.product_id}`);
-    }
+    invalidateProductReviewCache(reviewData?.product_id);
 
     return res.json({
       success: true,

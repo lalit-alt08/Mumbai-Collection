@@ -7,6 +7,7 @@ import {
   verifyOtp,
   register,
   me,
+  hashOtp,
 } from "../src/controllers/authController.js";
 import {
   getProfile,
@@ -18,6 +19,9 @@ import {
   checkSessionPhoneVerified,
 } from "../src/middlewares/authMiddleware.js";
 import { normalizePhoneNumber } from "../src/services/brevoService.js";
+
+const makeWordPressCookie = (token) =>
+  `wordpress_logged_in_test=user|${Math.floor(Date.now() / 1000) + 3600}|${token}|test_hmac`;
 
 test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (suite) => {
   const originalEnv = { ...process.env };
@@ -277,7 +281,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     const res = await simulateHandler(me, {
-      cookies: { mumbai_customer_auth: "test_session_cookie" },
+      cookies: { mumbai_customer_auth: makeWordPressCookie("test_session_cookie") },
       headers: { "x-mumbai-panel": "customer" },
     });
 
@@ -529,13 +533,14 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     assert.strictEqual(capturedVerifyPayload.purpose, "reset_password");
   });
 
-  // 19. Backend authorization: requireVerifiedPhone blocks unverified customer on protected endpoints
-  await suite.test("19. Backend Authorization: requireVerifiedPhone blocks unverified user with 403", async () => {
+  // Checkout requires a valid delivery number, not account-phone verification.
+  await suite.test("19. Backend Authorization: checkout requires authentication and a valid delivery phone", async () => {
     let nextCalled = false;
     const reqUnverified = {
       wpUserId: 101,
       user: { id: 101, is_phone_verified: false },
       isPhoneVerified: false,
+      body: { phone: "9820123456" },
     };
     const res = {
       statusCode: 200,
@@ -544,9 +549,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     requireVerifiedPhone(reqUnverified, res, () => { nextCalled = true; });
-    assert.strictEqual(nextCalled, false, "next() must not be called for unverified user");
-    assert.strictEqual(res.statusCode, 403);
-    assert.strictEqual(res.data.code, "PHONE_NOT_VERIFIED");
+    assert.strictEqual(nextCalled, true, "a valid delivery phone is sufficient for an authenticated user");
 
     // Verified user succeeds and invokes next()
     let nextCalledVerified = false;
@@ -554,9 +557,15 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
       wpUserId: 101,
       user: { id: 101, is_phone_verified: true },
       isPhoneVerified: true,
+      body: { phone: "9820123456" },
     };
     requireVerifiedPhone(reqVerified, res, () => { nextCalledVerified = true; });
     assert.strictEqual(nextCalledVerified, true, "next() must be called for verified user");
+
+    const invalidPhone = { wpUserId: 101, user: { id: 101 }, body: { phone: "123" } };
+    requireVerifiedPhone(invalidPhone, res, () => assert.fail("invalid phone must not pass"));
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.data.code, "INVALID_CONTACT_PHONE");
 
     // Unauthenticated request returns 401
     let nextCalledUnauth = false;
@@ -568,20 +577,22 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
 
   // 20. Backend authorization: checkSessionPhoneVerified checks session status accurately
   await suite.test("20. Backend Authorization: checkSessionPhoneVerified returns false for unverified customer and true for verified", async () => {
+    const unverifiedCookie = makeWordPressCookie("unverified");
+    const verifiedCookie = makeWordPressCookie("verified");
     axios.get = async (url, config) => {
-      if (config?.headers?.Cookie === "unverified_cookie") {
+      if (config?.headers?.Cookie === unverifiedCookie) {
         return { data: { logged_in: true, current_user_id: 101, is_phone_verified: false } };
       }
-      if (config?.headers?.Cookie === "verified_cookie") {
+      if (config?.headers?.Cookie === verifiedCookie) {
         return { data: { logged_in: true, current_user_id: 102, is_phone_verified: true } };
       }
       return { data: { logged_in: false } };
     };
 
-    const unverifiedResult = await checkSessionPhoneVerified("unverified_cookie");
+    const unverifiedResult = await checkSessionPhoneVerified(unverifiedCookie);
     assert.strictEqual(unverifiedResult, false);
 
-    const verifiedResult = await checkSessionPhoneVerified("verified_cookie");
+    const verifiedResult = await checkSessionPhoneVerified(verifiedCookie);
     assert.strictEqual(verifiedResult, true);
 
     const emptyResult = await checkSessionPhoneVerified(null);
@@ -608,7 +619,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     const meRes = await simulateHandler(me, {
-      cookies: { mumbai_customer_auth: "legacy_cookie" },
+      cookies: { mumbai_customer_auth: makeWordPressCookie("legacy_cookie") },
     });
 
     assert.strictEqual(meRes.status, 200);
@@ -636,7 +647,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     const meRes = await simulateHandler(me, {
-      cookies: { mumbai_customer_auth: "valid_verified_cookie" },
+      cookies: { mumbai_customer_auth: makeWordPressCookie("valid_verified_cookie") },
     });
 
     assert.strictEqual(meRes.status, 200);
@@ -665,7 +676,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     const meRes = await simulateHandler(me, {
-      cookies: { mumbai_customer_auth: "mismatched_phone_cookie" },
+      cookies: { mumbai_customer_auth: makeWordPressCookie("mismatched_phone_cookie") },
     });
 
     assert.strictEqual(meRes.status, 200);
@@ -785,7 +796,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     const meRes = await simulateHandler(me, {
-      cookies: { mumbai_customer_auth: "google_sso_cookie" },
+      cookies: { mumbai_customer_auth: makeWordPressCookie("google_sso_cookie") },
     });
 
     assert.strictEqual(meRes.status, 200);
@@ -848,13 +859,14 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     assert.strictEqual(sendRes.data.message, "This phone number is already registered to another account.");
   });
 
-  // 30. Missing _mumbai_verified_phone safe behavior
-  await suite.test("30. Safe Behavior: Missing _mumbai_verified_phone enforces unverified state on protected routes", async () => {
+  // A missing verified-account phone does not block a valid delivery contact.
+  await suite.test("30. Checkout accepts a valid delivery phone without account-phone verification", async () => {
     let nextCalled = false;
     const req = {
       wpUserId: 1,
       isPhoneVerified: false,
       user: { id: 1, is_phone_verified: false },
+      body: { phone: "9820123456" },
     };
     const res = {
       statusCode: 200,
@@ -863,9 +875,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     };
 
     requireVerifiedPhone(req, res, () => { nextCalled = true; });
-    assert.strictEqual(nextCalled, false);
-    assert.strictEqual(res.statusCode, 403);
-    assert.strictEqual(res.data.code, "PHONE_NOT_VERIFIED");
+    assert.strictEqual(nextCalled, true);
   });
 
   // 31. Registration OTP: sendOtp allows purpose "register" for new email
@@ -924,16 +934,11 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     assert.strictEqual(res.data.code, "email_exists");
   });
 
-  // 33. Registration: register verifies OTP and auto-generates password if omitted
-  await suite.test("33. Registration: register verifies OTP and auto-generates password if omitted", async () => {
-    let verifiedOtpPayload = null;
+  // Registration forwards the hashed OTP to the atomic WordPress registration endpoint.
+  await suite.test("33. Registration: register forwards the OTP hash to WordPress", async () => {
     let registeredPayload = null;
 
     wp.post = async (url, payload) => {
-      if (url.includes("/otp/verify")) {
-        verifiedOtpPayload = payload;
-        return { data: { success: true, verified: true } };
-      }
       if (url.includes("/register")) {
         registeredPayload = payload;
         return {
@@ -961,11 +966,10 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
     });
 
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(verifiedOtpPayload.purpose, "register");
-    assert.strictEqual(verifiedOtpPayload.phone, "aarav@example.com");
+    assert.strictEqual(registeredPayload.otp_hash, hashOtp("123456"));
+    assert.strictEqual(registeredPayload.email, "aarav@example.com");
     assert.strictEqual(registeredPayload.first_name, "Aarav");
     assert.strictEqual(registeredPayload.last_name, "Sharma");
-    assert.ok(registeredPayload.password.length >= 20, "Generated secure password");
     assert.strictEqual(res.data.user.id, 88);
   });
 
@@ -995,7 +999,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
   // 34. Registration: register fails when OTP verification fails
   await suite.test("34. Registration: register fails when OTP verification fails", async () => {
     wp.post = async (url) => {
-      if (url.includes("/otp/verify")) {
+      if (url.includes("/otp/verify") || url.includes("/register")) {
         const err = new Error("Bad Request");
         err.response = {
           status: 400,
@@ -1036,6 +1040,7 @@ test("Phase 3: Registration Phone Verification & Hardening Test Suite", async (s
             session: "rotated_logged_in_session",
             cookie_name: "wordpress_logged_in_mock",
             rest_nonce: "rotated_nonce",
+            expires_at: Math.floor(Date.now() / 1000) + 86400,
           },
         };
       }
