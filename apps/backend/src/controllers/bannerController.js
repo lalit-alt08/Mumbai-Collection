@@ -26,6 +26,16 @@ export const getPublicBanners = async (req, res) => {
       if (transformedThin && transformedThin.media_type === "video" && !transformedThin.video_url) {
         transformedThin.media_type = "image";
       }
+      // Ensure video_url carries a version cache-buster (e.g. video_media_id or banner version)
+      // to immediately bypass poisoned CDN edge caches from previous deployments
+      if (transformedThin?.video_url && (thinBanner.video_media_id || data.version)) {
+        const vTag = `v=${thinBanner.video_media_id || data.version || 2}`;
+        if (!transformedThin.video_url.includes("?")) {
+          transformedThin.video_url = `${transformedThin.video_url}?${vTag}`;
+        } else if (!transformedThin.video_url.includes("v=")) {
+          transformedThin.video_url = `${transformedThin.video_url}&${vTag}`;
+        }
+      }
       publicThin = transformedThin;
     }
 

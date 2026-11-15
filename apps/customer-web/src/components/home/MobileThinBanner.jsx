@@ -279,7 +279,6 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
           autoPlay
           playsInline
           muted
-          defaultMuted
           loop
           preload="metadata"
           onPlaying={(event) => {
