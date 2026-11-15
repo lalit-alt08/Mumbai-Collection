@@ -545,7 +545,7 @@ export const getHomeShelves = async (req, res) => {
         );
 
         const shelves = new Array(homeDepartments.length);
-        progress.partial = { categories: offset === 0 ? departments.slice(0, 12) : [], shelves, pagination: { page: currentPage, per_page: HOME_SHELF_COUNT, total_departments: departments.length, next_offset: offset, has_more: offset < departments.length } };
+        progress.partial = { categories: offset === 0 ? departments.slice(0, 60) : [], shelves, pagination: { page: currentPage, per_page: HOME_SHELF_COUNT, total_departments: departments.length, next_offset: offset, has_more: offset < departments.length } };
         let nextIndex = 0;
         const worker = async () => {
           while (nextIndex < homeDepartments.length) {
@@ -598,7 +598,7 @@ export const getHomeShelves = async (req, res) => {
         const nextOffset = offset + consumedDepartments;
 
         const completed = {
-          categories: offset === 0 ? departments.slice(0, 12) : [],
+          categories: offset === 0 ? departments.slice(0, 60) : [],
           shelves: visibleShelves,
           pagination: {
             page: currentPage,
