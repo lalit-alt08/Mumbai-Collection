@@ -46,7 +46,7 @@ const makeRequest = async (server, method, path, { headers = {}, body = null } =
 
 test("Stock Validation & Idempotency Loop Regression Test Suite", async (t) => {
   const originalApiGet = api.get;
-  const originalAxiosGet = axios.get;
+  const originalAxiosGet = axios.get; const originalAxiosPost = axios.post;
   const originalGetStoreStatus = storeHoursService.getStoreStatus;
 
   const app = express();
@@ -80,13 +80,13 @@ test("Stock Validation & Idempotency Loop Regression Test Suite", async (t) => {
     } });
     _clearIdempotencyStoreForTesting();
     serverCache.clear();
-    storeHoursService.getStoreStatus = async () => ({ is_open: true });
+    storeHoursService.getStoreStatus = async () => ({ is_open: true }); axios.post = async (url) => { if (url.includes("/cart/update-customer") && typeof axios.get === "function") { return axios.get(url); } return { data: {} }; };
   });
 
   t.afterEach(() => {
     _setWpClientForTesting(null);
     api.get = originalApiGet;
-    axios.get = originalAxiosGet;
+    axios.get = originalAxiosGet; axios.post = originalAxiosPost;
     storeHoursService.getStoreStatus = originalGetStoreStatus;
     _clearIdempotencyStoreForTesting();
     serverCache.clear();
@@ -99,8 +99,8 @@ test("Stock Validation & Idempotency Loop Regression Test Suite", async (t) => {
 
   // Standard valid address
   const addresses = {
-    billing_address: { first_name: "Test", last_name: "User", email: "test@example.com", phone: "9876543210", address_1: "Street 1", city: "Mumbai", state: "MH", postcode: "400001", country: "IN" },
-    shipping_address: { first_name: "Test", last_name: "User", phone: "9876543210", address_1: "Street 1", city: "Mumbai", state: "MH", postcode: "400001", country: "IN" },
+    billing_address: { first_name: "Test", last_name: "User", email: "test@example.com", phone: "9876543210", address_1: "Street 1", city: "Vasai West", state: "MH", postcode: "401201", country: "IN" },
+    shipping_address: { first_name: "Test", last_name: "User", phone: "9876543210", address_1: "Street 1", city: "Vasai West", state: "MH", postcode: "401201", country: "IN" },
   };
 
   // 4a. create-order with an out-of-stock line returns 422 and creates no Razorpay order

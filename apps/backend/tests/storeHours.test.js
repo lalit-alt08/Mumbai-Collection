@@ -239,6 +239,7 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
 
       const mockReq = {
         body: {
+          expected_version: 1,
           manual_override: "closed",
           closed_message: "Maintenance closure",
         },
@@ -307,6 +308,7 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
     const originalSave = storeHoursService.saveStoreHoursConfig;
 
     let storedState = {
+      version: 1,
       manual_override: "open",
       is_peak_hours: false,
       peak_delivery_text: "Delivery in 2–3 hours",
@@ -333,13 +335,13 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
       };
 
       // Toggle ON
-      await toggleAdminPeakHours({ body: { is_peak_hours: true } }, mockRes);
+      await toggleAdminPeakHours({ body: { expected_version: 1, is_peak_hours: true } }, mockRes);
       assert.equal(jsonResult.success, true);
       assert.equal(jsonResult.is_peak_hours, true);
       assert.equal(jsonResult.delivery_eta_text, "Delivery in 2–3 hours");
 
       // Toggle OFF
-      await toggleAdminPeakHours({ body: { is_peak_hours: false } }, mockRes);
+      await toggleAdminPeakHours({ body: { expected_version: 1, is_peak_hours: false } }, mockRes);
       assert.equal(jsonResult.success, true);
       assert.equal(jsonResult.is_peak_hours, false);
       assert.equal(jsonResult.delivery_eta_text, "Delivery in 60–90 mins");

@@ -2246,6 +2246,7 @@ function mumbai_validate_address_input(WP_REST_Request $request)
 
 function mumbai_save_address(WP_REST_Request $request)
 {
+    global $wpdb;
     $user_id = absint(
         $request->get_header('X-Mumbai-User-ID')
     );
@@ -2257,50 +2258,105 @@ function mumbai_save_address(WP_REST_Request $request)
         );
     }
 
-    $validated = mumbai_validate_address_input($request);
-    if (is_wp_error($validated)) {
-        return $validated;
+    if (!isset($wpdb) || !method_exists($wpdb, 'get_var')) {
+        return new WP_Error(
+            'database_unavailable',
+            'Database service is currently unavailable.',
+            ['status' => 503]
+        );
     }
 
-    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
-    if (!is_array($addresses)) {
-        $addresses = [];
+    $lock = 'mumbai_addr_' . $user_id;
+    $lock_res = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock));
+    if ($lock_res === '0' || $lock_res === 0) {
+        return new WP_Error(
+            'address_busy',
+            'Address operation is in progress. Please retry.',
+            ['status' => 429]
+        );
     }
-    $new_address = [
-        'id'            => wp_generate_uuid4(),
-        'type'          => $validated['type'],
-        'first_name'    => $validated['first_name'],
-        'last_name'     => $validated['last_name'],
-        'full_name'     => $validated['full_name'],
-        'phone'         => $validated['phone'],
-        'address_line1' => $validated['address_line1'],
-        'address_line2' => $validated['address_line2'],
-        'city'          => $validated['city'],
-        'state'         => $validated['state'],
-        'pincode'       => $validated['pincode'] ? $validated['pincode'] : '',
-    ];
-    // Replace existing address of same type
-    $updated = false;
-    foreach ($addresses as $index => $address) {
-        if (isset($address['type']) && $address['type'] === $validated['type']) {
-            $addresses[$index] = $new_address;
-            $updated = true;
-            break;
+    if ($lock_res !== '1' && $lock_res !== 1) {
+        return new WP_Error(
+            'database_lock_failed',
+            'Failed to acquire database lock.',
+            ['status' => 500]
+        );
+    }
+
+    try {
+        $validated = mumbai_validate_address_input($request);
+        if (is_wp_error($validated)) {
+            return $validated;
         }
-    }
-    if (!$updated) {
+
+        // Flush WordPress user metadata cache inside lock to eliminate stale reads
+        clean_user_cache($user_id);
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete($user_id, 'user_meta');
+        }
+
+        $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+        if (!is_array($addresses)) {
+            $addresses = [];
+        }
+
+        // Strict 1 Home / 1 Office address limit: reject if type is already saved
+        foreach ($addresses as $address) {
+            if (isset($address['type']) && strtolower((string)$address['type']) === strtolower((string)$validated['type'])) {
+                return new WP_Error(
+                    'address_type_exists',
+                    sprintf(
+                        'You already have a saved %s address. Each customer can have at most one Home and one Office address.',
+                        ucfirst($validated['type'])
+                    ),
+                    ['status' => 400]
+                );
+            }
+        }
+
+        $new_address = [
+            'id'            => wp_generate_uuid4(),
+            'type'          => $validated['type'],
+            'first_name'    => $validated['first_name'],
+            'last_name'     => $validated['last_name'],
+            'full_name'     => $validated['full_name'],
+            'phone'         => $validated['phone'],
+            'address_line1' => $validated['address_line1'],
+            'address_line2' => $validated['address_line2'],
+            'city'          => $validated['city'],
+            'state'         => $validated['state'],
+            'pincode'       => $validated['pincode'] ? $validated['pincode'] : '',
+        ];
+
         $addresses[] = $new_address;
+        $saved = update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
+        if ($saved === false) {
+            clean_user_cache($user_id);
+            if (function_exists('wp_cache_delete')) {
+                wp_cache_delete($user_id, 'user_meta');
+            }
+            $current = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+            if ($current !== $addresses) {
+                return new WP_Error(
+                    'address_save_failed',
+                    'Failed to save address to database.',
+                    ['status' => 500]
+                );
+            }
+        }
+
+        if (!empty($validated['phone'])) {
+            update_user_meta($user_id, 'billing_phone', $validated['phone']);
+        }
+        return [
+            'success'   => true,
+            'message'   => ucfirst($validated['type']) . ' address saved successfully.',
+            'address'   => $new_address,
+            'addresses' => $addresses,
+        ];
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
     }
-    update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
-    if (!empty($validated['phone'])) {
-        update_user_meta($user_id, 'billing_phone', $validated['phone']);
-    }
-    return [
-        'success'   => true,
-        'message'   => ucfirst($validated['type']) . ' address saved successfully.',
-        'address'   => $new_address,
-        'addresses' => $addresses,
-    ];
 }
 /*
  * ─────────────────────────────────────────────
@@ -2309,6 +2365,7 @@ function mumbai_save_address(WP_REST_Request $request)
  */
 function mumbai_update_address(WP_REST_Request $request)
 {
+    global $wpdb;
     $user_id    = absint($request->get_header('X-Mumbai-User-ID'));
     $address_id = sanitize_text_field($request->get_param('id'));
     if (!$user_id) {
@@ -2326,54 +2383,116 @@ function mumbai_update_address(WP_REST_Request $request)
         );
     }
 
-    $validated = mumbai_validate_address_input($request);
-    if (is_wp_error($validated)) {
-        return $validated;
-    }
-
-    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
-    if (!is_array($addresses)) {
-        $addresses = [];
-    }
-    $updated      = false;
-    $updated_addr = null;
-    foreach ($addresses as $index => $address) {
-        if (isset($address['id']) && $address['id'] === $address_id) {
-            $addresses[$index] = [
-                'id'            => $address_id,
-                'type'          => $validated['type'],
-                'first_name'    => $validated['first_name'],
-                'last_name'     => $validated['last_name'],
-                'full_name'     => $validated['full_name'],
-                'phone'         => $validated['phone'],
-                'address_line1' => $validated['address_line1'],
-                'address_line2' => $validated['address_line2'],
-                'city'          => $validated['city'],
-                'state'         => $validated['state'],
-                'pincode'       => $validated['pincode'] !== '' ? $validated['pincode'] : ($address['pincode'] ?? ''),
-            ];
-            $updated      = true;
-            $updated_addr = $addresses[$index];
-            break;
-        }
-    }
-    if (!$updated) {
+    if (!isset($wpdb) || !method_exists($wpdb, 'get_var')) {
         return new WP_Error(
-            'address_not_found',
-            'Address not found.',
-            ['status' => 404]
+            'database_unavailable',
+            'Database service is currently unavailable.',
+            ['status' => 503]
         );
     }
-    update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
-    if (!empty($validated['phone'])) {
-        update_user_meta($user_id, 'billing_phone', $validated['phone']);
+
+    $lock = 'mumbai_addr_' . $user_id;
+    $lock_res = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock));
+    if ($lock_res === '0' || $lock_res === 0) {
+        return new WP_Error(
+            'address_busy',
+            'Address operation is in progress. Please retry.',
+            ['status' => 429]
+        );
     }
-    return [
-        'success'   => true,
-        'message'   => 'Address updated successfully.',
-        'address'   => $updated_addr,
-        'addresses' => $addresses,
-    ];
+    if ($lock_res !== '1' && $lock_res !== 1) {
+        return new WP_Error(
+            'database_lock_failed',
+            'Failed to acquire database lock.',
+            ['status' => 500]
+        );
+    }
+
+    try {
+        $validated = mumbai_validate_address_input($request);
+        if (is_wp_error($validated)) {
+            return $validated;
+        }
+
+        // Flush WordPress user metadata cache inside lock to eliminate stale reads
+        clean_user_cache($user_id);
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete($user_id, 'user_meta');
+        }
+
+        $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+        if (!is_array($addresses)) {
+            $addresses = [];
+        }
+
+        // Verify target address exists and prevent collision with another address of the same type
+        $target_index = -1;
+        foreach ($addresses as $index => $address) {
+            if (isset($address['id']) && (string)$address['id'] === (string)$address_id) {
+                $target_index = $index;
+            } elseif (isset($address['type']) && strtolower((string)$address['type']) === strtolower((string)$validated['type'])) {
+                return new WP_Error(
+                    'address_type_exists',
+                    sprintf(
+                        'Another %s address already exists. Each customer can have at most one Home and one Office address.',
+                        ucfirst($validated['type'])
+                    ),
+                    ['status' => 400]
+                );
+            }
+        }
+
+        if ($target_index === -1) {
+            return new WP_Error(
+                'address_not_found',
+                'Address not found.',
+                ['status' => 404]
+            );
+        }
+
+        $addresses[$target_index] = [
+            'id'            => $address_id,
+            'type'          => $validated['type'],
+            'first_name'    => $validated['first_name'],
+            'last_name'     => $validated['last_name'],
+            'full_name'     => $validated['full_name'],
+            'phone'         => $validated['phone'],
+            'address_line1' => $validated['address_line1'],
+            'address_line2' => $validated['address_line2'],
+            'city'          => $validated['city'],
+            'state'         => $validated['state'],
+            'pincode'       => $validated['pincode'] !== '' ? $validated['pincode'] : ($addresses[$target_index]['pincode'] ?? ''),
+        ];
+        $updated_addr = $addresses[$target_index];
+
+        $saved = update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
+        if ($saved === false) {
+            clean_user_cache($user_id);
+            if (function_exists('wp_cache_delete')) {
+                wp_cache_delete($user_id, 'user_meta');
+            }
+            $current = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+            if ($current !== $addresses) {
+                return new WP_Error(
+                    'address_update_failed',
+                    'Failed to update address in database.',
+                    ['status' => 500]
+                );
+            }
+        }
+
+        if (!empty($validated['phone'])) {
+            update_user_meta($user_id, 'billing_phone', $validated['phone']);
+        }
+        return [
+            'success'   => true,
+            'message'   => 'Address updated successfully.',
+            'address'   => $updated_addr,
+            'addresses' => $addresses,
+        ];
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+    }
 }
 /*
  * ─────────────────────────────────────────────
@@ -2382,6 +2501,7 @@ function mumbai_update_address(WP_REST_Request $request)
  */
 function mumbai_delete_address(WP_REST_Request $request)
 {
+    global $wpdb;
     $user_id    = absint($request->get_header('X-Mumbai-User-ID'));
     $address_id = sanitize_text_field($request->get_param('id'));
     if (!$user_id) {
@@ -2398,33 +2518,84 @@ function mumbai_delete_address(WP_REST_Request $request)
             ['status' => 400]
         );
     }
-    $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
-    if (!is_array($addresses)) {
-        $addresses = [];
-    }
-    $found = false;
-    foreach ($addresses as $index => $address) {
-        if (isset($address['id']) && $address['id'] === $address_id) {
-            unset($addresses[$index]);
-            $found = true;
-            break;
-        }
-    }
-    if (!$found) {
+
+    if (!isset($wpdb) || !method_exists($wpdb, 'get_var')) {
         return new WP_Error(
-            'address_not_found',
-            'Address not found.',
-            ['status' => 404]
+            'database_unavailable',
+            'Database service is currently unavailable.',
+            ['status' => 503]
         );
     }
-    // Re-index array
-    $addresses = array_values($addresses);
-    update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
-    return [
-        'success'   => true,
-        'message'   => 'Address deleted successfully.',
-        'addresses' => $addresses,
-    ];
+
+    $lock = 'mumbai_addr_' . $user_id;
+    $lock_res = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock));
+    if ($lock_res === '0' || $lock_res === 0) {
+        return new WP_Error(
+            'address_busy',
+            'Address operation is in progress. Please retry.',
+            ['status' => 429]
+        );
+    }
+    if ($lock_res !== '1' && $lock_res !== 1) {
+        return new WP_Error(
+            'database_lock_failed',
+            'Failed to acquire database lock.',
+            ['status' => 500]
+        );
+    }
+
+    try {
+        // Flush WordPress user metadata cache inside lock to eliminate stale reads
+        clean_user_cache($user_id);
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete($user_id, 'user_meta');
+        }
+
+        $addresses = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+        if (!is_array($addresses)) {
+            $addresses = [];
+        }
+        $found = false;
+        foreach ($addresses as $index => $address) {
+            if (isset($address['id']) && (string)$address['id'] === (string)$address_id) {
+                unset($addresses[$index]);
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            return new WP_Error(
+                'address_not_found',
+                'Address not found.',
+                ['status' => 404]
+            );
+        }
+        // Re-index array
+        $addresses = array_values($addresses);
+        $saved = update_user_meta($user_id, '_mumbai_saved_addresses', $addresses);
+        if ($saved === false) {
+            clean_user_cache($user_id);
+            if (function_exists('wp_cache_delete')) {
+                wp_cache_delete($user_id, 'user_meta');
+            }
+            $current = get_user_meta($user_id, '_mumbai_saved_addresses', true);
+            if ($current !== $addresses) {
+                return new WP_Error(
+                    'address_delete_failed',
+                    'Failed to delete address from database.',
+                    ['status' => 500]
+                );
+            }
+        }
+
+        return [
+            'success'   => true,
+            'message'   => 'Address deleted successfully.',
+            'addresses' => $addresses,
+        ];
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+    }
 }
 /*
  * ─────────────────────────────────────────────
@@ -3043,69 +3214,162 @@ function mumbai_delete_account(WP_REST_Request $request)
  */
 function mumbai_get_banners()
 {
-    $banners = get_option('mumbai_homepage_banners', []);
-    if (!is_array($banners)) {
-        $banners = [];
+    global $wpdb;
+    $lock = 'mumbai_banners_save';
+    if (!isset($wpdb) || !method_exists($wpdb, 'get_var')) {
+        return new WP_Error('db_unavailable', 'Database unavailable.', ['status' => 503]);
     }
-    $thin_banner = get_option('mumbai_mobile_thin_banner', null);
-    if (!is_array($thin_banner)) {
-        $thin_banner = [
-            'id'             => 'thin-banner-1',
-            'title'          => 'Welcome to Mumbai Collection',
-            'link'           => '',
-            'image'          => '/banners/welcome-thin-banner.webp',
-            'media_id'       => null,
-            'media_type'     => 'image',
-            'video_url'      => '',
-            'video_media_id' => null,
-            'is_active'      => true,
+    $locked = (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 2)', $lock)) === 1;
+    if (!$locked) {
+        return new WP_Error(
+            'lock_timeout',
+            'Banner configuration is currently being updated. Please retry in a moment.',
+            ['status' => 503]
+        );
+    }
+    try {
+        $bundle = get_option('mumbai_banners_bundle', null);
+        if (is_array($bundle) && isset($bundle['version']) && isset($bundle['banners'])) {
+            $banners = is_array($bundle['banners']) ? $bundle['banners'] : [];
+            $thin_banner = isset($bundle['thin_banner']) && is_array($bundle['thin_banner']) ? $bundle['thin_banner'] : null;
+            $version = (int) $bundle['version'];
+        } else {
+            $banners = get_option('mumbai_homepage_banners', []);
+            if (!is_array($banners)) {
+                $banners = [];
+            }
+            $thin_banner = get_option('mumbai_mobile_thin_banner', null);
+            $version = (int) get_option('mumbai_banners_version', 1);
+        }
+
+        if (!is_array($thin_banner)) {
+            $thin_banner = [
+                'id'             => 'thin-banner-1',
+                'title'          => 'Welcome to Mumbai Collection',
+                'link'           => '',
+                'image'          => '/banners/welcome-thin-banner.webp',
+                'media_id'       => null,
+                'media_type'     => 'image',
+                'video_url'      => '',
+                'video_media_id' => null,
+                'is_active'      => true,
+            ];
+        } else {
+            if (!isset($thin_banner['media_type'])) {
+                $thin_banner['media_type'] = !empty($thin_banner['video_url']) ? 'video' : 'image';
+            }
+            if (!array_key_exists('video_url', $thin_banner)) {
+                $thin_banner['video_url'] = '';
+            }
+            if (!array_key_exists('video_media_id', $thin_banner)) {
+                $thin_banner['video_media_id'] = null;
+            }
+        }
+        return [
+            'success'     => true,
+            'banners'     => $banners,
+            'thin_banner' => $thin_banner,
+            'version'     => $version,
         ];
-    } else {
-        if (!isset($thin_banner['media_type'])) {
-            $thin_banner['media_type'] = !empty($thin_banner['video_url']) ? 'video' : 'image';
-        }
-        if (!array_key_exists('video_url', $thin_banner)) {
-            $thin_banner['video_url'] = '';
-        }
-        if (!array_key_exists('video_media_id', $thin_banner)) {
-            $thin_banner['video_media_id'] = null;
-        }
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
     }
-    return [
-        'success'     => true,
-        'banners'     => $banners,
-        'thin_banner' => $thin_banner,
-    ];
 }
 
 function mumbai_save_banners(WP_REST_Request $request)
 {
-    $params = $request->get_json_params();
-    $banners = $params['banners'] ?? null;
-    $thin_banner = $params['thin_banner'] ?? null;
+    global $wpdb;
+    $lock = 'mumbai_banners_save';
+    if (!(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock))) {
+        return new WP_Error(
+            'lock_timeout',
+            'Banner updates are currently being processed. Please retry.',
+            ['status' => 503]
+        );
+    }
 
-    $sanitized = null;
-    if ($banners !== null) {
-        if (!is_array($banners)) {
+    try {
+        $params = $request->get_json_params();
+        $banners = $params['banners'] ?? null;
+        $thin_banner = $params['thin_banner'] ?? null;
+        $expected_version = isset($params['expected_version']) ? (int) $params['expected_version'] : null;
+
+        $bundle = get_option('mumbai_banners_bundle', null);
+        $current_version = (is_array($bundle) && isset($bundle['version']))
+            ? (int) $bundle['version']
+            : (int) get_option('mumbai_banners_version', 1);
+
+        // Require expected_version to protect against accidental stale overwrites
+        if ($expected_version === null) {
             return new WP_Error(
-                'invalid_banners_data',
-                'Banners must be provided as an array.',
+                'missing_version',
+                'Banner updates require expected_version for concurrency safety.',
                 ['status' => 400]
             );
         }
-        if (count($banners) > 3) {
+
+        // Optimistic concurrency check: ensure expected_version matches current_version
+        if ($expected_version !== $current_version) {
             return new WP_Error(
-                'too_many_banners',
-                'Maximum 3 homepage banners allowed.',
-                ['status' => 400]
+                'banner_conflict',
+                'Another staff member updated the banners while you were editing. Please reload and review the latest banners before saving.',
+                [
+                    'status'          => 409,
+                    'current_version' => $current_version,
+                ]
             );
         }
-        // Sanitize each banner object
-        $sanitized = [];
-        foreach ($banners as $index => $b) {
-            if (!is_array($b)) continue;
 
-            $raw_link = trim((string) ($b['link'] ?? ''));
+        $sanitized = null;
+        if ($banners !== null) {
+            if (!is_array($banners)) {
+                return new WP_Error(
+                    'invalid_banners_data',
+                    'Banners must be provided as an array.',
+                    ['status' => 400]
+                );
+            }
+            if (count($banners) > 3) {
+                return new WP_Error(
+                    'too_many_banners',
+                    'Maximum 3 homepage banners allowed.',
+                    ['status' => 400]
+                );
+            }
+            // Sanitize each banner object
+            $sanitized = [];
+            foreach ($banners as $index => $b) {
+                if (!is_array($b)) continue;
+
+                $raw_link = trim((string) ($b['link'] ?? ''));
+                $safe_link = '';
+                if ($raw_link !== '') {
+                    if (str_starts_with($raw_link, '/')) {
+                        $safe_link = '/' . ltrim(sanitize_text_field($raw_link), '/');
+                    } elseif (preg_match('#^https?://#i', $raw_link)) {
+                        $safe_link = esc_url_raw($raw_link, ['http', 'https']);
+                    }
+                }
+
+                $d_id = !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : null;
+                $m_id = !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : null;
+
+                $sanitized[] = [
+                    'id'               => !empty($b['id']) ? sanitize_text_field($b['id']) : 'banner-' . ($index + 1),
+                    'title'            => !empty($b['title']) ? sanitize_text_field($b['title']) : '',
+                    'link'             => $safe_link,
+                    'desktop_image'    => !empty($b['desktop_image']) ? esc_url_raw($b['desktop_image']) : '',
+                    'desktop_media_id' => $d_id,
+                    'mobile_image'     => !empty($b['mobile_image']) ? esc_url_raw($b['mobile_image']) : '',
+                    'mobile_media_id'  => $m_id,
+                    'is_active'        => isset($b['is_active']) ? (bool) $b['is_active'] : true,
+                ];
+            }
+        }
+
+        $sanitized_thin = null;
+        if ($thin_banner !== null && is_array($thin_banner)) {
+            $raw_link = trim((string) ($thin_banner['link'] ?? ''));
             $safe_link = '';
             if ($raw_link !== '') {
                 if (str_starts_with($raw_link, '/')) {
@@ -3115,149 +3379,191 @@ function mumbai_save_banners(WP_REST_Request $request)
                 }
             }
 
-            $d_id = !empty($b['desktop_media_id']) ? absint($b['desktop_media_id']) : null;
-            $m_id = !empty($b['mobile_media_id']) ? absint($b['mobile_media_id']) : null;
+            $raw_media_type = strtolower(trim((string) ($thin_banner['media_type'] ?? 'image')));
+            $media_type = ($raw_media_type === 'video') ? 'video' : 'image';
 
-            $sanitized[] = [
-                'id'               => !empty($b['id']) ? sanitize_text_field($b['id']) : 'banner-' . ($index + 1),
-                'title'            => !empty($b['title']) ? sanitize_text_field($b['title']) : '',
-                'link'             => $safe_link,
-                'desktop_image'    => !empty($b['desktop_image']) ? esc_url_raw($b['desktop_image']) : '',
-                'desktop_media_id' => $d_id,
-                'mobile_image'     => !empty($b['mobile_image']) ? esc_url_raw($b['mobile_image']) : '',
-                'mobile_media_id'  => $m_id,
-                'is_active'        => isset($b['is_active']) ? (bool) $b['is_active'] : true,
+            $poster_id = !empty($thin_banner['media_id']) ? absint($thin_banner['media_id']) : null;
+            $image_url = !empty($thin_banner['image']) ? esc_url_raw($thin_banner['image']) : '';
+            if ($poster_id) {
+                $att_url = wp_get_attachment_url($poster_id);
+                if ($att_url) {
+                    $image_url = $att_url;
+                }
+            }
+
+            $video_media_id = !empty($thin_banner['video_media_id']) ? absint($thin_banner['video_media_id']) : null;
+            // Never trust a client-provided video URL; only a validated WP attachment may be used.
+            $video_url = '';
+            if ($video_media_id) {
+                $att = get_post($video_media_id);
+                if (!$att || $att->post_type !== 'attachment' || !str_starts_with($att->post_mime_type, 'video/mp4')) {
+                    return new WP_Error(
+                        'invalid_video_attachment',
+                        'The provided video attachment ID is not a valid MP4 video.',
+                        ['status' => 400]
+                    );
+                }
+                $derived_video_url = wp_get_attachment_url($video_media_id);
+                if ($derived_video_url) {
+                    $video_url = $derived_video_url;
+                }
+            }
+
+            if ($media_type === 'video' && !$video_media_id) {
+                return new WP_Error(
+                    'missing_video_attachment',
+                    'Upload a validated MP4 attachment before selecting Video mode.',
+                    ['status' => 400]
+                );
+            }
+
+            if ($media_type === 'video' && !empty($thin_banner['is_active'])) {
+                $poster = $poster_id ? get_post($poster_id) : null;
+                $poster_url = $poster_id ? wp_get_attachment_url($poster_id) : false;
+                if (!$poster || $poster->post_type !== 'attachment' || strpos((string) $poster->post_mime_type, 'image/') !== 0 || !$poster_url) {
+                    return new WP_Error(
+                        'invalid_video_poster',
+                        'An uploaded poster image is required before publishing Video mode.',
+                        ['status' => 400]
+                    );
+                }
+                if (!$video_media_id || !$video_url) {
+                    return new WP_Error(
+                        'invalid_video_attachment',
+                        'A validated MP4 video attachment is required before publishing Video mode.',
+                        ['status' => 400]
+                    );
+                }
+            }
+
+            $sanitized_thin = [
+                'id'             => !empty($thin_banner['id']) ? sanitize_text_field($thin_banner['id']) : 'thin-banner-1',
+                'title'          => !empty($thin_banner['title']) ? sanitize_text_field($thin_banner['title']) : 'Welcome to Mumbai Collection',
+                'link'           => $safe_link,
+                'image'          => $image_url,
+                'media_id'       => $poster_id,
+                'media_type'     => $media_type,
+                'video_url'      => $video_url,
+                'video_media_id' => $video_media_id,
+                'is_active'      => isset($thin_banner['is_active']) ? (bool) $thin_banner['is_active'] : true,
+            ];
+        }
+
+        // Track all attachment IDs modified during this transaction for cache cleanup
+        $modified_media_ids = [];
+        if ($sanitized !== null) {
+            foreach ($sanitized as $b) {
+                if (!empty($b['desktop_media_id'])) $modified_media_ids[] = absint($b['desktop_media_id']);
+                if (!empty($b['mobile_media_id'])) $modified_media_ids[] = absint($b['mobile_media_id']);
+            }
+        }
+        if ($sanitized_thin !== null) {
+            if (!empty($sanitized_thin['media_id'])) $modified_media_ids[] = absint($sanitized_thin['media_id']);
+            if (!empty($sanitized_thin['video_media_id'])) $modified_media_ids[] = absint($sanitized_thin['video_media_id']);
+        }
+        $modified_media_ids = array_unique(array_filter($modified_media_ids));
+
+        $purge_banner_caches = function () use ($modified_media_ids) {
+            if (function_exists('wp_cache_delete')) {
+                wp_cache_delete('mumbai_homepage_banners', 'options');
+                wp_cache_delete('mumbai_mobile_thin_banner', 'options');
+                wp_cache_delete('mumbai_banners_bundle', 'options');
+                wp_cache_delete('mumbai_banners_version', 'options');
+            }
+            if (function_exists('clean_post_cache') && !empty($modified_media_ids)) {
+                foreach ($modified_media_ids as $m_id) {
+                    clean_post_cache($m_id);
+                }
+            }
+        };
+
+        // All persistence writes are wrapped in an atomic database transaction
+        if ($wpdb->query('START TRANSACTION') === false) {
+            return new WP_Error(
+                'transaction_start_failed',
+                'Failed to start database transaction for banner persistence.',
+                ['status' => 503]
+            );
+        }
+
+        try {
+            if ($sanitized !== null) {
+                update_option('mumbai_homepage_banners', $sanitized, false);
+                foreach ($sanitized as $b) {
+                    if (!empty($b['desktop_media_id'])) {
+                        update_post_meta($b['desktop_media_id'], '_mumbai_upload_status', 'attached');
+                    }
+                    if (!empty($b['mobile_media_id'])) {
+                        update_post_meta($b['mobile_media_id'], '_mumbai_upload_status', 'attached');
+                    }
+                }
+            } else {
+                $sanitized = get_option('mumbai_homepage_banners', []);
+            }
+
+            if ($sanitized_thin !== null) {
+                update_option('mumbai_mobile_thin_banner', $sanitized_thin, false);
+                if (!empty($sanitized_thin['media_id'])) {
+                    update_post_meta($sanitized_thin['media_id'], '_mumbai_upload_status', 'attached');
+                }
+                if (!empty($sanitized_thin['video_media_id'])) {
+                    update_post_meta($sanitized_thin['video_media_id'], '_mumbai_upload_status', 'attached');
+                }
+            } else {
+                $sanitized_thin = get_option('mumbai_mobile_thin_banner', null);
+            }
+
+            $new_version = $current_version + 1;
+            $new_bundle = [
+                'version'     => $new_version,
+                'banners'     => $sanitized,
+                'thin_banner' => $sanitized_thin,
+                'updated_at'  => time(),
             ];
 
-            if ($d_id) {
-                update_post_meta($d_id, '_mumbai_upload_status', 'attached');
+            update_option('mumbai_banners_bundle', $new_bundle, false);
+            update_option('mumbai_banners_version', $new_version, false);
+
+            if ($wpdb->query('COMMIT') === false) {
+                $wpdb->query('ROLLBACK');
+                $purge_banner_caches();
+                return new WP_Error(
+                    'transaction_commit_failed',
+                    'Failed to commit banner changes to WordPress database.',
+                    ['status' => 500]
+                );
             }
-            if ($m_id) {
-                update_post_meta($m_id, '_mumbai_upload_status', 'attached');
-            }
+        } catch (Throwable $writeErr) {
+            $wpdb->query('ROLLBACK');
+            $purge_banner_caches();
+            throw $writeErr;
         }
-        update_option('mumbai_homepage_banners', $sanitized, false);
-        $stored = get_option('mumbai_homepage_banners', null);
-        if ($stored === null || serialize($stored) !== serialize($sanitized)) {
+
+        // Post-commit authoritative verification: flush cache and inspect MySQL row directly
+        $purge_banner_caches();
+        $db_raw = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+            'mumbai_banners_bundle'
+        ));
+        $db_bundle = maybe_unserialize($db_raw);
+        if (!is_array($db_bundle) || (int) ($db_bundle['version'] ?? 0) !== $new_version) {
             return new WP_Error(
-                'mumbai_banners_save_failed',
-                'Failed to persist homepage hero banners to WordPress database.',
+                'version_verification_failed',
+                'Committed banner version could not be confirmed in database options table.',
                 ['status' => 500]
             );
         }
-        $sanitized = $stored;
-    } else {
-        $sanitized = get_option('mumbai_homepage_banners', []);
-    }
 
-    $sanitized_thin = null;
-    if ($thin_banner !== null && is_array($thin_banner)) {
-        $raw_link = trim((string) ($thin_banner['link'] ?? ''));
-        $safe_link = '';
-        if ($raw_link !== '') {
-            if (str_starts_with($raw_link, '/')) {
-                $safe_link = '/' . ltrim(sanitize_text_field($raw_link), '/');
-            } elseif (preg_match('#^https?://#i', $raw_link)) {
-                $safe_link = esc_url_raw($raw_link, ['http', 'https']);
-            }
-        }
-
-        $raw_media_type = strtolower(trim((string) ($thin_banner['media_type'] ?? 'image')));
-        $media_type = ($raw_media_type === 'video') ? 'video' : 'image';
-
-        $poster_id = !empty($thin_banner['media_id']) ? absint($thin_banner['media_id']) : null;
-        $image_url = !empty($thin_banner['image']) ? esc_url_raw($thin_banner['image']) : '';
-        if ($poster_id) {
-            $att_url = wp_get_attachment_url($poster_id);
-            if ($att_url) {
-                $image_url = $att_url;
-            }
-        }
-
-        $video_media_id = !empty($thin_banner['video_media_id']) ? absint($thin_banner['video_media_id']) : null;
-        // Never trust a client-provided video URL; only a validated WP attachment may be used.
-        $video_url = '';
-        if ($video_media_id) {
-            $att = get_post($video_media_id);
-            if (!$att || $att->post_type !== 'attachment' || !str_starts_with($att->post_mime_type, 'video/mp4')) {
-                return new WP_Error(
-                    'invalid_video_attachment',
-                    'The provided video attachment ID is not a valid MP4 video.',
-                    ['status' => 400]
-                );
-            }
-            $derived_video_url = wp_get_attachment_url($video_media_id);
-            if ($derived_video_url) {
-                $video_url = $derived_video_url;
-            }
-        }
-
-        if ($media_type === 'video' && !$video_media_id) {
-            return new WP_Error(
-                'missing_video_attachment',
-                'Upload a validated MP4 attachment before selecting Video mode.',
-                ['status' => 400]
-            );
-        }
-
-        if ($media_type === 'video' && !empty($thin_banner['is_active'])) {
-            $poster = $poster_id ? get_post($poster_id) : null;
-            $poster_url = $poster_id ? wp_get_attachment_url($poster_id) : false;
-            if (!$poster || $poster->post_type !== 'attachment' || strpos((string) $poster->post_mime_type, 'image/') !== 0 || !$poster_url) {
-                return new WP_Error(
-                    'invalid_video_poster',
-                    'An uploaded poster image is required before publishing Video mode.',
-                    ['status' => 400]
-                );
-            }
-            if (!$video_media_id || !$video_url) {
-                return new WP_Error(
-                    'invalid_video_attachment',
-                    'A validated MP4 video attachment is required before publishing Video mode.',
-                    ['status' => 400]
-                );
-            }
-        }
-
-        $sanitized_thin = [
-            'id'             => !empty($thin_banner['id']) ? sanitize_text_field($thin_banner['id']) : 'thin-banner-1',
-            'title'          => !empty($thin_banner['title']) ? sanitize_text_field($thin_banner['title']) : 'Welcome to Mumbai Collection',
-            'link'           => $safe_link,
-            'image'          => $image_url,
-            'media_id'       => $poster_id,
-            'media_type'     => $media_type,
-            'video_url'      => $video_url,
-            'video_media_id' => $video_media_id,
-            'is_active'      => isset($thin_banner['is_active']) ? (bool) $thin_banner['is_active'] : true,
+        return [
+            'success'     => true,
+            'message'     => 'Banners saved successfully in WordPress.',
+            'banners'     => $sanitized,
+            'thin_banner' => $sanitized_thin,
+            'version'     => $new_version,
         ];
-        update_option('mumbai_mobile_thin_banner', $sanitized_thin, false);
-        $stored_thin = get_option('mumbai_mobile_thin_banner', null);
-        if ($stored_thin === null || serialize($stored_thin) !== serialize($sanitized_thin)) {
-            return new WP_Error(
-                'mumbai_thin_banner_save_failed',
-                'Failed to persist mobile thin banner to WordPress database.',
-                ['status' => 500]
-            );
-        }
-        $sanitized_thin = $stored_thin;
-
-        // Mark attached assets as 'attached' so they survive pending upload cleanup
-        if ($poster_id) {
-            update_post_meta($poster_id, '_mumbai_upload_status', 'attached');
-        }
-        if ($video_media_id) {
-            update_post_meta($video_media_id, '_mumbai_upload_status', 'attached');
-        }
-    } else {
-        $sanitized_thin = get_option('mumbai_mobile_thin_banner', null);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
     }
-
-    return [
-        'success'     => true,
-        'message'     => 'Banners saved successfully in WordPress.',
-        'banners'     => $sanitized,
-        'thin_banner' => $sanitized_thin,
-    ];
 }
 
 /*
@@ -5506,29 +5812,160 @@ function mumbai_get_store_hours() {
     if ($hours === false || $hours === null) {
         $hours = get_option('mumbai_store_hours', null);
     }
+    $version = 1;
+    if (is_array($hours) && isset($hours['version'])) {
+        $version = absint($hours['version']);
+    } else {
+        $opt_ver = absint(get_option('mumbai_store_hours_version', 1));
+        if ($opt_ver > 0) $version = $opt_ver;
+        if (is_array($hours)) $hours['version'] = $version;
+    }
     return rest_ensure_response([
         'success'     => true,
         'store_hours' => $hours,
+        'version'     => $version,
         'wp_timezone' => wp_timezone_string(),
         'gmt_offset'  => (float) get_option('gmt_offset', 0),
     ]);
 }
 
 /**
- * Save store operating hours configuration to wp_options
+ * Save store operating hours configuration to wp_options with optimistic locking
  */
 function mumbai_save_store_hours(WP_REST_Request $request) {
-    $config = $request->get_param('store_hours');
-    if (!is_array($config)) {
-        return new WP_Error('invalid_config', 'store_hours must be an array/object.', ['status' => 400]);
+    global $wpdb;
+    $lock_name = 'mumbai_store_hours_save';
+    $locked = $wpdb->get_var($wpdb->prepare("SELECT GET_LOCK(%s, 5)", $lock_name));
+    if (!$locked) {
+        return new WP_Error(
+            'lock_timeout',
+            'Another store hours update is currently in progress. Please retry.',
+            ['status' => 503]
+        );
     }
-    update_option('mumbai_store_hours', $config, false);
-    set_transient('mumbai_store_hours', $config, DAY_IN_SECONDS);
-    return rest_ensure_response([
-        'success'     => true,
-        'message'     => 'Store hours updated successfully.',
-        'store_hours' => $config,
-    ]);
+
+    try {
+        $config = $request->get_param('store_hours');
+        if (!is_array($config)) {
+            return new WP_Error('invalid_config', 'store_hours must be an array/object.', ['status' => 400]);
+        }
+
+        $raw_expected = $request->get_param('expected_version');
+        if ($raw_expected === null || $raw_expected === '') {
+            if (isset($config['expected_version']) && $config['expected_version'] !== '') {
+                $raw_expected = $config['expected_version'];
+            } else if (isset($config['version']) && $config['version'] !== '') {
+                $raw_expected = $config['version'];
+            }
+        }
+
+        // Strictly require expected_version to be a positive integer (reject decimals, strings, negatives, 0)
+        if ($raw_expected === null || $raw_expected === '' || !is_numeric($raw_expected) || (int) $raw_expected != $raw_expected || (int) $raw_expected <= 0) {
+            return new WP_Error(
+                'missing_version',
+                'expected_version is required and must be a positive integer.',
+                ['status' => 400]
+            );
+        }
+
+        $expected_version = (int) $raw_expected;
+
+        // Fetch current persisted option directly under lock
+        $current = get_option('mumbai_store_hours', null);
+        $current_version = 1;
+        if (is_array($current) && isset($current['version'])) {
+            $current_version = absint($current['version']);
+        } else {
+            $opt_ver = absint(get_option('mumbai_store_hours_version', 1));
+            if ($opt_ver > 0) $current_version = $opt_ver;
+        }
+
+        if ($expected_version !== $current_version) {
+            return new WP_Error(
+                'store_hours_conflict',
+                'Another administrator updated the store operating hours while you were editing.',
+                [
+                    'status'           => 409,
+                    'current_version'  => $current_version,
+                    'expected_version' => $expected_version,
+                ]
+            );
+        }
+
+        $new_version = $current_version + 1;
+        $config['version'] = $new_version;
+        unset($config['expected_version']);
+
+        $purge_caches = function () {
+            if (function_exists('wp_cache_delete')) {
+                wp_cache_delete('mumbai_store_hours', 'options');
+                wp_cache_delete('mumbai_store_hours_version', 'options');
+            }
+        };
+
+        if ($wpdb->query('START TRANSACTION') === false) {
+            return new WP_Error(
+                'transaction_start_failed',
+                'Failed to start database transaction for store hours persistence.',
+                ['status' => 503]
+            );
+        }
+
+        try {
+            update_option('mumbai_store_hours', $config, false);
+            update_option('mumbai_store_hours_version', $new_version, false);
+
+            if ($wpdb->query('COMMIT') === false) {
+                $wpdb->query('ROLLBACK');
+                $purge_caches();
+                return new WP_Error(
+                    'transaction_commit_failed',
+                    'Failed to commit store hours changes to WordPress database.',
+                    ['status' => 500]
+                );
+            }
+        } catch (Throwable $writeErr) {
+            $wpdb->query('ROLLBACK');
+            $purge_caches();
+            throw $writeErr;
+        }
+
+        // Post-commit authoritative database row verification for BOTH main config and version option
+        $purge_caches();
+        $db_options = $wpdb->get_results($wpdb->prepare(
+            "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN (%s, %s)",
+            'mumbai_store_hours',
+            'mumbai_store_hours_version'
+        ), OBJECT_K);
+
+        $db_hours_raw = $db_options['mumbai_store_hours']->option_value ?? null;
+        $db_saved = maybe_unserialize($db_hours_raw);
+        $db_ver_raw = $db_options['mumbai_store_hours_version']->option_value ?? null;
+        $db_opt_version = absint($db_ver_raw);
+
+        if (!is_array($db_saved) || (int) ($db_saved['version'] ?? 0) !== $new_version || $db_opt_version !== $new_version) {
+            return new WP_Error(
+                'version_verification_failed',
+                'Committed store hours version does not match expected persistent state.',
+                ['status' => 500]
+            );
+        }
+
+        // Set transient with verified persistence; if transient fails to set, delete it so reads bypass to verified DB row
+        $transient_set = set_transient('mumbai_store_hours', $config, DAY_IN_SECONDS);
+        if (!$transient_set) {
+            delete_transient('mumbai_store_hours');
+        }
+
+        return rest_ensure_response([
+            'success'     => true,
+            'message'     => 'Store hours updated successfully.',
+            'store_hours' => $config,
+            'version'     => $new_version,
+        ]);
+    } finally {
+        $wpdb->query($wpdb->prepare("SELECT RELEASE_LOCK(%s)", $lock_name));
+    }
 }
 
 /**

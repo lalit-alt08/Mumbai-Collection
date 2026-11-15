@@ -3,17 +3,10 @@ import { httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 
-export const DAYS_OF_WEEK = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-];
+export const DAYS_OF_WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 export const DEFAULT_STORE_HOURS_CONFIG = {
+  version: 1,
   manual_override: "auto", // "auto" | "open" | "closed"
   timezone: "Asia/Kolkata",
   notice_message: "Our store is currently closed for new orders. We operate daily from 9:00 AM to 10:00 PM IST.",
@@ -21,15 +14,9 @@ export const DEFAULT_STORE_HOURS_CONFIG = {
   peak_delivery_text: "Delivery in 2–3 hours",
   normal_delivery_text: "Delivery in 60–90 mins",
   peak_notice_message: "High order volume in progress. Deliveries may take 2–3 hours today.",
-  schedule: {
-    monday:    { is_enabled: true, open: "09:00", close: "22:00" },
-    tuesday:   { is_enabled: true, open: "09:00", close: "22:00" },
-    wednesday: { is_enabled: true, open: "09:00", close: "22:00" },
-    thursday:  { is_enabled: true, open: "09:00", close: "22:00" },
-    friday:    { is_enabled: true, open: "09:00", close: "22:00" },
-    saturday:  { is_enabled: true, open: "09:00", close: "22:00" },
-    sunday:    { is_enabled: true, open: "09:00", close: "22:00" },
-  },
+  schedule: Object.fromEntries(
+    DAYS_OF_WEEK.map((d) => [d, { is_enabled: true, open: "09:00", close: "22:00" }])
+  ),
 };
 
 // In-memory cache: { data: Object, timestamp: number }
@@ -62,31 +49,15 @@ export const _setVerifiedWpTimezoneForTesting = (tz, offset = null) => {
 
 /**
  * Returns the verified store timezone string (e.g. "Asia/Kolkata", "+05:30").
- * Prioritizes authoritative WordPress site timezone from WordPress API responses,
- * then cached site timezone, then store hours config, then environment variables,
- * and falls back to default store timezone.
  */
 export const getVerifiedStoreTimezone = () => {
   if (verifiedWpTimezone) return verifiedWpTimezone;
   const cachedSiteTz = serverCache.get("wp:site_timezone");
-  if (cachedSiteTz?.timezone) {
-    verifiedWpTimezone = cachedSiteTz.timezone;
-    return verifiedWpTimezone;
-  }
+  if (cachedSiteTz?.timezone) return (verifiedWpTimezone = cachedSiteTz.timezone);
   const cachedHours = serverCache.get(STORE_HOURS_CACHE_KEY);
-  if (cachedHours?.wp_timezone) {
-    verifiedWpTimezone = cachedHours.wp_timezone;
-    return verifiedWpTimezone;
-  }
-  if (cachedHours?.timezone) {
-    return cachedHours.timezone;
-  }
-  return (
-    process.env.STORE_TIMEZONE ||
-    process.env.TZ ||
-    DEFAULT_STORE_HOURS_CONFIG.timezone ||
-    "Asia/Kolkata"
-  );
+  if (cachedHours?.wp_timezone) return (verifiedWpTimezone = cachedHours.wp_timezone);
+  if (cachedHours?.timezone) return cachedHours.timezone;
+  return process.env.STORE_TIMEZONE || process.env.TZ || DEFAULT_STORE_HOURS_CONFIG.timezone || "Asia/Kolkata";
 };
 
 export const _resetStoreHoursCacheForTesting = () => {
@@ -105,8 +76,7 @@ export const _resetStoreHoursCacheForTesting = () => {
  */
 export const isValidTimeFormat = (timeStr) => {
   if (typeof timeStr !== "string") return false;
-  const match = timeStr.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-  return Boolean(match);
+  return Boolean(timeStr.trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/));
 };
 
 /**
@@ -130,6 +100,13 @@ export const format12HourTime = (timeStr) => {
   return `${h}:${m} ${period}`;
 };
 
+const trimOrFallback = (...candidates) => {
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return "";
+};
+
 /**
  * Normalizes and validates the full store hours configuration
  */
@@ -138,55 +115,36 @@ export const normalizeStoreHoursConfig = (raw) => {
     return JSON.parse(JSON.stringify(DEFAULT_STORE_HOURS_CONFIG));
   }
 
-  const manual_override = ["auto", "open", "closed"].includes(raw.manual_override)
-    ? raw.manual_override
-    : "auto";
-
-  const notice_message =
-    typeof raw.closed_message === "string" && raw.closed_message.trim()
-      ? raw.closed_message.trim()
-      : typeof raw.notice_message === "string" && raw.notice_message.trim()
-      ? raw.notice_message.trim()
-      : DEFAULT_STORE_HOURS_CONFIG.notice_message;
-
+  const manual_override = ["auto", "open", "closed"].includes(raw.manual_override) ? raw.manual_override : "auto";
+  const notice_message = trimOrFallback(raw.closed_message, raw.notice_message, DEFAULT_STORE_HOURS_CONFIG.notice_message);
   const is_peak_hours = Boolean(raw.is_peak_hours);
-
-  const peak_delivery_text =
-    typeof raw.peak_delivery_text === "string" && raw.peak_delivery_text.trim()
-      ? raw.peak_delivery_text.trim()
-      : DEFAULT_STORE_HOURS_CONFIG.peak_delivery_text;
-
-  const normal_delivery_text =
-    typeof raw.normal_delivery_text === "string" && raw.normal_delivery_text.trim()
-      ? raw.normal_delivery_text.trim()
-      : DEFAULT_STORE_HOURS_CONFIG.normal_delivery_text;
-
-  const peak_notice_message =
-    typeof raw.peak_notice_message === "string" && raw.peak_notice_message.trim()
-      ? raw.peak_notice_message.trim()
-      : typeof raw.peak_notice === "string" && raw.peak_notice.trim()
-      ? raw.peak_notice.trim()
-      : DEFAULT_STORE_HOURS_CONFIG.peak_notice_message;
-
+  const peak_delivery_text = trimOrFallback(raw.peak_delivery_text, DEFAULT_STORE_HOURS_CONFIG.peak_delivery_text);
+  const normal_delivery_text = trimOrFallback(raw.normal_delivery_text, DEFAULT_STORE_HOURS_CONFIG.normal_delivery_text);
+  const peak_notice_message = trimOrFallback(raw.peak_notice_message, raw.peak_notice, DEFAULT_STORE_HOURS_CONFIG.peak_notice_message);
   const delivery_eta_text = is_peak_hours ? peak_delivery_text : normal_delivery_text;
 
   const rawSchedule = raw.schedule || {};
-  const schedule = {};
+  const schedule = Object.fromEntries(
+    DAYS_OF_WEEK.map((day) => {
+      const dayData = rawSchedule[day] || DEFAULT_STORE_HOURS_CONFIG.schedule[day] || { is_enabled: true, open: "09:00", close: "22:00" };
+      return [
+        day,
+        {
+          is_enabled: dayData.is_enabled !== false && dayData.enabled !== false,
+          open: isValidTimeFormat(dayData.open) ? dayData.open.trim() : "09:00",
+          close: isValidTimeFormat(dayData.close) ? dayData.close.trim() : "22:00",
+        },
+      ];
+    })
+  );
 
-  for (const day of DAYS_OF_WEEK) {
-    const dayData = rawSchedule[day] || DEFAULT_STORE_HOURS_CONFIG.schedule[day] || { is_enabled: true, open: "09:00", close: "22:00" };
-    const is_enabled = dayData.is_enabled !== false && dayData.enabled !== false;
-    const open = isValidTimeFormat(dayData.open) ? dayData.open.trim() : "09:00";
-    const close = isValidTimeFormat(dayData.close) ? dayData.close.trim() : "22:00";
-
-    schedule[day] = {
-      is_enabled,
-      open,
-      close,
-    };
-  }
+  const version =
+    raw.version !== undefined && raw.version !== null && Number.isFinite(Number(raw.version)) && Number(raw.version) > 0
+      ? Number(raw.version)
+      : 1;
 
   return {
+    version,
     manual_override,
     timezone: "Asia/Kolkata",
     notice_message,
@@ -207,7 +165,6 @@ export const normalizeStoreHoursConfig = (raw) => {
 export const getISTTimeComponents = (referenceDate = new Date()) => {
   const d = referenceDate instanceof Date && !isNaN(referenceDate) ? referenceDate : new Date();
 
-  // Use standard Intl to extract components in Asia/Kolkata
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Kolkata",
     weekday: "long",
@@ -220,32 +177,25 @@ export const getISTTimeComponents = (referenceDate = new Date()) => {
     hour12: false,
   });
 
-  const parts = formatter.formatToParts(d);
   const map = {};
-  for (const p of parts) {
+  for (const p of formatter.formatToParts(d)) {
     map[p.type] = p.value;
   }
 
   const weekday = (map.weekday || "").toLowerCase();
   const dayIndex = DAYS_OF_WEEK.indexOf(weekday) >= 0 ? DAYS_OF_WEEK.indexOf(weekday) : d.getUTCDay();
-  const dayName = DAYS_OF_WEEK[dayIndex];
-
   let hour = parseInt(map.hour || "0", 10);
   if (hour === 24) hour = 0;
   const minute = parseInt(map.minute || "0", 10);
-  const second = parseInt(map.second || "0", 10);
-
-  const currentMinutes = hour * 60 + minute;
-  const formattedTime24 = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
   return {
-    dayName,
+    dayName: DAYS_OF_WEEK[dayIndex],
     dayIndex,
     hour,
     minute,
-    second,
-    currentMinutes,
-    formattedTime24,
+    second: parseInt(map.second || "0", 10),
+    currentMinutes: hour * 60 + minute,
+    formattedTime24: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
     formattedDate: `${map.year}-${map.month}-${map.day}`,
   };
 };
@@ -302,64 +252,38 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
 
   // 2. Automated schedule evaluation
   const todaySchedule = config.schedule[ist.dayName];
-  const yesterdayIndex = (ist.dayIndex + 6) % 7;
-  const yesterdayName = DAYS_OF_WEEK[yesterdayIndex];
+  const yesterdayName = DAYS_OF_WEEK[(ist.dayIndex + 6) % 7];
   const yesterdaySchedule = config.schedule[yesterdayName];
 
   let isOpen = false;
   let activeShift = null;
 
-  // A. Check if yesterday had an overnight shift that is still active past midnight today
-  if (yesterdaySchedule && yesterdaySchedule.is_enabled) {
+  // A. Check yesterday overnight shift spillover past midnight
+  if (yesterdaySchedule?.is_enabled) {
     const yOpenM = timeToMinutes(yesterdaySchedule.open);
     const yCloseM = timeToMinutes(yesterdaySchedule.close);
-
-    // Overnight shift: open > close (e.g. 18:00 to 02:00)
     if (yOpenM > yCloseM && ist.currentMinutes < yCloseM) {
       isOpen = true;
-      activeShift = {
-        day: yesterdayName,
-        open: yesterdaySchedule.open,
-        close: yesterdaySchedule.close,
-        is_spillover: true,
-      };
+      activeShift = { day: yesterdayName, open: yesterdaySchedule.open, close: yesterdaySchedule.close, is_spillover: true };
     }
   }
 
-  // B. Check today's schedule if not already opened by yesterday's overnight spillover
-  if (!isOpen && todaySchedule && todaySchedule.is_enabled) {
+  // B. Check today's shift if not already active
+  if (!isOpen && todaySchedule?.is_enabled) {
     const openM = timeToMinutes(todaySchedule.open);
     const closeM = timeToMinutes(todaySchedule.close);
 
     if (openM === closeM) {
-      // 00:00 to 00:00 or open == close with is_enabled: true means 24-hour operation
       isOpen = true;
-      activeShift = {
-        day: ist.dayName,
-        open: todaySchedule.open,
-        close: todaySchedule.close,
-        is_24h: true,
-      };
+      activeShift = { day: ist.dayName, open: todaySchedule.open, close: todaySchedule.close, is_24h: true };
     } else if (openM < closeM) {
-      // Regular daytime shift (e.g. 09:00 to 22:00): open inclusive, close exclusive
       if (ist.currentMinutes >= openM && ist.currentMinutes < closeM) {
         isOpen = true;
-        activeShift = {
-          day: ist.dayName,
-          open: todaySchedule.open,
-          close: todaySchedule.close,
-        };
+        activeShift = { day: ist.dayName, open: todaySchedule.open, close: todaySchedule.close };
       }
-    } else {
-      // Overnight shift starting today (e.g. 18:00 to 02:00): active from openM until midnight
-      if (ist.currentMinutes >= openM) {
-        isOpen = true;
-        activeShift = {
-          day: ist.dayName,
-          open: todaySchedule.open,
-          close: todaySchedule.close,
-        };
-      }
+    } else if (ist.currentMinutes >= openM) {
+      isOpen = true;
+      activeShift = { day: ist.dayName, open: todaySchedule.open, close: todaySchedule.close };
     }
   }
 
@@ -380,16 +304,13 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
   // Store is closed
   const nextOpening = calculateNextOpening(config, referenceDate);
   const msg = config.closed_message || config.notice_message || "Our store is currently closed for new orders.";
-  const nextDeliveryEta = nextOpening?.time_formatted
-    ? `Fulfillment starts ${nextOpening.label}`
-    : "No upcoming opening is scheduled";
   return {
     ...baseStatus,
     is_open: false,
     is_after_hours: true,
     is_next_day_delivery: Boolean(nextOpening && nextOpening.relative_day !== "today"),
     scheduled_delivery_date: nextOpening?.date || null,
-    next_delivery_eta_text: nextDeliveryEta,
+    next_delivery_eta_text: nextOpening?.time_formatted ? `Fulfillment starts ${nextOpening.label}` : "No upcoming opening is scheduled",
     reason: "schedule_closed",
     evaluation_reason: "schedule_closed",
     message: msg,
@@ -400,6 +321,12 @@ export const evaluateStoreStatus = (configInput, referenceDate = new Date()) => 
   };
 };
 
+function shiftCalendarDate(dateString, days) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
 /**
  * Calculates the next upcoming opening day, time, and human-readable label
  */
@@ -407,62 +334,41 @@ export const calculateNextOpening = (configInput, referenceDate = new Date()) =>
   const config = normalizeStoreHoursConfig(configInput);
   const ist = getISTTimeComponents(referenceDate);
 
-  // Look ahead up to 7 days to find the next opening slot
   for (let offset = 0; offset <= 7; offset++) {
-    const targetDayIndex = (ist.dayIndex + offset) % 7;
-    const targetDayName = DAYS_OF_WEEK[targetDayIndex];
+    const targetDayName = DAYS_OF_WEEK[(ist.dayIndex + offset) % 7];
     const targetSchedule = config.schedule[targetDayName];
 
-    if (!targetSchedule || !targetSchedule.is_enabled) {
-      continue;
-    }
+    if (!targetSchedule?.is_enabled) continue;
 
     const openM = timeToMinutes(targetSchedule.open);
+    if (offset === 0 && ist.currentMinutes >= openM) continue;
 
-    if (offset === 0) {
-      // Today: only valid if opening time is in the future
-      if (ist.currentMinutes < openM) {
-        return {
-          day: targetDayName,
-          date: shiftCalendarDate(ist.formattedDate, offset),
-          time: targetSchedule.open,
-          time_formatted: format12HourTime(targetSchedule.open),
-          label: `Today at ${format12HourTime(targetSchedule.open)} IST`,
-          relative_day: "today",
-        };
-      }
-    } else {
-      const relative = offset === 1 ? "Tomorrow" : capitalizeFirstLetter(targetDayName);
-      return {
-        day: targetDayName,
-        date: shiftCalendarDate(ist.formattedDate, offset),
-        time: targetSchedule.open,
-        time_formatted: format12HourTime(targetSchedule.open),
-        label: `${relative} at ${format12HourTime(targetSchedule.open)} IST`,
-        relative_day: offset === 1 ? "tomorrow" : targetDayName,
-      };
-    }
+    const formatted12 = format12HourTime(targetSchedule.open);
+    const relative = offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : targetDayName.charAt(0).toUpperCase() + targetDayName.slice(1);
+    return {
+      day: targetDayName,
+      date: shiftCalendarDate(ist.formattedDate, offset),
+      time: targetSchedule.open,
+      time_formatted: formatted12,
+      label: `${relative} at ${formatted12} IST`,
+      relative_day: offset === 0 ? "today" : offset === 1 ? "tomorrow" : targetDayName,
+    };
   }
 
-  return {
-    day: null,
-    time: null,
-    time_formatted: null,
-    label: "Check back later",
-    relative_day: "unknown",
-  };
+  return { day: null, time: null, time_formatted: null, label: "Check back later", relative_day: "unknown" };
 };
 
-function shiftCalendarDate(dateString, days) {
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
+const withMetadata = (config, source, ageMs = 0, isFallback = false, isStale = false) => ({
+  ...config,
+  _metadata: { source, age_ms: ageMs, is_fallback: isFallback, is_stale: isStale },
+});
 
-function capitalizeFirstLetter(string) {
-  if (!string) return "";
-  return string.charAt(0).toUpperCase() + string.slice(1);
-}
+const updateHoursCache = (normalized, now = Date.now()) => {
+  storeHoursCache = { data: normalized, timestamp: now };
+  serverCache.set(STORE_HOURS_CACHE_KEY, normalized, CACHE_TTL_MS);
+  lastKnownGoodConfig = normalized;
+  lastSuccessfulFetchTime = now;
+};
 
 /**
  * Fetches Store Hours Configuration with resilience hierarchy:
@@ -474,27 +380,11 @@ function capitalizeFirstLetter(string) {
 export const getStoreHoursConfig = async (forceFresh = false) => {
   if (!forceFresh) {
     const sharedCached = serverCache.get(STORE_HOURS_CACHE_KEY);
-    if (sharedCached && typeof sharedCached === "object" && sharedCached.schedule) {
-      return {
-        ...sharedCached,
-        _metadata: {
-          source: "cache",
-          age_ms: Date.now() - (lastSuccessfulFetchTime || Date.now()),
-          is_fallback: false,
-          is_stale: false,
-        },
-      };
+    if (sharedCached?.schedule) {
+      return withMetadata(sharedCached, "cache", Date.now() - (lastSuccessfulFetchTime || Date.now()));
     }
     if (storeHoursCache && Date.now() - storeHoursCache.timestamp < CACHE_TTL_MS) {
-      return {
-        ...storeHoursCache.data,
-        _metadata: {
-          source: "cache",
-          age_ms: Date.now() - (lastSuccessfulFetchTime || storeHoursCache.timestamp),
-          is_fallback: false,
-          is_stale: false,
-        },
-      };
+      return withMetadata(storeHoursCache.data, "cache", Date.now() - (lastSuccessfulFetchTime || storeHoursCache.timestamp));
     }
   }
 
@@ -503,9 +393,7 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
 
   try {
     const response = await axios.get(endpoint, {
-      headers: {
-        "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-      },
+      headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
       httpsAgent,
       timeout: 8000,
     });
@@ -513,112 +401,95 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
     if (response.data?.wp_timezone) {
       verifiedWpTimezone = response.data.wp_timezone;
       verifiedGmtOffset = response.data.gmt_offset;
-      serverCache.set("wp:site_timezone", {
-        timezone: verifiedWpTimezone,
-        gmt_offset: verifiedGmtOffset,
-      }, 3600000);
+      serverCache.set("wp:site_timezone", { timezone: verifiedWpTimezone, gmt_offset: verifiedGmtOffset }, 3600000);
     }
     const wpConfig = response.data?.store_hours;
+    if (wpConfig?.schedule) {
+      const upstreamVer =
+        response.data?.version !== undefined && response.data?.version !== null
+          ? Number(response.data.version)
+          : (wpConfig.version !== undefined && wpConfig.version !== null
+              ? Number(wpConfig.version)
+              : null);
 
-    if (wpConfig && typeof wpConfig === "object" && wpConfig.schedule) {
+      if (forceFresh && (upstreamVer === null || !Number.isSafeInteger(upstreamVer) || upstreamVer <= 0)) {
+        throw new Error("WordPress store operating hours response is missing a valid authoritative version.");
+      }
+
+      if (upstreamVer !== null && Number.isSafeInteger(upstreamVer) && upstreamVer > 0) {
+        wpConfig.version = upstreamVer;
+      }
       const normalized = normalizeStoreHoursConfig(wpConfig);
-      const now = Date.now();
-      storeHoursCache = {
-        data: normalized,
-        timestamp: now,
-      };
-      serverCache.set(STORE_HOURS_CACHE_KEY, normalized, CACHE_TTL_MS);
-      lastKnownGoodConfig = normalized;
-      lastSuccessfulFetchTime = now;
-      return {
-        ...normalized,
-        _metadata: {
-          source: "wordpress",
-          age_ms: 0,
-          is_fallback: false,
-          is_stale: false,
-        },
-      };
+      updateHoursCache(normalized);
+      return withMetadata(normalized, "wordpress", 0);
     }
   } catch (error) {
-    logger.warn(
-      { err: error.response?.data?.message || error.message },
-      "[StoreHoursService] WordPress store-hours read warning"
-    );
+    logger.warn({ err: error.response?.data?.message || error.message }, "[StoreHoursService] WordPress store-hours read warning");
+    if (forceFresh) {
+      throw new Error(`WordPress store operating hours unavailable: ${error.response?.data?.message || error.message}`);
+    }
   }
 
-  // Fallback 1: Return last known good config if available
+  if (forceFresh) {
+    throw new Error("WordPress store operating hours configuration is missing or malformed.");
+  }
+
+  // Fallback 1: Return last known good config if available (strictly non-admin shopper reads)
   if (lastKnownGoodConfig) {
-    const ageMs = lastSuccessfulFetchTime ? (Date.now() - lastSuccessfulFetchTime) : Infinity;
-    return {
-      ...lastKnownGoodConfig,
-      _metadata: {
-        source: "fallback",
-        age_ms: ageMs,
-        is_fallback: true,
-        is_stale: ageMs > MAX_FALLBACK_CONFIG_AGE_MS,
-      },
-    };
+    const ageMs = lastSuccessfulFetchTime ? Date.now() - lastSuccessfulFetchTime : Infinity;
+    return withMetadata(lastKnownGoodConfig, "fallback", ageMs, true, ageMs > MAX_FALLBACK_CONFIG_AGE_MS);
   }
 
-  // Fallback 2: Default static configuration (do NOT assign to lastKnownGoodConfig so defaults don't overwrite true WP config)
-  const defaultConfig = JSON.parse(JSON.stringify(DEFAULT_STORE_HOURS_CONFIG));
-  return {
-    ...defaultConfig,
-    _metadata: {
-      source: "default",
-      age_ms: Infinity,
-      is_fallback: true,
-      is_stale: true,
-    },
-  };
+  // Fallback 2: Default static configuration (strictly non-admin shopper reads)
+  return withMetadata(JSON.parse(JSON.stringify(DEFAULT_STORE_HOURS_CONFIG)), "default", Infinity, true, true);
 };
 
 /**
- * Saves Store Hours Configuration to WordPress wp_options
+ * Saves Store Hours Configuration to WordPress wp_options with optimistic locking
  */
-export const saveStoreHoursConfig = async (newConfig) => {
-  let existing = {};
-  try {
-    existing = await getStoreHoursConfig();
-  } catch (_) {
-    existing = DEFAULT_STORE_HOURS_CONFIG;
+export const saveStoreHoursConfig = async (newConfig, { expectedVersion } = {}) => {
+  const effectiveExpectedVersion =
+    expectedVersion !== undefined && expectedVersion !== null
+      ? Number(expectedVersion)
+      : (newConfig?.expected_version !== undefined && newConfig?.expected_version !== null
+          ? Number(newConfig.expected_version)
+          : (newConfig?.version !== undefined && newConfig?.version !== null
+              ? Number(newConfig.version)
+              : null));
+
+  if (effectiveExpectedVersion === null || !Number.isSafeInteger(effectiveExpectedVersion) || effectiveExpectedVersion <= 0) {
+    throw new Error("expected_version is required and must be a positive integer.");
   }
 
-  const merged = {
-    ...existing,
-    ...(newConfig && typeof newConfig === "object" ? newConfig : {}),
-  };
-  const normalized = normalizeStoreHoursConfig(merged);
+  // Read current authoritative configuration directly from WordPress (strictly fail-closed on outage)
+  const existing = await getStoreHoursConfig(true);
 
+  const merged = { ...existing, ...(newConfig && typeof newConfig === "object" ? newConfig : {}) };
+  const normalized = normalizeStoreHoursConfig(merged);
   const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
-  const endpoint = `${wpBaseUrl}/wp-json/mumbai-auth/v1/store-hours`;
+
+  const requestPayload = {
+    store_hours: normalized,
+    expected_version: effectiveExpectedVersion,
+  };
 
   const response = await axios.post(
-    endpoint,
-    { store_hours: normalized },
+    `${wpBaseUrl}/wp-json/mumbai-auth/v1/store-hours`,
+    requestPayload,
     {
-      headers: {
-        "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-      },
+      headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
       httpsAgent,
       timeout: 10000,
     }
   );
 
-  const saved = response.data?.store_hours ? normalizeStoreHoursConfig(response.data.store_hours) : normalized;
-
-  // Invalidate in-memory cache and broadcast across workers
-  const now = Date.now();
-  storeHoursCache = {
-    data: saved,
-    timestamp: now,
-  };
-  lastKnownGoodConfig = saved;
-  lastSuccessfulFetchTime = now;
-  serverCache.set(STORE_HOURS_CACHE_KEY, saved, CACHE_TTL_MS);
+  const returnedHours = response.data?.store_hours || normalized;
+  if (response.data?.version) {
+    returnedHours.version = Number(response.data.version);
+  }
+  const saved = normalizeStoreHoursConfig(returnedHours);
+  updateHoursCache(saved);
   serverCache.delete(STORE_HOURS_CACHE_KEY);
-
   return saved;
 };
 
@@ -626,7 +497,8 @@ export const saveStoreHoursConfig = async (newConfig) => {
  * Returns full live status of the store
  */
 export const getStoreStatus = async (referenceDate = new Date()) => {
-  const config = await getStoreHoursConfig();
+  const fetchConfig = (storeHoursService && storeHoursService.getStoreHoursConfig) || getStoreHoursConfig;
+  const config = await fetchConfig();
   const status = evaluateStoreStatus(config, referenceDate);
   if (config._metadata) {
     status._metadata = config._metadata;
@@ -640,24 +512,68 @@ export const getStoreStatus = async (referenceDate = new Date()) => {
  * Convenience boolean helper for checking if store is currently open
  */
 export const isStoreOpen = async (referenceDate = new Date()) => {
-  const status = await getStoreStatus(referenceDate);
+  const fetchStatus = (storeHoursService && storeHoursService.getStoreStatus) || getStoreStatus;
+  const status = await fetchStatus(referenceDate);
   return Boolean(status?.is_open);
 };
 
 /**
+ * Internal helper to evaluate checkout eligibility from a resolved store status.
+ */
+const evaluateCheckoutEligibility = (status, { isFallback = false } = {}) => {
+  if (!status || !status.is_open) {
+    const isAfterHours = Boolean(status?.is_after_hours || status?.reason === "schedule_closed");
+    if (status && isAfterHours && status.manual_override !== "closed") {
+      if (!status.next_opening?.time || !status.next_opening?.day || !status.next_opening?.date) {
+        return {
+          allowed: false,
+          statusCode: 403,
+          payload: {
+            success: false,
+            code: "STORE_CLOSED",
+            message: "Our store is currently closed and not accepting scheduled orders.",
+            manual_override: status.manual_override || "auto",
+            next_opening: status.next_opening || null,
+          },
+        };
+      }
+      return {
+        allowed: true,
+        storeStatus: status,
+        ...(isFallback ? { isFallback: true } : {}),
+        is_after_hours: true,
+        is_next_day_delivery: status.next_opening.relative_day !== "today",
+        scheduled_delivery_date: status.next_opening.date,
+        scheduled_delivery_label: status.next_opening.label || null,
+      };
+    }
+
+    return {
+      allowed: false,
+      statusCode: 403,
+      payload: {
+        success: false,
+        code: "STORE_CLOSED",
+        message: status?.message || "Our store is currently closed for new orders.",
+        next_opening: status?.next_opening || null,
+        manual_override: status?.manual_override || "auto",
+        current_day: status?.current_day,
+        current_time_ist: status?.current_time_ist,
+        schedule_today: status?.schedule_today,
+        timezone: status?.timezone || "Asia/Kolkata",
+      },
+    };
+  }
+
+  return {
+    allowed: true,
+    storeStatus: status,
+    ...(isFallback ? { isFallback: true } : {}),
+  };
+};
+
+/**
  * Shared Authoritative Checkout Store Hours Guard
- * Evaluates whether the store is open for placing new orders / initiating payment intents.
- * 
- * Rules:
- * 1. Must have a valid boolean is_open.
- * 2. If status is_stale (> 5 minutes without fresh WP read), fail closed / trigger fallback check.
- * 3. Fresh live reads update the last-known-good fallback cache; fallback/stale reads NEVER overwrite it.
- * 4. If store is closed, returns { allowed: false, statusCode: 403, payload: { code: 'STORE_CLOSED', ... } }.
- * 5. If upstream check fails or status is stale:
- *    - Uses fresh fallback if recorded within MAX_FALLBACK_CONFIG_AGE_MS (5 mins).
- *    - If fallback was closed, returns 403 STORE_CLOSED.
- *    - If fallback was open, allows checkout (allowed: true).
- *    - If no valid fallback within 5 mins, fails closed: { allowed: false, statusCode: 503, payload: { code: 'STORE_HOURS_UNAVAILABLE', ... } }.
  */
 export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFallback = null) => {
   try {
@@ -679,86 +595,15 @@ export const checkCheckoutStoreGuard = async (localFallback = null, setLocalFall
       }
     }
 
-    if (!storeStatus.is_open) {
-      // Allow checkout for after-hours night orders (routine scheduled closure)
-      const isAfterHours = Boolean(storeStatus.is_after_hours || storeStatus.reason === "schedule_closed");
-      if (isAfterHours && storeStatus.manual_override !== "closed") {
-        if (!storeStatus.next_opening?.time || !storeStatus.next_opening?.day || !storeStatus.next_opening?.date) {
-          return { allowed: false, statusCode: 403, payload: { success: false, code: "STORE_CLOSED", message: "Our store is currently closed and not accepting scheduled orders.", manual_override: storeStatus.manual_override || "auto", next_opening: storeStatus.next_opening || null } };
-        }
-        return {
-          allowed: true,
-          storeStatus,
-          is_after_hours: true,
-          is_next_day_delivery: storeStatus.next_opening.relative_day !== "today",
-          scheduled_delivery_date: storeStatus.next_opening.date,
-          scheduled_delivery_label: storeStatus.next_opening.label || null,
-        };
-      }
-
-      return {
-        allowed: false,
-        statusCode: 403,
-        payload: {
-          success: false,
-          code: "STORE_CLOSED",
-          message: storeStatus.message || "Our store is currently closed for new orders.",
-          next_opening: storeStatus.next_opening,
-          manual_override: storeStatus.manual_override || "auto",
-          current_day: storeStatus.current_day,
-          current_time_ist: storeStatus.current_time_ist,
-          schedule_today: storeStatus.schedule_today,
-          timezone: storeStatus.timezone || "Asia/Kolkata",
-        },
-      };
-    }
-
-    return { allowed: true, storeStatus };
+    return evaluateCheckoutEligibility(storeStatus, { isFallback: false });
   } catch (statusErr) {
     logger.warn({ err: statusErr.message }, "[StoreHours] Checkout store hours evaluation warning, checking fallback cache");
 
     const fallbackRecord = localFallback || sharedCheckoutFallback;
-    const hasValidFallback =
-      fallbackRecord &&
-      Date.now() - fallbackRecord.timestamp <= MAX_FALLBACK_CONFIG_AGE_MS;
+    const hasValidFallback = fallbackRecord && Date.now() - fallbackRecord.timestamp <= MAX_FALLBACK_CONFIG_AGE_MS;
 
     if (hasValidFallback) {
-      const fallback = fallbackRecord.status;
-      if (!fallback || !fallback.is_open) {
-        const isFallbackAfterHours = Boolean(fallback?.is_after_hours || fallback?.reason === "schedule_closed");
-        if (fallback && isFallbackAfterHours && fallback.manual_override !== "closed") {
-          if (!fallback.next_opening?.time || !fallback.next_opening?.day || !fallback.next_opening?.date) {
-            return { allowed: false, statusCode: 403, payload: { success: false, code: "STORE_CLOSED", message: "Our store is currently closed and not accepting scheduled orders.", manual_override: fallback.manual_override || "auto", next_opening: fallback.next_opening || null } };
-          }
-          return {
-            allowed: true,
-            storeStatus: fallback,
-            isFallback: true,
-            is_after_hours: true,
-            is_next_day_delivery: fallback.next_opening.relative_day !== "today",
-            scheduled_delivery_date: fallback.next_opening.date,
-            scheduled_delivery_label: fallback.next_opening.label || null,
-          };
-        }
-
-        return {
-          allowed: false,
-          statusCode: 403,
-          payload: {
-            success: false,
-            code: "STORE_CLOSED",
-            message: fallback?.message || "Our store is currently closed for new orders.",
-            next_opening: fallback?.next_opening || null,
-            manual_override: fallback?.manual_override || "auto",
-            manual_override: fallback?.manual_override || "auto",
-            current_day: fallback?.current_day,
-            current_time_ist: fallback?.current_time_ist,
-            schedule_today: fallback?.schedule_today,
-            timezone: fallback?.timezone || "Asia/Kolkata",
-          },
-        };
-      }
-      return { allowed: true, storeStatus: fallback, isFallback: true };
+      return evaluateCheckoutEligibility(fallbackRecord.status, { isFallback: true });
     }
 
     return {
@@ -779,6 +624,8 @@ const storeHoursService = {
   MAX_FALLBACK_CONFIG_AGE_MS,
   _resetStoreHoursCacheForTesting,
   _resetCheckoutStoreFallbackForTesting,
+  _setVerifiedWpTimezoneForTesting,
+  getVerifiedStoreTimezone,
   checkCheckoutStoreGuard,
   isValidTimeFormat,
   timeToMinutes,
@@ -794,4 +641,3 @@ const storeHoursService = {
 };
 
 export default storeHoursService;
-

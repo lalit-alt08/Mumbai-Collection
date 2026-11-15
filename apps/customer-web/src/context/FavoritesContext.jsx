@@ -13,6 +13,7 @@ export const FavoritesProvider = ({ children }) => {
   const { user } = useAuth();
   const [favoriteIds, setFavoriteIds] = useState(new Set());
   const [favorites, setFavorites] = useState([]);
+  const [favoriteError, setFavoriteError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [favoritePage, setFavoritePage] = useState(0);
@@ -45,7 +46,9 @@ export const FavoritesProvider = ({ children }) => {
   // Full catalog details fetch (strictly called when customer opens /favorites page)
   const loadFullFavorites = useCallback(async ({ page = 1, append = false } = {}) => {
     if (!user) {
+      setFavoriteIds(new Set());
       setFavorites([]);
+      setFavoriteError(null);
       setFavoritePage(0);
       setFavoriteTotalPages(0);
       setFavoriteTotal(0);
@@ -55,8 +58,10 @@ export const FavoritesProvider = ({ children }) => {
     try {
       if (append) setLoadingMore(true);
       else setLoading(true);
+      setFavoriteError(null);
       const res = await getFavorites({ page, perPage: 24 });
       if (res?.success) {
+        setFavoriteError(null);
         const ids = new Set((res.productIds || []).map(Number));
         const nextFavorites = res.favorites || [];
         setFavoriteIds(ids);
@@ -71,8 +76,9 @@ export const FavoritesProvider = ({ children }) => {
         setFavoriteTotal(Number(res.total) || ids.size);
         return nextFavorites;
       }
-    } catch {
+    } catch (err) {
       // Failed to load full customer favorites
+      setFavoriteError(err?.response?.data?.message || err?.message || "Failed to load favorites");
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -165,6 +171,7 @@ export const FavoritesProvider = ({ children }) => {
       value={{
         favorites,
         favoriteIds,
+        favoriteError,
         loading,
         loadingMore,
         favoritePage,

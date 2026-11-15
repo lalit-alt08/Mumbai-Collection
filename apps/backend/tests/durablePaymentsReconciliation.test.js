@@ -13,6 +13,7 @@ import paymentIntentService, {
   updateWebhookEventStatus,
   fetchOrphanWebhookEvents,
   findWcOrderByRazorpayOrderId,
+  _setWpClientForTesting,
 } from "../src/services/paymentIntentService.js";
 import {
   runPaymentReconciliation,
@@ -24,7 +25,7 @@ import {
   createReconcilerIntervalCallback,
   createDailyAlertCallback,
 } from "../src/server.js";
-import { sendDailyHealthAlert } from "../src/services/alertService.js";
+import { sendDailyHealthAlert, _setAnomalyHandlerForTesting } from "../src/services/alertService.js";
 import {
   findOrderByRazorpayOrderId,
   finalizePaymentAndCreateOrder,
@@ -89,6 +90,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
           amount: 60000,
           amount_refunded: paymentAmountRefunded,
         }),
+        fetchMultipleRefund: async () => ({ items: [] }),
         refund: async () => {
           refundAttempts++;
           if (refundAttempts === 1) {
@@ -483,7 +485,14 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
   test("7. webhook_events status lifecycle (processed/orphan/failed) and orphan daily alert", async () => {
     const eventId = `evt_test_${Date.now()}`;
-    const rzpOrderId = `rzp_orphan_${Date.now()}`;
+    const statuses = [];
+    _setWpClientForTesting({
+      post: async (_path, body) => { statuses.push(body.status); return { data: { updated: true } }; },
+      get: async () => ({ data: { count: 1, orphans: [{ event_id: eventId }] } }),
+    });
+    let alert;
+    _setAnomalyHandlerForTesting(async (payload) => { alert = payload; return { success: true }; });
+    try {
 
     // Test status updates: stored -> processed / orphan / failed
     const updateProcessed = await updateWebhookEventStatus({ eventId, status: "processed" });
@@ -498,7 +507,12 @@ describe("Durable Payments & Reconciliation Suite", () => {
     // Test daily health alert execution
     const dailyAlertResult = await sendDailyHealthAlert();
     assert.strictEqual(dailyAlertResult.success, true);
-    assert.strictEqual(typeof dailyAlertResult.orphanCount, "number");
+    assert.deepEqual(statuses, ["processed", "orphan", "failed"]);
+    assert.strictEqual(alert.details.orphanCount, 1);
+    } finally {
+      _setWpClientForTesting(null);
+      _setAnomalyHandlerForTesting(null);
+    }
   });
 
   test("8. payment_intents clears error_reason when status transitions to order_created", async () => {
@@ -737,16 +751,23 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
   test("10. Partial refund webhook keeps intent in refund_pending and does not mark fully refunded", async () => {
     const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
-    const originalStoreWebhook = paymentIntentService.storeWebhookEvent;
-    const originalUpdateWebhook = paymentIntentService.updateWebhookEventStatus;
-
-    let updatedParams = null;
-    paymentIntentService.updatePaymentIntentStatus = async (params) => {
-      updatedParams = params;
-      return true;
-    };
-    paymentIntentService.storeWebhookEvent = async () => ({ id: 999 });
-    paymentIntentService.updateWebhookEventStatus = async () => true;
+    const originalAcquire = paymentIntentService.acquireLock;
+    const originalRelease = paymentIntentService.releaseLock;
+    paymentIntentService.acquireLock = async () => true;
+    paymentIntentService.releaseLock = async () => true;
+    let intentUpdates = 0;
+    let eventStatus;
+    let alert;
+    _setAnomalyHandlerForTesting(async (value) => { alert = value; return { success: true }; });
+    _setWpClientForTesting({ post: async (path, body) => {
+      if (path.endsWith("/payment-intent/get")) return { data: { intent: { status: "refund_pending" } } };
+      if (path.endsWith("/payment-intent/update-status")) intentUpdates++;
+      if (path.endsWith("/webhook-event/update-status")) eventStatus = body.status;
+      return { data: { success: true, updated: true } };
+    } });
+    _setRazorpayInstanceForTesting({ payments: { fetch: async () => ({
+      id: "pay_part_123", order_id: "order_part_123", amount: 10000, amount_refunded: 2000, refund_status: "partial",
+    }) } });
 
     try {
       const crypto = await import("crypto");
@@ -780,18 +801,20 @@ describe("Durable Payments & Reconciliation Suite", () => {
 
       await handleWebhook(req, res);
       const start = Date.now();
-      while (!updatedParams && Date.now() - start < 2000) {
+      while (!eventStatus && Date.now() - start < 2000) {
         await new Promise((r) => setTimeout(r, 20));
       }
 
-      assert.ok(updatedParams !== null, "updatePaymentIntentStatus must be called");
-      assert.strictEqual(updatedParams.toStatus, "refund_pending", "Partial refund must KEEP status in refund_pending");
-      assert.notStrictEqual(updatedParams.toStatus, "refunded", "Partial refund must NEVER mark intent refunded");
-      assert.match(updatedParams.errorReason, /PARTIAL_REFUND_WEBHOOK/i);
+      assert.strictEqual(intentUpdates, 0, "partial refund must not change the intent to refunded");
+      assert.strictEqual(eventStatus, "processed");
+      assert.strictEqual(alert?.type, "PARTIAL_OR_FAILED_REFUND");
     } finally {
       paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
-      paymentIntentService.storeWebhookEvent = originalStoreWebhook;
-      paymentIntentService.updateWebhookEventStatus = originalUpdateWebhook;
+      paymentIntentService.acquireLock = originalAcquire;
+      paymentIntentService.releaseLock = originalRelease;
+      _setWpClientForTesting(null);
+      _setAnomalyHandlerForTesting(null);
+      _setRazorpayInstanceForTesting(null);
     }
   });
 

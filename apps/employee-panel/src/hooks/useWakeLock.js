@@ -19,38 +19,57 @@ export function useWakeLock() {
 
   const [isLocked, setIsLocked] = useState(false);
   const sentinelRef = useRef(null);
+  const requestRef = useRef(null);
+  const enabledRef = useRef(isEnabled);
+  const generationRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const requestLock = useCallback(async () => {
-    if (!isSupported || sentinelRef.current) return;
-
-    try {
-      const sentinel = await navigator.wakeLock.request("screen");
-      sentinelRef.current = sentinel;
-      setIsLocked(true);
-
-      sentinel.addEventListener("release", () => {
-        sentinelRef.current = null;
-        setIsLocked(false);
-      });
-    } catch (err) {
-      // System or device policy prevented wake lock
-      sentinelRef.current = null;
-      setIsLocked(false);
+    if (!isSupported || !enabledRef.current || sentinelRef.current) return;
+    if (requestRef.current) return requestRef.current;
+    const generation = generationRef.current;
+    const request = (async () => {
+      try {
+        const sentinel = await navigator.wakeLock.request("screen");
+        if (!mountedRef.current || !enabledRef.current || generation !== generationRef.current) {
+          await sentinel.release().catch(() => {});
+          return;
+        }
+        sentinelRef.current = sentinel;
+        setIsLocked(true);
+        sentinel.addEventListener("release", () => {
+          if (sentinelRef.current !== sentinel) return;
+          sentinelRef.current = null;
+          if (mountedRef.current) setIsLocked(false);
+        });
+      } catch (_) {
+        if (mountedRef.current && generation === generationRef.current) setIsLocked(false);
+      }
+    })();
+    requestRef.current = request;
+    try { await request; } finally {
+      if (requestRef.current === request) requestRef.current = null;
+    }
+    if (mountedRef.current && enabledRef.current && generation !== generationRef.current && !sentinelRef.current) {
+      await requestLock();
     }
   }, [isSupported]);
 
   const releaseLock = useCallback(async () => {
-    if (sentinelRef.current) {
+    generationRef.current += 1;
+    const sentinel = sentinelRef.current;
+    sentinelRef.current = null;
+    if (sentinel) {
       try {
-        await sentinelRef.current.release();
+        await sentinel.release();
       } catch (_) {}
-      sentinelRef.current = null;
     }
-    setIsLocked(false);
+    if (mountedRef.current) setIsLocked(false);
   }, []);
 
   // Synchronize lock state with isEnabled
   useEffect(() => {
+    enabledRef.current = isEnabled;
     if (isEnabled) {
       requestLock();
     } else {
@@ -76,7 +95,10 @@ export function useWakeLock() {
 
   // Clean up on component unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
       if (sentinelRef.current) {
         sentinelRef.current.release().catch(() => {});
         sentinelRef.current = null;
@@ -86,6 +108,7 @@ export function useWakeLock() {
 
   const toggleCounterMode = useCallback(async () => {
     const nextState = !isEnabled;
+    enabledRef.current = nextState;
     setIsEnabled(nextState);
 
     try {

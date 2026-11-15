@@ -325,7 +325,7 @@ function Profile() {
   // EDIT
   // ==============================
 
-  const handleEdit = () => {
+  const resetEditForm = (isEditing) => {
     const rawFullName = profile?.full_name || user?.name || user?.full_name || "";
     const nameParts = rawFullName.trim().split(/\s+/);
     const loadedFirst = profile?.first_name || user?.first_name || nameParts[0] || "";
@@ -340,30 +340,16 @@ function Profile() {
     setError("");
     setFieldErrors({});
     setSuccess("");
-    setEditing(true);
+    setEditing(isEditing);
   };
+
+  const handleEdit = () => resetEditForm(true);
 
   // ==============================
   // CANCEL
   // ==============================
 
-  const handleCancel = () => {
-    const rawFullName = profile?.full_name || user?.name || user?.full_name || "";
-    const nameParts = rawFullName.trim().split(/\s+/);
-    const loadedFirst = profile?.first_name || user?.first_name || nameParts[0] || "";
-    const loadedLast = profile?.last_name || user?.last_name || (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
-
-    setForm({
-      first_name: loadedFirst,
-      last_name: loadedLast,
-      phone: profile?.phone || user?.phone || "",
-    });
-
-    setError("");
-    setFieldErrors({});
-    setSuccess("");
-    setEditing(false);
-  };
+  const handleCancel = () => resetEditForm(false);
 
   // ==============================
   // SAVE

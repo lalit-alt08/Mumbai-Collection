@@ -1,26 +1,16 @@
 import { useEffect, useState, useRef } from "react";
-import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import API_URL from "../config/api.js";
 import {
-  User,
-  MapPin,
-  Home,
-  Building2,
-  Pencil,
-  Trash2,
-  Plus,
   ArrowRight,
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
   ShieldCheck,
-  Lock,
-  Eye,
-  EyeOff,
-  Check,
-  Loader2,
 } from "lucide-react";
+import { ProfileSecurityCard } from "../components/profile/ProfileSecurityCard.jsx";
+import { ProfileAddressCard } from "../components/profile/ProfileAddressCard.jsx";
 import {
   DELIVERY_REGIONS,
   isValidDeliveryRegion,
@@ -740,560 +730,47 @@ function ProfileSetup() {
         )}
 
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          {/* ──────────────────────────────────────────────────────── */}
-          {/* CARD 1: ACCOUNT SECURITY & CONTACT (PASSWORD FIRST)      */}
-          {/* ──────────────────────────────────────────────────────── */}
-          <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4.5 sm:p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
-                  <Lock size={16} strokeWidth={2.2} />
-                </div>
-                <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
-                    Account Security & Contact
-                  </h2>
-                  <p className="text-[11px] font-medium text-[#64748B]">
-                    {needsPassword ? "Set your account password and mobile number" : "Add your delivery contact number"}
-                  </p>
-                </div>
-              </div>
+          <ProfileSecurityCard
+            needsPassword={needsPassword}
+            password={password}
+            setPassword={setPassword}
+            confirmPassword={confirmPassword}
+            setConfirmPassword={setConfirmPassword}
+            showPassword={showPassword}
+            setShowPassword={setShowPassword}
+            showConfirmPassword={showConfirmPassword}
+            setShowConfirmPassword={setShowConfirmPassword}
+            passwordChecks={passwordChecks}
+            errors={errors}
+            setErrors={setErrors}
+            form={form}
+            confirmPhone={confirmPhone}
+            handleChange={handleChange}
+            phoneChecking={phoneChecking}
+            phoneAvailable={phoneAvailable}
+            verifyPhoneAvailability={verifyPhoneAvailability}
+          />
 
-            </div>
-
-            {/* A. Password Inputs (Entered first as requested) */}
-            {needsPassword && (
-            <>
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {/* Password Field */}
-                <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.password ? "text-rose-400" : "text-[#64748B]"}`}>
-                    Password <span className="text-[#22499F]">*</span>
-                  </label>
-                  <div className="relative">
-                    <Lock
-                      size={15}
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.password ? "text-rose-400" : "text-[#64748B]"}`}
-                    />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      name="password"
-                      autoComplete="new-password"
-                      placeholder="Create a strong password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        if (errors.password) {
-                          setErrors((prev) => {
-                            const copy = { ...prev };
-                            delete copy.password;
-                            return copy;
-                          });
-                        }
-                      }}
-                      required
-                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
-                        errors.password
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  {errors.password && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                      <span>{errors.password}</span>
-                    </p>
-                  )}
-                </div>
-
-                {/* Confirm Password Field */}
-                <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_password ? "text-rose-400" : "text-[#64748B]"}`}>
-                    Confirm Password <span className="text-[#22499F]">*</span>
-                  </label>
-                  <div className="relative">
-                    <Lock
-                      size={15}
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.confirm_password ? "text-rose-400" : "text-[#64748B]"}`}
-                    />
-                    <input
-                      type={showConfirmPassword ? "text" : "password"}
-                      name="confirm_password"
-                      autoComplete="new-password"
-                      placeholder="Re-enter your password"
-                      value={confirmPassword}
-                      onChange={(e) => {
-                        setConfirmPassword(e.target.value);
-                        if (errors.confirm_password) {
-                          setErrors((prev) => {
-                            const copy = { ...prev };
-                            delete copy.confirm_password;
-                            return copy;
-                          });
-                        }
-                      }}
-                      required
-                      className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
-                        errors.confirm_password
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
-                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                    >
-                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  {errors.confirm_password && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                      <span>{errors.confirm_password}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Password Rules Checklist */}
-              <div className="rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/70 p-3 text-[11px] text-[#64748B] space-y-1.5">
-                <span className="block font-bold text-[#64748B] text-[10px] uppercase tracking-wider">
-                  Password Requirements
-                </span>
-                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                  <span className={`flex items-center gap-1 ${passwordChecks.length ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                    <Check size={12} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
-                  </span>
-                  <span className={`flex items-center gap-1 ${passwordChecks.uppercase ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                    <Check size={12} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
-                  </span>
-                  <span className={`flex items-center gap-1 ${passwordChecks.lowercase ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                    <Check size={12} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
-                  </span>
-                  <span className={`flex items-center gap-1 ${passwordChecks.number ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                    <Check size={12} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
-                  </span>
-                  <span className={`flex items-center gap-1 col-span-2 sm:col-span-2 ${passwordChecks.special ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                    <Check size={12} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special symbol (!@#$%^&*)
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* B. Divider */}
-            <div className="border-t border-[#E2E8F0]/60 pt-3" />
-            </>
-            )}
-
-            {/* C. Mobile Number & Confirm Mobile Number */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
-                  <User size={14} strokeWidth={2.2} />
-                </div>
-                <div>
-                  <h3 className="text-xs sm:text-sm font-extrabold text-[#1E293B]">
-                    Delivery Contact Mobile
-                  </h3>
-                  <p className="text-[10px] font-medium text-[#64748B]">
-                    Used for order delivery updates & driver contact
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
-                    Mobile Number <span className="text-[#22499F]">*</span>
-                  </label>
-                  <div className="relative flex items-center w-full">
-                    <span
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                        errors.phone ? "text-rose-400" : "text-[#64748B]"
-                      }`}
-                    >
-                      +91
-                    </span>
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      maxLength={10}
-                      name="phone"
-                      value={form.phone}
-                      onChange={handleChange}
-                      onBlur={() => {
-                        if (form.phone.length === 10) {
-                          verifyPhoneAvailability(form.phone);
-                        }
-                      }}
-                      required
-                      className={`h-11 w-full rounded-xl border pl-11 pr-9 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
-                        errors.phone
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : phoneAvailable === true
-                            ? "border-emerald-500/70 bg-[#F0F8E8] ring-1 ring-emerald-500/30 focus:border-emerald-400"
-                            : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
-                      }`}
-                    />
-                    {phoneChecking && (
-                      <Loader2
-                        size={15}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#22499F]"
-                      />
-                    )}
-                    {!phoneChecking && phoneAvailable === true && !errors.phone && (
-                      <CheckCircle2
-                        size={15}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400"
-                      />
-                    )}
-                  </div>
-                  {phoneChecking && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-[#22499F]">
-                      <Loader2 size={12} className="shrink-0 animate-spin text-[#22499F]" />
-                      <span>Checking number availability...</span>
-                    </p>
-                  )}
-                  {!phoneChecking && errors.phone && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                      <span>{errors.phone}</span>
-                    </p>
-                  )}
-                  {!phoneChecking && phoneAvailable === true && !errors.phone && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
-                      <CheckCircle2 size={12} className="shrink-0 text-emerald-400" />
-                      <span>Mobile number is available</span>
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.confirm_phone ? "text-rose-400" : "text-[#64748B]"}`}>
-                    Confirm Mobile Number <span className="text-[#22499F]">*</span>
-                  </label>
-                  <div className="relative flex items-center w-full">
-                    <span
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                        errors.confirm_phone ? "text-rose-400" : "text-[#64748B]"
-                      }`}
-                    >
-                      +91
-                    </span>
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      maxLength={10}
-                      name="confirm_phone"
-                      value={confirmPhone}
-                      onChange={handleChange}
-                      required
-                      aria-invalid={Boolean(errors.confirm_phone)}
-                      className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
-                        errors.confirm_phone
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                          : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
-                      }`}
-                    />
-                  </div>
-                  {errors.confirm_phone && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                      <span>{errors.confirm_phone}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ──────────────────────────────────────────────────────── */}
-          {/* CARD 2: DELIVERY ADDRESS                                 */}
-          {/* ──────────────────────────────────────────────────────── */}
-          <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4.5 sm:p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
-                  <MapPin size={16} strokeWidth={2.2} />
-                </div>
-                <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
-                    Delivery Address
-                  </h2>
-                  <p className="text-[11px] font-medium text-[#64748B]">
-                    Where your orders will be delivered
-                  </p>
-                </div>
-              </div>
-
-              <span className="rounded-full bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] px-2.5 py-0.5 text-[10px] font-bold">
-                Step 2 of 2 {requiresAddress ? "• Required" : ""}
-              </span>
-            </div>
-
-            {/* If existing addresses exist and user is not currently editing */}
-            {addresses.length > 0 && !isEditingAddress ? (
-              <div className="space-y-2.5">
-                {addresses.map((address) => {
-                  const isHome = address.type === "home";
-                  return (
-                    <div
-                      key={address.id}
-                      className="rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] p-3.5 transition hover:border-[#22499F]/50"
-                    >
-                      <div className="flex items-start justify-between gap-2.5">
-                        <div className="flex items-start gap-2.5 min-w-0">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#FFFFFF] text-[#22499F] shadow-xs border border-[#E2E8F0]">
-                            {isHome ? <Home size={15} /> : <Building2 size={15} />}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <h4 className="text-xs sm:text-sm font-extrabold text-[#1E293B] capitalize">
-                                {address.type} Address
-                              </h4>
-                              <span className="rounded bg-[#FFFFFF] border border-[#E2E8F0] px-1.5 py-0.2 text-[9px] font-bold uppercase text-[#22499F]">
-                                Saved
-                              </span>
-                            </div>
-                            <p className="text-xs font-medium text-[#64748B] line-clamp-2 mt-0.5">
-                              {address.address_line1}
-                              {address.address_line2 ? `, ${address.address_line2}` : ""}
-                              , {address.city}, Maharashtra
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex shrink-0 gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => startEditAddress(address)}
-                            className="flex h-7 px-2.5 items-center gap-1 rounded-lg bg-[#FFFFFF] border border-[#E2E8F0] text-xs font-bold text-[#64748B] hover:text-[#22499F] hover:border-[#22499F]/40 transition cursor-pointer"
-                          >
-                            <Pencil size={12} />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAddress(address.id)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#FFFFFF] border border-[#E2E8F0] text-rose-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition cursor-pointer"
-                            title="Delete address"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Add second address toggle if only 1 saved */}
-                <div className="flex gap-2 pt-1">
-                  {!hasHome && (
-                    <button
-                      type="button"
-                      onClick={() => startNewAddress("home")}
-                      className="flex items-center gap-1.5 text-xs font-bold text-[#22499F] hover:underline cursor-pointer"
-                    >
-                      <Plus size={13} />
-                      <span>Add Home Address</span>
-                    </button>
-                  )}
-                  {!hasOffice && (
-                    <button
-                      type="button"
-                      onClick={() => startNewAddress("office")}
-                      className="flex items-center gap-1.5 text-xs font-bold text-[#22499F] hover:underline cursor-pointer"
-                    >
-                      <Plus size={13} />
-                      <span>Add Office Address</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              /* Inline Address Fields */
-              <div className="space-y-3">
-                {/* Address Type Toggle (Home / Office) */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-[#64748B]">
-                    Address Type
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setAddressForm((prev) => ({ ...prev, type: "home" }))}
-                      className={`flex h-10 items-center justify-center gap-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        addressForm.type === "home"
-                          ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
-                          : "border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] hover:bg-[#FFFFFF]"
-                      }`}
-                    >
-                      <Home size={15} />
-                      <span>Home</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAddressForm((prev) => ({ ...prev, type: "office" }))}
-                      className={`flex h-10 items-center justify-center gap-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        addressForm.type === "office"
-                          ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
-                          : "border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] hover:bg-[#FFFFFF]"
-                      }`}
-                    >
-                      <Building2 size={15} />
-                      <span>Office</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Street Address */}
-                <div>
-                  <label className={`mb-1 block text-xs font-bold ${errors.address_line1 ? "text-rose-400" : "text-[#64748B]"}`}>
-                    Flat, Building, Street Address <span className="text-[#22499F]">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="address_line1"
-                    placeholder="e.g. Flat 302, Building 4, Station Road"
-                    value={addressForm.address_line1}
-                    onChange={handleAddressChange}
-                    required
-                    className={`h-11 w-full rounded-xl border px-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
-                      errors.address_line1
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
-                        : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
-                    }`}
-                  />
-                  {errors.address_line1 && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                      <span>{errors.address_line1}</span>
-                    </p>
-                  )}
-                </div>
-
-                {/* Landmark / Area */}
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[#64748B]">
-                    Landmark / Area <span className="text-[#64748B] font-medium">(Optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="address_line2"
-                    placeholder="e.g. Near Ganpati Mandir, Opposite Bank"
-                    value={addressForm.address_line2}
-                    onChange={handleAddressChange}
-                    className="h-11 w-full rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] px-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
-                  />
-                </div>
-
-                {/* Delivery Region Selection (4 Zones) */}
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className={`block text-xs font-bold ${errors.city ? "text-rose-400" : "text-[#64748B]"}`}>
-                      Delivery Region <span className="text-[#22499F]">*</span>
-                    </label>
-                    <span className="text-[10px] font-semibold text-[#64748B]">
-                      Local delivery zones
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {DELIVERY_REGIONS.map((region) => {
-                      const isSelected = addressForm.city?.toLowerCase() === region.toLowerCase();
-
-                      return (
-                        <button
-                          key={region}
-                          type="button"
-                          onClick={() => {
-                            setAddressForm((prev) => ({ ...prev, city: region }));
-                            if (errors.city) {
-                              setErrors((prev) => {
-                                const updated = { ...prev };
-                                delete updated.city;
-                                return updated;
-                              });
-                            }
-                            setMessage({ type: "", text: "" });
-                          }}
-                          className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer active:scale-98 ${
-                            isSelected
-                              ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-xs ring-2 ring-[#22499F]/20 font-extrabold"
-                              : errors.city
-                              ? "border-rose-400 bg-rose-950/20 text-[#64748B]"
-                              : "border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] hover:border-[#22499F]/40 hover:bg-[#FFFFFF]"
-                          }`}
-                        >
-                          <MapPin size={14} className={isSelected ? "text-[#22499F]" : errors.city ? "text-rose-400" : "text-[#64748B]"} />
-                          <span className="truncate">{region}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {errors.city && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
-                      <span>{errors.city}</span>
-                    </p>
-                  )}
-                  <p className="mt-2 text-[11.5px] sm:text-xs text-[#64748B] leading-relaxed">
-                    For delivery outside these 4 zones, please{" "}
-                    <Link
-                      to="/contact"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-bold text-[#22499F] underline hover:text-[#1B3B82] transition-colors"
-                    >
-                      contact the store
-                    </Link>
-                    .
-                  </p>
-                </div>
-
-                {/* State / Store Zone Badge */}
-                <div className="flex items-center justify-between rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] px-3.5 py-2.5 text-xs font-bold text-[#64748B]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#1E293B]">Maharashtra</span>
-                    <span className="text-[11px] font-semibold text-[#64748B]">(MH)</span>
-                  </div>
-                  <span className="rounded bg-[#FFFFFF] border border-[#E2E8F0] px-2 py-0.5 text-[9px] font-extrabold text-[#22499F]">
-                    Store Delivery Zone
-                  </span>
-                </div>
-
-                {/* Cancel editing button if editing an existing address */}
-                {addresses.length > 0 && editingAddressId && (
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsEditingAddress(false);
-                        setEditingAddressId(null);
-                      }}
-                      className="text-xs font-bold text-[#64748B] hover:text-[#22499F] cursor-pointer"
-                    >
-                      Cancel Editing
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <ProfileAddressCard
+            requiresAddress={requiresAddress}
+            addresses={addresses}
+            isEditingAddress={isEditingAddress}
+            hasHome={hasHome}
+            hasOffice={hasOffice}
+            startEditAddress={startEditAddress}
+            handleDeleteAddress={handleDeleteAddress}
+            startNewAddress={startNewAddress}
+            addressForm={addressForm}
+            setAddressForm={setAddressForm}
+            errors={errors}
+            setErrors={setErrors}
+            handleAddressChange={handleAddressChange}
+            DELIVERY_REGIONS={DELIVERY_REGIONS}
+            setMessage={setMessage}
+            editingAddressId={editingAddressId}
+            setIsEditingAddress={setIsEditingAddress}
+            setEditingAddressId={setEditingAddressId}
+          />
 
           {/* ──────────────────────────────────────────────────────── */}
           {/* PRIMARY SUBMIT CTA                                       */}

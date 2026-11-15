@@ -152,77 +152,109 @@ export const getAddresses = async (req, res) => {
 };
 
 /**
+ * Internal helper to validate saved address input and construct the normalized WordPress payload.
+ * Used by saveAddress and updateAddress to maintain identical validation order and payload contracts.
+ */
+const validateAndBuildSavedAddressPayload = (body = {}) => {
+  const {
+    type,
+    phone,
+    address_line1,
+    address_line2,
+    city,
+    pincode,
+  } = body;
+
+  const normalizedType = String(type || "").trim().toLowerCase();
+  if (!["home", "office"].includes(normalizedType)) {
+    return {
+      valid: false,
+      message: "Invalid address type. Address type must be either 'home' or 'office'.",
+    };
+  }
+
+  const normalizedRegion = normalizeRegion(city);
+  if (!normalizedRegion) {
+    return {
+      valid: false,
+      message: "Delivery is only available in Vasai West, Vasai East, Nallasopara West, and Nallasopara East (Maharashtra). Please select a valid delivery region.",
+    };
+  }
+
+  const { firstName, lastName } = parseFirstAndLastName(body);
+
+  if (!firstName) {
+    return {
+      valid: false,
+      message: "First name is required.",
+    };
+  }
+
+  if (!lastName) {
+    return {
+      valid: false,
+      message: "Last name is required.",
+    };
+  }
+
+  const cleanFullName = `${firstName} ${lastName}`;
+
+  const cleanPhone = normalizeAndValidateIndianPhone(phone);
+  if (!cleanPhone) {
+    return {
+      valid: false,
+      message: "Please enter a valid 10-digit Indian phone number starting with 6, 7, 8, or 9.",
+    };
+  }
+
+  const pincodeCheck = validatePincode(pincode);
+  if (!pincodeCheck.valid) {
+    return {
+      valid: false,
+      message: "Pincode must be a valid 6-digit Indian postal code.",
+    };
+  }
+
+  const cleanAddress1 = String(address_line1 || "").trim();
+  if (!cleanAddress1 || cleanAddress1.length < 3) {
+    return {
+      valid: false,
+      message: "Flat / Building / Street address is required.",
+    };
+  }
+
+  return {
+    valid: true,
+    normalizedType,
+    payload: {
+      type: normalizedType,
+      first_name: firstName,
+      last_name: lastName,
+      full_name: cleanFullName,
+      phone: cleanPhone,
+      address_line1: cleanAddress1,
+      address_line2: String(address_line2 || "").trim(),
+      city: normalizedRegion,
+      state: "MH",
+      pincode: pincodeCheck.value,
+    },
+  };
+};
+
+/**
  * Save a new address with strict 1 Home / 1 Office limit and local geo-fencing
  */
 export const saveAddress = async (req, res) => {
   try {
-    const {
-      type,
-      phone,
-      address_line1,
-      address_line2,
-      city,
-      state,
-      pincode,
-    } = req.body;
-
-    const { firstName, lastName } = parseFirstAndLastName(req.body);
-
-    const normalizedType = String(type || "").trim().toLowerCase();
-    if (!["home", "office"].includes(normalizedType)) {
+    const validation = validateAndBuildSavedAddressPayload(req.body);
+    if (!validation.valid) {
       return res.status(400).json({
         success: false,
-        message: "Invalid address type. Address type must be either 'home' or 'office'.",
+        message: validation.message,
       });
     }
 
-    const normalizedRegion = normalizeRegion(city);
-    if (!normalizedRegion) {
-      return res.status(400).json({
-        success: false,
-        message: "Delivery is only available in Vasai West, Vasai East, Nallasopara West, and Nallasopara East (Maharashtra). Please select a valid delivery region.",
-      });
-    }
-
-    if (!firstName) {
-      return res.status(400).json({
-        success: false,
-        message: "First name is required.",
-      });
-    }
-
-    if (!lastName) {
-      return res.status(400).json({
-        success: false,
-        message: "Last name is required.",
-      });
-    }
-
-    const cleanFullName = `${firstName} ${lastName}`;
-
-    const cleanPhone = normalizeAndValidateIndianPhone(phone);
-    if (!cleanPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Please enter a valid 10-digit Indian phone number starting with 6, 7, 8, or 9.",
-      });
-    }
-
-    const pincodeCheck = validatePincode(pincode);
-    if (!pincodeCheck.valid) {
-      return res.status(400).json({
-        success: false,
-        message: "Pincode must be a valid 6-digit Indian postal code.",
-      });
-    }
-
-    const cleanAddress1 = String(address_line1 || "").trim();
-    if (!cleanAddress1 || cleanAddress1.length < 3) {
-      return res.status(400).json({
-        success: false,
-        message: "Flat / Building / Street address is required.",
-      });
-    }
+    const { normalizedType, payload } = validation;
 
     // Fetch existing addresses to enforce strict 1 Home / 1 Office limit
     const existingRes = await axios.get(
@@ -252,18 +284,7 @@ export const saveAddress = async (req, res) => {
 
     const response = await axios.post(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses`,
-      {
-        type: normalizedType,
-        first_name: firstName,
-        last_name: lastName,
-        full_name: cleanFullName,
-        phone: cleanPhone,
-        address_line1: cleanAddress1,
-        address_line2: String(address_line2 || "").trim(),
-        city: normalizedRegion,
-        state: "MH",
-        pincode: pincodeCheck.value,
-      },
+      payload,
       {
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
@@ -277,6 +298,22 @@ export const saveAddress = async (req, res) => {
     res.status(201).json(response.data);
   } catch (error) {
     logError(req, error, "Save address error");
+
+    const wpErr = error.response?.data;
+    if (wpErr?.code === "address_type_exists" || wpErr?.code === "ADDRESS_TYPE_EXISTS") {
+      return res.status(400).json({
+        success: false,
+        code: "ADDRESS_TYPE_EXISTS",
+        message: wpErr.message || "An address of this type already exists.",
+      });
+    }
+    if (wpErr?.code === "address_busy") {
+      return res.status(429).json({
+        success: false,
+        code: "ADDRESS_BUSY",
+        message: wpErr.message || "Address operation is in progress. Please retry.",
+      });
+    }
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {
@@ -294,73 +331,15 @@ export const updateAddress = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const {
-      type,
-      phone,
-      address_line1,
-      address_line2,
-      city,
-      state,
-      pincode,
-    } = req.body;
-
-    const { firstName, lastName } = parseFirstAndLastName(req.body);
-
-    const normalizedType = String(type || "").trim().toLowerCase();
-    if (!["home", "office"].includes(normalizedType)) {
+    const validation = validateAndBuildSavedAddressPayload(req.body);
+    if (!validation.valid) {
       return res.status(400).json({
         success: false,
-        message: "Invalid address type. Address type must be either 'home' or 'office'.",
+        message: validation.message,
       });
     }
 
-    const normalizedRegion = normalizeRegion(city);
-    if (!normalizedRegion) {
-      return res.status(400).json({
-        success: false,
-        message: "Delivery is only available in Vasai West, Vasai East, Nallasopara West, and Nallasopara East (Maharashtra). Please select a valid delivery region.",
-      });
-    }
-
-    if (!firstName) {
-      return res.status(400).json({
-        success: false,
-        message: "First name is required.",
-      });
-    }
-
-    if (!lastName) {
-      return res.status(400).json({
-        success: false,
-        message: "Last name is required.",
-      });
-    }
-
-    const cleanFullName = `${firstName} ${lastName}`;
-
-    const cleanPhone = normalizeAndValidateIndianPhone(phone);
-    if (!cleanPhone) {
-      return res.status(400).json({
-        success: false,
-        message: "Please enter a valid 10-digit Indian phone number starting with 6, 7, 8, or 9.",
-      });
-    }
-
-    const pincodeCheck = validatePincode(pincode);
-    if (!pincodeCheck.valid) {
-      return res.status(400).json({
-        success: false,
-        message: "Pincode must be a valid 6-digit Indian postal code.",
-      });
-    }
-
-    const cleanAddress1 = String(address_line1 || "").trim();
-    if (!cleanAddress1 || cleanAddress1.length < 3) {
-      return res.status(400).json({
-        success: false,
-        message: "Flat / Building / Street address is required.",
-      });
-    }
+    const { normalizedType, payload } = validation;
 
     // Fetch existing addresses to prevent switching to an already-occupied address type
     const existingRes = await axios.get(
@@ -390,18 +369,7 @@ export const updateAddress = async (req, res) => {
 
     const response = await axios.put(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/addresses/${encodeURIComponent(id)}`,
-      {
-        type: normalizedType,
-        first_name: firstName,
-        last_name: lastName,
-        full_name: cleanFullName,
-        phone: cleanPhone,
-        address_line1: cleanAddress1,
-        address_line2: String(address_line2 || "").trim(),
-        city: normalizedRegion,
-        state: "MH",
-        pincode: pincodeCheck.value,
-      },
+      payload,
       {
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
@@ -415,6 +383,22 @@ export const updateAddress = async (req, res) => {
     res.json(response.data);
   } catch (error) {
     logError(req, error, "Update address error");
+
+    const wpErr = error.response?.data;
+    if (wpErr?.code === "address_type_exists" || wpErr?.code === "ADDRESS_TYPE_EXISTS") {
+      return res.status(400).json({
+        success: false,
+        code: "ADDRESS_TYPE_EXISTS",
+        message: wpErr.message || "Another address of this type already exists.",
+      });
+    }
+    if (wpErr?.code === "address_busy") {
+      return res.status(429).json({
+        success: false,
+        code: "ADDRESS_BUSY",
+        message: wpErr.message || "Address operation is in progress. Please retry.",
+      });
+    }
 
     res.status(error.response?.status || 500).json(
       error.response?.data || {

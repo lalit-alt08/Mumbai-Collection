@@ -24,6 +24,23 @@ const CATEGORY_LAST_KNOWN_TTL_MS = 24 * 60 * 60 * 1000;
 const CATEGORY_REFRESH_ERROR_BACKOFF_MS = 30_000;
 let categoryRefreshRetryAfter = 0;
 
+const setPaginationHeaders = (res, { total, totalPages, page, perPage }) => {
+  res.setHeader("X-Total-Count", String(total));
+  res.setHeader("X-Total-Pages", String(totalPages));
+  res.setHeader("X-Current-Page", String(page));
+  res.setHeader("X-Per-Page", String(perPage));
+};
+
+const isProductInStock = (product) => {
+  if (!product) return false;
+  if (product.stock_status === "outofstock") return false;
+  if (product.manage_stock === true) {
+    const qty = Number(product.stock_quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return false;
+  }
+  return true;
+};
+
 let fetchCategoriesOverride = null;
 export const _setFetchCategoriesForTesting = (fn) => {
   fetchCategoriesOverride = fn;
@@ -141,10 +158,7 @@ export const getAllProducts = async (req, res) => {
         : (prods.length > 0 ? 1 : 0);
 
     // Set standard pagination response headers for proxies, CDNs and clients
-    res.setHeader("X-Total-Count", String(total));
-    res.setHeader("X-Total-Pages", String(totalPages));
-    res.setHeader("X-Current-Page", String(page));
-    res.setHeader("X-Per-Page", String(perPage));
+    setPaginationHeaders(res, { total, totalPages, page, perPage });
 
     // If caller explicitly requests paginated JSON envelope
     if (req.query.format === "paginated" || req.query.paginated === "true") {
@@ -219,14 +233,9 @@ export const getProductsByIds = async (req, res) => {
       30000
     );
     const selectedProducts = (Array.isArray(products) ? products : []);
-    const availableProducts = selectedProducts.filter((product) => {
-      if (product.stock_status === "outofstock") return false;
-      if (product.manage_stock === true) {
-        const quantity = Number(product.stock_quantity);
-        if (!Number.isFinite(quantity) || quantity <= 0) return false;
-      }
-      return true;
-    });
+    const availableProducts = detailMode === "selection"
+      ? selectedProducts
+      : selectedProducts.filter(isProductInStock);
 
     return res.json(transformMediaUrls(availableProducts, req));
   } catch (error) {
@@ -264,15 +273,7 @@ export const getRelatedProducts = async (req, res) => {
       120000
     );
     const prods = Array.isArray(products) ? products : [];
-    const inStockOnly = prods.filter((p) => {
-      if (!p) return false;
-      if (p.stock_status === "outofstock") return false;
-      if (p.manage_stock === true) {
-        const qty = Number(p.stock_quantity);
-        if (!Number.isFinite(qty) || qty <= 0) return false;
-      }
-      return true;
-    });
+    const inStockOnly = prods.filter(isProductInStock);
 
     res.json(transformMediaUrls(inStockOnly, req));
   } catch (error) {
@@ -421,10 +422,7 @@ export const getAllCategories = async (req, res) => {
       const startIndex = (page - 1) * perPage;
       const paginatedSlice = allCategories.slice(startIndex, startIndex + perPage);
 
-      res.setHeader("X-Total-Count", String(total));
-      res.setHeader("X-Total-Pages", String(totalPages));
-      res.setHeader("X-Current-Page", String(page));
-      res.setHeader("X-Per-Page", String(perPage));
+      setPaginationHeaders(res, { total, totalPages, page, perPage });
 
       if (req.query.format === "paginated" || req.query.paginated === "true") {
         return res.json({
@@ -441,10 +439,7 @@ export const getAllCategories = async (req, res) => {
     }
 
     // Default: return complete list for navbar menus and category drawers
-    res.setHeader("X-Total-Count", String(total));
-    res.setHeader("X-Total-Pages", "1");
-    res.setHeader("X-Current-Page", "1");
-    res.setHeader("X-Per-Page", String(total));
+    setPaginationHeaders(res, { total, totalPages: 1, page: 1, perPage: total });
     return res.json(transformMediaUrls(allCategories, req));
   } catch (error) {
     logError(req, error, "Get all categories error");

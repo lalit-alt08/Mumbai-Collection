@@ -10,12 +10,14 @@ export async function mutateStaffOrder(id, status, { packedOnly = false } = {}) 
   const effective = previous.meta_data?.find((m) => m.key === "_delivery_status")?.value || previous.status;
   if (packedOnly && effective !== "packed" && effective !== "out-for-delivery") {
     const error = new Error("Only packed orders can be bulk dispatched.");
+    error.employeeSafe = true;
     error.response = { status: 409 };
     throw error;
   }
   const validation = validateOrderStatusTransition(previous, status);
   if (!validation.valid) {
     const error = new Error(validation.message);
+    error.employeeSafe = true;
     error.response = { status: 409 };
     throw error;
   }

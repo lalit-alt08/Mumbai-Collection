@@ -20,15 +20,17 @@ import {
   Fan,
 } from "lucide-react";
 import { getOverview, updateOrderStatus } from "../services/employeeApi.js";
+import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
+import { getDashboardCache, setDashboardCache, mergeDegradedOverview } from "../utils/dashboardCache.js";
 import {
   triggerNewOrderNotification,
   announceOrderCountChange,
   requestNotificationPermission,
 } from "../utils/orderNotification.js";
 
-let cachedOverviewData = null;
-
 function Dashboard() {
+  const { user } = useEmployeeAuth();
+  const cachedOverviewData = getDashboardCache(user?.id);
   const [data, setData] = useState(() => cachedOverviewData);
   const outletContext = useOutletContext();
   const setPageRefresh = outletContext?.setPageRefresh;
@@ -81,19 +83,20 @@ function Dashboard() {
           if (typeof currentToPack === "number") {
             prevToPackCountRef.current = currentToPack;
           }
-          cachedOverviewData = payload;
-          setData(payload);
+          setData((previous) => {
+            const merged = mergeDegradedOverview(previous, payload);
+            setDashboardCache(user?.id, merged);
+            return merged;
+          });
           setError(null);
-        } else if (!isBackground) {
+        } else {
           setError(res?.message || "Failed to load operations dashboard.");
         }
       } catch (err) {
         if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") {
           return;
         }
-        if (!isBackground) {
-          setError(err.response?.data?.message || err.message || "Network error loading operations dashboard.");
-        }
+        setError("Could not refresh the dashboard. Displayed information may be out of date.");
       } finally {
         if (activeRequestRef.current?.controller === controller) {
           activeRequestRef.current = null;
@@ -220,16 +223,21 @@ function Dashboard() {
   const summary = overviewData?.summary || {};
   const ordersNeedingAction = overviewData?.ordersNeedingAction || overviewData?.recentOrders || [];
 
-  const ordersToPackCount = summary.ordersToPack ?? 0;
-  const ordersOutForDeliveryCount = summary.ordersOutForDelivery ?? 0;
-  const completedTodayCount = summary.completedToday ?? 0;
-  const lowStockCount = summary.lowStockCount ?? 0;
+  const ordersToPackCount = summary.ordersToPack ?? "—";
+  const ordersOutForDeliveryCount = summary.ordersOutForDelivery ?? "—";
+  const completedTodayCount = summary.completedToday ?? "—";
+  const lowStockCount = summary.lowStockCount ?? "—";
 
-  const ordersPackedCount = summary.ordersPacked ?? 0;
-  const receivedTodayCount = summary.receivedToday ?? 0;
+  const ordersPackedCount = summary.ordersPacked ?? "—";
+  const receivedTodayCount = summary.receivedToday ?? "—";
 
   return (
     <div className="space-y-5 sm:space-y-6">
+      {(error || overviewData.is_degraded) && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          {error || (overviewData.has_stale_data ? "Some information is unavailable; previously loaded values may be out of date." : "Some dashboard information is unavailable. Try refreshing shortly.")}
+        </div>
+      )}
       {/* Toast Notification */}
       {toast && (
         <div
@@ -394,7 +402,7 @@ function Dashboard() {
               <h2 className="text-base sm:text-lg font-black tracking-tight text-gray-900 flex items-center gap-2">
                 Orders Needing Action
                 <span className="rounded-full bg-[#7C3AED]/10 px-2.5 py-0.5 text-xs font-bold text-[#7C3AED]">
-                  {ordersNeedingAction.filter(o => !o.is_unpaid && ["processing", "packed", "out-for-delivery", "dispatched"].includes(o.status)).length} Active
+                  {overviewData.unavailable_sections?.includes("action_orders") ? "Unavailable" : `${ordersNeedingAction.filter(o => !o.is_unpaid && ["processing", "packed", "out-for-delivery", "dispatched"].includes(o.status)).length} Active`}
                 </span>
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
@@ -417,7 +425,7 @@ function Dashboard() {
               </div>
               <h3 className="text-sm font-bold text-gray-900">You're all caught up!</h3>
               <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
-                No orders waiting for fulfillment or packing right now. New incoming customer orders will appear here automatically.
+                {overviewData.unavailable_sections?.includes("action_orders") ? "Orders are temporarily unavailable. Please try again." : "No orders waiting for fulfillment or packing right now. New incoming customer orders will appear here automatically."}
               </p>
             </div>
           ) : (

@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
 import {
   FolderTree,
   Folder,
@@ -8,16 +7,12 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
-  Loader2,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
   ChevronRight,
   Edit3,
   Check,
-  X,
-  Image as ImageIcon,
-  PackagePlus,
 } from "lucide-react";
 import {
   getCategories,
@@ -34,6 +29,8 @@ import {
   MAX_FILE_SIZE_BYTES,
 } from "../utils/imageCompressor.js";
 import { getCategoryImageUrl } from "../utils/categoryImage.js";
+import { AddSubcategoryForm } from "../components/subcategory/AddSubcategoryForm.jsx";
+import { UpdateSubcategoryModal } from "../components/subcategory/UpdateSubcategoryModal.jsx";
 
 const formatSubcategoryName = (name, parentName = "") => {
   if (!name || typeof name !== "string") return "";
@@ -248,36 +245,27 @@ function Subcategories() {
     );
   }, [rootDepartments, addSearchQuery]);
 
-  const selectedParentCategory = useMemo(() => {
-    return rootDepartments.find((c) => Number(c.id) === Number(parentId)) || null;
-  }, [rootDepartments, parentId]);
-
-  // Image upload handler for Add Subcategory
-  const handleImageSelect = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    const file = files[0];
-
+  const prepareSubcategoryImage = async (file, inputRef, previousPreview, sizeMessage) => {
     if (!isAcceptedImage(file)) {
       showToast(`"${file.name}" is not a supported image format.`, "error");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
+      if (inputRef.current) inputRef.current.value = "";
+      return null;
     }
 
     if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
       showToast(`"${file.name}" exceeds 25MB maximum limit.`, "error");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
+      if (inputRef.current) inputRef.current.value = "";
+      return null;
     }
 
     if (isHeicFile(file)) {
       showToast(`HEIC format not supported. Please select JPEG, PNG, or WebP.`, "error");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
+      if (inputRef.current) inputRef.current.value = "";
+      return null;
     }
 
-    if (image?.preview && typeof image.preview === "string" && image.preview.startsWith("blob:")) {
-      URL.revokeObjectURL(image.preview);
+    if (previousPreview && typeof previousPreview === "string" && previousPreview.startsWith("blob:")) {
+      URL.revokeObjectURL(previousPreview);
     }
 
     let fileToUpload = file;
@@ -288,10 +276,20 @@ function Subcategories() {
     }
 
     if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
-      showToast(`"${file.name}" exceeds 5MB upload limit.`, "error");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
+      showToast(`"${file.name}" ${sizeMessage}`, "error");
+      if (inputRef.current) inputRef.current.value = "";
+      return null;
     }
+
+    return fileToUpload;
+  };
+
+  // Image upload handler for Add Subcategory
+  const handleImageSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fileToUpload = await prepareSubcategoryImage(file, fileInputRef, image?.preview, "exceeds 5MB upload limit.");
+    if (!fileToUpload) return;
 
     const preview = URL.createObjectURL(fileToUpload);
     setImage({
@@ -484,44 +482,10 @@ function Subcategories() {
   }, [eligibleUpdateParents, updateParentId]);
 
   const handleUpdateImageSelect = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    const file = files[0];
-
-    if (!isAcceptedImage(file)) {
-      showToast(`"${file.name}" is not a supported image format.`, "error");
-      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
-      return;
-    }
-
-    if (file.size > RAW_IMAGE_MAX_INPUT_BYTES) {
-      showToast(`"${file.name}" exceeds 25MB maximum limit.`, "error");
-      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
-      return;
-    }
-
-    if (isHeicFile(file)) {
-      showToast(`HEIC format not supported. Please select JPEG, PNG, or WebP.`, "error");
-      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
-      return;
-    }
-
-    if (updateImagePreview && typeof updateImagePreview === "string" && updateImagePreview.startsWith("blob:")) {
-      URL.revokeObjectURL(updateImagePreview);
-    }
-
-    let fileToUpload = file;
-    try {
-      fileToUpload = await compressImage(file, { maxDimension: CATEGORY_MAX_DIMENSION });
-    } catch {
-      // Fallback
-    }
-
-    if (fileToUpload.size > MAX_FILE_SIZE_BYTES) {
-      showToast(`"${file.name}" exceeds 5MB limit.`, "error");
-      if (updateFileInputRef.current) updateFileInputRef.current.value = "";
-      return;
-    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fileToUpload = await prepareSubcategoryImage(file, updateFileInputRef, updateImagePreview, "exceeds 5MB limit.");
+    if (!fileToUpload) return;
 
     setUpdateImageFile(fileToUpload);
     setUpdateImagePreview(URL.createObjectURL(fileToUpload));
@@ -679,312 +643,30 @@ function Subcategories() {
             </button>
           </div>
 
-          {createdCategory ? (
-            <div className="rounded-2xl border border-purple-200 bg-purple-50/90 p-5 sm:p-6 text-center space-y-4 shadow-sm animate-in zoom-in-95 duration-200">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-600 text-white shadow-md">
-                <CheckCircle2 size={28} />
-              </div>
-
-              <div>
-                <h3 className="text-base font-black text-gray-900">
-                  Subcategory Successfully Created!
-                </h3>
-                <p className="text-xs text-gray-600 mt-1 max-w-md mx-auto">
-                  <span className="font-bold text-gray-900">"{createdCategory.name}"</span> (ID #{createdCategory.id}) is now nested inside{" "}
-                  <span className="font-bold text-purple-900">
-                    "{rootDepartments.find((p) => Number(p.id) === Number(createdCategory.parent))?.name || "Department"}"
-                  </span>.
-                </p>
-              </div>
-
-              {createdCategory.image?.src && (
-                <div className="mx-auto h-20 w-20 overflow-hidden rounded-2xl border-2 border-purple-300 shadow-sm bg-white p-1">
-                  <img
-                    src={createdCategory.image.src}
-                    alt={createdCategory.name}
-                    className="h-full w-full object-contain"
-                  />
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={handleResetCreateForm}
-                  className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-purple-500 transition cursor-pointer active:scale-95"
-                >
-                  <Plus size={15} /> Add Another Subcategory
-                </button>
-                <Link
-                  to={`/products/add?category_id=${createdCategory.id}`}
-                  className="inline-flex items-center gap-2 rounded-xl border border-purple-300 bg-white px-4 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 transition shadow-xs"
-                >
-                  <PackagePlus size={15} /> Add Product to this Subcategory
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleCreateSubmit} className="space-y-5">
-              {formError && (
-                <div className="flex items-center gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 text-xs font-bold text-rose-700 animate-in fade-in duration-200">
-                  <AlertCircle size={16} className="shrink-0 text-rose-600" />
-                  <span>{formError}</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
-                  {/* Parent Department Selector */}
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Parent Department <span className="text-rose-500">*</span>
-                    </label>
-
-                    {rootDepartments.length === 0 ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                        No departments found. Please create a main department in "Categories" first.
-                      </div>
-                    ) : (
-                      <div className="relative" ref={addDropdownRef}>
-                        <button
-                          type="button"
-                          onClick={() => setAddDropdownOpen((prev) => !prev)}
-                          aria-haspopup="listbox"
-                          aria-expanded={addDropdownOpen}
-                          className="w-full flex items-center justify-between gap-3 rounded-2xl border-2 border-purple-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-purple-400 focus:ring-2 focus:ring-purple-500/20 active:scale-[0.99] cursor-pointer"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-purple-100 bg-purple-50 flex items-center justify-center p-0.5">
-                              {selectedParentCategory && getCategoryImageUrl(selectedParentCategory) ? (
-                                <img
-                                  src={getCategoryImageUrl(selectedParentCategory)}
-                                  alt={selectedParentCategory.name}
-                                  className="h-full w-full object-contain rounded-lg"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center rounded-lg bg-purple-100 text-purple-700 font-black text-sm uppercase">
-                                  {selectedParentCategory?.name?.charAt(0) || "D"}
-                                </div>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs sm:text-sm font-black text-gray-900 truncate">
-                                {selectedParentCategory?.name || "Choose a Department"}
-                              </p>
-                              <p className="text-[11px] text-purple-700 font-semibold truncate">
-                                {selectedParentCategory
-                                  ? `Department #${selectedParentCategory.id} • ${selectedParentCategory.count ?? 0} products`
-                                  : "Tap to select parent department"}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0 pl-1">
-                            <span className="text-[11px] font-bold text-purple-700 hidden sm:inline">
-                              {addDropdownOpen ? "Close" : "Change"}
-                            </span>
-                            <div
-                              className={`p-1.5 rounded-xl transition-all duration-200 ${
-                                addDropdownOpen ? "rotate-180 bg-purple-100 text-purple-800" : "bg-purple-50 text-purple-600"
-                              }`}
-                            >
-                              <ChevronDown size={15} />
-                            </div>
-                          </div>
-                        </button>
-
-                        {/* Floating Options Menu */}
-                        {addDropdownOpen && (
-                          <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150">
-                            {rootDepartments.length > 4 && (
-                              <div className="p-2.5 border-b border-gray-100 bg-gray-50/80">
-                                <div className="relative">
-                                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                  <input
-                                    type="text"
-                                    value={addSearchQuery}
-                                    onChange={(e) => setAddSearchQuery(e.target.value)}
-                                    placeholder="Search departments..."
-                                    className="w-full pl-8.5 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition"
-                                    autoFocus
-                                  />
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 overscroll-contain">
-                              {filteredAddParents.length === 0 ? (
-                                <div className="p-5 text-center text-xs text-gray-500">
-                                  No matching departments found.
-                                </div>
-                              ) : (
-                                filteredAddParents.map((c) => {
-                                  const isSelected = Number(c.id) === Number(parentId);
-                                  const imgUrl = getCategoryImageUrl(c);
-                                  return (
-                                    <button
-                                      key={c.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setParentId(Number(c.id));
-                                        setAddDropdownOpen(false);
-                                        setAddSearchQuery("");
-                                      }}
-                                      className={`w-full flex items-center justify-between gap-3 p-3 text-left transition cursor-pointer active:scale-[0.99] ${
-                                        isSelected
-                                          ? "bg-purple-50/90 hover:bg-purple-50"
-                                          : "hover:bg-gray-50"
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-3 min-w-0">
-                                        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-white flex items-center justify-center p-0.5 shadow-2xs">
-                                          {imgUrl ? (
-                                            <img
-                                              src={imgUrl}
-                                              alt={c.name}
-                                              className="h-full w-full object-contain rounded-lg"
-                                            />
-                                          ) : (
-                                            <div className="flex h-full w-full items-center justify-center rounded-lg bg-purple-50 text-purple-700 font-bold text-xs uppercase">
-                                              {c.name?.charAt(0) || "D"}
-                                            </div>
-                                          )}
-                                        </div>
-                                        <div className="min-w-0">
-                                          <p className={`text-xs sm:text-sm font-bold truncate ${isSelected ? "text-purple-950 font-black" : "text-gray-900"}`}>
-                                            {c.name}
-                                          </p>
-                                          <p className="text-[11px] text-gray-500 truncate">
-                                            Department #{c.id} • {c.count ?? 0} products
-                                          </p>
-                                        </div>
-                                      </div>
-
-                                      {isSelected && (
-                                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white shadow-xs">
-                                          <Check size={12} strokeWidth={3} />
-                                        </div>
-                                      )}
-                                    </button>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Subcategory Name */}
-                  <div className="space-y-1.5 pt-2">
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Subcategory Name <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={name}
-                      onChange={(e) => {
-                        setName(e.target.value);
-                        if (formError) setFormError("");
-                      }}
-                      placeholder="e.g. Action Figures, Keyboards, Art Paper"
-                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-xs font-medium text-gray-900 outline-none focus:border-purple-500 focus:bg-white focus:ring-2 focus:ring-purple-500/20 transition"
-                    />
-                  </div>
-                </div>
-
-                {/* Subcategory Image Upload */}
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-xs space-y-4 flex flex-col justify-between">
-                  <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                      Subcategory Photo <span className="text-rose-500">*</span>
-                    </h3>
-                    {image?.uploaded && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                        <Check size={11} /> Ready
-                      </span>
-                    )}
-                  </div>
-
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleImageSelect}
-                    accept="image/*,image/heic,image/heif"
-                    className="hidden"
-                  />
-
-                  {!image ? (
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 p-5 text-center hover:border-purple-400 hover:bg-purple-50/20 transition cursor-pointer min-h-[140px]"
-                    >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-400 mb-2">
-                        <ImageIcon size={20} />
-                      </div>
-                      <p className="text-xs font-bold text-gray-700">Click to choose 1 subcategory photo</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WebP (auto-optimized max 1200px)</p>
-                    </div>
-                  ) : (
-                    <div className="flex-1 flex flex-col justify-between space-y-3">
-                      <div className="relative rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 aspect-video max-h-40 flex items-center justify-center">
-                        <img
-                          src={image.preview}
-                          alt="Subcategory Preview"
-                          className="h-full w-full object-contain"
-                        />
-                        {image.uploading && (
-                          <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs flex flex-col items-center justify-center text-white gap-1.5">
-                            <Loader2 size={24} className="animate-spin text-purple-400" />
-                            <span className="text-xs font-bold">Uploading to Media Library...</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={image.uploading}
-                          className="text-xs font-bold text-purple-700 hover:text-purple-900 transition cursor-pointer disabled:opacity-50"
-                        >
-                          Change Photo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleRemoveImage}
-                          disabled={image.uploading}
-                          className="text-xs font-bold text-rose-600 hover:text-rose-800 transition cursor-pointer disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={submitting || (image && image.uploading)}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-purple-600 py-3 text-xs font-black text-white shadow-sm hover:bg-purple-500 transition active:scale-95 cursor-pointer disabled:opacity-50"
-                  >
-                    {submitting ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" />
-                        <span>Creating Subcategory...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus size={16} strokeWidth={2.5} />
-                        <span>Create Subcategory</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
+          <AddSubcategoryForm
+            createdCategory={createdCategory}
+            rootDepartments={rootDepartments}
+            handleResetCreateForm={handleResetCreateForm}
+            handleCreateSubmit={handleCreateSubmit}
+            formError={formError}
+            setFormError={setFormError}
+            parentId={parentId}
+            setParentId={setParentId}
+            selectedAddParent={selectedAddParent}
+            addDropdownOpen={addDropdownOpen}
+            setAddDropdownOpen={setAddDropdownOpen}
+            addDropdownRef={addDropdownRef}
+            addSearchQuery={addSearchQuery}
+            setAddSearchQuery={setAddSearchQuery}
+            filteredAddParents={filteredAddParents}
+            name={name}
+            setName={setName}
+            image={image}
+            fileInputRef={fileInputRef}
+            handleImageSelect={handleImageSelect}
+            handleRemoveImage={handleRemoveImage}
+            submitting={submitting}
+          />
         </div>
       )}
 
@@ -1406,291 +1088,33 @@ function Subcategories() {
       {/* ───────────────────────────────────────────────────────────── */}
       {/* SECTION 4: UPDATE SUBCATEGORY MODAL                           */}
       {/* ───────────────────────────────────────────────────────────── */}
-      {editingSubcategory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg rounded-3xl bg-white p-5 sm:p-7 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
-              <div>
-                <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
-                  <Edit3 size={18} className="text-purple-600" />
-                  Update Subcategory
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Modifying <span className="font-bold text-gray-800">"{editingSubcategory.name}"</span> (ID #{editingSubcategory.id})
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCloseUpdateModal}
-                disabled={updating}
-                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition cursor-pointer disabled:opacity-50"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {updateError && (
-              <div className="flex items-center gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 text-xs font-bold text-rose-700">
-                <AlertCircle size={16} className="shrink-0 text-rose-600" />
-                <span>{updateError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleUpdateSubmit} className="space-y-5">
-              <input
-                type="file"
-                ref={updateFileInputRef}
-                onChange={handleUpdateImageSelect}
-                accept="image/*,image/heic,image/heif"
-                className="hidden"
-              />
-
-              {/* Subcategory Image */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Subcategory Photo
-                </label>
-
-                <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-3.5 sm:p-4 flex flex-col sm:flex-row items-center gap-4">
-                  <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border-2 border-purple-200 bg-white p-1 shadow-sm flex items-center justify-center">
-                    {updateImagePreview ? (
-                      <img
-                        src={updateImagePreview}
-                        alt="New Preview"
-                        className="h-full w-full object-contain"
-                      />
-                    ) : getCategoryImageUrl(editingSubcategory) ? (
-                      <img
-                        src={getCategoryImageUrl(editingSubcategory)}
-                        alt={editingSubcategory.name}
-                        className="h-full w-full object-contain"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-purple-50 text-purple-700 font-black text-2xl uppercase">
-                        {editingSubcategory.name?.charAt(0) || "S"}
-                      </div>
-                    )}
-                    {updateImagePreview && (
-                      <div className="absolute top-1 right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
-                        <Check size={12} />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 text-center sm:text-left flex-1">
-                    <p className="text-xs font-bold text-gray-800">
-                      {updateImagePreview ? "New Photo Selected" : "Current Subcategory Photo"}
-                    </p>
-                    <p className="text-[11px] text-gray-400">
-                      {updateImagePreview
-                        ? updateImageFile?.name
-                        : "Upload a fresh image to update across storefront."}
-                    </p>
-                    <div className="flex items-center gap-2 pt-1 justify-center sm:justify-start">
-                      <button
-                        type="button"
-                        onClick={() => updateFileInputRef.current?.click()}
-                        disabled={updating}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 hover:border-purple-400 transition shadow-2xs cursor-pointer disabled:opacity-50"
-                      >
-                        <RefreshCw size={13} />
-                        Change Photo
-                      </button>
-                      {updateImagePreview && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (updateImagePreview.startsWith("blob:")) URL.revokeObjectURL(updateImagePreview);
-                            setUpdateImageFile(null);
-                            setUpdateImagePreview("");
-                          }}
-                          disabled={updating}
-                          className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                        >
-                          <X size={13} /> Revert
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Parent Department Selector */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Parent Department <span className="text-rose-500">*</span>
-                </label>
-
-                <div className="relative" ref={updateDropdownRef}>
-                  <button
-                    type="button"
-                    disabled={updating}
-                    onClick={() => setUpdateDropdownOpen((prev) => !prev)}
-                    className="w-full flex items-center justify-between gap-3 rounded-2xl border-2 border-purple-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-purple-400 focus:ring-2 focus:ring-purple-500/20 active:scale-[0.99] cursor-pointer disabled:opacity-50"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-purple-100 bg-purple-50 flex items-center justify-center p-0.5">
-                        {selectedUpdateParent && getCategoryImageUrl(selectedUpdateParent) ? (
-                          <img
-                            src={getCategoryImageUrl(selectedUpdateParent)}
-                            alt={selectedUpdateParent.name}
-                            className="h-full w-full object-contain rounded-lg"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center rounded-lg bg-purple-100 text-purple-700 font-black text-sm uppercase">
-                            {selectedUpdateParent?.name?.charAt(0) || "D"}
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs sm:text-sm font-black text-gray-900 truncate">
-                          {selectedUpdateParent?.name || "Choose Department"}
-                        </p>
-                        <p className="text-[11px] text-purple-700 font-semibold truncate">
-                          {selectedUpdateParent
-                            ? `Department #${selectedUpdateParent.id} • ${selectedUpdateParent.count ?? 0} products`
-                            : "Tap to change parent department"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0 pl-1">
-                      <span className="text-[11px] font-bold text-purple-700 hidden sm:inline">
-                        {updateDropdownOpen ? "Close" : "Change"}
-                      </span>
-                      <div
-                        className={`p-1.5 rounded-xl transition-all duration-200 ${
-                          updateDropdownOpen ? "rotate-180 bg-purple-100 text-purple-800" : "bg-purple-50 text-purple-600"
-                        }`}
-                      >
-                        <ChevronDown size={15} />
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Floating Options Menu */}
-                  {updateDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-150">
-                      {eligibleUpdateParents.length > 4 && (
-                        <div className="p-2.5 border-b border-gray-100 bg-gray-50/80">
-                          <div className="relative">
-                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                              type="text"
-                              value={updateSearchQuery}
-                              onChange={(e) => setUpdateSearchQuery(e.target.value)}
-                              placeholder="Search departments..."
-                              className="w-full pl-8.5 pr-3 py-1.5 text-xs rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition"
-                              autoFocus
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="max-h-60 overflow-y-auto divide-y divide-gray-100 overscroll-contain">
-                        {filteredUpdateParents.length === 0 ? (
-                          <div className="p-5 text-center text-xs text-gray-500">
-                            No matching departments found.
-                          </div>
-                        ) : (
-                          filteredUpdateParents.map((c) => {
-                            const isSelected = Number(c.id) === Number(updateParentId);
-                            const imgUrl = getCategoryImageUrl(c);
-                            return (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => {
-                                  setUpdateParentId(Number(c.id));
-                                  setUpdateDropdownOpen(false);
-                                  setUpdateSearchQuery("");
-                                }}
-                                className={`w-full flex items-center justify-between gap-3 p-3 text-left transition cursor-pointer active:scale-[0.99] ${
-                                  isSelected ? "bg-purple-50/90 hover:bg-purple-50" : "hover:bg-gray-50"
-                                }`}
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-white flex items-center justify-center p-0.5 shadow-2xs">
-                                    {imgUrl ? (
-                                      <img src={imgUrl} alt={c.name} className="h-full w-full object-contain rounded-lg" />
-                                    ) : (
-                                      <div className="flex h-full w-full items-center justify-center rounded-lg bg-purple-50 text-purple-700 font-bold text-xs uppercase">
-                                        {c.name?.charAt(0) || "D"}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className={`text-xs sm:text-sm font-bold truncate ${isSelected ? "text-purple-950 font-black" : "text-gray-900"}`}>
-                                      {c.name}
-                                    </p>
-                                    <p className="text-[11px] text-gray-500 truncate">
-                                      Department #{c.id} • {c.count ?? 0} products
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {isSelected && (
-                                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-white shadow-xs">
-                                    <Check size={12} strokeWidth={3} />
-                                  </div>
-                                )}
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Subcategory Name */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Subcategory Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={updateName}
-                  onChange={(e) => {
-                    setUpdateName(e.target.value);
-                    if (updateError) setUpdateError("");
-                  }}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-xs font-medium text-gray-900 outline-none focus:border-purple-500 focus:bg-white focus:ring-2 focus:ring-purple-500/20 transition"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={handleCloseUpdateModal}
-                  disabled={updating}
-                  className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs cursor-pointer disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={updating}
-                  className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-2 text-xs font-extrabold text-white shadow-sm hover:bg-purple-500 transition active:scale-95 cursor-pointer disabled:opacity-50"
-                >
-                  {updating ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" />
-                      <span>{updateStatusText || "Saving Changes..."}</span>
-                    </>
-                  ) : (
-                    <span>Save Changes</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <UpdateSubcategoryModal
+        editingSubcategory={editingSubcategory}
+        onClose={handleCloseUpdateModal}
+        updateError={updateError}
+        setUpdateError={setUpdateError}
+        updateName={updateName}
+        setUpdateName={setUpdateName}
+        updateParentId={updateParentId}
+        setUpdateParentId={setUpdateParentId}
+        updateImagePreview={updateImagePreview}
+        setUpdateImagePreview={setUpdateImagePreview}
+        updateImageFile={updateImageFile}
+        setUpdateImageFile={setUpdateImageFile}
+        updateFileInputRef={updateFileInputRef}
+        handleUpdateImageSelect={handleUpdateImageSelect}
+        selectedUpdateParent={selectedUpdateParent}
+        updateDropdownOpen={updateDropdownOpen}
+        setUpdateDropdownOpen={setUpdateDropdownOpen}
+        updateDropdownRef={updateDropdownRef}
+        updateSearchQuery={updateSearchQuery}
+        setUpdateSearchQuery={setUpdateSearchQuery}
+        eligibleUpdateParents={eligibleUpdateParents}
+        filteredUpdateParents={filteredUpdateParents}
+        handleUpdateSubmit={handleUpdateSubmit}
+        updating={updating}
+        updateStatusText={updateStatusText}
+      />
     </div>
   );
 }

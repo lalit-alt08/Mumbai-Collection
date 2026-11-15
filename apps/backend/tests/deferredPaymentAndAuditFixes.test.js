@@ -32,6 +32,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
   const originalApiPut = api.put;
   const originalWpPost = wp.post;
   const originalAxiosGet = axios.get;
+  const originalAxiosPost = axios.post;
   const originalGetStoreStatus = storeHoursService.getStoreStatus;
 
   t.beforeEach(() => {
@@ -39,12 +40,30 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     serverCache.clear();
     _resetPaymentStoreHoursFallbackForTesting?.();
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
+    const intents = new Map();
+    const createdOrders = new Map();
     _setWpClientForTesting({
       post: async (path, body) => {
         if (path.endsWith("/stock/reserve")) stockReservationRequest = body;
-        return { data: { success: true } };
+        if (path.endsWith("/payment-intent/store")) intents.set(body.rzp_order_id, { ...body.payload });
+        if (path.endsWith("/payment-intent/get")) return { data: { success: true, intent: intents.get(body.rzp_order_id) || null, active_order_id: null } };
+        if (path.endsWith("/payment-intent/lock")) return { data: { success: true, acquired: true } };
+        if (path.endsWith("/payment-intent/update-status")) {
+          const intent = intents.get(body.rzp_order_id);
+          if (intent) Object.assign(intent, { status: body.to_status, wc_order_id: body.wc_order_id || intent.wc_order_id });
+          return { data: { success: true, updated: true } };
+        }
+        if (path.endsWith("/orders/finalize-payment")) {
+          const result = await api.post("orders", body);
+          const orderId = body.meta_data?.find((item) => item.key === "_razorpay_order_id")?.value;
+          const amount = intents.get(orderId)?.amount_in_paise;
+          const order = { total: amount ? (amount / 100).toFixed(2) : "0", ...result.data };
+          createdOrders.set(orderId, order);
+          return { data: order };
+        }
+        return { data: { success: true, updated: true } };
       },
-      get: async () => ({ data: { order: null } }),
+      get: async (_path, config) => ({ data: { success: true, order: createdOrders.get(config?.params?.rzp_order_id) || null } }),
     });
   });
 
@@ -54,6 +73,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     api.put = originalApiPut;
     wp.post = originalWpPost;
     axios.get = originalAxiosGet;
+    axios.post = originalAxiosPost;
     storeHoursService.getStoreStatus = originalGetStoreStatus;
     _setWpClientForTesting(null);
     serverCache.clear();
@@ -90,11 +110,13 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
       }
       return { data: {} };
     };
+    axios.post = async (url) => axios.get(url);
 
     const req = {
       wpUserId: 42,
       wpUserEmail: "customer@example.com",
       wpAuthCookie: "mock_cookie",
+      headers: {},
       isSuspended: false,
       body: {
         billing_address: {

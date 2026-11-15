@@ -7,18 +7,13 @@ import {
   Edit2,
   Check,
   X,
-  AlertTriangle,
   RotateCcw,
-  Upload,
-  Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
   AlertCircle,
-  Loader2,
   Plus,
   Trash2,
-  Camera,
   Copy,
   Filter,
   ChevronDown,
@@ -45,9 +40,11 @@ import {
   buildProductAdjustmentPayload,
   applyProductAdjustment,
   matchesProductAdjustment,
-  calculateStockStep,
 } from "../utils/productAdjuster.js";
 import { getProductStockDisplay } from "../utils/productStockDisplay.js";
+import { ProductQuickAdjustModal } from "../components/product/ProductQuickAdjustModal.jsx";
+import { ProductAddModal } from "../components/product/ProductAddModal.jsx";
+import { ProductDeleteModal } from "../components/product/ProductDeleteModal.jsx";
 
 function Products() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1633,497 +1630,45 @@ function Products() {
         )}
       </div>
 
-      {/* Quick Adjust Stock & Price Bottom Sheet / Modal (Mobile) */}
-      {quickAdjustProduct && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200">
-          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-6 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
-            {/* Mobile Pull Handle */}
-            <div className="mx-auto w-12 h-1.5 bg-gray-200 rounded-full mb-3 sm:hidden" />
-
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
-              <div className="flex items-center gap-3 min-w-0">
-                <img
-                  src={
-                    quickAdjustProduct.image ||
-                    quickAdjustProduct.images?.[0]?.src ||
-                    "https://placehold.co/44x44?text=Item"
-                  }
-                  alt={quickAdjustProduct.name}
-                  className="h-11 w-11 rounded-xl object-cover border border-gray-200 shrink-0"
-                />
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-gray-900 truncate">
-                    {quickAdjustProduct.name}
-                  </h3>
-                  <p className="text-[11px] font-mono text-gray-400">
-                    {quickAdjustProduct.sku || `#${quickAdjustProduct.id}`}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseQuickAdjust}
-                disabled={adjustSaving}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition cursor-pointer disabled:opacity-50"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Form */}
-            <div className="mt-4 space-y-4">
-              {/* Stock Quantity */}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                  Stock Quantity (Units)
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAdjustForm((prev) => ({
-                        ...prev,
-                        stock_quantity: calculateStockStep(prev.stock_quantity, -1),
-                      }))
-                    }
-                    className="h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border border-gray-200 bg-gray-50 text-gray-700 font-bold text-lg hover:bg-gray-100 flex items-center justify-center transition cursor-pointer active:scale-95"
-                    aria-label="Decrease stock by 1"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={adjustForm.stock_quantity}
-                    onChange={(e) =>
-                      setAdjustForm({ ...adjustForm, stock_quantity: e.target.value })
-                    }
-                    className="flex-1 min-h-[44px] rounded-xl border border-gray-200 px-3 text-center text-base font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAdjustForm((prev) => ({
-                        ...prev,
-                        stock_quantity: calculateStockStep(prev.stock_quantity, 1),
-                      }))
-                    }
-                    className="h-11 w-11 min-h-[44px] min-w-[44px] rounded-xl border border-gray-200 bg-gray-50 text-gray-700 font-bold text-lg hover:bg-gray-100 flex items-center justify-center transition cursor-pointer active:scale-95"
-                    aria-label="Increase stock by 1"
-                  >
-                    +
-                  </button>
-                </div>
-
-              </div>
-
-              {/* Regular Price & Sale Price Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Regular Price */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Regular Price (₹)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">
-                      ₹
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={adjustForm.regular_price}
-                      onChange={(e) =>
-                        setAdjustForm({ ...adjustForm, regular_price: e.target.value })
-                      }
-                      placeholder="0"
-                      className="w-full min-h-[44px] rounded-xl border border-gray-200 pl-8 pr-4 text-sm font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                    />
-                  </div>
-                </div>
-
-                {/* Sale Price */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Sale Price (₹)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">
-                      ₹
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={adjustForm.sale_price}
-                      onChange={(e) =>
-                        setAdjustForm({ ...adjustForm, sale_price: e.target.value })
-                      }
-                      placeholder="Optional"
-                      className="w-full min-h-[44px] rounded-xl border border-gray-200 pl-8 pr-4 text-sm font-bold text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={handleCloseQuickAdjust}
-                  disabled={adjustSaving}
-                  className="flex-1 min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveQuickAdjust}
-                  disabled={adjustSaving}
-                  className="flex-1 min-h-[44px] flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50 active:scale-[0.98]"
-                >
-                  {adjustSaving ? (
-                    <>
-                      <Loader2 size={15} className="animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check size={15} />
-                      <span>Save Changes</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Quick Adjust Stock & Price Modal */}
+      <ProductQuickAdjustModal
+        product={quickAdjustProduct}
+        onClose={handleCloseQuickAdjust}
+        adjustForm={adjustForm}
+        setAdjustForm={setAdjustForm}
+        onSave={handleSaveQuickAdjust}
+        saving={adjustSaving}
+      />
 
       {/* Add New Product Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 sm:p-8 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-gray-900">Add In-Store Product</h3>
-                <p className="text-xs text-gray-500">
-                  Register new shelf item directly to Mumbai Collection catalog
-                </p>
-              </div>
-              <button
-                onClick={handleCloseAddModal}
-                className="rounded-lg p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateProduct} className="mt-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Product Title *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newProduct.name}
-                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-                  placeholder="e.g. Traditional Bandhani Saree"
-                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Regular Price (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="1"
-                    value={newProduct.regular_price}
-                    onChange={(e) => setNewProduct({ ...newProduct, regular_price: e.target.value })}
-                    placeholder="999"
-                    className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Sale Price (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={newProduct.sale_price}
-                    onChange={(e) => setNewProduct({ ...newProduct, sale_price: e.target.value })}
-                    placeholder="Optional"
-                    className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Initial Stock Units
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={newProduct.stock_quantity}
-                  onChange={(e) =>
-                    setNewProduct({ ...newProduct, stock_quantity: Number(e.target.value) })
-                  }
-                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
-                />
-              </div>
-
-              <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
-                <div>
-                  <label htmlFor="quick-product-department" className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Product Department *
-                  </label>
-                  <select
-                    id="quick-product-department"
-                    required
-                    value={newProduct.department_id}
-                    disabled={categoriesLoading || productDepartments.length === 0}
-                    onChange={(event) => setNewProduct({
-                      ...newProduct,
-                      department_id: event.target.value,
-                      subcategory_id: "",
-                    })}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-gray-100"
-                  >
-                    <option value="">{categoriesLoading ? "Loading departments…" : "Choose a department"}</option>
-                    {productDepartments.map((category) => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="quick-product-subcategory" className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Product Subcategory <span className="font-medium normal-case text-gray-400">(Optional)</span>
-                  </label>
-                  <select
-                    id="quick-product-subcategory"
-                    value={newProduct.subcategory_id}
-                    disabled={!newProduct.department_id || productSubcategories.length === 0}
-                    onChange={(event) => setNewProduct({ ...newProduct, subcategory_id: event.target.value })}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-gray-100"
-                  >
-                    <option value="">
-                      {!newProduct.department_id
-                        ? "Choose a department first"
-                        : productSubcategories.length
-                          ? "No subcategory — use department"
-                          : "No subcategories for this department"}
-                    </option>
-                    {productSubcategories.map((category) => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
-                    ))}
-                  </select>
-                </div>
-                {categoriesError && (
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-rose-700">
-                    <span role="alert">{categoriesError}</span>
-                    <button
-                      type="button"
-                      onClick={() => setCategoriesRetryCount((count) => count + 1)}
-                      disabled={categoriesLoading}
-                      className="shrink-0 font-bold underline disabled:opacity-50"
-                    >
-                      {categoriesLoading ? "Retrying…" : "Retry"}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Photo Upload */}
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                  Product Image (WordPress Media Upload)
-                </label>
-                
-                {/* Hidden Inputs for Gallery and Camera */}
-                <input
-                  type="file"
-                  ref={galleryInputRef}
-                  onChange={handleImageFileChange}
-                  accept="image/*,image/heic,image/heif"
-                  className="hidden"
-                />
-
-                <input
-                  type="file"
-                  ref={cameraInputRef}
-                  onChange={handleImageFileChange}
-                  capture="environment"
-                  accept="image/*,image/heic,image/heif"
-                  className="hidden"
-                />
-
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  {/* Take Photo Button */}
-                  <button
-                    type="button"
-                    onClick={() => cameraInputRef.current?.click()}
-                    disabled={uploadingImage}
-                    className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50 shadow-2xs active:scale-95"
-                  >
-                    <Camera size={14} />
-                    Take Photo
-                  </button>
-
-                  {/* From Gallery Button */}
-                  <button
-                    type="button"
-                    onClick={() => galleryInputRef.current?.click()}
-                    disabled={uploadingImage}
-                    className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer disabled:opacity-50 active:scale-95"
-                  >
-                    <ImageIcon size={14} />
-                    From Gallery
-                  </button>
-
-                  {imagePreview && (
-                    <div className="relative group">
-                      <img
-                        src={imagePreview}
-                        alt="Preview"
-                        className="h-11 w-11 rounded-xl object-cover border border-gray-200 bg-gray-100 shadow-2xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => clearImagePreview(true)}
-                        className="absolute -top-1.5 -right-1.5 bg-black/70 hover:bg-rose-600 text-white rounded-full p-0.5 transition cursor-pointer shadow-xs"
-                        title={uploadingImage ? "Cancel upload" : "Remove image"}
-                      >
-                        <X size={11} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {uploadingImage && (
-                  <div className="mt-2.5 space-y-1">
-                    <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium">
-                      <span className="flex items-center gap-1">
-                        <Loader2 size={12} className="animate-spin text-emerald-600" />
-                        Uploading to Media Library...
-                      </span>
-                      <span className="font-bold text-gray-700">{uploadProgress}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden border border-gray-200">
-                      <div
-                        className="h-full bg-emerald-500 transition-all duration-150 rounded-full"
-                        style={{ width: `${Math.max(5, uploadProgress)}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {!uploadingImage && newProduct.image_url && (
-                  <p className="mt-1.5 text-[11px] text-emerald-600 font-medium truncate">
-                    ✓ Uploaded: {newProduct.image_url}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={handleCloseAddModal}
-                  className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating || uploadingImage}
-                  className="flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition cursor-pointer disabled:opacity-50"
-                >
-                  {creating ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  Create Product
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ProductAddModal
+        isOpen={showAddModal}
+        onClose={handleCloseAddModal}
+        onSubmit={handleCreateProduct}
+        newProduct={newProduct}
+        setNewProduct={setNewProduct}
+        creating={creating}
+        productDepartments={productDepartments}
+        productSubcategories={productSubcategories}
+        categoriesLoading={categoriesLoading}
+        categoriesError={categoriesError}
+        setCategoriesRetryCount={setCategoriesRetryCount}
+        galleryInputRef={galleryInputRef}
+        cameraInputRef={cameraInputRef}
+        handleImageFileChange={handleImageFileChange}
+        imagePreview={imagePreview}
+        clearImagePreview={clearImagePreview}
+        uploadingImage={uploadingImage}
+        uploadProgress={uploadProgress}
+      />
 
       {/* Delete Product Confirmation Modal */}
-      {deleteConfirmProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-100 mb-4">
-              <Trash2 size={24} />
-            </div>
-
-            <div className="text-center space-y-2">
-              <h3 className="text-lg font-black text-gray-900">
-                Move Product to Trash?
-              </h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Are you sure you want to move <span className="font-bold text-gray-900">"{deleteConfirmProduct.name}"</span> to Trash?
-              </p>
-
-              {deleteConfirmProduct.image && (
-                <div className="mx-auto h-16 w-16 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 p-1 my-2">
-                  <img
-                    src={deleteConfirmProduct.image}
-                    alt={deleteConfirmProduct.name}
-                    className="h-full w-full object-contain"
-                  />
-                </div>
-              )}
-
-              <div className="rounded-2xl bg-rose-50/60 p-3 border border-rose-100 text-left text-[11px] text-rose-700 space-y-1 mt-3">
-                <div className="font-bold flex items-center gap-1.5">
-                  <AlertTriangle size={13} /> Remove From Storefront
-                </div>
-                <p className="text-rose-600/90 text-[10.5px]">
-                  This product will disappear from the store catalog, but can still be restored from WooCommerce Trash.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2.5 pt-5 border-t border-gray-100 mt-5">
-              <button
-                type="button"
-                disabled={deletingId === deleteConfirmProduct.id}
-                onClick={() => setDeleteConfirmProduct(null)}
-                className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deletingId === deleteConfirmProduct.id}
-                onClick={() => handleDeleteProduct(deleteConfirmProduct)}
-                className="flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50 transition cursor-pointer active:scale-95"
-              >
-                {deletingId === deleteConfirmProduct.id ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" /> Moving...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 size={14} /> Move to Trash
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ProductDeleteModal
+        product={deleteConfirmProduct}
+        onClose={() => setDeleteConfirmProduct(null)}
+        onConfirm={() => handleDeleteProduct(deleteConfirmProduct)}
+        deleting={deletingId === deleteConfirmProduct?.id}
+      />
     </div>
   );
 }

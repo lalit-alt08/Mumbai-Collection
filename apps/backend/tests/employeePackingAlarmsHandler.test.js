@@ -34,6 +34,34 @@ const createMockRes = () => {
   };
 };
 
+const makeOrder = (id, baseTime = 0, offsetMs = 0, overrides = {}) => ({
+  id,
+  status: "processing",
+  payment_method: "cod",
+  date_created_gmt: typeof baseTime === "string" ? baseTime : new Date(baseTime - offsetMs).toISOString(),
+  meta_data: [{ key: "_delivery_status", value: "processing" }],
+  ...overrides,
+});
+
+const makeOrders = (length, { startId = 1, step = 1, baseTime = 0, offsetMs = 0, intervalMs = 1000, fixedTime, overrides } = {}) =>
+  Array.from({ length }, (_, i) => {
+    const id = startId + i * step;
+    const time = fixedTime || (typeof baseTime === "string" ? baseTime : new Date(baseTime - offsetMs - i * intervalMs).toISOString());
+    return makeOrder(id, time, 0, overrides);
+  });
+
+const makeKeysetRes = (orders, total_pages = 2, total = undefined) => ({
+  data: {
+    orders,
+    total_pages,
+    keyset_capability: "v1",
+    ...(total !== undefined ? { total } : {}),
+  },
+  headers: { "x-mumbai-keyset-capability": "v1" },
+});
+
+const setLocalAck = (id) => _getLocalAcknowledgedOrders().set(id, { orderId: id, expiresAt: Date.now() + 86400000 });
+
 describe("Employee Packing Alarms Backend Handler Suite", () => {
   const originalWpGet = wp.get;
   const originalApiGet = api.get;
@@ -52,53 +80,13 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     // Generate 50 acknowledged orders for page 1
     const baseTime = new Date("2026-11-07T12:00:00Z").getTime();
     const page1Orders = Array.from({ length: 50 }, (_, i) => {
-      const id = i + 1;
-      _getLocalAcknowledgedOrders().set(id, {
-        orderId: id,
-        expiresAt: Date.now() + 86400000,
-      });
-      return {
-        id,
-        status: "processing",
-        payment_method: "cod",
-        date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-        meta_data: [{ key: "_delivery_status", value: "processing" }],
-      };
+      setLocalAck(i + 1);
+      return makeOrder(i + 1, baseTime, i * 1000);
     });
+    const page2Orders = [makeOrder(99, baseTime, 100000)];
 
-    // Page 2 has older order #99 which is unacknowledged
-    const page2Orders = [
-      {
-        id: 99,
-        status: "processing",
-        payment_method: "cod",
-        date_created_gmt: new Date(baseTime - 100000).toISOString(),
-        meta_data: [{ key: "_delivery_status", value: "processing" }],
-      },
-    ];
-
-    wp.get = async (url, { params } = {}) => {
-      if (params?.cursor || params?.cursor_id) {
-        return {
-          data: {
-            orders: page2Orders,
-            total: 51,
-            total_pages: 2,
-            keyset_capability: "v1",
-          },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
-      }
-      return {
-        data: {
-          orders: page1Orders,
-          total: 51,
-          total_pages: 2,
-          keyset_capability: "v1",
-        },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
-    };
+    wp.get = async (url, { params } = {}) =>
+      makeKeysetRes(params?.cursor || params?.cursor_id ? page2Orders : page1Orders, 2, 51);
 
     const req = { query: {} };
     const res = createMockRes();
@@ -116,85 +104,27 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     const baseTime = new Date("2026-11-07T12:00:00Z").getTime();
 
     // 100 acknowledged orders across page 1 and page 2
-    for (let id = 1; id <= 100; id++) {
-      _getLocalAcknowledgedOrders().set(id, {
-        orderId: id,
-        expiresAt: Date.now() + 86400000,
-      });
-    }
+    for (let id = 1; id <= 100; id++) setLocalAck(id);
 
     let newlyArrivedOrder = null;
 
     wp.get = async (url, { params } = {}) => {
       if (!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page)) {
-        const orders = newlyArrivedOrder
-          ? [newlyArrivedOrder, ...Array.from({ length: 49 }, (_, i) => ({
-              id: i + 1,
-              status: "processing",
-              payment_method: "cod",
-              date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-            }))]
-          : Array.from({ length: 50 }, (_, i) => ({
-              id: i + 1,
-              status: "processing",
-              payment_method: "cod",
-              date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-            }));
-        return {
-          data: { orders, total_pages: 5, keyset_capability: "v1" },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
+        const base50 = makeOrders(50, { startId: 1, baseTime });
+        const orders = newlyArrivedOrder ? [newlyArrivedOrder, ...base50.slice(0, 49)] : base50;
+        return makeKeysetRes(orders, 5);
       }
 
       // Backlog request
       if (params?.cursor || params?.cursor_id) {
         const cursorId = Number(params?.cursor_id || (params?.cursor && params.cursor.split("_")[1]));
         if (cursorId && cursorId >= 100) {
-          // Poll 2 backlog: cursor is at 100, so return order #301
-          return {
-            data: {
-              orders: [{
-                id: 301,
-                status: "processing",
-                payment_method: "cod",
-                date_created_gmt: new Date(baseTime - 200000).toISOString(),
-              }],
-              total_pages: 5,
-              keyset_capability: "v1",
-            },
-            headers: { "x-mumbai-keyset-capability": "v1" },
-          };
+          return makeKeysetRes([makeOrder(301, baseTime, 200000)], 5);
         }
-
-        // Poll 1 backlog: cursor is at 50, return page 2 (orders 51 to 100, all acknowledged)
-        return {
-          data: {
-            orders: Array.from({ length: 50 }, (_, i) => ({
-              id: i + 51,
-              status: "processing",
-              payment_method: "cod",
-              date_created_gmt: new Date(baseTime - (i + 51) * 1000).toISOString(),
-            })),
-            total_pages: 5,
-            keyset_capability: "v1",
-          },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
+        return makeKeysetRes(makeOrders(50, { startId: 51, baseTime, offsetMs: 51 * 1000 }), 5);
       }
 
-      return {
-        data: {
-          orders: Array.from({ length: 50 }, (_, i) => ({
-            id: i + 51,
-            status: "processing",
-            payment_method: "cod",
-            date_created_gmt: new Date(baseTime - (i + 51) * 1000).toISOString(),
-          })),
-          total_pages: 5,
-          keyset_capability: "v1",
-        },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
+      return makeKeysetRes(makeOrders(50, { startId: 51, baseTime, offsetMs: 51 * 1000 }), 5);
     };
 
     // Poll 1: initial poll without cursor. Reads page 1 & page 2
@@ -295,10 +225,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     wp.get = async () => ({ data: { orders: [], total_pages: 1 } });
 
     // Order 501: acknowledged in Redis/memory by staff on Phone A
-    _getLocalAcknowledgedOrders().set(501, {
-      orderId: 501,
-      expiresAt: Date.now() + 86400000,
-    });
+    setLocalAck(501);
 
     api.get = async (path) => {
       if (path === "orders") {
@@ -359,35 +286,11 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
 
   test("5. Page 1 stays full of unacknowledged orders across consecutive polls; backlog discovery is reserved and older orders are returned without stalling", async () => {
     const baseTime = new Date("2026-11-07T12:00:00Z").getTime();
+    const page1Orders = makeOrders(50, { startId: 1, baseTime });
+    const page2Orders = makeOrders(50, { startId: 101, baseTime, offsetMs: 100000 });
 
-    // 50 unacknowledged orders on page 1 (IDs 1-50)
-    const page1Orders = Array.from({ length: 50 }, (_, i) => ({
-      id: i + 1,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-    }));
-
-    // Backlog orders (50 orders: IDs 101-150)
-    const page2Orders = Array.from({ length: 50 }, (_, i) => ({
-      id: i + 101,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - 100000 - i * 1000).toISOString(),
-    }));
-
-    wp.get = async (url, { params } = {}) => {
-      if (!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page)) {
-        return {
-          data: { orders: page1Orders, total_pages: 3, keyset_capability: "v1" },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
-      }
-      return {
-        data: { orders: page2Orders, total_pages: 3, keyset_capability: "v1" },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
-    };
+    wp.get = async (url, { params } = {}) =>
+      makeKeysetRes(!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page) ? page1Orders : page2Orders, 3);
 
     // Poll 1: initial poll
     const res1 = createMockRes();
@@ -417,38 +320,11 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
 
   test("6. Response fills halfway through a backlog page; cursor resumes from the exact last examined order without skipping unread rows", async () => {
     const baseTime = new Date("2026-11-07T12:00:00Z").getTime();
+    const page1Orders = makeOrders(25, { startId: 1, baseTime });
+    const backlogOrders = makeOrders(50, { startId: 200, step: -1, baseTime, offsetMs: 100000 });
 
-    // 25 orders on Page 1
-    const page1Orders = Array.from({ length: 25 }, (_, i) => ({
-      id: i + 1,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-    }));
-
-    // Backlog has 50 orders (IDs 200 down to 151)
-    const backlogOrders = Array.from({ length: 50 }, (_, i) => ({
-      id: 200 - i,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - 100000 - i * 1000).toISOString(),
-    }));
-
-    let examinedInBacklogPoll1 = [];
-    let examinedInBacklogPoll2 = [];
-
-    wp.get = async (url, { params } = {}) => {
-      if (!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page)) {
-        return {
-          data: { orders: page1Orders, total_pages: 2, keyset_capability: "v1" },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
-      }
-      return {
-        data: { orders: backlogOrders, total_pages: 2, keyset_capability: "v1" },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
-    };
+    wp.get = async (url, { params } = {}) =>
+      makeKeysetRes(!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page) ? page1Orders : backlogOrders, 2);
 
     // Poll 1: Page 1 fills 25 slots. The remaining 25 slots are filled by the first 25 backlog orders
     // (halfway through the 50 backlog orders)!
@@ -499,10 +375,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     };
 
     // Staff acknowledged order 777 in Redis
-    _getLocalAcknowledgedOrders().set(777, {
-      orderId: 777,
-      expiresAt: Date.now() + 86400000,
-    });
+    setLocalAck(777);
 
     const activeCursor = "2026-11-07T10:00:00.000Z_500";
     const req = {
@@ -530,12 +403,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
   test("8. More than 50 rows share one timestamp: across consecutive polls, unread lower IDs are discovered and cursor does not reset early", async () => {
     const tiedTimestamp = "2026-11-07T12:00:00.000Z";
     // 80 orders with the exact same creation timestamp! IDs 80 down to 1
-    const allTiedOrders = Array.from({ length: 80 }, (_, i) => ({
-      id: 80 - i,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: tiedTimestamp,
-    }));
+    const allTiedOrders = makeOrders(80, { startId: 80, step: -1, fixedTime: tiedTimestamp });
 
     // Mock upstream simulating MySQL / HPOS query with sorting and keyset pagination:
     // ORDER BY date_created_gmt DESC, id DESC
@@ -560,14 +428,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
       }
 
       const pageRows = filtered.slice(0, params?.per_page || 50);
-      return {
-        data: {
-          orders: pageRows,
-          total_pages: Math.ceil(filtered.length / (params?.per_page || 50)) || 1,
-          keyset_capability: "v1",
-        },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
+      return makeKeysetRes(pageRows, Math.ceil(filtered.length / (params?.per_page || 50)) || 1);
     };
 
     // Poll 1: initial poll without cursor
@@ -597,27 +458,13 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     const baseTime = new Date("2026-11-07T12:00:00Z").getTime();
     let newlyArrived = null;
 
-    const page1Base = Array.from({ length: 50 }, (_, i) => ({
-      id: 50 - i,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-    }));
-
-    const backlogBase = Array.from({ length: 50 }, (_, i) => ({
-      id: 200 - i,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - 100000 - i * 1000).toISOString(),
-    }));
+    const page1Base = makeOrders(50, { startId: 50, step: -1, baseTime });
+    const backlogBase = makeOrders(50, { startId: 200, step: -1, baseTime, offsetMs: 100000 });
 
     wp.get = async (url, { params } = {}) => {
       if (!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page)) {
         const orders = newlyArrived ? [newlyArrived, ...page1Base.slice(0, 49)] : page1Base;
-        return {
-          data: { orders, total_pages: 3, keyset_capability: "v1" },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
+        return makeKeysetRes(orders, 3);
       }
 
       let filtered = [...backlogBase];
@@ -625,10 +472,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
       if (params?.cursor_id) {
         filtered = filtered.filter((o) => isOrderOlderThanCursor({ id: Number(params.cursor_id), date: params.cursor_date }, o));
       }
-      return {
-        data: { orders: filtered.slice(0, 50), total_pages: 3, keyset_capability: "v1" },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
+      return makeKeysetRes(filtered.slice(0, 50), 3);
     };
 
     // Poll 1
@@ -640,12 +484,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     assert.ok(data1.next_page1_offset > 0, "Poll 1 must yield next_page1_offset for deferred page 1 orders");
 
     // Customer places new order #999!
-    newlyArrived = {
-      id: 999,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime + 5000).toISOString(),
-    };
+    newlyArrived = makeOrder(999, baseTime, -5000);
 
     // Poll 2 with cursor and page1_offset
     const res2 = createMockRes();
@@ -670,6 +509,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     const backlogOrders = data2.orders.filter((o) => o.id > 50 && o.id < 999);
     assert.ok(backlogOrders.length > 0, "Backlog orders must continue making progress");
   });
+
 
   test("10. Batch lookup or individual lookup stalls past budget: returns in time with confirmed results, cancels work, and rotates IDs beyond the first six on next poll", async () => {
     let lookupCallCount = 0;
@@ -738,12 +578,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
       if (params?.page === 1 || (!params?.cursor && !params?.before)) {
         return {
           data: {
-            orders: [{
-              id: 10,
-              status: "processing",
-              payment_method: "cod",
-              date_created_gmt: "2026-11-07T12:00:00.000Z",
-            }],
+            orders: [makeOrder(10, 0, 0, { date_created_gmt: "2026-11-07T12:00:00.000Z" })],
             total_pages: 3,
           },
         };
@@ -759,10 +594,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     };
 
     // Staff acknowledged ringing order 888 in Redis
-    _getLocalAcknowledgedOrders().set(888, {
-      orderId: 888,
-      expiresAt: Date.now() + 86400000,
-    });
+    setLocalAck(888);
 
     const activeCursor = "2026-11-07T11:00:00.000Z_40";
     const res = createMockRes();
@@ -789,21 +621,8 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
   test("12. 70+ orders at one timestamp under Asia/Kolkata (normalizing timezone-less GMT) across multiple polls: lower IDs and older orders are discovered without stalling", async () => {
     // 75 orders at exact same GMT timestamp without Z (WooCommerce GMT format: 17:30 IST = 12:00 GMT)
     const tiedGmt = "2026-11-07T12:00:00";
-    const tiedOrders = Array.from({ length: 75 }, (_, i) => ({
-      id: 75 - i,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: tiedGmt,
-    }));
-
-    // Plus an older order from earlier in the day
-    const olderOrder = {
-      id: 999,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: "2026-11-07T11:00:00.000Z",
-    };
-
+    const tiedOrders = makeOrders(75, { startId: 75, step: -1, fixedTime: tiedGmt });
+    const olderOrder = makeOrder(999, 0, 0, { date_created_gmt: "2026-11-07T11:00:00.000Z" });
     const allStoreOrders = [...tiedOrders, olderOrder];
 
     wp.get = async (url, { params } = {}) => {
@@ -829,14 +648,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
         ? filtered.slice(0, perPage)
         : filtered.slice((page - 1) * perPage, page * perPage);
 
-      return {
-        data: {
-          orders: pageRows,
-          total_pages: Math.ceil(filtered.length / perPage) || 1,
-          keyset_capability: "v1",
-        },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
+      return makeKeysetRes(pageRows, Math.ceil(filtered.length / perPage) || 1);
     };
 
     // Poll 1: initial poll without cursor
@@ -866,29 +678,12 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
 
   test("13. Batch cut short by response cap (50 orders): cursor advances to the exact last examined order and next poll resumes without skipping unread rows", async () => {
     const baseTime = new Date("2026-11-07T12:00:00.000Z").getTime();
-
-    // Page 1 has 25 unacknowledged orders (IDs 1-25)
-    const page1Orders = Array.from({ length: 25 }, (_, i) => ({
-      id: i + 1,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - i * 1000).toISOString(),
-    }));
-
-    // Backlog has 50 unacknowledged orders (IDs 101 to 150)
-    const backlogOrders = Array.from({ length: 50 }, (_, i) => ({
-      id: 150 - i,
-      status: "processing",
-      payment_method: "cod",
-      date_created_gmt: new Date(baseTime - 100000 - i * 1000).toISOString(),
-    }));
+    const page1Orders = makeOrders(25, { startId: 1, baseTime });
+    const backlogOrders = makeOrders(50, { startId: 150, step: -1, baseTime, offsetMs: 100000 });
 
     wp.get = async (url, { params } = {}) => {
       if (!params?.cursor && !params?.cursor_id && (params?.page === 1 || !params?.page)) {
-        return {
-          data: { orders: page1Orders, total_pages: 2, keyset_capability: "v1" },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
+        return makeKeysetRes(page1Orders, 2);
       }
 
       let filtered = [...backlogOrders];
@@ -897,10 +692,7 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
         filtered = filtered.filter((o) => isOrderOlderThanCursor({ id: Number(params.cursor_id), date: params.cursor_date }, o));
       }
 
-      return {
-        data: { orders: filtered.slice(0, 50), total_pages: 2, keyset_capability: "v1" },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
+      return makeKeysetRes(filtered.slice(0, 50), 2);
     };
 
     // Poll 1: Starts with cursor pointing to last order of Page 1 (#25)
@@ -1084,35 +876,9 @@ describe("Employee Packing Alarms Backend Handler Suite", () => {
     wp.get = async (url, { params } = {}) => {
       if (params?.cursor || params?.cursor_id) {
         backlogParamsSent = params;
-        return {
-          data: {
-            orders: [{
-              id: 75,
-              status: "processing",
-              payment_method: "cod",
-              date_created_gmt: "2026-11-07T11:45:00.000Z",
-            }],
-            total_pages: 3,
-            keyset_capability: "v1",
-          },
-          headers: { "x-mumbai-keyset-capability": "v1" },
-        };
+        return makeKeysetRes([makeOrder(75, 0, 0, { date_created_gmt: "2026-11-07T11:45:00.000Z" })], 3);
       }
-
-      // Page 1
-      return {
-        data: {
-          orders: [{
-            id: 100,
-            status: "processing",
-            payment_method: "cod",
-            date_created_gmt: "2026-11-07T12:00:00.000Z",
-          }],
-          total_pages: 3,
-          keyset_capability: "v1",
-        },
-        headers: { "x-mumbai-keyset-capability": "v1" },
-      };
+      return makeKeysetRes([makeOrder(100, 0, 0, { date_created_gmt: "2026-11-07T12:00:00.000Z" })], 3);
     };
 
     const res = createMockRes();

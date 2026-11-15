@@ -580,7 +580,7 @@ test("Verification Suite — Manual Payment Reconciliation, Customers Refresh, a
   });
 
   await t.test("Subtask 6 — Customer Metrics Concurrency and Table Resilience in WordPress Plugin", () => {
-    const pluginSource = fs.readFileSync("../../mumbai-auth.php", "utf8");
+    const pluginSource = fs.readFileSync(new URL("../../../mumbai-auth.php", import.meta.url), "utf8");
 
     // 1. Serialized calculation and write per customer with MySQL GET_LOCK
     assert.ok(pluginSource.includes("mumbai_customer_metrics:"), "Must use customer-scoped lock key");

@@ -54,7 +54,7 @@ export function getOrderTimestampDate(order) {
   if (!order) return null;
   const raw = order.date_created_gmt || order.date_created;
   if (!raw) return null;
-  const iso = /(Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw + (order.date_created_gmt ? "Z" : "+05:30");
+  const iso = /(Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw + "Z";
   const d = new Date(iso);
   return isNaN(d.getTime()) ? null : d;
 }

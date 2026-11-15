@@ -28,8 +28,18 @@ const ALLOWED_EXTENSIONS = new Set([
  * and clean upstream teardown on client abort.
  */
 router.use(async (req, res) => {
+  if (req.method === "OPTIONS") {
+    res.setHeader("Allow", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Range, Accept, Content-Type, Authorization, X-Requested-With");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length, ETag");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    return res.status(204).end();
+  }
+
   if (req.method !== "GET" && req.method !== "HEAD") {
-    res.setHeader("Allow", "GET, HEAD");
+    res.setHeader("Allow", "GET, HEAD, OPTIONS");
     return res.status(405).json({ success: false, message: "Method Not Allowed" });
   }
 
@@ -148,6 +158,8 @@ router.use(async (req, res) => {
     // Pass through Content-Type and caching headers
     if (ext === ".mp4") {
       res.setHeader("Content-Type", "video/mp4");
+      // Disable proxy buffering for streaming MP4 videos (Nginx / reverse proxies)
+      res.setHeader("X-Accel-Buffering", "no");
     } else if (response.headers["content-type"]) {
       res.setHeader("Content-Type", response.headers["content-type"]);
     }
@@ -158,7 +170,10 @@ router.use(async (req, res) => {
     if (response.headers["content-range"]) {
       res.setHeader("Content-Range", response.headers["content-range"]);
     }
-    res.setHeader("Accept-Ranges", response.headers["accept-ranges"] || "bytes");
+    // Only advertise Accept-Ranges if upstream actually responded with 206 or explicitly sent Accept-Ranges
+    if (response.status === 206 || response.headers["accept-ranges"]) {
+      res.setHeader("Accept-Ranges", response.headers["accept-ranges"] || "bytes");
+    }
 
     if (response.headers["last-modified"]) {
       res.setHeader("Last-Modified", response.headers["last-modified"]);
@@ -170,6 +185,8 @@ router.use(async (req, res) => {
     // Explicitly allow cross-origin embedding by frontend apps (e.g. Vercel deployment)
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Range, Accept, Content-Type, Authorization, X-Requested-With");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length, ETag");
     res.setHeader("X-Content-Type-Options", "nosniff");
 
     // Strictly neutralize stored XSS execution in SVG files

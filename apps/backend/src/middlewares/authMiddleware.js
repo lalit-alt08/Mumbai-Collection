@@ -493,7 +493,7 @@ export const checkSessionRevocationInRedis = async (
   }
 
   if (!redis) {
-    return { available: false, revoked: false };
+    return { available: true, revoked: false };
   }
   try {
     const { allRevocationKeys } = getSessionKeyHashes(cookie);
@@ -752,120 +752,117 @@ export const _setSessionCacheForTesting = (cookie, data) => {
   sessionCache.set(cookie, data);
 };
 
+export const _getSessionCacheForTesting = (cookie) => {
+  const { authCacheKey } = getSessionKeyHashes(cookie);
+  return sessionCache.get(authCacheKey) || sessionCache.get(cookie);
+};
+
+const readPanelCookie = (req, context, name, customerLegacyName) =>
+  req.cookies?.[name] || (context === "customer" ? req.cookies?.[customerLegacyName] : undefined);
+
+const denyAuth = (res, status, message) => res.status(status).json({ success: false, message });
+
+const evictCachedCredential = (authCacheKey, wpAuth) => {
+  if (authCacheKey) sessionCache.delete(authCacheKey);
+  sessionCache.delete(wpAuth);
+};
+
+const readLocalCachedSession = (authCacheKey, wpAuth) =>
+  sessionCache.get(authCacheKey) || sessionCache.get(wpAuth);
+
+const readRedisCachedSession = async (redis, authCacheKey) => {
+  try {
+    const redisData = await redis.get(`sess:auth:${authCacheKey}`);
+    if (!redisData) return null;
+
+    const parsed = JSON.parse(redisData);
+    if (parsed.expiresAt && Date.now() >= parsed.expiresAt) return null;
+
+    setLocalMemoryCache(authCacheKey, parsed);
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+};
+
+const checkCachedSessionRevocation = (redis, wpAuth, cached) =>
+  checkSessionRevocationInRedis(redis, wpAuth, cached.userId, cached.timestamp, cached.userVersion);
+
+const canAuthorizeFromCache = (cached, revocation) => {
+  const now = Date.now();
+  return Boolean(
+    cached && revocation.available && !revocation.revoked &&
+    typeof cached.expiresAt === "number" && Number.isFinite(cached.expiresAt) &&
+    cached.expiresAt > 0 && now < cached.expiresAt &&
+    now - cached.timestamp < SESSION_CACHE_TTL
+  );
+};
+
+const getValidatedSessionExpiry = (data, parsedAuth) => {
+  const rawExp = data?.expires_at;
+  return rawExp && Number.isFinite(Number(rawExp)) && Number(rawExp) > 0
+    ? Number(rawExp) * 1000
+    : (parsedAuth?.expiresAt && Number.isFinite(Number(parsedAuth.expiresAt)) && Number(parsedAuth.expiresAt) > 0
+        ? Number(parsedAuth.expiresAt)
+        : null);
+};
+
 const executeAuth = async (context, req, res, next) => {
   try {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
-    // Read only the specific cookie for this explicit server-side context
-    const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
+    const wpAuth = readPanelCookie(req, context, cookieConfig.auth, "mumbai_wp_auth");
 
     if (!wpAuth) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required.",
-      });
+      return denyAuth(res, 401, "Authentication required.");
     }
 
     const parsedAuth = parseWordPressAuthCookie(wpAuth);
     if (!parsedAuth) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid authentication credential.",
-      });
+      return denyAuth(res, 401, "Invalid authentication credential.");
     }
 
     const durableCheck = checkDurableRevocation(wpAuth);
     if (!durableCheck.verified) {
-      return res.status(503).json({
-        success: false,
-        message: "Authentication service temporarily unavailable; unable to verify session state.",
-      });
+      return denyAuth(res, 503, "Authentication service temporarily unavailable; unable to verify session state.");
     }
     if (durableCheck.revoked) {
       const { authCacheKey } = getSessionKeyHashes(wpAuth);
-      if (authCacheKey) sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
-      return res.status(401).json({
-        success: false,
-        message: "Session has been revoked.",
-      });
+      evictCachedCredential(authCacheKey, wpAuth);
+      return denyAuth(res, 401, "Session has been revoked.");
     }
 
     const { authCacheKey } = getSessionKeyHashes(wpAuth);
     const redis = getRedisClient();
 
-    // 1. Look up cached authorization by digest of the complete validated credential
-    let cached = sessionCache.get(authCacheKey) || sessionCache.get(wpAuth);
-
-    if (!cached && redis) {
-      try {
-        const redisData = await redis.get(`sess:auth:${authCacheKey}`);
-        if (redisData) {
-          const parsed = JSON.parse(redisData);
-          if (parsed.expiresAt && Date.now() >= parsed.expiresAt) {
-            cached = null;
-          } else {
-            cached = parsed;
-            setLocalMemoryCache(authCacheKey, cached);
-          }
-        }
-      } catch (_) {}
-    }
+    const cached = readLocalCachedSession(authCacheKey, wpAuth) ||
+      (redis ? await readRedisCachedSession(redis, authCacheKey) : null);
 
     // 2. Perform combined revocation check across token markers and user marker
-    let combinedRev = { available: false, revoked: false };
-    if (cached) {
-      combinedRev = await checkSessionRevocationInRedis(
-        redis,
-        wpAuth,
-        cached.userId,
-        cached.timestamp,
-        cached.userVersion
-      );
-
-      if (combinedRev.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
-        return res.status(401).json({
-          success: false,
-          message: "Session has been revoked.",
-        });
-      }
+    const combinedRev = cached
+      ? await checkCachedSessionRevocation(redis, wpAuth, cached)
+      : { available: false, revoked: false };
+    if (combinedRev.revoked) {
+      evictCachedCredential(authCacheKey, wpAuth);
+      return denyAuth(res, 401, "Session has been revoked.");
     }
 
     // 3. Authorize from cache ONLY IF:
     // - Combined revocation check was available and confirmed clean
     // - Deadline is finite and strictly in the future
     // - Local cache TTL is still fresh
-    const now = Date.now();
-    const hasFiniteExpiry = typeof cached?.expiresAt === "number" && Number.isFinite(cached.expiresAt) && cached.expiresAt > 0;
-
-    if (
-      cached &&
-      combinedRev.available &&
-      !combinedRev.revoked &&
-      hasFiniteExpiry &&
-      now < cached.expiresAt &&
-      now - cached.timestamp < SESSION_CACHE_TTL
-    ) {
+    if (canAuthorizeFromCache(cached, combinedRev)) {
       if (!rolesMatchAuthContext(context, cached.roles)) {
-        return res.status(403).json({
-          success: false,
-          message: "This account is not authorized for the requested application.",
-        });
+        return denyAuth(res, 403, "This account is not authorized for the requested application.");
       }
 
       // Check deadline immediately before granting access
       if (Date.now() >= cached.expiresAt) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
-        return res.status(401).json({
-          success: false,
-          message: "Session has expired.",
-        });
+        evictCachedCredential(authCacheKey, wpAuth);
+        return denyAuth(res, 401, "Session has expired.");
       }
 
       req.wpAuthCookie = wpAuth;
-      req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || (context === "customer" ? req.cookies?.mumbai_wp_nonce : undefined);
+      req.wpRestNonce = readPanelCookie(req, context, cookieConfig.nonce, "mumbai_wp_nonce");
       req.wpUserId = cached.userId;
       req.wpUserEmail = cached.email || "";
       req.authContext = context;
@@ -924,37 +921,21 @@ const executeAuth = async (context, req, res, next) => {
     const hasUsablePassword = response.data?.has_usable_password === true;
 
     if (!response.data?.logged_in || !userId) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
+      evictCachedCredential(authCacheKey, wpAuth);
 
-      return res.status(401).json({
-        success: false,
-        message: "Session expired.",
-      });
+      return denyAuth(res, 401, "Session expired.");
     }
 
     // Require authoritative finite deadline from WordPress, falling back to verified cookie expiration
-    const rawExp = response.data?.expires_at;
-    const expiresAt = rawExp && Number.isFinite(Number(rawExp)) && Number(rawExp) > 0
-      ? Number(rawExp) * 1000
-      : (parsedAuth?.expiresAt && Number.isFinite(Number(parsedAuth.expiresAt)) && Number(parsedAuth.expiresAt) > 0
-          ? Number(parsedAuth.expiresAt)
-          : null);
+    const expiresAt = getValidatedSessionExpiry(response.data, parsedAuth);
 
     if (!expiresAt) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
-      return res.status(401).json({
-        success: false,
-        message: "Session deadline could not be verified.",
-      });
+      evictCachedCredential(authCacheKey, wpAuth);
+      return denyAuth(res, 401, "Session deadline could not be verified.");
     }
 
     if (!rolesMatchAuthContext(context, roles)) {
-      return res.status(403).json({
-        success: false,
-        message: "This account is not authorized for the requested application.",
-      });
+      return denyAuth(res, 403, "This account is not authorized for the requested application.");
     }
 
     // Extract the verified token's own bound issuance version from WordPress authority
@@ -965,34 +946,20 @@ const executeAuth = async (context, req, res, next) => {
     // Recheck durable storage after fresh validation
     const postDurableCheck = checkDurableRevocation(wpAuth);
     if (!postDurableCheck.verified) {
-      return res.status(503).json({
-        success: false,
-        message: "Authentication service temporarily unavailable; unable to verify session state.",
-      });
+      return denyAuth(res, 503, "Authentication service temporarily unavailable; unable to verify session state.");
     }
     if (postDurableCheck.revoked) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
-      return res.status(401).json({
-        success: false,
-        message: "Session has been revoked.",
-      });
+      evictCachedCredential(authCacheKey, wpAuth);
+      return denyAuth(res, 401, "Session has been revoked.");
     }
 
     const postDurableUser = checkDurableUserRevocation(userId, tokenSessionVersion, validationStartedAt);
     if (!postDurableUser.verified) {
-      return res.status(503).json({
-        success: false,
-        message: "Authentication service temporarily unavailable; unable to verify session state.",
-      });
+      return denyAuth(res, 503, "Authentication service temporarily unavailable; unable to verify session state.");
     }
     if (postDurableUser.revoked) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
-      return res.status(401).json({
-        success: false,
-        message: "Session has been revoked.",
-      });
+      evictCachedCredential(authCacheKey, wpAuth);
+      return denyAuth(res, 401, "Session has been revoked.");
     }
 
     // Monotonically verify and update user version in Redis
@@ -1003,12 +970,8 @@ const executeAuth = async (context, req, res, next) => {
         const currentVer = currentVerStr ? Number(currentVerStr) : null;
         if (currentVer !== null && tokenSessionVersion !== null && tokenSessionVersion < currentVer) {
           // Token version N arrived after version N+1 already revoked it
-          sessionCache.delete(authCacheKey);
-          sessionCache.delete(wpAuth);
-          return res.status(401).json({
-            success: false,
-            message: "Session has been revoked.",
-          });
+          evictCachedCredential(authCacheKey, wpAuth);
+          return denyAuth(res, 401, "Session has been revoked.");
         }
 
         if (tokenSessionVersion !== null && (currentVer === null || tokenSessionVersion > currentVer)) {
@@ -1033,23 +996,15 @@ const executeAuth = async (context, req, res, next) => {
         tokenSessionVersion
       );
       if (postRev.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
-        return res.status(401).json({
-          success: false,
-          message: "Session has been revoked.",
-        });
+        evictCachedCredential(authCacheKey, wpAuth);
+        return denyAuth(res, 401, "Session has been revoked.");
       }
     }
 
     // Strictly enforce Date.now() >= expiresAt immediately before granting access
     if (Date.now() >= expiresAt) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
-      return res.status(401).json({
-        success: false,
-        message: "Session has expired.",
-      });
+      evictCachedCredential(authCacheKey, wpAuth);
+      return denyAuth(res, 401, "Session has expired.");
     }
 
     // 5. Cache validated session keyed by authCacheKey (digest of complete validated credential)
@@ -1074,7 +1029,7 @@ const executeAuth = async (context, req, res, next) => {
 
     // 6. Attach authentication information to request
     req.wpAuthCookie = wpAuth;
-    req.wpRestNonce = req.cookies?.[cookieConfig.nonce] || (context === "customer" ? req.cookies?.mumbai_wp_nonce : undefined);
+    req.wpRestNonce = readPanelCookie(req, context, cookieConfig.nonce, "mumbai_wp_nonce");
     req.wpUserId = userId;
     req.wpUserEmail = email;
     req.authContext = context;
@@ -1121,10 +1076,7 @@ const executeAuth = async (context, req, res, next) => {
       });
     }
 
-    return res.status(401).json({
-      success: false,
-      message: "Authentication failed.",
-    });
+    return denyAuth(res, 401, "Authentication failed.");
   }
 };
 
@@ -1141,12 +1093,10 @@ export const requireAuth = (contextOrReq = "customer", maybeRes, maybeNext) => {
 
 
 
+// Historical export name: checkout requires a valid delivery contact, not account-phone verification.
 export const requireVerifiedPhone = (req, res, next) => {
   if (!req.wpUserId || !req.user) {
-    return res.status(401).json({
-      success: false,
-      message: "Authentication required.",
-    });
+    return denyAuth(res, 401, "Authentication required.");
   }
 
   const payloadPhone =
@@ -1199,70 +1149,33 @@ export const getSessionValidation = async (wpAuth) => {
   }
   if (durableCheck.revoked) {
     const { authCacheKey } = getSessionKeyHashes(wpAuth);
-    if (authCacheKey) sessionCache.delete(authCacheKey);
-    sessionCache.delete(wpAuth);
+    evictCachedCredential(authCacheKey, wpAuth);
     return { valid: false, error: "SESSION_REVOKED" };
   }
 
   const { authCacheKey } = getSessionKeyHashes(wpAuth);
   const redis = getRedisClient();
 
-  // 1. Look up cached authorization by digest of the complete validated credential
-  let cached = sessionCache.get(authCacheKey) || sessionCache.get(wpAuth);
-
-  if (!cached && redis) {
-    try {
-      const redisData = await redis.get(`sess:auth:${authCacheKey}`);
-      if (redisData) {
-        const parsed = JSON.parse(redisData);
-        if (parsed.expiresAt && Date.now() >= parsed.expiresAt) {
-          cached = null;
-        } else {
-          cached = parsed;
-          setLocalMemoryCache(authCacheKey, cached);
-        }
-      }
-    } catch (_) {}
-  }
+  const cached = readLocalCachedSession(authCacheKey, wpAuth) ||
+    (redis ? await readRedisCachedSession(redis, authCacheKey) : null);
 
   // 2. Combined revocation check across token markers and user marker
-  let combinedRev = { available: false, revoked: false };
-  if (cached) {
-    combinedRev = await checkSessionRevocationInRedis(
-      redis,
-      wpAuth,
-      cached.userId,
-      cached.timestamp,
-      cached.userVersion
-    );
-
-    if (combinedRev.revoked) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
-      return { valid: false, error: "AUTH_REQUIRED" };
-    }
+  const combinedRev = cached
+    ? await checkCachedSessionRevocation(redis, wpAuth, cached)
+    : { available: false, revoked: false };
+  if (combinedRev.revoked) {
+    evictCachedCredential(authCacheKey, wpAuth);
+    return { valid: false, error: "AUTH_REQUIRED" };
   }
 
   // 3. Authorize from cache ONLY IF:
   // - Combined revocation check was available and clean
   // - Deadline is finite and strictly in the future
   // - Local cache TTL is still fresh
-  const now = Date.now();
-  const hasFiniteExpiry = typeof cached?.expiresAt === "number" && Number.isFinite(cached.expiresAt) && cached.expiresAt > 0;
-
-  if (
-    cached &&
-    combinedRev.available &&
-    !combinedRev.revoked &&
-    hasFiniteExpiry &&
-    now < cached.expiresAt &&
-    now - cached.timestamp < SESSION_CACHE_TTL &&
-    typeof cached.userId !== "undefined"
-  ) {
+  if (canAuthorizeFromCache(cached, combinedRev) && typeof cached.userId !== "undefined") {
     // Check deadline immediately before returning valid session
     if (Date.now() >= cached.expiresAt) {
-      sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
+      evictCachedCredential(authCacheKey, wpAuth);
       return { valid: false, error: "SESSION_EXPIRED" };
     }
 
@@ -1321,22 +1234,15 @@ export const getSessionValidation = async (wpAuth) => {
       const hasUsablePassword = response.data?.has_usable_password === true;
 
       if (!isLoggedIn || !userId) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return { valid: false, error: "SESSION_EXPIRED" };
       }
 
       // Require authoritative finite deadline from WordPress, falling back to verified cookie expiration
-      const rawExp = response.data?.expires_at;
-      const expiresAt = rawExp && Number.isFinite(Number(rawExp)) && Number(rawExp) > 0
-        ? Number(rawExp) * 1000
-        : (parsedAuth?.expiresAt && Number.isFinite(Number(parsedAuth.expiresAt)) && Number(parsedAuth.expiresAt) > 0
-            ? Number(parsedAuth.expiresAt)
-            : null);
+      const expiresAt = getValidatedSessionExpiry(response.data, parsedAuth);
 
       if (!expiresAt) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return { valid: false, error: "SESSION_EXPIRED" };
       }
 
@@ -1351,8 +1257,7 @@ export const getSessionValidation = async (wpAuth) => {
         return { valid: false, error: "AUTH_UNAVAILABLE" };
       }
       if (postDurableCheck.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return { valid: false, error: "SESSION_REVOKED" };
       }
 
@@ -1361,8 +1266,7 @@ export const getSessionValidation = async (wpAuth) => {
         return { valid: false, error: "AUTH_UNAVAILABLE" };
       }
       if (postDurableUser.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return { valid: false, error: "SESSION_REVOKED" };
       }
 
@@ -1373,8 +1277,7 @@ export const getSessionValidation = async (wpAuth) => {
           const currentVerStr = await redis.get(`sess:user_ver:${userId}`);
           const currentVer = currentVerStr ? Number(currentVerStr) : null;
           if (currentVer !== null && tokenSessionVersion !== null && tokenSessionVersion < currentVer) {
-            sessionCache.delete(authCacheKey);
-            sessionCache.delete(wpAuth);
+            evictCachedCredential(authCacheKey, wpAuth);
             return { valid: false, error: "SESSION_REVOKED" };
           }
 
@@ -1400,16 +1303,14 @@ export const getSessionValidation = async (wpAuth) => {
           tokenSessionVersion
         );
         if (postRev.revoked) {
-          sessionCache.delete(authCacheKey);
-          sessionCache.delete(wpAuth);
+          evictCachedCredential(authCacheKey, wpAuth);
           return { valid: false, error: "SESSION_REVOKED" };
         }
       }
 
       // Strictly enforce Date.now() >= expiresAt immediately before returning valid session
       if (Date.now() >= expiresAt) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return { valid: false, error: "SESSION_EXPIRED" };
       }
 
@@ -1484,10 +1385,7 @@ export const checkSessionPhoneVerified = async (wpAuth) => {
 const executeOptionalAuth = async (context, req, res, next) => {
   try {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
-    // Strictly read only the cookie designated for this context (no staff fallback across boundaries)
-    const wpAuth =
-      req.cookies?.[cookieConfig.auth] ||
-      (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
+    const wpAuth = readPanelCookie(req, context, cookieConfig.auth, "mumbai_wp_auth");
 
     if (!wpAuth) {
       return next();
@@ -1501,72 +1399,36 @@ const executeOptionalAuth = async (context, req, res, next) => {
     const durableCheck = checkDurableRevocation(wpAuth);
     if (!durableCheck.verified || durableCheck.revoked) {
       const { authCacheKey } = getSessionKeyHashes(wpAuth);
-      if (authCacheKey) sessionCache.delete(authCacheKey);
-      sessionCache.delete(wpAuth);
+      evictCachedCredential(authCacheKey, wpAuth);
       return next();
     }
 
     const { authCacheKey } = getSessionKeyHashes(wpAuth);
     const redis = getRedisClient();
 
-    // 1. Look up cached authorization by digest of the complete validated credential
-    let cached = sessionCache.get(authCacheKey) || sessionCache.get(wpAuth);
-
-    if (!cached && redis) {
-      try {
-        const redisData = await redis.get(`sess:auth:${authCacheKey}`);
-        if (redisData) {
-          const parsed = JSON.parse(redisData);
-          if (parsed.expiresAt && Date.now() >= parsed.expiresAt) {
-            cached = null;
-          } else {
-            cached = parsed;
-            setLocalMemoryCache(authCacheKey, cached);
-          }
-        }
-      } catch (_) {}
-    }
+    const cached = readLocalCachedSession(authCacheKey, wpAuth) ||
+      (redis ? await readRedisCachedSession(redis, authCacheKey) : null);
 
     // 2. Combined revocation check across token markers and user marker
-    let combinedRev = { available: false, revoked: false };
-    if (cached) {
-      combinedRev = await checkSessionRevocationInRedis(
-        redis,
-        wpAuth,
-        cached.userId,
-        cached.timestamp,
-        cached.userVersion
-      );
-
-      if (combinedRev.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
-        return next();
-      }
+    const combinedRev = cached
+      ? await checkCachedSessionRevocation(redis, wpAuth, cached)
+      : { available: false, revoked: false };
+    if (combinedRev.revoked) {
+      evictCachedCredential(authCacheKey, wpAuth);
+      return next();
     }
 
     // 3. Authorize from cache ONLY IF:
     // - Combined revocation check was available and clean
     // - Deadline is finite and strictly in the future
     // - Local cache TTL is still fresh
-    const now = Date.now();
-    const hasFiniteExpiry = typeof cached?.expiresAt === "number" && Number.isFinite(cached.expiresAt) && cached.expiresAt > 0;
-
-    if (
-      cached &&
-      combinedRev.available &&
-      !combinedRev.revoked &&
-      hasFiniteExpiry &&
-      now < cached.expiresAt &&
-      now - cached.timestamp < SESSION_CACHE_TTL
-    ) {
+    if (canAuthorizeFromCache(cached, combinedRev)) {
       if (!rolesMatchAuthContext(context, cached.roles)) {
         return next();
       }
 
       if (Date.now() >= cached.expiresAt) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return next();
       }
 
@@ -1620,16 +1482,10 @@ const executeOptionalAuth = async (context, req, res, next) => {
         return next();
       }
 
-      const rawExp = response.data?.expires_at;
-      const expiresAt = rawExp && Number.isFinite(Number(rawExp)) && Number(rawExp) > 0
-        ? Number(rawExp) * 1000
-        : (parsedAuth?.expiresAt && Number.isFinite(Number(parsedAuth.expiresAt)) && Number(parsedAuth.expiresAt) > 0
-            ? Number(parsedAuth.expiresAt)
-            : null);
+      const expiresAt = getValidatedSessionExpiry(response.data, parsedAuth);
 
       if (!expiresAt) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return next();
       }
 
@@ -1639,15 +1495,13 @@ const executeOptionalAuth = async (context, req, res, next) => {
 
       const postDurableCheck = checkDurableRevocation(wpAuth);
       if (!postDurableCheck.verified || postDurableCheck.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return next();
       }
 
       const postDurableUser = checkDurableUserRevocation(userId, tokenSessionVersion, validationStartedAt);
       if (!postDurableUser.verified || postDurableUser.revoked) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return next();
       }
 
@@ -1657,8 +1511,7 @@ const executeOptionalAuth = async (context, req, res, next) => {
           const currentVerStr = await redis.get(`sess:user_ver:${userId}`);
           const currentVer = currentVerStr ? Number(currentVerStr) : null;
           if (currentVer !== null && tokenSessionVersion !== null && tokenSessionVersion < currentVer) {
-            sessionCache.delete(authCacheKey);
-            sessionCache.delete(wpAuth);
+            evictCachedCredential(authCacheKey, wpAuth);
             return next();
           }
 
@@ -1684,15 +1537,13 @@ const executeOptionalAuth = async (context, req, res, next) => {
           tokenSessionVersion
         );
         if (postRev.revoked) {
-          sessionCache.delete(authCacheKey);
-          sessionCache.delete(wpAuth);
+          evictCachedCredential(authCacheKey, wpAuth);
           return next();
         }
       }
 
       if (Date.now() >= expiresAt) {
-        sessionCache.delete(authCacheKey);
-        sessionCache.delete(wpAuth);
+        evictCachedCredential(authCacheKey, wpAuth);
         return next();
       }
 

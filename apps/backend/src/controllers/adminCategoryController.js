@@ -113,6 +113,96 @@ const isUncategorizedCategory = (category) =>
   String(category?.name || "").toLowerCase() === "uncategorized";
 
 /**
+ * Helper to validate and construct category image payload (by ID or safe external URL)
+ */
+const validateAndBuildCategoryImage = async (imageId, imageUrl) => {
+  if (imageId !== undefined && imageId !== null && imageId !== "") {
+    const numId = Number(imageId);
+    if (!Number.isInteger(numId) || numId <= 0) {
+      return {
+        valid: false,
+        message: "A valid positive numeric image ID is required.",
+      };
+    }
+    return { valid: true, image: { id: numId } };
+  }
+  if (imageUrl) {
+    const isSafe = await isSafeExternalImageUrl(imageUrl);
+    if (!isSafe) {
+      return {
+        valid: false,
+        message: "Invalid or restricted category image URL. Localhost and private network addresses are blocked.",
+      };
+    }
+    return { valid: true, image: { src: imageUrl } };
+  }
+  return { valid: true, image: null };
+};
+
+/**
+ * Standardize category error sanitization for term_exists / duplicate names
+ */
+const sanitizeCategoryError = (error, defaultMsg) => {
+  const safeError = sanitizeUpstreamError(error, defaultMsg);
+  const rawMessage = String(error?.response?.data?.message || "");
+  if (
+    rawMessage.toLowerCase().includes("already exists") ||
+    error?.response?.data?.code === "term_exists"
+  ) {
+    safeError.payload.message = "A category with this name already exists.";
+  }
+  return safeError;
+};
+
+/**
+ * Validate parent category existence and enforce top-level department rules
+ */
+const validateParentCategoryDepartment = async (numParent) => {
+  const parentResponse = await api.get(`products/categories/${numParent}`, {
+    _fields: "id,name,slug,parent",
+  });
+  const parentCategory = parentResponse.data;
+  if (!parentCategory || Number(parentCategory.id) !== numParent) {
+    return {
+      valid: false,
+      message: "The selected parent category does not exist.",
+    };
+  }
+  if (Number(parentCategory.parent) > 0) {
+    return {
+      valid: false,
+      message: "Subcategories can only be placed under a top-level department.",
+    };
+  }
+  if (isUncategorizedCategory(parentCategory)) {
+    return {
+      valid: false,
+      message: "The protected Uncategorized category cannot be used as a department.",
+    };
+  }
+  return { valid: true, parentCategory };
+};
+
+/**
+ * Format category response entity
+ */
+const formatCategoryPayloadResponse = (cat, fallbackParent = 0) => ({
+  id: cat.id,
+  name: decodeHtmlEntities(cat.name),
+  slug: cat.slug,
+  parent: typeof cat.parent === "number" ? cat.parent : fallbackParent,
+  count: cat.count || 0,
+  image: cat.image
+    ? {
+        id: cat.image.id,
+        src: cat.image.src,
+        name: cat.image.name,
+        alt: cat.image.alt,
+      }
+    : null,
+});
+
+/**
  * Check if targetParentId is a descendant of categoryId (circular hierarchy prevention)
  */
 export const isDescendantCategory = (categoryId, targetParentId, allCategories) => {
@@ -263,9 +353,21 @@ export const createCategory = async (req, res) => {
       });
     }
 
+    const imageResult = await validateAndBuildCategoryImage(image_id, image_url);
+    if (!imageResult.valid) {
+      return res.status(400).json({
+        success: false,
+        message: imageResult.message,
+      });
+    }
+
     const payload = {
       name: name.trim(),
     };
+
+    if (imageResult.image) {
+      payload.image = imageResult.image;
+    }
 
     if (description && typeof description === "string" && description.trim()) {
       payload.description = description.trim();
@@ -280,50 +382,15 @@ export const createCategory = async (req, res) => {
         });
       }
       if (numParent > 0) {
-        const parentResponse = await api.get(`products/categories/${numParent}`, {
-          _fields: "id,name,slug,parent",
-        });
-        const parentCategory = parentResponse.data;
-        if (!parentCategory || Number(parentCategory.id) !== numParent) {
+        const parentCheck = await validateParentCategoryDepartment(numParent);
+        if (!parentCheck.valid) {
           return res.status(400).json({
             success: false,
-            message: "The selected parent category does not exist.",
-          });
-        }
-        if (Number(parentCategory.parent) > 0) {
-          return res.status(400).json({
-            success: false,
-            message: "Subcategories can only be placed under a top-level department.",
-          });
-        }
-        if (isUncategorizedCategory(parentCategory)) {
-          return res.status(400).json({
-            success: false,
-            message: "The protected Uncategorized category cannot be used as a department.",
+            message: parentCheck.message,
           });
         }
       }
       payload.parent = numParent;
-    }
-
-    if (hasImageId) {
-      const numId = Number(image_id);
-      if (!Number.isInteger(numId) || numId <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: "A valid positive numeric image ID is required.",
-        });
-      }
-      payload.image = { id: numId };
-    } else if (hasImageUrl) {
-      const isSafe = await isSafeExternalImageUrl(image_url);
-      if (!isSafe) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid or restricted category image URL. Localhost and private network addresses are blocked.",
-        });
-      }
-      payload.image = { src: image_url };
     }
 
     const response = await api.post("products/categories", payload);
@@ -344,32 +411,11 @@ export const createCategory = async (req, res) => {
       cache_sync: cacheSync,
       success: true,
       message: `Category "${decodeHtmlEntities(cat.name)}" created successfully.`,
-      category: {
-        id: cat.id,
-        name: decodeHtmlEntities(cat.name),
-        slug: cat.slug,
-        parent: typeof cat.parent === "number" ? cat.parent : (payload.parent || 0),
-        count: cat.count || 0,
-        image: cat.image
-          ? {
-              id: cat.image.id,
-              src: cat.image.src,
-              name: cat.image.name,
-              alt: cat.image.alt,
-            }
-          : null,
-      },
+      category: formatCategoryPayloadResponse(cat, payload.parent || 0),
     });
   } catch (error) {
     logError(req, error, "Create category error");
-    const safeError = sanitizeUpstreamError(error, "Failed to create category.");
-    const rawMessage = String(error.response?.data?.message || "");
-    if (
-      rawMessage.toLowerCase().includes("already exists") ||
-      error.response?.data?.code === "term_exists"
-    ) {
-      safeError.payload.message = "A category with this name already exists.";
-    }
+    const safeError = sanitizeCategoryError(error, "Failed to create category.");
     res.status(safeError.status).json(safeError.payload);
   }
 };
@@ -443,29 +489,14 @@ export const updateCategory = async (req, res) => {
       }
 
       if (numParent > 0) {
-        const parentResponse = await api.get(`products/categories/${numParent}`, {
-          _fields: "id,name,slug,parent",
-        });
-        const parentCategory = parentResponse.data;
-        if (!parentCategory || Number(parentCategory.id) !== numParent) {
+        const parentCheck = await validateParentCategoryDepartment(numParent);
+        if (!parentCheck.valid) {
           return res.status(400).json({
             success: false,
-            message: "The selected parent category does not exist.",
+            message: parentCheck.message,
           });
         }
-        if (Number(parentCategory.parent) > 0) {
-          return res.status(400).json({
-            success: false,
-            message: "Subcategories can only be placed under a top-level department.",
-          });
-        }
-        if (isUncategorizedCategory(parentCategory)) {
-          return res.status(400).json({
-            success: false,
-            message: "The protected Uncategorized category cannot be used as a department.",
-          });
-        }
-        if (await isDescendantCategoryFromWoo(numericId, numParent, parentCategory)) {
+        if (await isDescendantCategoryFromWoo(numericId, numParent, parentCheck.parentCategory)) {
           return res.status(400).json({
             success: false,
             message: "Cannot select a descendant category as the parent (circular hierarchy).",
@@ -481,8 +512,7 @@ export const updateCategory = async (req, res) => {
         if (!Array.isArray(childrenResponse.data)) {
           throw new Error("Invalid WooCommerce category hierarchy response");
         }
-        const hasChildren = childrenResponse.data.length > 0;
-        if (hasChildren) {
+        if (childrenResponse.data.length > 0) {
           return res.status(400).json({
             success: false,
             message: "A department with subcategories cannot itself be moved under another department.",
@@ -493,24 +523,18 @@ export const updateCategory = async (req, res) => {
       payload.parent = numParent;
     }
 
-    if (image_id !== undefined && image_id !== null && image_id !== "") {
-      const numId = Number(image_id);
-      if (!Number.isInteger(numId) || numId <= 0) {
+    const hasImageSpec = (image_id !== undefined && image_id !== null && image_id !== "") || Boolean(image_url);
+    if (hasImageSpec) {
+      const imageResult = await validateAndBuildCategoryImage(image_id, image_url);
+      if (!imageResult.valid) {
         return res.status(400).json({
           success: false,
-          message: "A valid positive numeric image ID is required.",
+          message: imageResult.message,
         });
       }
-      payload.image = { id: numId };
-    } else if (image_url) {
-      const isSafe = await isSafeExternalImageUrl(image_url);
-      if (!isSafe) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid or restricted category image URL. Localhost and private network addresses are blocked.",
-        });
+      if (imageResult.image) {
+        payload.image = imageResult.image;
       }
-      payload.image = { src: image_url };
     }
 
     if (Object.keys(payload).length === 0) {
@@ -550,32 +574,11 @@ export const updateCategory = async (req, res) => {
       cache_sync: cacheSync,
       success: true,
       message: `Category "${decodeHtmlEntities(cat.name)}" updated successfully.`,
-      category: {
-        id: cat.id,
-        name: decodeHtmlEntities(cat.name),
-        slug: cat.slug,
-        parent: typeof cat.parent === "number" ? cat.parent : (payload.parent !== undefined ? payload.parent : (cat.parent || 0)),
-        count: cat.count || 0,
-        image: cat.image
-          ? {
-              id: cat.image.id,
-              src: cat.image.src,
-              name: cat.image.name,
-              alt: cat.image.alt,
-            }
-          : null,
-      },
+      category: formatCategoryPayloadResponse(cat, payload.parent !== undefined ? payload.parent : (cat.parent || 0)),
     });
   } catch (error) {
     logError(req, error, "Update category error");
-    const safeError = sanitizeUpstreamError(error, "Failed to update category.");
-    const rawMessage = String(error.response?.data?.message || "");
-    if (
-      rawMessage.toLowerCase().includes("already exists") ||
-      error.response?.data?.code === "term_exists"
-    ) {
-      safeError.payload.message = "A category with this name already exists.";
-    }
+    const safeError = sanitizeCategoryError(error, "Failed to update category.");
     res.status(safeError.status).json(safeError.payload);
   }
 };
@@ -583,36 +586,7 @@ export const updateCategory = async (req, res) => {
 /**
  * Reorder Product Categories in WooCommerce
  */
-export const reorderCategories = async (req, res) => {
-  const { category_ids } = req.body || {};
-
-  if (!Array.isArray(category_ids) || category_ids.length === 0) {
-    return res.status(400).json({
-      success: false,
-      message: "An array of category IDs in the desired order is required.",
-    });
-  }
-
-  const parsedIds = [];
-  for (const id of category_ids) {
-    const parsed = Number(id);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid category ID: ${id}. All elements must be positive integers.`,
-      });
-    }
-    parsedIds.push(parsed);
-  }
-
-  const uniqueSet = new Set(parsedIds);
-  if (uniqueSet.size !== parsedIds.length) {
-    return res.status(400).json({
-      success: false,
-      message: "Duplicate category IDs are not allowed in reorder list.",
-    });
-  }
-
+const acquireReorderLock = async (req) => {
   const isProduction = process.env.NODE_ENV === "production";
   const effectiveRedis = _testRedisClient !== undefined ? _testRedisClient : getRedisClient();
   const redisConfigured = isRedisConfigured();
@@ -624,11 +598,11 @@ export const reorderCategories = async (req, res) => {
   const requireDistributedLock = isProduction || _testRedisClient === null;
 
   if (requireDistributedLock && (_testRedisClient === null || !redisConfigured || !redisActive || !effectiveRedis)) {
-    return res.status(503).json({
+    return { status: 503, payload: {
       success: false,
       code: "REORDER_LOCK_UNAVAILABLE",
       message: "Category reordering requires distributed lock coordination and is temporarily unavailable.",
-    });
+    } };
   }
 
   const redis = effectiveRedis;
@@ -674,11 +648,11 @@ export const reorderCategories = async (req, res) => {
     try {
       const acquired = await redis.set(lockKey, lockOwner, "PX", LOCK_TTL_MS, "NX");
       if (!acquired) {
-        return res.status(409).json({
+        return { status: 409, payload: {
           success: false,
           code: "REORDER_IN_PROGRESS",
           message: "A category reordering operation is currently in progress. Please wait a moment and retry.",
-        });
+        } };
       }
       acquiredRedisLock = true;
 
@@ -714,11 +688,11 @@ export const reorderCategories = async (req, res) => {
     } catch (err) {
       if (requireDistributedLock) {
         logError(req, err, "Distributed category reorder lock acquisition failed in production");
-        return res.status(503).json({
+        return { status: 503, payload: {
           success: false,
           code: "REORDER_LOCK_UNAVAILABLE",
           message: "Category reordering requires distributed lock coordination and is temporarily unavailable.",
-        });
+        } };
       }
       logger.warn(
         { err: err?.message },
@@ -730,7 +704,184 @@ export const reorderCategories = async (req, res) => {
       "[adminCategoryController] Redis is not active; using process-local mutex fallback for category reorder in development"
     );
   }
+  return { assertLockHeld, redis, lockKey, lockOwner, acquiredRedisLock, renewTimer };
+};
 
+const releaseReorderLock = async ({ redis, lockKey, lockOwner, acquiredRedisLock }) => {
+  if (acquiredRedisLock && redis) {
+    try {
+      if (typeof redis.eval === "function") {
+        await redis.eval(LUA_RELEASE_LOCK, 1, lockKey, lockOwner);
+      } else {
+        const current = await redis.get?.(lockKey);
+        if (current === lockOwner) {
+          await redis.del?.(lockKey);
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: err?.message }, "[adminCategoryController] Failed to release reorder lock");
+    }
+  }
+};
+
+const readReorderCategories = async (parsedIds, assertLockHeld) => {
+  const categoriesById = new Map();
+  for (let offset = 0; offset < parsedIds.length; offset += 100) {
+    await assertLockHeld();
+    const chunk = parsedIds.slice(offset, offset + 100);
+    const response = await api.get("products/categories", {
+      include: chunk.join(","),
+      per_page: chunk.length,
+      hide_empty: false,
+      _fields: "id,name,slug,parent",
+    });
+    for (const category of Array.isArray(response.data) ? response.data : []) {
+      categoriesById.set(Number(category.id), category);
+    }
+  }
+  return categoriesById;
+};
+
+const syncCategoryMenuOrders = async (parsedIds, assertLockHeld) => {
+  // Try WooCommerce Batch Update API
+  const updateBatch = parsedIds.map((id, index) => ({
+    id,
+    menu_order: index + 1,
+  }));
+
+  let idsToRetry = [];
+
+  try {
+    await assertLockHeld();
+    const batchRes = await api.post("products/categories/batch", {
+      update: updateBatch,
+    });
+
+    const updates = Array.isArray(batchRes.data?.update) ? batchRes.data.update : [];
+    const successfulIds = new Set();
+
+    for (const item of updates) {
+      const numId = Number(item?.id);
+      if (Number.isInteger(numId) && numId > 0 && !item.error) {
+        successfulIds.add(numId);
+      }
+    }
+
+    // Complete union of explicit errors, omitted IDs, and malformed responses
+    idsToRetry = parsedIds.filter((id) => !successfulIds.has(id));
+
+    if (idsToRetry.length > 0) {
+      logger.warn(
+        { totalRequested: parsedIds.length, missingOrFailedCount: idsToRetry.length, idsToRetry },
+        "[reorderCategories] Batch update had missing or failed categories; falling back to parallel updates"
+      );
+    }
+  } catch (batchErr) {
+    logger.warn({ err: batchErr.message }, "Batch reorder API failed, falling back to parallel updates");
+    idsToRetry = parsedIds;
+  }
+
+  // If batch update failed or had item-level errors/omissions, retry with bounded concurrency (<= 5)
+  if (idsToRetry.length > 0) {
+    const CONCURRENCY_LIMIT = 5;
+    const orderMap = new Map(parsedIds.map((id, index) => [id, index + 1]));
+    const rejected = [];
+
+    for (let i = 0; i < idsToRetry.length; i += CONCURRENCY_LIMIT) {
+      await assertLockHeld();
+      const chunk = idsToRetry.slice(i, i + CONCURRENCY_LIMIT);
+      const chunkResults = await Promise.allSettled(
+        chunk.map((id) =>
+          api.put(`products/categories/${id}`, {
+            menu_order: orderMap.get(id),
+          })
+        )
+      );
+
+      chunkResults.forEach((r, idx) => {
+        const catId = chunk[idx];
+        if (r.status === "rejected" || r.value?.data?.error) {
+          rejected.push(catId);
+          const errMsg = r.status === "rejected" ? r.reason?.message : r.value?.data?.error?.message;
+          logger.error({ id: catId, err: errMsg }, "Failed to update menu_order for category");
+        }
+      });
+    }
+
+    return rejected;
+  }
+
+  return [];
+};
+
+const verifyCategoryMenuOrders = async (parsedIds, assertLockHeld) => {
+  // Authoritative Final Verification: Re-fetch WooCommerce categories to confirm final menu_order
+  await assertLockHeld();
+  const verifiedOrderMap = new Map();
+  for (let offset = 0; offset < parsedIds.length; offset += 100) {
+    await assertLockHeld();
+    const chunk = parsedIds.slice(offset, offset + 100);
+    const verifyRes = await api.get("products/categories", {
+      include: chunk.join(","),
+      per_page: chunk.length,
+      hide_empty: false,
+      _fields: "id,menu_order",
+    });
+    for (const cat of Array.isArray(verifyRes.data) ? verifyRes.data : []) {
+      if (cat && cat.id) {
+        verifiedOrderMap.set(Number(cat.id), Number(cat.menu_order));
+      }
+    }
+  }
+
+  const verificationMismatches = [];
+  parsedIds.forEach((id, index) => {
+    const expectedOrder = index + 1;
+    const actualOrder = verifiedOrderMap.get(id);
+    if (actualOrder !== expectedOrder) {
+      verificationMismatches.push({
+        id,
+        expected: expectedOrder,
+        actual: actualOrder ?? null,
+      });
+    }
+  });
+  return verificationMismatches;
+};
+
+export const reorderCategories = async (req, res) => {
+  const { category_ids } = req.body || {};
+
+  if (!Array.isArray(category_ids) || category_ids.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "An array of category IDs in the desired order is required.",
+    });
+  }
+
+  const parsedIds = [];
+  for (const id of category_ids) {
+    const parsed = Number(id);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid category ID: ${id}. All elements must be positive integers.`,
+      });
+    }
+    parsedIds.push(parsed);
+  }
+
+  const uniqueSet = new Set(parsedIds);
+  if (uniqueSet.size !== parsedIds.length) {
+    return res.status(400).json({
+      success: false,
+      message: "Duplicate category IDs are not allowed in reorder list.",
+    });
+  }
+
+  const lease = await acquireReorderLock(req);
+  if (lease.payload) return res.status(lease.status).json(lease.payload);
+  const { assertLockHeld } = lease;
   const previousQueue = localReorderMutex;
   let releaseLocal;
   localReorderMutex = new Promise((resolve) => { releaseLocal = resolve; });
@@ -742,20 +893,7 @@ export const reorderCategories = async (req, res) => {
     // Reordering is only for top-level storefront departments. Do not trust
     // the employee UI to keep child terms or the protected fallback category
     // out of a crafted request.
-    const categoriesById = new Map();
-    for (let offset = 0; offset < parsedIds.length; offset += 100) {
-      await assertLockHeld();
-      const chunk = parsedIds.slice(offset, offset + 100);
-      const response = await api.get("products/categories", {
-        include: chunk.join(","),
-        per_page: chunk.length,
-        hide_empty: false,
-        _fields: "id,name,slug,parent",
-      });
-      for (const category of Array.isArray(response.data) ? response.data : []) {
-        categoriesById.set(Number(category.id), category);
-      }
-    }
+    const categoriesById = await readReorderCategories(parsedIds, assertLockHeld);
 
     const missingCategoryIds = parsedIds.filter((id) => !categoriesById.has(id));
     if (missingCategoryIds.length > 0) {
@@ -776,115 +914,16 @@ export const reorderCategories = async (req, res) => {
       });
     }
 
-    // Try WooCommerce Batch Update API
-    const updateBatch = parsedIds.map((id, index) => ({
-      id,
-      menu_order: index + 1,
-    }));
-
-    let batchSucceeded = false;
-    let idsToRetry = [];
-
-    try {
-      await assertLockHeld();
-      const batchRes = await api.post("products/categories/batch", {
-        update: updateBatch,
-      });
-
-      const updates = Array.isArray(batchRes.data?.update) ? batchRes.data.update : [];
-      const successfulIds = new Set();
-
-      for (const item of updates) {
-        const numId = Number(item?.id);
-        if (Number.isInteger(numId) && numId > 0 && !item.error) {
-          successfulIds.add(numId);
-        }
-      }
-
-      // Complete union of explicit errors, omitted IDs, and malformed responses
-      idsToRetry = parsedIds.filter((id) => !successfulIds.has(id));
-
-      if (idsToRetry.length === 0 && updates.length >= parsedIds.length) {
-        batchSucceeded = true;
-      } else {
-        logger.warn(
-          { totalRequested: parsedIds.length, missingOrFailedCount: idsToRetry.length, idsToRetry },
-          "[reorderCategories] Batch update had missing or failed categories; falling back to parallel updates"
-        );
-      }
-    } catch (batchErr) {
-      logger.warn({ err: batchErr.message }, "Batch reorder API failed, falling back to parallel updates");
-      idsToRetry = parsedIds;
-    }
-
-    // If batch update failed or had item-level errors/omissions, retry with bounded concurrency (<= 5)
-    if (!batchSucceeded) {
-      const CONCURRENCY_LIMIT = 5;
-      const orderMap = new Map(parsedIds.map((id, index) => [id, index + 1]));
-      const rejected = [];
-
-      for (let i = 0; i < idsToRetry.length; i += CONCURRENCY_LIMIT) {
-        await assertLockHeld();
-        const chunk = idsToRetry.slice(i, i + CONCURRENCY_LIMIT);
-        const chunkResults = await Promise.allSettled(
-          chunk.map((id) =>
-            api.put(`products/categories/${id}`, {
-              menu_order: orderMap.get(id),
-            })
-          )
-        );
-
-        chunkResults.forEach((r, idx) => {
-          const catId = chunk[idx];
-          if (r.status === "rejected" || r.value?.data?.error) {
-            rejected.push(catId);
-            const errMsg = r.status === "rejected" ? r.reason?.message : r.value?.data?.error?.message;
-            logger.error({ id: catId, err: errMsg }, "Failed to update menu_order for category");
-          }
-        });
-      }
-
-      if (rejected.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Failed to update category order for ${rejected.length} category(ies): ${rejected.join(", ")}.`,
-          failed_ids: rejected,
-        });
-      }
-    }
-
-    // Authoritative Final Verification: Re-fetch WooCommerce categories to confirm final menu_order
-    await assertLockHeld();
-    const verifiedOrderMap = new Map();
-    for (let offset = 0; offset < parsedIds.length; offset += 100) {
-      await assertLockHeld();
-      const chunk = parsedIds.slice(offset, offset + 100);
-      const verifyRes = await api.get("products/categories", {
-        include: chunk.join(","),
-        per_page: chunk.length,
-        hide_empty: false,
-        _fields: "id,menu_order",
-      });
-      for (const cat of Array.isArray(verifyRes.data) ? verifyRes.data : []) {
-        if (cat && cat.id) {
-          verifiedOrderMap.set(Number(cat.id), Number(cat.menu_order));
-        }
-      }
-    }
-
-    const verificationMismatches = [];
-    parsedIds.forEach((id, index) => {
-      const expectedOrder = index + 1;
-      const actualOrder = verifiedOrderMap.get(id);
-      if (actualOrder !== expectedOrder) {
-        verificationMismatches.push({
-          id,
-          expected: expectedOrder,
-          actual: actualOrder ?? null,
-        });
-      }
+    const rejected = await syncCategoryMenuOrders(parsedIds, assertLockHeld);
+  if (rejected.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: `Failed to update category order for ${rejected.length} category(ies): ${rejected.join(", ")}.`,
+      failed_ids: rejected,
     });
+  }
 
+    const verificationMismatches = await verifyCategoryMenuOrders(parsedIds, assertLockHeld);
     if (verificationMismatches.length > 0) {
       logger.error(
         { mismatchCount: verificationMismatches.length, verificationMismatches },
@@ -924,21 +963,8 @@ export const reorderCategories = async (req, res) => {
     const safeError = sanitizeUpstreamError(error, "Failed to reorder categories.");
     res.status(safeError.status).json(safeError.payload);
   } finally {
-    if (renewTimer) clearInterval(renewTimer);
+    if (lease.renewTimer) clearInterval(lease.renewTimer);
     if (typeof releaseLocal === "function") releaseLocal();
-    if (acquiredRedisLock && redis) {
-      try {
-        if (typeof redis.eval === "function") {
-          await redis.eval(LUA_RELEASE_LOCK, 1, lockKey, lockOwner);
-        } else {
-          const current = await redis.get?.(lockKey);
-          if (current === lockOwner) {
-            await redis.del?.(lockKey);
-          }
-        }
-      } catch (err) {
-        logger.warn({ err: err?.message }, "[adminCategoryController] Failed to release reorder lock");
-      }
-    }
+    await releaseReorderLock(lease);
   }
 };

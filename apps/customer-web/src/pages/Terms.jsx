@@ -37,7 +37,7 @@ function Terms() {
 
       {/* ================= CONTENT CONTAINER ================= */}
       <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6">
-        <div className="rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] sm:p-8 md:p-10 space-y-7">
+        <div className="policy-page-card rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] sm:p-8 md:p-10 space-y-7">
           {/* Header Introduction */}
           <div className="border-b border-[#E2E8F0]/60 pb-6 space-y-2">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-[#AFC3E3] bg-[#F5F8FF] px-3.5 py-1.5 text-xs font-extrabold text-[#22499F]">

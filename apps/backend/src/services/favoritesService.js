@@ -3,6 +3,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "../utils/logger.js";
+import { getRedisClient, isRedisActive } from "../config/redis.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,7 +47,35 @@ const sanitizeProductIds = (metaValue) => {
 // In-memory per-user mutex lock Map to serialize concurrent add/remove mutations
 const userMutationLocks = new Map();
 
-const acquireUserLock = async (uId) => {
+const acquireUserLock = async (uId, ttlMs = 5000, waitTimeoutMs = 3000) => {
+  const redis = getRedisClient();
+  const lockKey = `lock:favorites:${uId}`;
+  const lockVal = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  if (redis && isRedisActive()) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < waitTimeoutMs) {
+      try {
+        const acquired = await redis.set(lockKey, lockVal, "PX", ttlMs, "NX");
+        if (acquired === "OK") {
+          return async () => {
+            try {
+              const script = `
+                if redis.call("get", KEYS[1]) == ARGV[1] then
+                  return redis.call("del", KEYS[1])
+                else
+                  return 0
+                end
+              `;
+              await redis.eval(script, 1, lockKey, lockVal);
+            } catch (_) {}
+          };
+        }
+      } catch (_) {}
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  }
+
   while (userMutationLocks.has(uId)) {
     try {
       await userMutationLocks.get(uId);
@@ -56,7 +86,10 @@ const acquireUserLock = async (uId) => {
     release = resolve;
   });
   userMutationLocks.set(uId, lockPromise);
-  return release;
+  return () => {
+    userMutationLocks.delete(uId);
+    release();
+  };
 };
 
 /**
@@ -98,7 +131,10 @@ export const getFavoriteProductIds = async (userId, forceFresh = false, throwOnE
     if (cached) {
       return Array.from(cached.ids);
     }
-    return [];
+    const err = new Error("Failed to load customer favorites from store database");
+    err.code = "FAVORITES_UNAVAILABLE";
+    err.statusCode = 503;
+    throw err;
   }
 };
 
@@ -142,14 +178,16 @@ export const addFavorite = async (userId, productId) => {
       ids: idSet,
       timestamp: Date.now(),
     });
+    serverCache.invalidatePrefix(`favorites:${uId}`);
 
     return { success: true, productIds: updatedList, isFavorited: true };
   } catch (error) {
     logger.error({ uId, pId, err: error.message }, "[FavoritesService] Error adding favorite product for customer");
     throw error;
   } finally {
-    userMutationLocks.delete(uId);
-    release();
+    if (typeof release === "function") {
+      await release();
+    }
   }
 };
 
@@ -193,14 +231,16 @@ export const removeFavorite = async (userId, productId) => {
       ids: idSet,
       timestamp: Date.now(),
     });
+    serverCache.invalidatePrefix(`favorites:${uId}`);
 
     return { success: true, productIds: updatedList, isFavorited: false };
   } catch (error) {
     logger.error({ uId, pId, err: error.message }, "[FavoritesService] Error removing favorite product for customer");
     throw error;
   } finally {
-    userMutationLocks.delete(uId);
-    release();
+    if (typeof release === "function") {
+      await release();
+    }
   }
 };
 
