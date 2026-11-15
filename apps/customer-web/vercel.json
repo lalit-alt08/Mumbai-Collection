@@ -1,6 +1,13 @@
 {
   "headers": [
     {
+      "source": "/api/media/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Vary", "value": "Range, Origin" }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },

@@ -194,7 +194,17 @@ router.use(async (req, res) => {
       res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
     }
 
-    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    // Video streams and 206 partial ranges MUST NOT be cached by intermediate edge CDNs (e.g. Vercel Edge).
+    // Vercel Edge caches 206 responses by URL without partitioning on the Range header,
+    // which traps browsers in an infinite loop receiving the initial 2-byte probe for all ranges.
+    if (ext === ".mp4" || response.status === 206) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      res.setHeader("Vary", "Range, Origin");
+    } else {
+      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    }
 
     if (response.status === 416) {
       if (response.data && typeof response.data.destroy === "function") response.data.destroy();
