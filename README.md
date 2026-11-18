@@ -16,6 +16,7 @@ coordinates application-specific operations and external services.
 | `mumbai-auth.php` | Custom WordPress plugin and protected endpoints |
 | `docs/feature-map.md` | Starting points for the principal user flows |
 | `docs/runtime-flows.md` | API call paths, payment recovery and request tracing |
+| `docs/docker-setup.md` | One-command Docker setup for MySQL, WordPress, WooCommerce, Redis & Node API |
 | `docs/production-recovery.md` | Operational backup, restore and recovery guidance |
 | `audits/` | Existing audits and release-readiness notes |
 
@@ -23,6 +24,10 @@ Each application has its own `package.json` and `pnpm-lock.yaml`; this checkout
 does not define a root pnpm workspace. `packages/` is currently a placeholder.
 
 ## Local setup
+
+> **Quickest onboarding (recommended for new developers):** Use Docker Compose to boot MySQL, WordPress, WooCommerce, `mumbai-auth.php`, Redis, and the Node API automatically. See [`docs/docker-setup.md`](docs/docker-setup.md).
+
+### Manual / LocalWP setup
 
 1. Install Node.js and pnpm. CI uses Node 20 and pnpm 10.34.5; verify the Node
    version also satisfies the installed Vite and other dependency requirements.

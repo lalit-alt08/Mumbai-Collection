@@ -1,0 +1,82 @@
+#!/usr/bin/env sh
+set -eu
+
+WP_PATH="/var/www/html"
+WP_URL="${WP_SITE_URL:-http://localhost:8085}"
+WP_TITLE="${WP_SITE_TITLE:-Mumbai Collection Local}"
+WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
+WP_ADMIN_PASSWORD="${WP_ADMIN_PASSWORD:-AdminDevPass123!}"
+WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@example.com}"
+WC_KEY="${WOOCOMMERCE_CONSUMER_KEY:-ck_dev_mumbai_local_key_000000000000000000}"
+WC_SECRET="${WOOCOMMERCE_CONSUMER_SECRET:-cs_dev_mumbai_local_secret_000000000000000}"
+
+echo "[wp-init] Waiting for WordPress files and database connection..."
+attempts=0
+until [ -f "$WP_PATH/wp-config.php" ] && wp db query "SELECT 1;" --path="$WP_PATH" --allow-root >/dev/null 2>&1; do
+  attempts=$((attempts + 1))
+  if [ "$attempts" -ge 60 ]; then
+    echo "[wp-init] ERROR: Database connection not ready in time."
+    exit 1
+  fi
+  sleep 2
+done
+
+if ! wp core is-installed --path="$WP_PATH" --allow-root >/dev/null 2>&1; then
+  echo "[wp-init] Installing WordPress core at $WP_URL..."
+  wp core install \
+    --path="$WP_PATH" \
+    --url="$WP_URL" \
+    --title="$WP_TITLE" \
+    --admin_user="$WP_ADMIN_USER" \
+    --admin_password="$WP_ADMIN_PASSWORD" \
+    --admin_email="$WP_ADMIN_EMAIL" \
+    --skip-email \
+    --allow-root
+else
+  echo "[wp-init] WordPress core already installed."
+fi
+
+echo "[wp-init] Ensuring pretty permalinks (required for /wp-json REST API)..."
+wp rewrite structure '/%postname%/' --hard --path="$WP_PATH" --allow-root
+wp rewrite flush --hard --path="$WP_PATH" --allow-root
+
+if ! wp plugin is-installed woocommerce --path="$WP_PATH" --allow-root >/dev/null 2>&1; then
+  echo "[wp-init] Installing and activating WooCommerce 9.5.0..."
+  wp plugin install woocommerce --version=9.5.0 --activate --path="$WP_PATH" --allow-root
+else
+  echo "[wp-init] Ensuring WooCommerce is active..."
+  wp plugin activate woocommerce --path="$WP_PATH" --allow-root >/dev/null 2>&1 || true
+fi
+
+echo "[wp-init] Activating Mumbai Collection Auth plugin..."
+wp plugin activate mumbai-auth --path="$WP_PATH" --allow-root >/dev/null 2>&1 || true
+
+echo "[wp-init] Ensuring local dev WooCommerce REST API key exists..."
+wp eval '
+  global $wpdb;
+  $ck = getenv("WOOCOMMERCE_CONSUMER_KEY") ?: "ck_dev_mumbai_local_key_000000000000000000";
+  $cs = getenv("WOOCOMMERCE_CONSUMER_SECRET") ?: "cs_dev_mumbai_local_secret_000000000000000";
+  $admin = get_user_by("login", getenv("WP_ADMIN_USER") ?: "admin");
+  if (!$admin || !function_exists("wc_api_hash")) {
+    fwrite(STDERR, "[wp-init] Skipping WC key seed (admin or wc_api_hash unavailable)\n");
+    exit(0);
+  }
+  $table = $wpdb->prefix . "woocommerce_api_keys";
+  $hash = wc_api_hash($ck);
+  $existing = $wpdb->get_var($wpdb->prepare("SELECT key_id FROM {$table} WHERE consumer_key = %s", $hash));
+  if (!$existing) {
+    $wpdb->insert($table, [
+      "user_id"         => $admin->ID,
+      "description"     => "Mumbai Docker Dev",
+      "permissions"     => "read_write",
+      "consumer_key"    => $hash,
+      "consumer_secret" => $cs,
+      "truncated_key"   => substr($ck, -7),
+    ]);
+    echo "[wp-init] Seeded dev WooCommerce REST API key.\n";
+  } else {
+    echo "[wp-init] Dev WooCommerce REST API key already present.\n";
+  }
+' --path="$WP_PATH" --allow-root
+
+echo "[wp-init] Bootstrap complete!"
