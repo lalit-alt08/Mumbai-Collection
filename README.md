@@ -13,7 +13,7 @@ coordinates application-specific operations and external services.
 | `apps/employee-panel` | Staff orders, inventory, banners and categories (React/Vite) |
 | `apps/admin-dashboard` | Admin operations and reporting (React/Vite) |
 | `apps/backend` | Node/Express API, authentication, payments and integrations |
-| `mumbai-auth.php` | Custom WordPress plugin and protected endpoints |
+| `apps/wordpress-plugin` | Custom WordPress plugin (`mumbai-auth.php`) and protected endpoints |
 | `docker/` | Docker Compose configuration, environment template, and WordPress init scripts |
 | `docs/feature-map.md` | Starting points for the principal user flows |
 | `docs/runtime-flows.md` | API call paths, payment recovery and request tracing |
@@ -50,7 +50,7 @@ app's source and example environment files before setting deployment values.
 
 ### WordPress plugin
 
-Install `mumbai-auth.php` as a WordPress plugin and activate it on the matching
+Install `apps/wordpress-plugin/mumbai-auth.php` as a WordPress plugin and activate it on the matching
 site. The backend's `pnpm sync:plugin` command **overwrites** its configured
 LocalWP destination; review `scripts/sync-localwp-plugin.js` and set
 `LOCALWP_PLUGIN_PATH` to the intended plugin file before using it. Test plugin

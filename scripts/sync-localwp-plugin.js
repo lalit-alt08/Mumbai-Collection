@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const repoPluginPath = path.resolve(__dirname, "../mumbai-auth.php");
+const repoPluginPath = path.resolve(__dirname, "../apps/wordpress-plugin/mumbai-auth.php");
 const localWpPluginPath = process.env.LOCALWP_PLUGIN_PATH ||
   "C:\\Users\\asus\\Local Sites\\mumbai-collection\\app\\public\\wp-content\\plugins\\mumbai-auth\\mumbai-auth.php";
 

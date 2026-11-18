@@ -61,7 +61,7 @@ docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --build
 What happens automatically on the first boot (~1–2 minutes while WooCommerce installs):
 1. **`mysql`** starts and initializes the `mumbai_wp` database.
 2. **`redis`** starts with persistence enabled (`redis://redis:6379`).
-3. **`wordpress`** starts on `http://localhost:8085` with `mumbai-auth.php` bind-mounted live from the repository root (edits to `mumbai-auth.php` take effect immediately—no manual sync needed).
+3. **`wordpress`** starts on `http://localhost:8085` with `mumbai-auth.php` bind-mounted live from `apps/wordpress-plugin/mumbai-auth.php` (edits take effect immediately—no manual sync needed).
 4. **`wordpress-init`** runs once to install WordPress, set pretty permalinks (`/%postname%/`), install & activate **WooCommerce**, activate **Mumbai Collection Auth**, and seed the dev WooCommerce REST API key.
 5. **`backend`** builds `apps/backend/Dockerfile`, connects to `http://wordpress` and `redis://redis:6379`, watches `apps/backend/src` for live code edits, and exposes `http://localhost:5000`.
 

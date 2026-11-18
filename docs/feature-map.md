@@ -16,7 +16,7 @@ affect the result.
 | Customer profile and addresses | `customer-web/src/pages/Profile.jsx`, `ProfileSetup.jsx`, `Addresses.jsx` | `routes/profileRoutes.js`, `routes/addressRoute.js`, `controllers/profileController.js`, `controllers/addressController.js`, `mumbai-auth.php` |
 
 Paths in the backend column are relative to `apps/backend/src/`, except for
-`mumbai-auth.php`, which is at repository root. Frontend paths are relative to
+`mumbai-auth.php`, which is at `apps/wordpress-plugin/mumbai-auth.php`. Frontend paths are relative to
 `apps/`. API route prefixes are registered in `apps/backend/src/app.js`.
 
 ## High-risk changes
