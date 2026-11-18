@@ -32,6 +32,7 @@ const api = new WooCommerceRestApi({
   consumerKey: wooKey,
   consumerSecret: wooSecret,
   version: "wc/v3",
+  queryStringAuth: !isProduction && !wooUrl.startsWith("https"),
 
   axiosConfig: {
     httpsAgent,
@@ -58,7 +59,7 @@ api._request = function (method, endpoint, data, params = {}, extraConfig = {}) 
     responseType: "json",
     headers,
   };
-  if (this.isHttps) {
+  if (this.isHttps || this.queryStringAuth) {
     if (this.queryStringAuth) {
       options.params = {
         consumer_key: this.consumerKey,

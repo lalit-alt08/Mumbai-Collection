@@ -8,6 +8,18 @@
 if (!defined('ABSPATH')) {
     exit;
 }
+
+// In local development or internal Docker networks, allow WooCommerce REST API Basic Authentication over HTTP
+add_filter('determine_current_user', function($user_id) {
+    if (!empty($user_id) || is_ssl()) {
+        return $user_id;
+    }
+    $has_consumer_key = !empty($_GET['consumer_key']) || !empty($_SERVER['PHP_AUTH_USER']);
+    if ($has_consumer_key) {
+        $_SERVER['HTTPS'] = 'on';
+    }
+    return $user_id;
+}, 9);
 /*
  * ─────────────────────────────────────────────
  * CONFIGURATION
