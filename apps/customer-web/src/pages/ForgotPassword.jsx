@@ -427,7 +427,7 @@ function ForgotPassword() {
               </div>
 
               {error && (
-                <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
+                <div role="alert" className="auth-error-banner rounded-xl border p-4 text-[13px] font-semibold">
                   {error}
                 </div>
               )}
@@ -507,7 +507,7 @@ function ForgotPassword() {
               </div>
 
               {error && (
-                <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
+                <div role="alert" className="auth-error-banner rounded-xl border p-4 text-[13px] font-semibold">
                   {error}
                 </div>
               )}
@@ -662,7 +662,7 @@ function ForgotPassword() {
               )}
 
               {error && (
-                <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
+                <div role="alert" className="auth-error-banner rounded-xl border p-4 text-[13px] font-semibold">
                   {error}
                 </div>
               )}

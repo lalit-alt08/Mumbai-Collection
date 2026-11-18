@@ -754,7 +754,7 @@ function ProfileSetup() {
   const hasOffice = addresses.some((a) => a.type === "office");
 
   return (
-    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 pt-3 pb-24 sm:px-6 sm:pt-6 md:pb-16 font-sans">
+    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 pt-3 pb-28 sm:px-6 sm:pt-6 md:pb-16 font-sans">
       <div className="mx-auto max-w-xl space-y-4 sm:space-y-5">
         {/* Top Header */}
         <div className="flex items-center gap-3">
@@ -762,31 +762,31 @@ function ProfileSetup() {
             type="button"
             onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
             aria-label="Back to Home"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#1E293B] border border-[#E2E8F0] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer shadow-sm"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#1E293B] border border-[#E2E8F0] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer shadow-sm"
           >
-            <ArrowLeft size={18} strokeWidth={2.4} />
+            <ArrowLeft size={19} strokeWidth={2.4} />
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-extrabold tracking-tight text-[#1E293B] sm:text-2xl truncate">
+            <h1 className="text-[22px] font-extrabold tracking-tight text-[#1E293B] sm:text-2xl truncate">
               Account Setup
             </h1>
-            <p className="text-xs font-medium text-[#64748B] truncate">
-              Complete your security & delivery details
+            <p className="text-[13px] font-medium text-[#475569] truncate">
+              Complete your contact &amp; delivery details
             </p>
           </div>
           <button
             type="button"
             onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
-            className="shrink-0 text-xs font-semibold text-[#64748B] hover:text-[#22499F] px-2.5 py-1.5 rounded-lg border border-[#E2E8F0]/60 hover:border-[#22499F]/40 bg-[#FFFFFF]/50 transition cursor-pointer"
+            className="shrink-0 text-[13px] font-bold text-[#475569] hover:text-[#22499F] px-3 py-2 rounded-xl border border-[#E2E8F0] hover:border-[#22499F]/40 bg-[#FFFFFF] transition cursor-pointer"
           >
             Skip for now
           </button>
         </div>
 
         {/* Step Progress Pill */}
-        <div className="flex items-center justify-between rounded-xl border border-[#E2E8F0]/70 bg-[#FFFFFF]/60 px-3.5 py-2 text-xs font-semibold">
+        <div className="flex items-center justify-between rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-2.5 text-[12.5px] sm:text-[13px] font-bold shadow-xs">
           <span className="flex items-center gap-1.5 text-[#22499F]">
-            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#22499F] text-[10px] font-black text-[#FFFFFF]">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#22499F] text-[11px] font-black text-[#FFFFFF]">
               ✓
             </span>
             Email Verified
@@ -795,26 +795,27 @@ function ProfileSetup() {
             <div className="h-full w-full bg-[#22499F]" />
           </div>
           <span className="flex items-center gap-1.5 text-[#1E293B]">
-            <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#22499F] text-[10px] font-black text-[#FFFFFF]">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#22499F] text-[11px] font-black text-[#FFFFFF]">
               2
             </span>
-            Account & Delivery Setup
+            Delivery Setup
           </span>
         </div>
 
         {/* Status Toast */}
         {message.text && (
           <div
-            className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-xs font-bold shadow-xs border animate-in fade-in duration-200 ${
+            role="alert"
+            className={`flex items-center gap-2.5 rounded-xl px-4 py-3 text-[13px] font-semibold shadow-xs border animate-in fade-in duration-200 ${
               message.type === "error"
-                ? "bg-rose-950/40 text-rose-300 border-rose-900/60"
-                : "bg-[#FFFFFF] text-emerald-300 border-emerald-500"
+                ? "auth-error-banner"
+                : "track-order-delivered"
             }`}
           >
             {message.type === "error" ? (
-              <AlertCircle size={16} className="shrink-0 text-rose-400" />
+              <AlertCircle size={17} className="shrink-0" />
             ) : (
-              <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+              <CheckCircle2 size={17} className="shrink-0" />
             )}
             <span>{message.text}</span>
           </div>
@@ -845,17 +846,17 @@ function ProfileSetup() {
           {addressLoadError && (
             <div
               role="alert"
-              className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-950/30 px-3.5 py-2.5 text-xs font-semibold text-amber-200"
+              className="minimum-order-notice flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3 text-[13px] font-semibold"
             >
               <div className="flex items-center gap-2">
-                <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                <AlertCircle size={16} className="shrink-0" />
                 <span>{addressLoadError}</span>
               </div>
               <button
                 type="button"
                 onClick={handleRetryAddresses}
                 disabled={retryingAddresses}
-                className="shrink-0 rounded-lg bg-amber-500/20 px-2.5 py-1 text-[11px] font-bold text-amber-100 hover:bg-amber-500/30 disabled:opacity-50 transition cursor-pointer"
+                className="minimum-order-badge shrink-0 rounded-lg border px-3 py-1.5 text-[12px] font-bold hover:opacity-90 disabled:opacity-50 transition cursor-pointer"
               >
                 {retryingAddresses ? "Retrying..." : "Retry"}
               </button>
@@ -886,11 +887,11 @@ function ProfileSetup() {
           {/* ──────────────────────────────────────────────────────── */}
           {/* PRIMARY SUBMIT CTA                                       */}
           {/* ──────────────────────────────────────────────────────── */}
-          <div className="space-y-2.5 pt-2">
+          <div className="space-y-3 pt-2">
             <button
               type="submit"
               disabled={saving || phoneChecking}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] px-6 text-sm font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+              className="flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] px-6 text-[15px] sm:text-[16px] font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               {saving ? (
                 <>
@@ -899,15 +900,15 @@ function ProfileSetup() {
                 </>
               ) : (
                 <>
-                  <span>Save Information & Continue</span>
-                  <ArrowRight size={17} strokeWidth={2.4} />
+                  <span>Save Information &amp; Continue</span>
+                  <ArrowRight size={18} strokeWidth={2.4} />
                 </>
               )}
             </button>
 
-            <div className="flex items-center justify-center gap-1.5 text-center text-[11px] font-semibold text-[#64748B]">
-              <ShieldCheck size={14} className="text-[#22499F] shrink-0" />
-              <span>Your profile details are private & securely encrypted.</span>
+            <div className="flex items-center justify-center gap-1.5 text-center text-[12.5px] font-semibold text-[#475569]">
+              <ShieldCheck size={15} className="text-[#22499F] shrink-0" />
+              <span>Your profile details are private &amp; securely encrypted.</span>
             </div>
           </div>
         </form>

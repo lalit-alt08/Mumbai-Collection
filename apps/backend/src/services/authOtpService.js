@@ -186,12 +186,18 @@ export const processSendOtp = async (req, res) => {
       const headerRetry = error.response?.headers?.["retry-after"];
       const bodyRetry = error.response?.data?.retryAfter || error.response?.data?.retry_after;
       const retryAfter = Number(bodyRetry || headerRetry) || 60;
+      const upstreamCode = error.response?.data?.code;
+      const upstreamMsg = typeof error.response?.data?.message === "string" ? error.response.data.message.trim() : "";
+      const friendlyMessage =
+        upstreamCode === "rate_limit" && upstreamMsg
+          ? upstreamMsg
+          : "Too many attempts. Please try again later.";
       if (typeof res.set === "function") {
         res.set("Retry-After", String(retryAfter));
       }
       return res.status(429).json({
         success: false,
-        message: "Too many attempts. Please try again later.",
+        message: friendlyMessage,
         retryAfter,
       });
     }

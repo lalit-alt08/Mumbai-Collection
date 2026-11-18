@@ -14,7 +14,7 @@ function Register() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
-  const { cart, waitForAuthenticatedCart } = useCart();
+  const { cart } = useCart();
   const isMountedRef = useRef(true);
   const authAttemptRef = useRef(0);
 
@@ -286,7 +286,9 @@ function Register() {
         user: confirmedUser,
         firstName: cleanFirst,
         lastName: cleanLast,
-        waitForAuthenticatedCart,
+        // A brand-new registration has no returning saved account cart; only
+        // redirect to /profile-setup if the user came from /cart or added items.
+        waitForAuthenticatedCart: null,
         isAttemptActive: () =>
           isMountedRef.current &&
           authAttemptRef.current === attemptId &&

@@ -182,7 +182,7 @@ function Login() {
               </div>
 
               {emailError && (
-                <p className="mt-2 text-sm text-rose-400">{emailError}</p>
+                <p className="auth-field-error mt-2 text-sm font-semibold">{emailError}</p>
               )}
             </div>
 
@@ -221,7 +221,7 @@ function Login() {
               </div>
 
               {passwordError && (
-                <p className="mt-2 text-sm text-rose-400">{passwordError}</p>
+                <p className="auth-field-error mt-2 text-sm font-semibold">{passwordError}</p>
               )}
 
               <div className="mt-2.5 flex justify-end">

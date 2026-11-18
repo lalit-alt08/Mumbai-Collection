@@ -4345,7 +4345,9 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
 
     if ($purpose === 'register') {
         if ($phone) {
-            delete_transient('_mumbai_reg_otp_' . md5(strtolower(trim($phone))));
+            $norm_email = strtolower(trim($phone));
+            delete_transient('_mumbai_reg_otp_' . md5($norm_email));
+            delete_transient('_mumbai_last_reg_otp_' . md5($norm_email));
         }
         return ['success' => true];
     }
@@ -4377,6 +4379,8 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
         delete_user_meta($user->ID, '_mumbai_otp_attempts');
         delete_user_meta($user->ID, '_mumbai_otp_purpose');
         delete_user_meta($user->ID, '_mumbai_otp_pending_phone');
+        delete_user_meta($user->ID, '_mumbai_otp_cred_ver');
+        delete_user_meta($user->ID, '_mumbai_last_otp_request');
     }
 
     return ['success' => true];

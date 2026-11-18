@@ -422,3 +422,37 @@ test("Login, Register, and GoogleAuthButton capture pre-auth attempt & epoch BEF
     "GoogleAuthButton must verify isPreAuthActive() before loginUser()"
   );
 });
+
+test("Brand-new registration skips waitForAuthenticatedCart so empty-cart direct signups go straight to Home", async () => {
+  const regSrc = fs.readFileSync(path.join(customerWebSrc, "pages/Register.jsx"), "utf8");
+  assert.match(
+    regSrc,
+    /waitForAuthenticatedCart:\s*null/,
+    "Register.jsx must pass waitForAuthenticatedCart: null for brand-new accounts"
+  );
+
+  const googleSrc = fs.readFileSync(path.join(customerWebSrc, "components/auth/GoogleAuthButton.jsx"), "utf8");
+  assert.match(
+    googleSrc,
+    /waitForAuthenticatedCart:\s*res\?\.is_new_user\s*\?\s*null\s*:\s*waitForAuthenticatedCart/,
+    "GoogleAuthButton.jsx must skip waitForAuthenticatedCart when res?.is_new_user is true"
+  );
+
+  let profileCalled = false;
+  const navigated = [];
+  const result = await executePostAuthNavigation({
+    from: undefined,
+    hasCartItems: false,
+    user: { id: 99, first_name: "Lalit", last_name: "Sirvi" },
+    waitForAuthenticatedCart: null,
+    checkProfileComplete: async () => {
+      profileCalled = true;
+      return { complete: false };
+    },
+    navigate: (p, o) => navigated.push({ p, o }),
+  });
+
+  assert.equal(profileCalled, false);
+  assert.equal(result.status, "default");
+  assert.deepEqual(navigated, [{ p: "/", o: { replace: true, state: undefined } }]);
+});

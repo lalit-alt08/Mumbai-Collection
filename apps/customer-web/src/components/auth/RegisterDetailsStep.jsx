@@ -64,7 +64,7 @@ export function RegisterDetailsStep({
               />
             </div>
             {firstNameError && (
-              <p className="mt-1 text-xs text-rose-400">{firstNameError}</p>
+              <p className="auth-field-error mt-1 text-xs font-semibold">{firstNameError}</p>
             )}
           </div>
 
@@ -89,14 +89,14 @@ export function RegisterDetailsStep({
                 }}
                 className={`h-[44px] sm:h-[48px] md:h-[50px] w-full rounded-xl sm:rounded-2xl border bg-[#F0F8E8] pl-9 pr-3 text-[14px] sm:pl-10 sm:text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                   lastNameError
-                    ? "border-rose-400 focus:border-rose-400"
+                    ? "border-rose-500 focus:border-rose-500"
                     : "border-[#E2E8F0] focus:border-[#22499F]"
                 }`}
                 required
               />
             </div>
             {lastNameError && (
-              <p className="mt-1 text-xs text-rose-400">{lastNameError}</p>
+              <p className="auth-field-error mt-1 text-xs font-semibold">{lastNameError}</p>
             )}
           </div>
         </div>
@@ -122,7 +122,7 @@ export function RegisterDetailsStep({
               }}
               className={`h-[44px] sm:h-[48px] md:h-[50px] w-full rounded-xl sm:rounded-2xl border bg-[#F0F8E8] pl-9 pr-3 text-[14px] sm:pl-10 sm:text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                 emailError
-                  ? "border-rose-400 focus:border-rose-400"
+                  ? "border-rose-500 focus:border-rose-500"
                   : "border-[#E2E8F0] focus:border-[#22499F]"
               }`}
               required
@@ -130,7 +130,7 @@ export function RegisterDetailsStep({
           </div>
           {emailError && (
             <div className="mt-1 flex items-center justify-between">
-              <p className="text-xs text-rose-400">{emailError}</p>
+              <p className="auth-field-error text-xs font-semibold">{emailError}</p>
               <button
                 type="button"
                 onClick={() => navigate("/login", { state: { from: location.state?.from } })}
@@ -144,7 +144,7 @@ export function RegisterDetailsStep({
 
         {/* General Error */}
         {error && (
-          <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-3 text-[12px] font-medium text-rose-300">
+          <div role="alert" className="auth-error-banner rounded-xl border p-3 text-[12.5px] font-semibold">
             {error}
           </div>
         )}

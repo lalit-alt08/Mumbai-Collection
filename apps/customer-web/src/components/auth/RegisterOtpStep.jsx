@@ -90,7 +90,7 @@ export function RegisterOtpStep({
             />
           </div>
           {otpError && (
-            <p className="mt-1.5 text-center text-xs font-medium text-rose-400">
+            <p className="auth-field-error mt-1.5 text-center text-xs font-semibold">
               {otpError}
             </p>
           )}
@@ -117,7 +117,7 @@ export function RegisterOtpStep({
 
         {/* Error Banner */}
         {error && (
-          <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-3 text-[12px] font-medium text-rose-300">
+          <div role="alert" className="auth-error-banner rounded-xl border p-3 text-[12.5px] font-semibold">
             {error}
           </div>
         )}

@@ -30,17 +30,17 @@ export function ProfileSecurityCard({
   verifyPhoneAvailability,
 }) {
   return (
-    <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4.5 sm:p-5 shadow-sm space-y-4">
-      <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
-            <Lock size={16} strokeWidth={2.2} />
+    <div className="rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-5 shadow-sm space-y-4">
+      <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 pb-3.5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
+            <Lock size={17} strokeWidth={2.2} />
           </div>
           <div>
-            <h2 className="text-sm sm:text-base font-extrabold text-[#1E293B]">
-              Account Security & Contact
+            <h2 className="text-[15.5px] sm:text-base font-extrabold text-[#1E293B] leading-snug">
+              Account Security &amp; Contact
             </h2>
-            <p className="text-[11px] font-medium text-[#64748B]">
+            <p className="text-[12.5px] sm:text-[13px] font-medium text-[#475569]">
               {needsPassword ? "Set your account password and mobile number" : "Add your delivery contact number"}
             </p>
           </div>
@@ -50,17 +50,17 @@ export function ProfileSecurityCard({
       {/* A. Password Inputs (Entered first as requested) */}
       {needsPassword && (
         <>
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-3.5">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               {/* Password Field */}
               <div>
-                <label className={`mb-1 block text-xs font-bold ${errors.password ? "text-rose-400" : "text-[#64748B]"}`}>
+                <label className={`mb-1.5 block text-[13px] font-bold ${errors.password ? "auth-field-error" : "text-[#334155]"}`}>
                   Password <span className="text-[#22499F]">*</span>
                 </label>
                 <div className="relative">
                   <Lock
-                    size={15}
-                    className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.password ? "text-rose-400" : "text-[#64748B]"}`}
+                    size={16}
+                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.password ? "auth-field-error" : "text-[#64748B]"}`}
                   />
                   <input
                     type={showPassword ? "text" : "password"}
@@ -79,24 +79,24 @@ export function ProfileSecurityCard({
                       }
                     }}
                     required
-                    className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
+                    className={`h-12 w-full rounded-xl border pl-10 pr-11 text-[15px] font-medium text-[#1E293B] placeholder-[#64748B] outline-none transition ${
                       errors.password
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                        ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500"
                         : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                     }`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
                 {errors.password && (
-                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                  <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold auth-field-error">
+                    <AlertCircle size={13} className="shrink-0" />
                     <span>{errors.password}</span>
                   </p>
                 )}
@@ -104,13 +104,13 @@ export function ProfileSecurityCard({
 
               {/* Confirm Password Field */}
               <div>
-                <label className={`mb-1 block text-xs font-bold ${errors.confirm_password ? "text-rose-400" : "text-[#64748B]"}`}>
+                <label className={`mb-1.5 block text-[13px] font-bold ${errors.confirm_password ? "auth-field-error" : "text-[#334155]"}`}>
                   Confirm Password <span className="text-[#22499F]">*</span>
                 </label>
                 <div className="relative">
                   <Lock
-                    size={15}
-                    className={`absolute left-3 top-1/2 -translate-y-1/2 ${errors.confirm_password ? "text-rose-400" : "text-[#64748B]"}`}
+                    size={16}
+                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${errors.confirm_password ? "auth-field-error" : "text-[#64748B]"}`}
                   />
                   <input
                     type={showConfirmPassword ? "text" : "password"}
@@ -129,24 +129,24 @@ export function ProfileSecurityCard({
                       }
                     }}
                     required
-                    className={`h-11 w-full rounded-xl border pl-9 pr-10 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
+                    className={`h-12 w-full rounded-xl border pl-10 pr-11 text-[15px] font-medium text-[#1E293B] placeholder-[#64748B] outline-none transition ${
                       errors.confirm_password
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                        ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500"
                         : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                     }`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#22499F] cursor-pointer"
                     aria-label={showConfirmPassword ? "Hide password" : "Show password"}
                   >
-                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
                 {errors.confirm_password && (
-                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                  <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold auth-field-error">
+                    <AlertCircle size={13} className="shrink-0" />
                     <span>{errors.confirm_password}</span>
                   </p>
                 )}
@@ -154,25 +154,25 @@ export function ProfileSecurityCard({
             </div>
 
             {/* Password Rules Checklist */}
-            <div className="rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/70 p-3 text-[11px] text-[#64748B] space-y-1.5">
-              <span className="block font-bold text-[#64748B] text-[10px] uppercase tracking-wider">
+            <div className="rounded-xl border border-[#E2E8F0]/70 bg-[#F0F8E8]/70 p-3 text-[12px] text-[#475569] space-y-2">
+              <span className="block font-bold text-[#475569] text-[11px] uppercase tracking-wider">
                 Password Requirements
               </span>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                <span className={`flex items-center gap-1 ${passwordChecks.length ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                  <Check size={12} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
+                <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-600 font-bold" : "text-[#475569]"}`}>
+                  <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-35"} /> 8+ characters
                 </span>
-                <span className={`flex items-center gap-1 ${passwordChecks.uppercase ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                  <Check size={12} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
+                <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-600 font-bold" : "text-[#475569]"}`}>
+                  <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-35"} /> Uppercase (A-Z)
                 </span>
-                <span className={`flex items-center gap-1 ${passwordChecks.lowercase ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                  <Check size={12} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
+                <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-600 font-bold" : "text-[#475569]"}`}>
+                  <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-35"} /> Lowercase (a-z)
                 </span>
-                <span className={`flex items-center gap-1 ${passwordChecks.number ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                  <Check size={12} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
+                <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-600 font-bold" : "text-[#475569]"}`}>
+                  <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-35"} /> Number (0-9)
                 </span>
-                <span className={`flex items-center gap-1 col-span-2 sm:col-span-2 ${passwordChecks.special ? "text-emerald-400 font-bold" : "text-[#64748B]"}`}>
-                  <Check size={12} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special symbol (!@#$%^&*)
+                <span className={`flex items-center gap-1.5 col-span-2 sm:col-span-2 ${passwordChecks.special ? "text-emerald-600 font-bold" : "text-[#475569]"}`}>
+                  <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-35"} /> Special symbol (!@#$%^&*)
                 </span>
               </div>
             </div>
@@ -184,30 +184,30 @@ export function ProfileSecurityCard({
       )}
 
       {/* C. Mobile Number & Confirm Mobile Number */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
-            <User size={14} strokeWidth={2.2} />
+      <div className="space-y-3.5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20">
+            <User size={15} strokeWidth={2.2} />
           </div>
           <div>
-            <h3 className="text-xs sm:text-sm font-extrabold text-[#1E293B]">
+            <h3 className="text-[14px] font-extrabold text-[#1E293B] leading-snug">
               Delivery Contact Mobile
             </h3>
-            <p className="text-[10px] font-medium text-[#64748B]">
-              Used for order delivery updates & driver contact
+            <p className="text-[12px] sm:text-[12.5px] font-medium text-[#475569]">
+              Used for order delivery updates &amp; driver contact
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
           <div>
-            <label className={`mb-1 block text-xs font-bold ${errors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
+            <label className={`mb-1.5 block text-[13px] font-bold ${errors.phone ? "auth-field-error" : "text-[#334155]"}`}>
               Mobile Number <span className="text-[#22499F]">*</span>
             </label>
             <div className="relative flex items-center w-full">
               <span
-                className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                  errors.phone ? "text-rose-400" : "text-[#64748B]"
+                className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-[14px] font-bold transition-colors ${
+                  errors.phone ? "auth-field-error" : "text-[#475569]"
                 }`}
               >
                 +91
@@ -217,6 +217,7 @@ export function ProfileSecurityCard({
                 inputMode="numeric"
                 maxLength={10}
                 name="phone"
+                placeholder="10-digit mobile number"
                 value={form.phone}
                 onChange={handleChange}
                 onBlur={() => {
@@ -225,55 +226,55 @@ export function ProfileSecurityCard({
                   }
                 }}
                 required
-                className={`h-11 w-full rounded-xl border pl-11 pr-9 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
+                className={`h-12 w-full rounded-xl border pl-12 pr-10 text-[15px] font-medium text-[#1E293B] placeholder-[#64748B] outline-none transition ${
                   errors.phone
-                    ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                    ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500"
                     : phoneAvailable === true
-                      ? "border-emerald-500/70 bg-[#F0F8E8] ring-1 ring-emerald-500/30 focus:border-emerald-400"
+                      ? "border-emerald-600/70 bg-[#F0F8E8] ring-1 ring-emerald-500/30 focus:border-emerald-500"
                       : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                 }`}
               />
               {phoneChecking && (
                 <Loader2
-                  size={15}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#22499F]"
+                  size={16}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-[#22499F]"
                 />
               )}
               {!phoneChecking && phoneAvailable === true && !errors.phone && (
                 <CheckCircle2
-                  size={15}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400"
+                  size={16}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-emerald-600"
                 />
               )}
             </div>
             {phoneChecking && (
-              <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-[#22499F]">
-                <Loader2 size={12} className="shrink-0 animate-spin text-[#22499F]" />
+              <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[#22499F]">
+                <Loader2 size={13} className="shrink-0 animate-spin text-[#22499F]" />
                 <span>Checking number availability...</span>
               </p>
             )}
             {!phoneChecking && errors.phone && (
-              <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                <AlertCircle size={12} className="shrink-0 text-rose-400" />
+              <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold auth-field-error">
+                <AlertCircle size={13} className="shrink-0" />
                 <span>{errors.phone}</span>
               </p>
             )}
             {!phoneChecking && phoneAvailable === true && !errors.phone && (
-              <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
-                <CheckCircle2 size={12} className="shrink-0 text-emerald-400" />
+              <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-emerald-600">
+                <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
                 <span>Mobile number is available</span>
               </p>
             )}
           </div>
 
           <div>
-            <label className={`mb-1 block text-xs font-bold ${errors.confirm_phone ? "text-rose-400" : "text-[#64748B]"}`}>
+            <label className={`mb-1.5 block text-[13px] font-bold ${errors.confirm_phone ? "auth-field-error" : "text-[#334155]"}`}>
               Confirm Mobile Number <span className="text-[#22499F]">*</span>
             </label>
             <div className="relative flex items-center w-full">
               <span
-                className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
-                  errors.confirm_phone ? "text-rose-400" : "text-[#64748B]"
+                className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-[14px] font-bold transition-colors ${
+                  errors.confirm_phone ? "auth-field-error" : "text-[#475569]"
                 }`}
               >
                 +91
@@ -284,20 +285,21 @@ export function ProfileSecurityCard({
                 autoComplete="off"
                 maxLength={10}
                 name="confirm_phone"
+                placeholder="Re-enter mobile number"
                 value={confirmPhone}
                 onChange={handleChange}
                 required
                 aria-invalid={Boolean(errors.confirm_phone)}
-                className={`h-11 w-full rounded-xl border pl-11 pr-3 text-xs sm:text-sm font-semibold text-[#1E293B] outline-none transition ${
+                className={`h-12 w-full rounded-xl border pl-12 pr-3.5 text-[15px] font-medium text-[#1E293B] placeholder-[#64748B] outline-none transition ${
                   errors.confirm_phone
-                    ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400"
+                    ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500"
                     : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                 }`}
               />
             </div>
             {errors.confirm_phone && (
-              <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                <AlertCircle size={12} className="shrink-0 text-rose-400" />
+              <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-semibold auth-field-error">
+                <AlertCircle size={13} className="shrink-0" />
                 <span>{errors.confirm_phone}</span>
               </p>
             )}
