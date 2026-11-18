@@ -16,7 +16,7 @@
     </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Mumbai Collection" />
     <title>Mumbai Collection</title>
     <meta
@@ -58,8 +58,14 @@
     <script>
       (function () {
         try {
+          var isAppleStandalone = window.navigator.standalone === true;
+          if (isAppleStandalone) {
+            document.documentElement.classList.add("is-apple-standalone");
+            var viewport = document.querySelector('meta[name="viewport"]');
+            viewport.content = viewport.content.replace("viewport-fit=cover", "viewport-fit=auto");
+          }
           var isStandalone =
-            window.navigator.standalone === true ||
+            isAppleStandalone ||
             (window.matchMedia &&
               window.matchMedia("(display-mode: standalone)").matches);
           if (isStandalone) {

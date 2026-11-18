@@ -8,7 +8,7 @@
     <meta name="theme-color" content="#121417" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Mumbai Admin" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-v2.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -23,8 +23,14 @@
     <script>
       (function () {
         try {
+          var isAppleStandalone = window.navigator.standalone === true;
+          if (isAppleStandalone) {
+            document.documentElement.classList.add("is-apple-standalone");
+            var viewport = document.querySelector('meta[name="viewport"]');
+            viewport.content = viewport.content.replace("viewport-fit=cover", "viewport-fit=auto");
+          }
           var isStandalone =
-            window.navigator.standalone === true ||
+            isAppleStandalone ||
             (window.matchMedia &&
               window.matchMedia("(display-mode: standalone)").matches);
           if (isStandalone) {

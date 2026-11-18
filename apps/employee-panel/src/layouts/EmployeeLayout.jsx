@@ -162,12 +162,13 @@ function EmployeeLayout() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#0F172A] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none lg:pointer-events-auto"
+        className={`panel-sidebar fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#0F172A] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none lg:pointer-events-auto"
         }`}
+        data-open={sidebarOpen}
       >
         {/* Brand Header */}
-        <div className="flex h-18 items-center justify-between px-6 border-b border-slate-800">
+        <div className="flex min-h-18 shrink-0 items-center justify-between px-6 pt-[var(--safe-area-top,0px)] lg:pt-0 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 shadow-[0_4px_16px_rgba(16,185,129,0.4)]">
               <Store size={20} className="text-white" />
@@ -259,7 +260,7 @@ function EmployeeLayout() {
         </div>
 
         {/* User Info & Logout Footer */}
-        <div className="border-t border-slate-800 p-4 space-y-3">
+        <div className="border-t border-slate-800 p-4 space-y-3 shrink-0 pb-[max(1rem,var(--safe-area-bottom,0px))] lg:pb-4">
           <div className="flex items-center gap-3 px-2 py-1.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-emerald-400 border border-slate-700 font-bold text-xs">
               <UserCheck size={16} />

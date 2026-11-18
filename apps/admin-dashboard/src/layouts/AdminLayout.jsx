@@ -116,12 +116,13 @@ function AdminLayout() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#121417] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none lg:pointer-events-auto"
+        className={`panel-sidebar fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#121417] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0 pointer-events-auto" : "-translate-x-full pointer-events-none lg:pointer-events-auto"
         }`}
+        data-open={sidebarOpen}
       >
         {/* Brand Header */}
-        <div className="flex h-18 items-center justify-between px-6 border-b border-white/10">
+        <div className="flex min-h-18 shrink-0 items-center justify-between px-6 pt-[var(--safe-area-top,0px)] lg:pt-0 border-b border-white/10">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#FF8A00] to-[#FFA726] shadow-[0_4px_16px_rgba(255,138,0,0.4)]">
               <Store size={20} className="text-white" />
@@ -186,7 +187,7 @@ function AdminLayout() {
         </nav>
 
         {/* Bottom Section */}
-        <div className="border-t border-white/10 p-4 space-y-2">
+        <div className="border-t border-white/10 p-4 space-y-2 shrink-0 pb-[max(1rem,var(--safe-area-bottom,0px))] lg:pb-4">
           {/* Customer Store */}
           <a
             href={customerStoreUrl}
