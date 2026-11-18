@@ -82,6 +82,7 @@ function BillingForm({
     addressLoadFailed,
     setAddressRetry,
     addressSignInRequired,
+    setAddressSignInRequired,
   } = useCheckoutAddresses({
     user,
     isAuthenticated,
@@ -105,7 +106,6 @@ function BillingForm({
     checkoutExpiredUserId,
     isAuthenticated,
     handleSessionExpired,
-    cart,
     navigate,
     refreshCart,
     setError,

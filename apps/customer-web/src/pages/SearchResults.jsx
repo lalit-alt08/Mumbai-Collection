@@ -109,8 +109,19 @@ function SearchResults() {
         ) : products.length === 0 ? (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] p-8 text-center">
             <Search size={24} className="mb-3 text-[#64748B]" />
-            <h2 className="font-bold">No products found</h2>
-            <p className="mt-1 text-sm text-[#64748B]">Try another search term.</p>
+            <h2 className="font-bold text-[#1E293B]">No products found</h2>
+            <p className="mt-1 text-sm text-[#64748B]">
+              {page > 1 ? "This page has no results." : "Try another search term."}
+            </p>
+            {page > 1 && (
+              <button
+                type="button"
+                onClick={() => updatePage(1)}
+                className="mt-4 rounded-full bg-[#22499F] px-5 py-2.5 text-sm font-bold text-[#FFFFFF] hover:bg-[#1b3a80] transition-colors cursor-pointer"
+              >
+                Return to Page 1
+              </button>
+            )}
           </div>
         ) : (
           <>

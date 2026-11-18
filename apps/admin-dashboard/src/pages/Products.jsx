@@ -27,6 +27,14 @@ import {
   applyProductAdjustment,
   calculateStockStep,
 } from "../utils/productAdjuster";
+import { resolveMediaUrl } from "../utils/imageUtils.js";
+
+function ProductImage({ src, name, iconSize = 20, lazy = false }) {
+  const [failedSrc, setFailedSrc] = useState(null);
+  const resolved = resolveMediaUrl(src);
+  if (!resolved || failedSrc === resolved) return <Boxes size={iconSize} className="text-gray-400" />;
+  return <img src={resolved} alt={name} className="h-full w-full object-cover" loading={lazy ? "lazy" : undefined} onError={() => setFailedSrc(resolved)} />;
+}
 
 function Products() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,9 +43,11 @@ function Products() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchParam = searchParams.get("search") || "";
+  const [searchQuery, setSearchQuery] = useState(searchParam);
+  const [debouncedSearch, setDebouncedSearch] = useState(searchParam);
   const stockParam = searchParams.get("stock");
+  const productIdParam = searchParams.get("product_id");
   const stockFilter = ["instock", "lowstock", "outofstock"].includes(stockParam) ? stockParam : "all";
   const [stockCounts, setStockCounts] = useState(null);
 
@@ -67,7 +77,7 @@ function Products() {
   const isDeletingRef = useRef(false);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef(null);
-  const listViewKey = JSON.stringify([page, perPage, debouncedSearch, stockFilter]);
+  const listViewKey = JSON.stringify([page, perPage, debouncedSearch, stockFilter, productIdParam]);
   const listViewKeyRef = useRef(listViewKey);
   listViewKeyRef.current = listViewKey;
 
@@ -96,6 +106,16 @@ function Products() {
     setPage(1);
   }, [stockFilter]);
 
+  // Sync search input when URL search query changes
+  useEffect(() => {
+    const urlSearch = searchParams.get("search") || "";
+    if (urlSearch !== searchQuery) {
+      setSearchQuery(urlSearch);
+      setDebouncedSearch(urlSearch);
+      setPage(1);
+    }
+  }, [searchParams.get("search")]);
+
   const fetchProductList = async () => {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -110,6 +130,7 @@ function Products() {
           per_page: perPage,
           search: debouncedSearch || undefined,
           stock_status: stockFilter !== "all" ? stockFilter : undefined,
+          product_id: productIdParam || undefined,
         },
         { signal: controller.signal }
       );
@@ -154,7 +175,7 @@ function Products() {
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [page, perPage, debouncedSearch, stockFilter]);
+  }, [page, perPage, debouncedSearch, stockFilter, productIdParam]);
 
   const fetchProductListRef = useRef(fetchProductList);
   fetchProductListRef.current = fetchProductList;
@@ -338,6 +359,7 @@ function Products() {
               key={tab.id}
               onClick={() => {
                 const nextParams = new URLSearchParams(searchParams);
+                nextParams.delete("product_id");
                 if (tab.id === "all") nextParams.delete("stock");
                 else nextParams.set("stock", tab.id);
                 setSearchParams(nextParams);
@@ -371,12 +393,30 @@ function Products() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (productIdParam) {
+                const nextParams = new URLSearchParams(searchParams);
+                nextParams.delete("product_id");
+                setSearchParams(nextParams);
+              }
+            }}
             placeholder="Search all products (server-side)..."
             className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 text-xs font-medium text-gray-800 placeholder-gray-400 focus:border-[#FF8A00] focus:bg-white focus:outline-none transition"
           />
         </div>
       </div>
+
+      {productIdParam && (
+        <div className="text-xs text-gray-600">
+          Showing product #{productIdParam}.{" "}
+          <button type="button" className="font-bold text-orange-700 underline" onClick={() => {
+            const nextParams = new URLSearchParams(searchParams);
+            nextParams.delete("product_id");
+            setSearchParams(nextParams);
+          }}>Show all products</button>
+        </div>
+      )}
 
       {/* Main Inventory Container */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -485,10 +525,7 @@ function Products() {
                 const stock = product.stock_quantity ?? 0;
                 const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
                 const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
-                const imgUrl =
-                  product.image ||
-                  product.images?.[0]?.src ||
-                  "https://placehold.co/56x56?text=Item";
+                const rawImg = product.image || product.images?.[0]?.src || "";
                 const categoryName =
                   product.categories?.map((c) => c.name).join(", ") || "General";
                 const displayPrice = product.regular_price || product.price || 0;
@@ -501,16 +538,7 @@ function Products() {
                     {/* Top Row: Thumbnail + Title + Category + SKU + Status */}
                     <div className="flex items-start gap-3">
                       <div className="h-14 w-14 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0 flex items-center justify-center">
-                        {product.image ? (
-                          <img
-                            src={imgUrl}
-                            alt={product.name}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <Boxes size={22} className="text-gray-400" />
-                        )}
+                        <ProductImage src={rawImg} name={product.name} iconSize={22} lazy />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
@@ -620,10 +648,7 @@ function Products() {
                     const stock = product.stock_quantity ?? 0;
                     const isOutOfStock = product.stock_status === "outofstock" || stock <= 0;
                     const isLowStock = !isOutOfStock && stock > 0 && stock <= 5;
-                    const imgUrl =
-                      product.image ||
-                      product.images?.[0]?.src ||
-                      "https://placehold.co/50x50?text=Item";
+                    const rawImg = product.image || product.images?.[0]?.src || "";
                     const categoryName =
                       product.categories?.map((c) => c.name).join(", ") || "General";
                     const displayPrice = product.regular_price || product.price || 0;
@@ -634,16 +659,7 @@ function Products() {
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3.5">
                             <div className="h-12 w-12 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0 flex items-center justify-center">
-                              {product.image ? (
-                                <img
-                                  src={imgUrl}
-                                  alt={product.name}
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <Boxes size={20} className="text-gray-400" />
-                              )}
+                              <ProductImage src={rawImg} name={product.name} lazy />
                             </div>
                             <div className="min-w-0 max-w-xs lg:max-w-md">
                               <p className="font-bold text-gray-900 truncate" title={product.name}>
@@ -884,19 +900,7 @@ function Products() {
             <div className="flex items-center justify-between border-b border-gray-100 pb-3.5">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="h-11 w-11 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 shrink-0 flex items-center justify-center">
-                  {quickAdjustProduct.image ? (
-                    <img
-                      src={
-                        quickAdjustProduct.image ||
-                        quickAdjustProduct.images?.[0]?.src ||
-                        "https://placehold.co/44x44?text=Item"
-                      }
-                      alt={quickAdjustProduct.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <Boxes size={20} className="text-gray-400" />
-                  )}
+                  <ProductImage src={quickAdjustProduct.image || quickAdjustProduct.images?.[0]?.src} name={quickAdjustProduct.name} />
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-gray-900 truncate">

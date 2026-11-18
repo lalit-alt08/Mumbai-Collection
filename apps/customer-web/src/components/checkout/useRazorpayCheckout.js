@@ -34,8 +34,12 @@ export function createRazorpayHandler({
   navigate,
 }) {
   return async function startPayment() {
+    const requestUserId = user?.id;
+    const isSameUser = () => String(activeUserRef.current) === String(requestUserId);
+
     setPaymentStep("preparing");
     const scriptLoaded = await loadRazorpayScript();
+    if (!isSameUser()) return;
     if (!scriptLoaded) {
       setError("Unable to load secure payment gateway. Please check your connection and try again.");
       isSubmittingRef.current = false;
@@ -56,12 +60,14 @@ export function createRazorpayHandler({
         "X-Idempotency-Key": idempotencyKeyRef.current,
       },
     });
+    if (!isSameUser()) return;
 
     if (!orderRes || !orderRes.razorpay_order_id) {
       if (orderRes?.already_paid) {
-        clearCheckoutIdempotencyKey();
-        clearPendingPayment(user?.id);
+        clearCheckoutIdempotencyKey(requestUserId);
+        clearPendingPayment(requestUserId);
         await refreshCart().catch(() => {});
+        if (!isSameUser()) return;
         navigate(`/order-success/${orderRes.order_id}`, {
           state: { paymentMethod: "Online Payment", status: orderRes.orderStatus || "Processing" },
         });
@@ -73,18 +79,43 @@ export function createRazorpayHandler({
       throw new Error("Invalid payment order response from server.");
     }
 
+    const requestOrderId = orderRes.razorpay_order_id;
+    const isCurrentAttempt = () =>
+      String(activeUserRef.current) === String(requestUserId) &&
+      activeOrderRef.current === requestOrderId;
+
+    const recordSupportRequired = (message) => {
+      const safeMessage =
+        message ||
+        "This payment requires staff review. Please do not pay again; contact support with your checkout reference.";
+      setPendingPayment(
+        {
+          razorpay_order_id: requestOrderId,
+          amount: orderRes.amount,
+          cartFingerprint: computeCartFingerprint(cart),
+          itemsFingerprint: computeCartItemsFingerprint(cart),
+          timestamp: Date.now(),
+          support_required: true,
+          message: safeMessage,
+        },
+        requestUserId
+      );
+      setIsPersistentPending(true);
+      setError(safeMessage);
+    };
+
     setPendingPayment(
       {
-        razorpay_order_id: orderRes.razorpay_order_id,
+        razorpay_order_id: requestOrderId,
         cartFingerprint: computeCartFingerprint(cart),
         itemsFingerprint: computeCartItemsFingerprint(cart),
         timestamp: Date.now(),
       },
-      user?.id
+      requestUserId
     );
 
-    activeOrderRef.current = orderRes.razorpay_order_id;
-    activeUserRef.current = user?.id;
+    activeOrderRef.current = requestOrderId;
+    activeUserRef.current = requestUserId;
 
     const firstName = billingAddress?.first_name || user?.first_name || "";
     const lastName = billingAddress?.last_name || user?.last_name || "";
@@ -97,7 +128,7 @@ export function createRazorpayHandler({
       currency: orderRes.currency || "INR",
       name: "Mumbai Collection",
       description: "Mumbai Collection Online Payment",
-      order_id: orderRes.razorpay_order_id,
+      order_id: requestOrderId,
       prefill: {
         name: `${firstName} ${lastName}`.trim(),
         email: userEmail,
@@ -109,27 +140,17 @@ export function createRazorpayHandler({
       },
       modal: {
         ondismiss: async () => {
+          if (!isCurrentAttempt()) {
+            return;
+          }
           isSubmittingRef.current = false;
           setLoading(false);
           setPaymentStep("");
 
-          const requestUserId = user?.id;
-          const requestOrderId = orderRes?.razorpay_order_id;
-
-          if (
-            String(activeUserRef.current) !== String(requestUserId) ||
-            activeOrderRef.current !== requestOrderId
-          ) {
-            return;
-          }
-
           try {
             if (requestOrderId) {
               const checkRes = await checkPaymentStatus(requestOrderId);
-              if (
-                String(activeUserRef.current) !== String(requestUserId) ||
-                activeOrderRef.current !== requestOrderId
-              ) {
+              if (!isCurrentAttempt()) {
                 return;
               }
               if (checkRes?.success && checkRes?.order_id) {
@@ -137,9 +158,14 @@ export function createRazorpayHandler({
                 clearCheckoutIdempotencyKey(requestUserId);
                 activeOrderRef.current = null;
                 await refreshCart().catch(() => {});
+                if (!isSameUser()) return;
                 navigate(`/order-success/${checkRes.order_id}`, {
                   state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
                 });
+                return;
+              }
+              if (checkRes?.support_required) {
+                recordSupportRequired(checkRes.message);
                 return;
               }
               if (checkRes?.refunded || checkRes?.terminal) {
@@ -148,6 +174,7 @@ export function createRazorpayHandler({
                 activeOrderRef.current = null;
                 idempotencyKeyRef.current = generateUUID();
                 await refreshCart().catch(() => {});
+                if (!isSameUser()) return;
                 setError(checkRes.message || "Checkout attempt completed or cancelled.");
                 return;
               }
@@ -164,10 +191,11 @@ export function createRazorpayHandler({
           if (requestOrderId) {
             try {
               const cancelRes = await cancelPaymentOrder(requestOrderId);
-              if (
-                String(activeUserRef.current) !== String(requestUserId) ||
-                activeOrderRef.current !== requestOrderId
-              ) {
+              if (!isCurrentAttempt()) {
+                return;
+              }
+              if (cancelRes?.support_required) {
+                recordSupportRequired(cancelRes.message);
                 return;
               }
               if (!cancelRes?.cancelled && !cancelRes?.terminal) {
@@ -176,10 +204,7 @@ export function createRazorpayHandler({
                 return;
               }
             } catch (cancelErr) {
-              if (
-                String(activeUserRef.current) !== String(requestUserId) ||
-                activeOrderRef.current !== requestOrderId
-              ) {
+              if (!isCurrentAttempt()) {
                 return;
               }
               setIsPersistentPending(true);
@@ -188,10 +213,7 @@ export function createRazorpayHandler({
             }
           }
 
-          if (
-            String(activeUserRef.current) !== String(requestUserId) ||
-            activeOrderRef.current !== requestOrderId
-          ) {
+          if (!isCurrentAttempt()) {
             return;
           }
           clearPendingPayment(requestUserId);
@@ -203,12 +225,8 @@ export function createRazorpayHandler({
         },
       },
       handler: async (paymentResponse) => {
-        const requestUserId = user?.id;
-        const requestOrderId = orderRes?.razorpay_order_id;
-
         if (
-          String(activeUserRef.current) !== String(requestUserId) ||
-          activeOrderRef.current !== requestOrderId ||
+          !isCurrentAttempt() ||
           paymentResponse.razorpay_order_id !== requestOrderId
         ) {
           return;
@@ -224,17 +242,16 @@ export function createRazorpayHandler({
             razorpay_payment_id: paymentResponse.razorpay_payment_id,
             razorpay_signature: paymentResponse.razorpay_signature,
           });
+          if (!isCurrentAttempt()) {
+            return;
+          }
 
           if (verifyRes.success && verifyRes.order_id) {
-            if (
-              String(activeUserRef.current) === String(requestUserId) &&
-              activeOrderRef.current === requestOrderId
-            ) {
-              clearCheckoutIdempotencyKey(requestUserId);
-              clearPendingPayment(requestUserId);
-              activeOrderRef.current = null;
-            }
+            clearCheckoutIdempotencyKey(requestUserId);
+            clearPendingPayment(requestUserId);
+            activeOrderRef.current = null;
             await refreshCart().catch(() => {});
+            if (!isSameUser()) return;
             navigate(`/order-success/${verifyRes.order_id}`, {
               state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing" },
             });
@@ -242,33 +259,16 @@ export function createRazorpayHandler({
           }
 
           if (verifyRes.support_required) {
-            setPendingPayment(
-              {
-                orderId: requestOrderId,
-                amount: unconfirmedQuote?.amount || amountInPaise,
-                createdAt: Date.now(),
-                support_required: true,
-                message: verifyRes.message || "This payment requires staff review. Please do not pay again.",
-              },
-              requestUserId
-            );
-            setError(
-              verifyRes.message ||
-                "This payment requires staff review. Please do not pay again; contact support with your checkout reference."
-            );
+            recordSupportRequired(verifyRes.message);
             return;
           }
 
           if (verifyRes.refunded || verifyRes.terminal) {
-            if (
-              String(activeUserRef.current) === String(requestUserId) &&
-              activeOrderRef.current === requestOrderId
-            ) {
-              clearCheckoutIdempotencyKey(requestUserId);
-              clearPendingPayment(requestUserId);
-              activeOrderRef.current = null;
-            }
+            clearCheckoutIdempotencyKey(requestUserId);
+            clearPendingPayment(requestUserId);
+            activeOrderRef.current = null;
             await refreshCart().catch(() => {});
+            if (!isSameUser()) return;
             setError(
               verifyRes.message ||
                 "An item in your order went out of stock during payment. Your payment was automatically refunded."
@@ -278,6 +278,14 @@ export function createRazorpayHandler({
 
           throw new Error(verifyRes.message || "Payment verification incomplete");
         } catch (verifyErr) {
+          if (!isCurrentAttempt()) {
+            return;
+          }
+          if (verifyErr?.response?.data?.support_required) {
+            recordSupportRequired(verifyErr.response.data.message);
+            return;
+          }
+
           const errCode = verifyErr.response?.data?.code;
           const errMsg = String(verifyErr.response?.data?.message || verifyErr.message || "");
           const isExplicitSignatureFailure =
@@ -293,37 +301,43 @@ export function createRazorpayHandler({
 
           let pollSucceeded = false;
           for (let attempt = 1; attempt <= 5; attempt++) {
+            if (!isCurrentAttempt()) {
+              return;
+            }
             setPaymentStep(`confirming (${attempt}/5)`);
             await new Promise((resolve) => setTimeout(resolve, 2500));
+            if (!isCurrentAttempt()) {
+              return;
+            }
             try {
               const checkRes = await checkPaymentStatus(paymentResponse.razorpay_order_id);
+              if (!isCurrentAttempt()) {
+                return;
+              }
               if (checkRes?.success && checkRes?.order_id) {
                 pollSucceeded = true;
-                if (
-                  String(activeUserRef.current) === String(requestUserId) &&
-                  activeOrderRef.current === requestOrderId
-                ) {
-                  clearCheckoutIdempotencyKey(requestUserId);
-                  clearPendingPayment(requestUserId);
-                  activeOrderRef.current = null;
-                }
+                clearCheckoutIdempotencyKey(requestUserId);
+                clearPendingPayment(requestUserId);
+                activeOrderRef.current = null;
                 await refreshCart().catch(() => {});
+                if (!isSameUser()) return;
                 navigate(`/order-success/${checkRes.order_id}`, {
                   state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
                 });
                 return;
               }
+              if (checkRes?.support_required) {
+                pollSucceeded = true;
+                recordSupportRequired(checkRes.message);
+                return;
+              }
               if (checkRes?.refunded || checkRes?.terminal) {
                 pollSucceeded = true;
-                if (
-                  String(activeUserRef.current) === String(requestUserId) &&
-                  activeOrderRef.current === requestOrderId
-                ) {
-                  clearCheckoutIdempotencyKey(requestUserId);
-                  clearPendingPayment(requestUserId);
-                  activeOrderRef.current = null;
-                }
+                clearCheckoutIdempotencyKey(requestUserId);
+                clearPendingPayment(requestUserId);
+                activeOrderRef.current = null;
                 await refreshCart().catch(() => {});
+                if (!isSameUser()) return;
                 setError(
                   checkRes.message ||
                     "An item in your order went out of stock. Your payment has been refunded automatically."
@@ -335,48 +349,46 @@ export function createRazorpayHandler({
             }
           }
 
-          if (!pollSucceeded) {
+          if (!pollSucceeded && isCurrentAttempt()) {
             setIsPersistentPending(true);
             setError(
               "Payment was received by the bank, but order confirmation is taking longer than usual. Please do not pay again — refresh this page shortly or check 'My Orders'."
             );
           }
         } finally {
-          isSubmittingRef.current = false;
-          setLoading(false);
-          setPaymentStep("");
+          if (isSameUser() && (activeOrderRef.current === requestOrderId || activeOrderRef.current === null)) {
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+          }
         }
       },
     };
 
     const rzp = new window.Razorpay(options);
     rzp.on("payment.failed", async (failedRes) => {
-      const requestUserId = user?.id;
-      const requestOrderId = orderRes?.razorpay_order_id;
       const failedOrderId = failedRes?.error?.metadata?.order_id || requestOrderId;
 
-      if (
-        String(activeUserRef.current) !== String(requestUserId) ||
-        activeOrderRef.current !== requestOrderId
-      ) {
+      if (!isCurrentAttempt()) {
         return;
       }
 
       if (failedOrderId) {
         try {
           const cancelled = await cancelPaymentOrder(failedOrderId);
-          if (
-            String(activeUserRef.current) !== String(requestUserId) ||
-            activeOrderRef.current !== requestOrderId
-          ) {
+          if (!isCurrentAttempt()) {
+            return;
+          }
+          if (cancelled?.support_required) {
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+            recordSupportRequired(cancelled.message);
             return;
           }
           if (!cancelled?.cancelled && !cancelled?.terminal) throw new Error("Cancellation not confirmed");
         } catch {
-          if (
-            String(activeUserRef.current) !== String(requestUserId) ||
-            activeOrderRef.current !== requestOrderId
-          ) {
+          if (!isCurrentAttempt()) {
             return;
           }
           isSubmittingRef.current = false;
@@ -388,10 +400,7 @@ export function createRazorpayHandler({
         }
       }
 
-      if (
-        String(activeUserRef.current) !== String(requestUserId) ||
-        activeOrderRef.current !== requestOrderId
-      ) {
+      if (!isCurrentAttempt()) {
         return;
       }
 

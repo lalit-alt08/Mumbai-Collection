@@ -46,7 +46,7 @@ function hasValidProductSession(productId) {
  * 2. On PUSH/REPLACE navigations: always scrolls to top (0, 0), EXCEPT if navigating to /categories or an already-visited /product/:id with an active in-session scroll offset.
  * 3. On POP (Back/Forward) transitions:
  *    - If landing on an in-session Category or Product page, lets the page restore its offset.
- *    - If landing on Home (/): always scrolls to top (0, 0).
+ * Home restores its own position after its cached shelves have rendered.
  */
 function ScrollToTop() {
   const location = useLocation();
@@ -79,7 +79,10 @@ function ScrollToTop() {
     const productMatch = pathname.match(/^\/products?\/([^\/]+)/);
     const productId = productMatch ? productMatch[1] : null;
     const isProductPage = Boolean(productId);
-    const isHomePage = pathname === "/";
+    if (pathname === "/") {
+      prevKeyRef.current = location.key;
+      return;
+    }
     const isCategoriesPage = pathname === "/categories";
 
     const hasActiveProductSession = isProductPage && hasValidProductSession(productId);
@@ -95,8 +98,6 @@ function ScrollToTop() {
     } else if (navType === "POP") {
       if (hasActiveCategoriesSession || hasActiveProductSession) {
         // Active session restoration handled by page
-      } else if (isHomePage) {
-        window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       } else if (isProductPage) {
         window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       } else {

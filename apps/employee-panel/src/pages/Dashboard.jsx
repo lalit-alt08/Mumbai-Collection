@@ -19,12 +19,15 @@ import {
   Send,
   Fan,
 } from "lucide-react";
-import { getOverview, updateOrderStatus } from "../services/employeeApi.js";
+import { getOverview, updateOrderStatus, getPackingAlarms, acknowledgeOrder } from "../services/employeeApi.js";
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
 import { getDashboardCache, setDashboardCache, mergeDegradedOverview } from "../utils/dashboardCache.js";
+import { OrdersPipelineCoordinator } from "../utils/ordersPipelineCoordinator.js";
 import {
   triggerNewOrderNotification,
-  announceOrderCountChange,
+  acknowledgeOrderAlarm,
+  getUnacknowledgedOrders,
+  subscribeToAlarmState,
   requestNotificationPermission,
 } from "../utils/orderNotification.js";
 
@@ -38,6 +41,8 @@ function Dashboard() {
   const [error, setError] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [toast, setToast] = useState(null);
+  const [alarmDegraded, setAlarmDegraded] = useState(false);
+  const [ringingOrders, setRingingOrders] = useState([]);
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -47,8 +52,16 @@ function Dashboard() {
   };
 
   const pollTimerRef = useRef(null);
-  const prevToPackCountRef = useRef(null);
   const activeRequestRef = useRef(null);
+  const alarmCoordinatorRef = useRef(null);
+  if (!alarmCoordinatorRef.current) {
+    alarmCoordinatorRef.current = new OrdersPipelineCoordinator({
+      getPackingAlarms,
+      getRingingIds: getUnacknowledgedOrders,
+      onAlarmTrigger: triggerNewOrderNotification,
+      onAlarmAcknowledge: acknowledgeOrderAlarm,
+    });
+  }
 
   // Authenticated Overview Fetcher
   const fetchOverview = async (isBackground = false) => {
@@ -67,22 +80,6 @@ function Dashboard() {
         const res = await getOverview({ signal: controller.signal });
         if (res && res.success) {
           const payload = res.data || res;
-          const currentToPack = payload.summary?.ordersToPack ?? payload.ordersToPack;
-          if (typeof currentToPack === "number" && prevToPackCountRef.current !== null) {
-            if (currentToPack > prevToPackCountRef.current) {
-              const diff = currentToPack - prevToPackCountRef.current;
-              const pendingOrders = (payload.ordersNeedingAction || payload.recentOrders || [])
-                .filter((o) => o?.id && (o.status === "processing" || o.status === "pending"));
-              if (pendingOrders.length > 0) {
-                pendingOrders.forEach((o) => triggerNewOrderNotification({ orderId: o.id }));
-              } else {
-                announceOrderCountChange(diff);
-              }
-            }
-          }
-          if (typeof currentToPack === "number") {
-            prevToPackCountRef.current = currentToPack;
-          }
           setData((previous) => {
             const merged = mergeDegradedOverview(previous, payload);
             setDashboardCache(user?.id, merged);
@@ -114,6 +111,54 @@ function Dashboard() {
   // Request browser notification permissions on mount
   useEffect(() => {
     requestNotificationPermission();
+  }, []);
+
+  useEffect(() => subscribeToAlarmState((state) => setRingingOrders(state.unacknowledgedOrders || [])), []);
+
+  // Keep the same authoritative alarm discovery used on the Orders screen.
+  useEffect(() => {
+    let disposed = false;
+    let timer = null;
+    const coordinator = alarmCoordinatorRef.current;
+    const check = async () => {
+      const result = await coordinator.checkActivePackingAlarms({ isHidden: document.hidden });
+      if (disposed || document.hidden || ["skipped", "in_flight", "aborted"].includes(result?.status)) return;
+      setAlarmDegraded(result?.status !== "success" || Boolean(result?.discovery_unavailable || result?.partial_discovery_failure));
+    };
+    const start = () => {
+      if (document.hidden || timer) return;
+      void check();
+      timer = setInterval(check, 8000);
+    };
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+      coordinator.alarmAbortController?.abort();
+    };
+    const onVisibility = () => document.hidden ? stop() : start();
+    const onPageShow = (event) => {
+      if (event.persisted && !document.hidden) {
+        if (timer) void check();
+        else start();
+      }
+    };
+    const onOnline = () => {
+      if (!document.hidden) {
+        if (timer) void check();
+        else start();
+      }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("online", onOnline);
+    return () => {
+      disposed = true;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("online", onOnline);
+    };
   }, []);
 
   // Initial load + 30s background polling
@@ -179,6 +224,15 @@ function Dashboard() {
       setUpdatingId(orderId);
       await updateOrderStatus(orderId, newStatus);
       showToast(`Order #${orderId} marked as ${newStatus}.`);
+      acknowledgeOrderAlarm(orderId);
+      try {
+        const ack = await acknowledgeOrder(orderId);
+        if (!ack?.success || ack.shared === false) {
+          showToast(`Order #${orderId} updated, but its alert may still ring on other devices.`, "error");
+        }
+      } catch (_) {
+        showToast(`Order #${orderId} updated, but its alert could not be confirmed on other devices.`, "error");
+      }
       await fetchOverview(true);
     } catch (err) {
       showToast(
@@ -238,6 +292,17 @@ function Dashboard() {
           {error || (overviewData.has_stale_data ? "Some information is unavailable; previously loaded values may be out of date." : "Some dashboard information is unavailable. Try refreshing shortly.")}
         </div>
       )}
+      {alarmDegraded && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          Order alerts are temporarily unavailable. Check the Orders page and store connection.
+        </div>
+      )}
+      {ringingOrders.length > 0 && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          {ringingOrders.length} order alert{ringingOrders.length === 1 ? "" : "s"} active. {" "}
+          <Link to="/orders?date=all" className="font-bold underline">Open Orders to acknowledge</Link>
+        </div>
+      )}
       {/* Toast Notification */}
       {toast && (
         <div
@@ -272,7 +337,7 @@ function Dashboard() {
               Need fulfillment
             </span>
             <Link
-              to="/orders?status=processing"
+              to="/orders?status=processing&date=all"
               className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-extrabold text-white hover:bg-amber-700 transition"
             >
               PACK NOW <ChevronRight size={13} />
@@ -298,7 +363,7 @@ function Dashboard() {
               Currently on the road
             </span>
             <Link
-              to="/orders?status=out-for-delivery"
+              to="/orders?status=out-for-delivery&date=all"
               className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5"
             >
               VIEW DISPATCH <ChevronRight size={12} />
@@ -324,7 +389,7 @@ function Dashboard() {
               Successfully delivered today
             </span>
             <Link
-              to="/orders?status=completed"
+              to="/orders?status=completed&date=today&date_basis=completed"
               className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5"
             >
               VIEW TODAY <ChevronRight size={12} />
@@ -350,7 +415,7 @@ function Dashboard() {
               Needs stock update
             </span>
             <Link
-              to="/products"
+              to="/products?stock_status=lowstock"
               className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-0.5"
             >
               UPDATE STOCK <ChevronRight size={12} />
@@ -402,16 +467,16 @@ function Dashboard() {
               <h2 className="text-base sm:text-lg font-black tracking-tight text-gray-900 flex items-center gap-2">
                 Orders Needing Action
                 <span className="rounded-full bg-[#7C3AED]/10 px-2.5 py-0.5 text-xs font-bold text-[#7C3AED]">
-                  {overviewData.unavailable_sections?.includes("action_orders") ? "Unavailable" : `${ordersNeedingAction.filter(o => !o.is_unpaid && ["processing", "packed", "out-for-delivery", "dispatched"].includes(o.status)).length} Active`}
+                  {overviewData.unavailable_sections?.includes("action_orders") ? "Unavailable" : `${ordersNeedingAction.length} shown`}
                 </span>
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Process today's incoming orders and hand over to dispatch riders
+                Preview of recent orders; open All Orders to see the full queue.
               </p>
             </div>
 
             <Link
-              to="/orders"
+              to="/orders?date=all"
               className="inline-flex items-center gap-1 text-xs font-bold text-[#7C3AED] hover:text-purple-700"
             >
               All Orders <ArrowRight size={13} />
@@ -420,13 +485,14 @@ function Dashboard() {
 
           {ordersNeedingAction.length === 0 ? (
             <div className="py-16 text-center my-auto">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                <CheckCircle2 size={28} />
+              <div className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl ${overviewData.unavailable_sections?.includes("action_orders") ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+                {overviewData.unavailable_sections?.includes("action_orders") ? <AlertTriangle size={28} /> : <CheckCircle2 size={28} />}
               </div>
-              <h3 className="text-sm font-bold text-gray-900">You're all caught up!</h3>
+              <h3 className="text-sm font-bold text-gray-900">{overviewData.unavailable_sections?.includes("action_orders") ? "Orders temporarily unavailable" : "You're all caught up!"}</h3>
               <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
                 {overviewData.unavailable_sections?.includes("action_orders") ? "Orders are temporarily unavailable. Please try again." : "No orders waiting for fulfillment or packing right now. New incoming customer orders will appear here automatically."}
               </p>
+              {overviewData.unavailable_sections?.includes("action_orders") && <button type="button" onClick={() => fetchOverview(false)} className="mt-3 text-xs font-bold text-amber-700 underline">Try again</button>}
             </div>
           ) : (
             <div className="divide-y divide-gray-100 space-y-2 overflow-y-auto max-h-[600px] pr-1">
@@ -436,7 +502,8 @@ function Dashboard() {
                 const isProcessing = (status === "processing" || status === "pending" || status === "on-hold") && !isUnpaid;
                 const isPacked = status === "packed" && !isUnpaid;
                 const isOutForDelivery = (status === "out-for-delivery" || status === "dispatched") && !isUnpaid;
-                const isUpdating = updatingId === order.id;
+                const isUpdating = updatingId === order.id || Boolean(error) || Boolean(overviewData.unavailable_sections?.includes("action_orders"));
+                const needsDeliveryReview = Boolean(order.delivery_review_required);
 
                 return (
                   <div
@@ -515,7 +582,13 @@ function Dashboard() {
                         </button>
                       )}
 
-                      {isPacked && (
+                      {needsDeliveryReview && (isPacked || isOutForDelivery) && (
+                        <Link to={`/orders?status=${isPacked ? "packed" : "out-for-delivery"}&date=all&search=${encodeURIComponent(order.id)}`} className="flex-1 sm:flex-none flex items-center justify-center h-11 px-5 rounded-xl bg-amber-100 text-amber-900 font-extrabold text-xs">
+                          REVIEW DELIVERY
+                        </Link>
+                      )}
+
+                      {isPacked && !needsDeliveryReview && (
                         <button
                           onClick={() => handleQuickStatusUpdate(order.id, "out-for-delivery")}
                           disabled={isUpdating}
@@ -526,7 +599,7 @@ function Dashboard() {
                         </button>
                       )}
 
-                      {isOutForDelivery && (
+                      {isOutForDelivery && !needsDeliveryReview && (
                         <button
                           onClick={() => handleQuickStatusUpdate(order.id, "completed")}
                           disabled={isUpdating}

@@ -18,13 +18,14 @@ import {
   AlertTriangle,
   Trash2,
   Shield,
+  Lock,
 } from "lucide-react";
 import axios from "axios";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 import ConfirmModal from "../components/common/ConfirmModal.jsx";
 import { triggerHaptic } from '../utils/haptics';
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
-import { sendPasswordResetOtp, verifyPasswordResetOtp } from "../services/authService.js";
+import { sendDeleteAccountOtp, verifyDeleteAccountOtp } from "../services/authService.js";
 
 function Profile() {
   const navigate = useNavigate();
@@ -42,6 +43,7 @@ function Profile() {
   const requestGenRef = useRef(0);
   const phoneInputRef = useRef(null);
   const focusAttemptedRef = useRef(false);
+  const isFormDirtyRef = useRef(false);
 
   const [editing, setEditing] = useState(() => Boolean(location.state?.edit));
   const [saving, setSaving] = useState(false);
@@ -69,7 +71,7 @@ function Profile() {
     setDeleteCodeSending(true);
     setDeleteError("");
     try {
-      await sendPasswordResetOtp(user.email);
+      await sendDeleteAccountOtp(user.email);
       setDeleteCodeSent(true);
       setDeleteResendSeconds(60);
       setDeletePassword("");
@@ -167,6 +169,7 @@ function Profile() {
     setError("");
     setDeleteError("");
     focusAttemptedRef.current = false;
+    isFormDirtyRef.current = false;
 
     if (!user?.id) {
       setProfileState({ data: null, userId: null });
@@ -236,11 +239,13 @@ function Profile() {
           });
         }
 
-        setForm({
-          first_name: loadedFirst,
-          last_name: loadedLast,
-          phone: currentPhone,
-        });
+        if (!isFormDirtyRef.current) {
+          setForm({
+            first_name: loadedFirst,
+            last_name: loadedLast,
+            phone: currentPhone,
+          });
+        }
       } catch (error) {
         if (!isActive() || controller.signal.aborted) return;
         if (error.response?.status === 401) {
@@ -304,6 +309,7 @@ function Profile() {
       nextValue = digits.slice(0, 10);
     }
 
+    isFormDirtyRef.current = true;
     setForm((prev) => ({
       ...prev,
       [name]: nextValue,
@@ -326,6 +332,7 @@ function Profile() {
   // ==============================
 
   const resetEditForm = (isEditing) => {
+    isFormDirtyRef.current = false;
     const rawFullName = profile?.full_name || user?.name || user?.full_name || "";
     const nameParts = rawFullName.trim().split(/\s+/);
     const loadedFirst = profile?.first_name || user?.first_name || nameParts[0] || "";
@@ -399,7 +406,8 @@ function Profile() {
       return;
     }
 
-    const saveGen = requestGenRef.current;
+    // Invalidate an older profile read before saving so it cannot overwrite the result.
+    const saveGen = ++requestGenRef.current;
     const saveUserId = user?.id;
     const isSaveActive = () => saveGen === requestGenRef.current && user?.id === saveUserId;
 
@@ -460,6 +468,7 @@ function Profile() {
       });
 
       setEditing(false);
+      isFormDirtyRef.current = false;
       setSuccess("Profile updated successfully.");
     } catch (error) {
       if (!isSaveActive()) return;
@@ -538,9 +547,9 @@ function Profile() {
       setDeleteError("");
 
       if (passwordlessGoogle) {
-        const proof = await verifyPasswordResetOtp(user.email, deletePassword);
+        const proof = await verifyDeleteAccountOtp(user.email, deletePassword);
         if (!isDeleteActive()) return;
-        await deleteAccount({ reset_token: proof.reset_token });
+        await deleteAccount({ delete_token: proof.delete_token });
       } else {
         await deleteAccount(deletePassword);
       }
@@ -923,14 +932,47 @@ function Profile() {
 
         </div>
 
-        {/* ACCOUNT PRIVACY: DELETE ACCOUNT */}
-        <div className="mt-5 space-y-2">
+        {/* ACCOUNT SECURITY & PRIVACY */}
+        <div className="mt-5 space-y-2.5">
           <div className="flex items-center gap-1.5 px-1">
             <Shield size={14} className="text-[#64748B]" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
-              Account Privacy
+              Account Security &amp; Privacy
             </h3>
           </div>
+
+          {passwordlessGoogle && (
+            <div className="rounded-[18px] border border-[#E2E8F0] bg-[#FFFFFF] p-4 shadow-xs">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm font-bold text-[#1E293B]">
+                    <Lock size={14} className="text-[#22499F]" />
+                    <span>Sign-In Password (Optional)</span>
+                  </div>
+                  <p className="mt-0.5 text-xs leading-snug text-[#64748B]">
+                    You sign in with Google. Set a password if you also want to sign in with email and password.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate("/forgot-password", {
+                      state: {
+                        email: profile?.email || user?.email || "",
+                        mode: "set_password",
+                        from: "/account/profile",
+                      },
+                    })
+                  }
+                  className="shrink-0 flex min-h-11 items-center gap-1.5 rounded-xl border border-[#22499F]/30 bg-[#FFFFFF] px-3.5 py-2 text-xs sm:text-sm font-bold text-[#22499F] transition hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 cursor-pointer whitespace-nowrap"
+                >
+                  <Lock size={13} />
+                  <span>Set Password</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="account-delete rounded-[18px] border p-4">
             <div className="flex items-center justify-between gap-3">

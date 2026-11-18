@@ -16,6 +16,36 @@ import {
   _getLocalAcknowledgedOrders,
 } from "../../backend/src/services/orderNotificationService.js";
 
+test("a failed background refresh reports that displayed orders are stale", async () => {
+  let fail = false;
+  let error = "";
+  const coordinator = new OrdersPipelineCoordinator({
+    getOrders: async () => {
+      if (fail) throw new Error("offline");
+      return { success: true, orders: [] };
+    },
+    onError: (value) => { error = value; },
+  });
+  await coordinator.fetchOrderList();
+  fail = true;
+  await coordinator.fetchOrderList({ isBackground: true });
+  assert.match(error, /out of date/);
+});
+
+test("completion-date drilldown is part of request identity and only applies to completed orders", async () => {
+  const calls = [];
+  const coordinator = new OrdersPipelineCoordinator({
+    getOrders: async (params) => { calls.push(params); return { success: true, orders: [], total: 0, totalPages: 1 }; },
+  });
+  const filters = { activeTab: "completed", dateFilter: "today", dateBasis: "completed", page: 1 };
+  assert.notEqual(buildOrdersQueryKey(filters), buildOrdersQueryKey({ ...filters, dateBasis: "created" }));
+  await coordinator.fetchOrderList({ activeFilters: filters });
+  await coordinator.fetchOrderList({ activeFilters: { ...filters, activeTab: "active" } });
+  assert.equal(calls[0].date_basis, "completed");
+  assert.equal(calls[0].date_filter, "today");
+  assert.equal(calls[1].date_basis, undefined);
+});
+
 describe("Employee Panel Orders: Pipeline Coordinator & Race Synchronization Suite", () => {
   test("1. Delayed 'Yesterday' response with background poll in flight renders empty state cleanly", async () => {
     let committedState = null;

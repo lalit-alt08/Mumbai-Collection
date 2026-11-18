@@ -5,19 +5,33 @@
  * Security: Prices, product names, totals, and stock are NEVER serialized or trusted from URLs.
  */
 
+export const MAX_SHARED_CART_ITEMS = 50;
+
+/**
+ * Checks whether a cart exceeds the maximum items that can safely be encoded in a shareable link.
+ *
+ * @param {Array} cartItems - Array of items from cart.items
+ * @returns {boolean} True if items exceed MAX_SHARED_CART_ITEMS
+ */
+export function isCartShareTruncated(cartItems) {
+  return Array.isArray(cartItems) && cartItems.length > MAX_SHARED_CART_ITEMS;
+}
+
 /**
  * Serializes cart items into a compact string format:
  * - Simple product: "id:qty"
  * - Variable product: "id:qty:variationId:attr1=val1;attr2=val2"
  *
  * @param {Array} cartItems - Array of items from cart.items
+ * @param {number} [maxItems=MAX_SHARED_CART_ITEMS] - Maximum items to serialize
  * @returns {string} Serialized query parameter value
  */
-export function serializeCartItems(cartItems) {
+export function serializeCartItems(cartItems, maxItems = MAX_SHARED_CART_ITEMS) {
   if (!Array.isArray(cartItems) || cartItems.length === 0) return "";
 
   const segments = [];
-  for (const item of cartItems) {
+  const safeItems = cartItems.slice(0, Math.max(1, maxItems));
+  for (const item of safeItems) {
     const rawId = item?.id;
     const id = parseInt(rawId, 10);
     const rawQty = item?.quantity;
@@ -86,7 +100,7 @@ export function parseSharedCartItems(searchString) {
     if (!rawItems || typeof rawItems !== "string") return [];
 
     // Limit maximum items to prevent denial-of-service / URL payload bombing
-    const rawSegments = rawItems.split(",").slice(0, 50);
+    const rawSegments = rawItems.split(",").slice(0, MAX_SHARED_CART_ITEMS);
     const itemMap = new Map();
 
     for (const segment of rawSegments) {

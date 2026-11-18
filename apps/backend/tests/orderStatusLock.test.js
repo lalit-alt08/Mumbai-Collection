@@ -11,6 +11,7 @@ process.env.WOOCOMMERCE_CONSUMER_KEY = process.env.WOOCOMMERCE_CONSUMER_KEY || "
 process.env.WOOCOMMERCE_CONSUMER_SECRET = process.env.WOOCOMMERCE_CONSUMER_SECRET || "cs_test";
 
 const { default: api } = await import("../src/config/woocommerce.js");
+const { default: wp } = await import("../src/services/wordpress.js");
 const {
   updateOrderStatus,
   getEmployeeOrders,
@@ -26,6 +27,7 @@ const { serverCache } = await import("../src/utils/memoryCache.js");
 test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async (t) => {
   const originalApiGet = api.get;
   const originalApiPut = api.put;
+  const originalWpPost = wp.post;
 
   const BASE_TIME = new Date("2026-09-06T12:00:00.000Z").getTime();
   const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -39,6 +41,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
   t.afterEach(() => {
     api.get = originalApiGet;
     api.put = originalApiPut;
+    wp.post = originalWpPost;
     serverCache.clear();
   });
 
@@ -237,6 +240,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
         data: {
           id: 223,
           status: "completed",
+          payment_method: "cod",
           date_completed_gmt: delivered48hAgo,
           meta_data: [{ key: "_delivery_status", value: "completed" }],
         },
@@ -244,7 +248,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
     };
 
     let putPayload = null;
-    api.put = async (endpoint, payload) => {
+    wp.post = async (endpoint, payload) => {
       assert.ok(endpoint.includes("orders/223"));
       putPayload = payload;
       return {
@@ -288,13 +292,14 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
         data: {
           id: 224,
           status: "processing",
+          payment_method: "cod",
           meta_data: [{ key: "_delivery_status", value: "processing" }],
         },
       };
     };
 
     let putPayload = null;
-    api.put = async (endpoint, payload) => {
+    wp.post = async (endpoint, payload) => {
       putPayload = payload;
       return {
         data: {
@@ -331,13 +336,14 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
         data: {
           id: 225,
           status: "processing",
+          payment_method: "cod",
           meta_data: [{ key: "_delivery_status", value: "out-for-delivery" }],
         },
       };
     };
 
     let putPayload = null;
-    api.put = async (endpoint, payload) => {
+    wp.post = async (endpoint, payload) => {
       putPayload = payload;
       return {
         data: {
@@ -455,13 +461,14 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
             data: {
               id: 401,
               status: "processing",
+              payment_method: "cod",
               meta_data: [],
             },
           };
         }
         return { data: null };
       };
-      api.put = async (endpoint, payload) => {
+      wp.post = async (endpoint, payload) => {
         putCalledWith = { endpoint, payload };
         return {
           data: { id: 401, ...payload },
@@ -490,7 +497,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
 
       assert.equal(statusCode, 200);
       assert.equal(jsonRes.success, true);
-      assert.equal(putCalledWith.endpoint, "orders/401");
+      assert.equal(putCalledWith.endpoint, "/wp-json/mumbai-auth/v1/staff/orders/401/status");
       // "packed" maps to WooCommerce processing with _delivery_status meta
       assert.equal(putCalledWith.payload.status, "processing");
       assert.deepEqual(putCalledWith.payload.meta_data, [
@@ -507,6 +514,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
             data: {
               id: 405,
               status: "completed",
+              payment_method: "cod",
               date_completed: delivered48hAgo,
               meta_data: [{ key: "_delivery_completed_at", value: delivered48hAgo }],
             },
@@ -514,7 +522,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
         }
         return { data: null };
       };
-      api.put = async (endpoint, payload) => {
+      wp.post = async (endpoint, payload) => {
         putCalledWith = { endpoint, payload };
         return {
           data: { id: 405, ...payload },
@@ -543,7 +551,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
 
       assert.equal(statusCode, 200);
       assert.equal(jsonRes.success, true);
-      assert.equal(putCalledWith.endpoint, "orders/405");
+      assert.equal(putCalledWith.endpoint, "/wp-json/mumbai-auth/v1/staff/orders/405/status");
       assert.equal(putCalledWith.payload.status, "processing");
     });
 
@@ -599,10 +607,11 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
         data: {
           id: 403,
           status: "processing",
+          payment_method: "cod",
           meta_data: [{ key: "_delivery_status", value: "packed" }],
         },
       });
-      api.put = async (endpoint, payload) => {
+      wp.post = async (endpoint, payload) => {
         putPayload = payload;
         return { data: { id: 403, ...payload } };
       };
@@ -631,10 +640,11 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
         data: {
           id: 404,
           status: "processing",
+          payment_method: "cod",
           meta_data: [{ key: "_delivery_status", value: "out-for-delivery" }],
         },
       });
-      api.put = async (endpoint, payload) => {
+      wp.post = async (endpoint, payload) => {
         putPayload = payload;
         return { data: { id: 404, ...payload } };
       };
@@ -695,14 +705,14 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
       };
       assert.equal(isOnlineOrderUnpaid(paidOnlineOrder), false);
 
-      // Online order with razorpay payment metadata
+      // A Razorpay reference alone does not prove the payment was captured.
       const paidWithMeta = {
         id: 504,
         status: "pending",
         payment_method: "razorpay",
         meta_data: [{ key: "_razorpay_payment_id", value: "pay_xyz456" }],
       };
-      assert.equal(isOnlineOrderUnpaid(paidWithMeta), false);
+      assert.equal(isOnlineOrderUnpaid(paidWithMeta), true);
     });
 
     await t2.test("Rejects fulfillment transition for unpaid online order with HTTP 400", async () => {
@@ -772,7 +782,7 @@ test("Backend Order Status 3-Day (72-Hour) Lock & Transition Test Suite", async 
       };
 
       let putCalledWith = null;
-      api.put = async (endpoint, payload) => {
+      wp.post = async (endpoint, payload) => {
         putCalledWith = { endpoint, payload };
         return { data: { id: 520, ...payload } };
       };

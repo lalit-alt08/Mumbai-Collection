@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import axios from "axios";
 
 test("Banner Concurrency & Version Integrity Suite", async (t) => {
-  const { getEmployeeBanners, updateEmployeeBanners } = await import("../src/controllers/bannerController.js");
+  const { getEmployeeBanners, getPublicBanners, updateEmployeeBanners } = await import("../src/controllers/bannerController.js");
   const { getBanners, saveBanners } = await import("../src/services/bannerService.js");
 
   const originalAxiosGet = axios.get;
@@ -256,6 +256,30 @@ test("Banner Concurrency & Version Integrity Suite", async (t) => {
     );
   });
 
+  await t.test("public refresh parameters cannot bypass a fresh shared cache", async () => {
+    let reads = 0;
+    axios.get = async () => {
+      reads++;
+      return { data: { banners: [], thin_banner: { is_active: false }, version: 15 } };
+    };
+    await getBanners(true);
+    const res = { json() { return this; }, status() { return this; } };
+    for (let i = 0; i < 3; i++) {
+      await getPublicBanners({ query: { force: "true", _t: String(i) }, protocol: "https", get: () => "localhost" }, res);
+    }
+    assert.equal(reads, 1);
+  });
+
+  await t.test("a forced staff read racing a completed save fails closed", async () => {
+    let resolveRead;
+    axios.get = () => new Promise((resolve) => { resolveRead = resolve; });
+    axios.post = async () => ({ data: { success: true, banners: [], version: 22 } });
+    const read = getBanners(true);
+    await saveBanners({ banners: [], expected_version: 21 });
+    resolveRead({ data: { banners: [], version: 21 } });
+    await assert.rejects(read, /changed during the read/);
+  });
+
   await t.test("9. media proxy handles OPTIONS CORS preflight and conditionally advertises Accept-Ranges only on 206/verified upstream", async () => {
     const { default: mediaRouter } = await import("../src/routes/mediaRoutes.js");
 
@@ -305,6 +329,106 @@ test("Banner Concurrency & Version Integrity Suite", async (t) => {
       mediaRoutesSource,
       /if \(response\.status === 206 \|\| response\.headers\["accept-ranges"\]\)/,
       "mediaRoutes must only advertise Accept-Ranges when upstream actually returns 206 or explicit accept-ranges"
+    );
+  });
+
+  await t.test("10. All 3 hero carousel banners support video mode, validation, and cache-busted public URLs", async () => {
+    // A. Reject active hero video banner without poster image
+    let statusCode = 200;
+    let jsonBody = null;
+    const makeRes = () => ({
+      status(code) { statusCode = code; return this; },
+      json(body) { jsonBody = body; return this; },
+    });
+
+    await updateEmployeeBanners(
+      {
+        body: {
+          expected_version: 1,
+          banners: [
+            {
+              id: "hero-1",
+              title: "Slide 1",
+              media_type: "video",
+              video_media_id: 501,
+              video_url: "/wp-content/uploads/2026/11/s1.mp4",
+              is_active: true,
+            },
+          ],
+        },
+        protocol: "https",
+        get: () => "localhost",
+      },
+      makeRes()
+    );
+    assert.equal(statusCode, 400);
+    assert.match(jsonBody.message, /poster image/i);
+
+    // B. Save all 3 hero slides with video mode + posters
+    const threeVideoSlides = [1, 2, 3].map((n) => ({
+      id: `hero-${n}`,
+      title: `Video Slide ${n}`,
+      link: `/category/slide-${n}`,
+      desktop_image: `https://mumbai-collection.local/wp-content/uploads/2026/11/poster-${n}.jpg`,
+      desktop_media_id: 400 + n,
+      mobile_image: "",
+      mobile_media_id: null,
+      media_type: "video",
+      video_url: `https://mumbai-collection.local/wp-content/uploads/2026/11/slide-${n}.mp4`,
+      video_media_id: 500 + n,
+      is_active: true,
+    }));
+
+    axios.post = async (_url, payload) => {
+      assert.equal(payload.banners.length, 3);
+      for (let i = 0; i < 3; i++) {
+        assert.equal(payload.banners[i].media_type, "video");
+        assert.equal(payload.banners[i].video_media_id, 501 + i);
+      }
+      return {
+        data: {
+          success: true,
+          banners: payload.banners,
+          thin_banner: { id: "thin-1", is_active: false },
+          version: 21,
+        },
+      };
+    };
+
+    statusCode = 200;
+    jsonBody = null;
+    await updateEmployeeBanners(
+      {
+        body: { expected_version: 20, banners: threeVideoSlides },
+        protocol: "https",
+        get: () => "localhost",
+      },
+      makeRes()
+    );
+    assert.equal(statusCode, 200);
+    assert.equal(jsonBody.success, true);
+    assert.equal(jsonBody.banners.length, 3);
+
+    // C. Public banners expose all 3 video slides with cache-busted video URLs
+    statusCode = 200;
+    jsonBody = null;
+    await getPublicBanners({ protocol: "https", get: () => "localhost" }, makeRes());
+    assert.equal(statusCode, 200);
+    assert.equal(jsonBody.banners.length, 3);
+    for (let i = 0; i < 3; i++) {
+      assert.equal(jsonBody.banners[i].media_type, "video");
+      assert.match(jsonBody.banners[i].video_url, new RegExp(`v=${501 + i}`));
+    }
+
+    // D. WordPress plugin protects hero banner video_media_id from orphan cleanup
+    const phpSource = fs.readFileSync(
+      new URL("../../../mumbai-auth.php", import.meta.url),
+      "utf8"
+    );
+    assert.match(
+      phpSource,
+      /\$desktop_id === \$media_id \|\| \$mobile_id === \$media_id \|\| \$video_id === \$media_id/,
+      "mumbai_is_media_referenced must protect hero banner video_media_id from orphan cleanup"
     );
   });
 });

@@ -19,6 +19,7 @@ export function OrderDetailsModal({
   order,
   onClose,
   onStatusUpdate,
+  onConfirmDeliveryReview,
   onSendRefundEmail,
   updatingIds,
   isStatusDropdownOpen,
@@ -36,12 +37,12 @@ export function OrderDetailsModal({
   const orderDateObj = getOrderTimestampDate(order);
   const locationInfo = getOrderLocationInfo(order);
   const isUpdating = updatingIds.has(order.id);
+  const needsDeliveryReview = order.meta_data?.some((meta) => meta.key === "_payment_captured_without_delivery_slot" && meta.value === "yes");
   const isDeliveredLocked = order.status === "completed" || isOrderDeliveredLocked(order);
-  const refundEmailSent = order.manual_refund_email_sent_at ||
+  const refundEmailMetaVal = order.manual_refund_email_sent_at ||
     order.meta_data?.find((meta) => meta.key === "_manual_refund_email_sent_at")?.value;
-  const refundEmailLabel = String(refundEmailSent || "").startsWith("sending:")
-    ? "Refund email pending"
-    : "Refund email sent";
+  const isRefundEmailInFlight = String(refundEmailMetaVal || "").startsWith("sending:");
+  const isRefundEmailConfirmed = Boolean(refundEmailMetaVal) && !isRefundEmailInFlight;
 
   const itemsSubtotal = (order.items || []).reduce(
     (sum, item) => sum + (Number(item.total) || 0),
@@ -64,6 +65,9 @@ export function OrderDetailsModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Order ${order.id} details`}
         className="flex max-h-[92vh] sm:max-h-[95vh] h-full w-full max-w-full sm:max-w-xl flex-col bg-white shadow-2xl rounded-t-[28px] sm:rounded-3xl border border-gray-100 overflow-hidden"
       >
         {/* Modal Header */}
@@ -85,8 +89,14 @@ export function OrderDetailsModal({
           </button>
         </div>
 
-        {/* Modal Scroll Content */}
+          {/* Modal Scroll Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+          {needsDeliveryReview && (
+            <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+              <p>Confirm delivery arrangements with the customer before dispatch.</p>
+              <button type="button" disabled={isUpdating} onClick={() => onConfirmDeliveryReview(order.id)} className="mt-2 font-bold underline disabled:opacity-50">Confirm delivery arrangements</button>
+            </div>
+          )}
           {/* Status Selector Card */}
           <div className="rounded-2xl border border-gray-200 bg-gray-50/80 p-4 space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -173,13 +183,20 @@ export function OrderDetailsModal({
                       })}
                     <button
                       type="button"
-                      disabled={isUpdating || Boolean(refundEmailSent)}
+                      disabled={isUpdating || isRefundEmailInFlight || isRefundEmailConfirmed}
                       onClick={() => onSendRefundEmail(order)}
                       className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-left font-semibold text-rose-700 transition hover:bg-rose-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Mail size={14} className="shrink-0" />
-                      <span>{refundEmailSent ? refundEmailLabel : "Send refund email"}</span>
-                      {refundEmailSent && <Check size={14} className="ml-auto text-emerald-600" />}
+                      <span>
+                        {isRefundEmailConfirmed
+                          ? "Refund email sent"
+                          : isRefundEmailInFlight
+                          ? "Sending refund email..."
+                          : "Send refund email"}
+                      </span>
+                      {isRefundEmailConfirmed && <Check size={14} className="ml-auto text-emerald-600" />}
+                      {isRefundEmailInFlight && <Loader2 size={14} className="ml-auto animate-spin text-rose-600" />}
                     </button>
                   </div>
                 )}
@@ -369,7 +386,7 @@ export function OrderDetailsModal({
                 <button
                   type="button"
                   onClick={() => onStatusUpdate(order.id, "out-for-delivery")}
-                  disabled={isUpdating}
+                  disabled={isUpdating || needsDeliveryReview}
                   className="flex-1 rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <Truck size={14} />
@@ -381,7 +398,7 @@ export function OrderDetailsModal({
                 <button
                   type="button"
                   onClick={() => onStatusUpdate(order.id, "out-for-delivery")}
-                  disabled={isUpdating}
+                  disabled={isUpdating || needsDeliveryReview}
                   className="flex-1 rounded-xl bg-blue-600 py-2.5 px-3 text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <Truck size={14} />

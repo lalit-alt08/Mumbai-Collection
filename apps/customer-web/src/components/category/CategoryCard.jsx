@@ -19,10 +19,16 @@ function CategoryCard({ category }) {
           className="aspect-square w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
           loading="lazy"
           decoding="async"
+          onError={(e) => {
+            if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+              e.currentTarget.setAttribute("data-fallback", "true");
+              e.currentTarget.src = "/categories/category-placeholder.svg";
+            }
+          }}
         />
       </div>
 
-      <h3 className="mt-1.5 sm:mt-2 text-center text-[11px] sm:text-sm font-semibold tracking-tight text-slate-100 group-hover:text-[#22499F] transition-colors line-clamp-1">
+      <h3 className="mt-1.5 sm:mt-2 text-center text-[11px] sm:text-sm font-semibold tracking-tight text-[#1E293B] group-hover:text-[#22499F] transition-colors line-clamp-1">
         {category.name}
       </h3>
     </Link>

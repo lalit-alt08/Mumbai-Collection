@@ -18,6 +18,7 @@ import {
 
 import {
   getAdminCustomers,
+  getCustomerSuggestions,
   getAdminCustomerOrders,
   getAdminCustomerPayments,
   lookupAdminPaymentReference,
@@ -182,6 +183,7 @@ router.post(
 );
 
 // Customers Directory
+router.get("/customer-suggestions", requireAuth("admin"), requireRole(["administrator"]), getCustomerSuggestions);
 router.get(
   "/customers",
   requireAuth("admin"),

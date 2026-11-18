@@ -26,9 +26,6 @@ function Category() {
   const [loadError, setLoadError] = useState("");
   const [loadMoreError, setLoadMoreError] = useState("");
   const [categoryTreeError, setCategoryTreeError] = useState("");
-  const [categoryTreeLoaded, setCategoryTreeLoaded] = useState(
-    () => Array.isArray(getCachedCategories()) && getCachedCategories().length > 0
-  );
   const [productRetryCount, setProductRetryCount] = useState(0);
   const [categoryRetryCount, setCategoryRetryCount] = useState(0);
   const productsContainerRef = useRef(null);
@@ -65,12 +62,10 @@ function Category() {
       .then((data) => {
         if (isMounted && Array.isArray(data) && data.length > 0) {
           setAllCategories(data);
-          setCategoryTreeLoaded(true);
         } else if (isMounted) {
           const cached = getCachedCategories();
           if (Array.isArray(cached) && cached.length > 0) {
             setAllCategories((current) => (current.length > 0 ? current : cached));
-            setCategoryTreeLoaded(true);
             console.warn("[Category] Category sync returned no data; continuing with cached navigation.");
           } else {
             setCategoryTreeError("Category navigation could not be loaded.");
@@ -82,7 +77,6 @@ function Category() {
         const cached = getCachedCategories();
         if (Array.isArray(cached) && cached.length > 0) {
           setAllCategories((current) => (current.length > 0 ? current : cached));
-          setCategoryTreeLoaded(true);
           console.warn(
             "[Category] Background category sync failed; continuing with cached navigation.",
             error?.response?.status || error?.code || "network_error"
@@ -149,28 +143,6 @@ function Category() {
 
   // The route is the source of truth so selected subcategories survive refresh, sharing, and browser Back.
   const activeSubcategoryId = currentCategoryInfo.initialSubcatId;
-
-  useEffect(() => {
-    if (!categoryTreeLoaded) return;
-    const selectedSubcategory = allCategories.find(
-      (category) =>
-        String(category.id) === String(categoryId) ||
-        category.slug?.toLowerCase() === String(categoryId).toLowerCase()
-    );
-    if (!selectedSubcategory || Number(selectedSubcategory.parent) <= 0) return;
-    if (selectedSubcategory.count === undefined || selectedSubcategory.count === null) return;
-    const count = Number(selectedSubcategory.count);
-    if (!Number.isFinite(count) || count > 0) return;
-
-    const parent = allCategories.find(
-      (category) => Number(category.id) === Number(selectedSubcategory.parent)
-    );
-    if (parent) {
-      navigate(`/category/${parent.slug || parent.id}`, { replace: true });
-    } else {
-      navigate("/categories", { replace: true });
-    }
-  }, [allCategories, categoryId, categoryTreeLoaded, navigate]);
 
   // Determine effective category to query: selected child or department root
   const effectiveCategoryId = useMemo(() => {

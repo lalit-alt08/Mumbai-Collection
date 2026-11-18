@@ -11,6 +11,7 @@
 
 import crypto from "crypto";
 import api from "../config/woocommerce.js";
+import wp from "../services/wordpress.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logger, logError } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
@@ -88,7 +89,16 @@ export const createOrder = async (req, res) => {
     const userId = req.wpUserId;
 
     // ── 1. Verify customer is not suspended ────────────────────────────────
-    if (req.isSuspended) {
+    let isSuspended;
+    try {
+      const result = await wp.get(`/wp-json/mumbai-auth/v1/internal/customer-suspension/${userId}`, { timeout: 8000 });
+      if (typeof result.data?.is_suspended !== "boolean") throw new Error("Invalid suspension status");
+      isSuspended = result.data.is_suspended;
+    } catch (error) {
+      logError(req, error, "Unable to verify checkout eligibility");
+      return res.status(503).json({ success: false, code: "SUSPENSION_STATUS_UNAVAILABLE", message: "Unable to verify checkout eligibility. Please try again." });
+    }
+    if (isSuspended) {
       return res.status(403).json({
         success: false,
         code: "CUSTOMER_SUSPENDED",

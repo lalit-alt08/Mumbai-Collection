@@ -44,6 +44,7 @@ function SearchBar() {
   const [products, setProducts] = useState([]);
   const [totalResults, setTotalResults] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDebouncing, setIsDebouncing] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -141,6 +142,7 @@ function SearchBar() {
   // Debounce search input by 300ms
   useEffect(() => {
     const timer = setTimeout(() => {
+      setIsDebouncing(false);
       if (query.trim().length >= 2) {
         executeSearch(query);
       } else {
@@ -178,6 +180,7 @@ function SearchBar() {
     setProducts([]);
     setTotalResults(0);
     setIsLoading(false);
+    setIsDebouncing(false);
     setHasError(false);
     setIsOpen(false);
     setActiveIndex(-1);
@@ -291,13 +294,17 @@ function SearchBar() {
               setQuery(nextVal);
               if (nextVal.trim().length < 2) {
                 setIsLoading(false);
+                setIsDebouncing(false);
                 setHasError(false);
                 setIsOpen(false);
+              } else {
+                setIsDebouncing(true);
+                setHasError(false);
               }
             }}
             onFocus={() => {
               isDismissedRef.current = false;
-              if (query.trim().length >= 2 && (products.length > 0 || hasError || isLoading)) {
+              if (query.trim().length >= 2 && (products.length > 0 || hasError || isLoading || isDebouncing)) {
                 setIsOpen(true);
               }
             }}
@@ -358,7 +365,7 @@ function SearchBar() {
           {/* Dropdown Header */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#E2E8F0] bg-[#FFFFFF]/95 px-4 py-2.5 text-[12.5px] sm:text-[13px] font-extrabold text-[#94A3B8] tracking-tight backdrop-blur-sm">
             <span>Product suggestions</span>
-            {!isLoading && !hasError && (
+            {!isLoading && !isDebouncing && !hasError && (
               <span className="text-[#22499F] font-black text-[12.5px] sm:text-[13px]">{totalResults} found</span>
             )}
           </div>
@@ -382,7 +389,7 @@ function SearchBar() {
                 Retry
               </button>
             </div>
-          ) : isLoading && products.length === 0 ? (
+          ) : (isLoading || isDebouncing) && products.length === 0 ? (
             /* Loading State */
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <Loader2

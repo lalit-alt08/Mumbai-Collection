@@ -3,6 +3,7 @@ import {
   useState,
   useEffect,
   useContext,
+  useRef,
 } from "react";
 
 import {
@@ -29,6 +30,9 @@ const persistUserCache = (userData) => {
     phone: userData.phone || "",
     roles: Array.isArray(userData.roles) ? userData.roles : [],
     is_google_user: userData.is_google_user === true,
+    ...(userData.has_usable_password !== undefined
+      ? { has_usable_password: userData.has_usable_password === true }
+      : {}),
   });
 };
 
@@ -47,6 +51,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const authEpochRef = useRef(1);
   const [checkoutExpiredUserId, setCheckoutExpiredUserId] = useState(() => safeSessionStorage.getItem("checkout_expired_user_id"));
   const clearCheckoutRecovery = () => {
     safeSessionStorage.removeItem("checkout_expired_user_id");
@@ -59,8 +64,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const restoreSession = async () => {
+      if (safeSessionStorage.getItem("mc_explicit_logout") === "true" || safeStorage.getItem("mc_explicit_logout") === "true") {
+        setIsReconnecting(false);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const epoch = authEpochRef.current;
       try {
         const response = await getCurrentUser();
+        if (epoch !== authEpochRef.current) return;
 
         // Purge legacy persistent storage to prevent PII retention on disk (Finding #12 fix)
         safeStorage.removeItem("user");
@@ -136,6 +150,14 @@ export function AuthProvider({ children }) {
             userData.is_google_user = false;
           }
 
+          if (response.user?.has_usable_password !== undefined) {
+            userData.has_usable_password = response.user.has_usable_password === true;
+          } else if (response.has_usable_password !== undefined) {
+            userData.has_usable_password = response.has_usable_password === true;
+          } else if (isCachedUserValid && cachedUser?.has_usable_password !== undefined) {
+            userData.has_usable_password = cachedUser.has_usable_password === true;
+          }
+
           setUser(userData);
           persistUserCache(userData);
         } else {
@@ -145,6 +167,7 @@ export function AuthProvider({ children }) {
           clearAllProfileCaches();
         }
       } catch (error) {
+        if (epoch !== authEpochRef.current) return;
         if (error.response?.status === 401) {
           setIsReconnecting(false);
           setUser(null);
@@ -162,7 +185,9 @@ export function AuthProvider({ children }) {
           }
         }
       } finally {
-        setLoading(false);
+        if (epoch === authEpochRef.current) {
+          setLoading(false);
+        }
       }
     };
 
@@ -174,6 +199,9 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const login = (userData) => {
+    authEpochRef.current += 1;
+    safeSessionStorage.removeItem("mc_explicit_logout");
+    safeStorage.removeItem("mc_explicit_logout");
     invalidateCartRequests();
     setIsReconnecting(false);
     // Address and user caches are purged on login to prevent cross-account leakage;
@@ -205,6 +233,7 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const handleSessionExpired = (options = {}) => {
+    authEpochRef.current += 1;
     const outgoingId = user?.id;
     if (options.checkout && outgoingId) {
       safeSessionStorage.setItem("checkout_expired_user_id", String(outgoingId));
@@ -225,11 +254,24 @@ export function AuthProvider({ children }) {
     clearCartSession();
   };
 
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === "mc_explicit_logout" && event.newValue === "true") {
+        handleSessionExpired();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [user?.id]);
+
   // ==========================================
   // LOGOUT
   // ==========================================
 
   const logout = async () => {
+    authEpochRef.current += 1;
+    safeSessionStorage.setItem("mc_explicit_logout", "true");
+    safeStorage.setItem("mc_explicit_logout", "true");
     try {
       // Call Node → WordPress logout
       return await logoutApi();
@@ -246,8 +288,11 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const deleteAccount = async (password) => {
+    authEpochRef.current += 1;
     try {
       await deleteAccountApi(password);
+      safeSessionStorage.setItem("mc_explicit_logout", "true");
+      safeStorage.setItem("mc_explicit_logout", "true");
       handleSessionExpired();
     } catch (error) {
       throw error;
@@ -259,8 +304,12 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const refreshUser = async () => {
+    const epoch = authEpochRef.current;
     try {
       const response = await getCurrentUser();
+      if (epoch !== authEpochRef.current) {
+        return { ok: false, reason: "superseded" };
+      }
       if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
         setIsReconnecting(false);
         const userData = response.user || {
@@ -284,11 +333,23 @@ export function AuthProvider({ children }) {
         } else if (response.is_google_user !== undefined) {
           userData.is_google_user = response.is_google_user === true;
         }
+        if (response.user?.has_usable_password !== undefined) {
+          userData.has_usable_password = response.user.has_usable_password === true;
+        } else if (response.has_usable_password !== undefined) {
+          userData.has_usable_password = response.has_usable_password === true;
+        }
+
+        if (epoch !== authEpochRef.current) {
+          return { ok: false, reason: "superseded" };
+        }
 
         setUser((prev) => ({ ...(prev || {}), ...userData, isUnverified: false }));
         persistUserCache({ ...(user || {}), ...userData });
         return { ok: true, user: userData };
       } else {
+        if (epoch !== authEpochRef.current) {
+          return { ok: false, reason: "superseded" };
+        }
         handleSessionExpired();
         return {
           ok: false,
@@ -297,6 +358,9 @@ export function AuthProvider({ children }) {
         };
       }
     } catch (error) {
+      if (epoch !== authEpochRef.current) {
+        return { ok: false, reason: "superseded" };
+      }
       if (error.response?.status === 401) {
         handleSessionExpired();
         return {
@@ -340,6 +404,7 @@ export function AuthProvider({ children }) {
         deleteAccount,
         isAuthenticated: !!user && !isReconnecting && !user?.isUnverified,
         isReconnecting,
+        getAuthEpoch: () => authEpochRef.current,
         checkoutExpiredUserId,
         clearCheckoutRecovery,
         loading,

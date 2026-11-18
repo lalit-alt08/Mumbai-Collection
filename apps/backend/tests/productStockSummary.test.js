@@ -51,7 +51,7 @@ test("WooCommerce count fallback preserves zero and rejects missing or invalid t
     serverCache.clear();
   });
   process.env.MUMBAI_INTERNAL_API_KEY = "test-only";
-  axios.get = async () => { throw new Error("WordPress summary unavailable"); };
+  axios.get = async () => { const error = new Error("Endpoint unavailable"); error.response = { status: 404 }; throw error; };
   api.get = async (_endpoint, params) => {
     assert.deepEqual(params.include_status, ["any"]);
     const status = params.stock_status || "all";
@@ -66,6 +66,26 @@ test("WooCommerce count fallback preserves zero and rejects missing or invalid t
   api.get = async (_endpoint, params) =>
     params.stock_status === "instock" ? { data: [], headers: {} } : response([], 0);
   await assert.rejects(fetchStockCounts(), /valid product total/);
+});
+
+test("stock summary outages do not trigger five WooCommerce fallback requests", async (t) => {
+  const oldGet = api.get;
+  const oldAxiosGet = axios.get;
+  const oldInternalKey = process.env.MUMBAI_INTERNAL_API_KEY;
+  t.after(() => {
+    api.get = oldGet;
+    axios.get = oldAxiosGet;
+    if (oldInternalKey === undefined) delete process.env.MUMBAI_INTERNAL_API_KEY;
+    else process.env.MUMBAI_INTERNAL_API_KEY = oldInternalKey;
+    serverCache.clear();
+  });
+  process.env.MUMBAI_INTERNAL_API_KEY = "test-only";
+  serverCache.clear();
+  let fallbackCalls = 0;
+  axios.get = async () => { throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }); };
+  api.get = async () => { fallbackCalls += 1; return response([], 0); };
+  await assert.rejects(fetchStockCounts(), /timeout/);
+  assert.equal(fallbackCalls, 0);
 });
 
 test("filtered list keeps catalog-wide counts and list total scoped to filters", async (t) => {
@@ -97,6 +117,24 @@ test("filtered list keeps catalog-wide counts and list total scoped to filters",
   assert.deepEqual(listParams.include_status, ["any"]);
   assert.equal(result.total, 1);
   assert.deepEqual(result.counts, counts);
+});
+
+test("inventory alert product ID filters the WooCommerce request and cache independently", async (t) => {
+  const oldGet = api.get;
+  const oldAxiosGet = axios.get;
+  t.after(() => { api.get = oldGet; axios.get = oldAxiosGet; serverCache.clear(); });
+  serverCache.clear();
+  axios.get = async () => ({ data: { success: true, counts } });
+  const requests = [];
+  api.get = async (_endpoint, params) => {
+    requests.push(params.include);
+    return response([{ id: Number(params.include), name: "Same name", stock_status: "instock" }], 1);
+  };
+  const first = await invoke({ product_id: 12 });
+  const second = await invoke({ product_id: 13 });
+  assert.deepEqual(requests, ["12", "13"]);
+  assert.equal(first.products[0].id, 12);
+  assert.equal(second.products[0].id, 13);
 });
 
 test("product stock list filters use WooCommerce status exactly, including draft and backorder rows", async (t) => {
@@ -262,15 +300,12 @@ test("slow stock counts do not delay product lists beyond the per-response budge
 });
 
 test("checkout stock mutations invalidate employee product pages and stock summaries", () => {
-  const paymentPath = fileURLToPath(new URL("../src/controllers/paymentController.js", import.meta.url));
+  const paymentPaths = ["../src/services/paymentFinalizeService.js", "../src/controllers/paymentReconciliationHandler.js"].map((file) => fileURLToPath(new URL(file, import.meta.url)));
   const storePath = fileURLToPath(new URL("../src/routes/storeRoutes.js", import.meta.url));
-  for (const file of [paymentPath, storePath]) {
+  for (const file of [...paymentPaths, storePath]) {
     const source = fs.readFileSync(file, "utf8");
     assert.match(source, /delete\(["']product_stock_counts["']\)[\s\S]{0,160}invalidatePrefix\(["']admin_products:["']\)/);
   }
-  const paymentSource = fs.readFileSync(paymentPath, "utf8");
-  assert.ok((paymentSource.match(/invalidatePrefix\(["']admin_products:["']\)/g) || []).length >= 2,
-    "both payment finalization and payment reconciliation must invalidate inventory pages");
 });
 
 test("Redis read hit is discarded if local invalidation arrives while GET is pending", async () => {

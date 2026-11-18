@@ -7,9 +7,11 @@ import HapticTapTarget from "../common/HapticTapTarget";
 import { useState, useEffect } from "react";
 import CategoryIconBar from "../home/CategoryIconBar";
 import { getCachedCategories, getCategoriesSWR } from "../../services/productService";
+import { useStorefrontTheme } from "../../utils/storefrontTheme.js";
 
 function Header() {
   const { user } = useAuth();
+  const theme = useStorefrontTheme();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -54,10 +56,32 @@ function Header() {
       id="storefront-header"
       className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top,padding,box-shadow] duration-200`}
       style={{
-        paddingTop: "max(12px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 8px))",
+        paddingTop: "max(8px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 4px))",
       }}
     >
       <div className="relative mx-auto max-w-7xl">
+        {/* ================= CENTERED BRAND LOGO ABOVE SEARCH BAR ================= */}
+        {!isSearchPage && !isRecentlyViewedPage && (
+          <div className="mb-2 sm:mb-2.5 flex items-center justify-center">
+            <Link
+              to="/"
+              onClick={() => triggerHaptic("light")}
+              aria-label="Mumbai Collection Home"
+              className="inline-flex max-w-[82%] items-center justify-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22499F]/50 rounded-lg"
+            >
+              <img
+                src={theme === "dark" ? "/logo-dark.png" : "/logo-light.png"}
+                alt="Mumbai Collection"
+                width={912}
+                height={182}
+                fetchPriority="high"
+                decoding="async"
+                className="h-11 sm:h-12 md:h-14 w-auto max-w-full object-contain select-none"
+              />
+            </Link>
+          </div>
+        )}
+
         {/* ================= SEARCH BAR & CONTROLS ROW ================= */}
         <div className={`relative flex items-center gap-2.5 sm:gap-3 md:gap-3.5 lg:gap-4 ${isRecentlyViewedPage ? "justify-end" : ""}`}>
           {/* ================= CIRCULAR BACK BUTTON (Search page) ================= */}

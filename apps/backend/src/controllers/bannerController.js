@@ -7,14 +7,30 @@ import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { uploadVideoMedia } from "../services/wordpressMediaService.js";
 import { logError } from "../utils/logger.js";
 
+const normalizePublicVideoBanner = (banner, version) => {
+  if (!banner) return banner;
+  const normalized = { ...banner };
+  if (normalized.media_type === "video" && !normalized.video_url) {
+    normalized.media_type = "image";
+  }
+  if (normalized.video_url && (normalized.video_media_id || version)) {
+    const vTag = `v=${normalized.video_media_id || version || 2}`;
+    if (!normalized.video_url.includes("?")) {
+      normalized.video_url = `${normalized.video_url}?${vTag}`;
+    } else if (!normalized.video_url.includes("v=")) {
+      normalized.video_url = `${normalized.video_url}&${vTag}`;
+    }
+  }
+  return normalized;
+};
+
 /**
  * Public Endpoint: Get Active Homepage Banners & Thin Banner for Customer Web
  * GET /api/banners
  */
 export const getPublicBanners = async (req, res) => {
   try {
-    const isForce = req.query.force === "true" || Boolean(req.query._t);
-    const data = await getBanners(isForce);
+    const data = await getBanners(false);
     const banners = Array.isArray(data) ? data : data.banners || [];
     const activeBanners = banners.filter((b) => b.is_active !== false);
     const thinBanner = data.thin_banner || DEFAULT_THIN_BANNER;
@@ -22,27 +38,17 @@ export const getPublicBanners = async (req, res) => {
     let publicThin = null;
     if (thinBanner && thinBanner.is_active !== false && thinBanner.image) {
       const transformedThin = transformMediaUrls([thinBanner], req)[0];
-      // If video mode is active but video URL is unavailable, storefront falls back to poster image
-      if (transformedThin && transformedThin.media_type === "video" && !transformedThin.video_url) {
-        transformedThin.media_type = "image";
-      }
-      // Ensure video_url carries a version cache-buster (e.g. video_media_id or banner version)
-      // to immediately bypass poisoned CDN edge caches from previous deployments
-      if (transformedThin?.video_url && (thinBanner.video_media_id || data.version)) {
-        const vTag = `v=${thinBanner.video_media_id || data.version || 2}`;
-        if (!transformedThin.video_url.includes("?")) {
-          transformedThin.video_url = `${transformedThin.video_url}?${vTag}`;
-        } else if (!transformedThin.video_url.includes("v=")) {
-          transformedThin.video_url = `${transformedThin.video_url}&${vTag}`;
-        }
-      }
-      publicThin = transformedThin;
+      publicThin = normalizePublicVideoBanner(transformedThin, data.version);
     }
+
+    const publicHeroBanners = transformMediaUrls(activeBanners, req).map((banner) =>
+      normalizePublicVideoBanner(banner, data.version)
+    );
 
     res.json({
       success: true,
-      count: activeBanners.length,
-      banners: transformMediaUrls(activeBanners, req),
+      count: publicHeroBanners.length,
+      banners: publicHeroBanners,
       thin_banner: publicThin,
     });
   } catch (error) {
@@ -114,6 +120,27 @@ export const updateEmployeeBanners = async (req, res) => {
         success: false,
         message: "Maximum 3 homepage hero banners allowed.",
       });
+    }
+
+    if (Array.isArray(banners)) {
+      const validId = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
+      for (const banner of banners) {
+        if (!banner || typeof banner !== "object") continue;
+        if (banner.media_type === "video") {
+          if (!validId(banner.video_media_id)) {
+            return res.status(400).json({
+              success: false,
+              message: `Banner "${banner.title || banner.id || "Slide"}" requires an uploaded MP4 video before switching to Video mode.`,
+            });
+          }
+          if (banner.is_active !== false && !validId(banner.desktop_media_id) && !validId(banner.mobile_media_id)) {
+            return res.status(400).json({
+              success: false,
+              message: `Banner "${banner.title || banner.id || "Slide"}" requires at least one uploaded poster image (desktop or mobile) before publishing Video mode.`,
+            });
+          }
+        }
+      }
     }
 
     const expected_version = req.body?.expected_version;

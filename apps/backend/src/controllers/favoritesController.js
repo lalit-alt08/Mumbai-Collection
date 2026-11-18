@@ -91,6 +91,7 @@ export const getFavorites = async (req, res) => {
       }
 
       const products = [];
+      let degraded = false;
       for (let index = 0; index < batches.length; index += 2) {
         const results = await Promise.allSettled(
           batches.slice(index, index + 2).map((ids) =>
@@ -98,7 +99,7 @@ export const getFavorites = async (req, res) => {
               include: ids.join(","),
               orderby: "include",
               per_page: ids.length,
-              _fields: "id,name,slug,price,regular_price,sale_price,images,stock_status",
+              _fields: "id,name,slug,type,price,regular_price,sale_price,images,stock_status",
             })
           )
         );
@@ -106,7 +107,10 @@ export const getFavorites = async (req, res) => {
           if (result.status === "fulfilled" && Array.isArray(result.value.data)) {
             products.push(...result.value.data);
           } else if (result.status === "rejected") {
+            degraded = true;
             logger.warn({ err: result.reason?.message }, "WooCommerce wishlist batch failed");
+          } else {
+            degraded = true;
           }
         }
       }
@@ -119,6 +123,7 @@ export const getFavorites = async (req, res) => {
 
       res.json({
         success: true,
+        degraded,
         count: total,
         productIds,
         favorites: products,
@@ -132,6 +137,7 @@ export const getFavorites = async (req, res) => {
       // Fallback: return product IDs even if catalog is delayed
       res.json({
         success: true,
+        degraded: productIds.length > 0,
         count: productIds.length,
         productIds,
         favorites: [],

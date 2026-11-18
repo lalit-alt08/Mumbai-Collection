@@ -53,7 +53,7 @@ const personNameFields = {
 };
 
 const withPhoneOrEmail = (schema) =>
-  schema.refine((data) => Boolean(data.phone || data.email), {
+  schema.refine((data) => Boolean(data.phone || data.email || data.purpose === "delete_account"), {
     message: "Email or phone number is required.",
     path: ["phone"],
   });
@@ -113,7 +113,7 @@ export const schemas = {
     z.object({
       phone: z.string().trim().min(3).max(254).optional(),
       email: email.optional(),
-      purpose: z.enum(["reset_password", "register"]),
+      purpose: z.enum(["reset_password", "register", "delete_account"]),
     })
   ),
   otpVerify: withPhoneOrEmail(
@@ -121,7 +121,7 @@ export const schemas = {
       phone: z.string().trim().min(3).max(254).optional(),
       email: email.optional(),
       otp: z.string().trim().regex(/^\d{6}$/, "OTP must be exactly 6 digits."),
-      purpose: z.enum(["reset_password", "register"]),
+      purpose: z.enum(["reset_password", "register", "delete_account"]),
     })
   ),
   otpResetPassword: withPhoneOrEmail(
@@ -174,7 +174,7 @@ export const schemas = {
     description: boundedString(5000).optional(),
     parent: nonNegativeParentId.optional(),
   }),
-  categoryReorder: z.object({ category_ids: z.array(positiveId).min(1).max(500) }),
+  categoryReorder: z.object({ category_ids: z.array(positiveId).min(1).max(500), expected_order: z.array(positiveId).min(1).max(500) }),
   orderStatus: z.object({
     status: z.enum(["pending", "processing", "packed", "out-for-delivery", "dispatched", "completed", "cancelled", "failed"]),
   }),
@@ -252,7 +252,8 @@ export const schemas = {
     refresh: z.enum(["0", "1", "true", "false"]).optional(),
   }),
   pagination: z.object({
-    page: z.coerce.number().int().positive().max(500).optional(),
+    product_id: positiveId.optional(),
+    page: z.coerce.number().int().positive().max(10000).optional(),
     per_page: z.coerce.number().int().positive().max(100).optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
     format: boundedString(32).optional(),

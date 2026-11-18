@@ -1,6 +1,10 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
+import {
+  validateUpstreamJsonResponse,
+  sanitizeUpstreamErrorResponse,
+} from "../utils/upstreamJsonGuard.js";
 
 /**
  * Default banners empty fallback
@@ -61,6 +65,8 @@ export const sanitizeBannerLink = (link) => {
  */
 export const sanitizeBannerItem = (item, index) => {
   if (!item || typeof item !== "object") return null;
+  const rawMediaType = String(item.media_type || "").trim().toLowerCase();
+  const media_type = rawMediaType === "video" ? "video" : "image";
 
   return {
     id: String(item.id || `banner-${index + 1}`).trim(),
@@ -70,6 +76,9 @@ export const sanitizeBannerItem = (item, index) => {
     desktop_media_id: item.desktop_media_id ? Number(item.desktop_media_id) : null,
     mobile_image: String(item.mobile_image || "").trim(),
     mobile_media_id: item.mobile_media_id ? Number(item.mobile_media_id) : null,
+    media_type,
+    video_url: String(item.video_url || "").trim(),
+    video_media_id: item.video_media_id ? Number(item.video_media_id) : null,
     is_active: item.is_active !== false,
   };
 };
@@ -136,13 +145,18 @@ export const getBanners = async (forceFresh = false) => {
 
   const fetchPromise = (async () => {
     try {
-      const response = await axios.get(endpoint, {
-        headers: {
-          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-        },
-        httpsAgent,
-        timeout: 8000,
-      });
+      const response = validateUpstreamJsonResponse(
+        await axios.get(endpoint, {
+          headers: {
+            "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+          },
+          httpsAgent,
+          timeout: 8000,
+        }).catch((err) => {
+          throw sanitizeUpstreamErrorResponse(err, "wordpress");
+        }),
+        "wordpress"
+      );
 
       // Guard: If an explicit save succeeded while this read was in flight, discard the stale read!
       if (readSaveSeq < saveSequenceCounter || reqStartedAt < lastConfirmedSaveTimestamp) {
@@ -150,6 +164,9 @@ export const getBanners = async (forceFresh = false) => {
           { readSaveSeq, saveSequenceCounter },
           "Discarding stale WordPress banners read result: a newer save completed while this read was in flight."
         );
+        if (forceFresh) {
+          throw new Error("Banner configuration changed during the read. Please retry.");
+        }
         if (bannersCache?.data) {
           return bannersCache.data;
         }
@@ -228,6 +245,9 @@ export const saveBanners = async ({ banners, thin_banner, expected_version } = {
       if (b.is_active && !b.desktop_image && !b.mobile_image) {
         throw new Error(`Banner "${b.title || b.id}" must have at least a desktop or mobile image.`);
       }
+      if (b.media_type === "video" && !b.video_media_id) {
+        throw new Error(`Banner "${b.title || b.id}" requires an uploaded MP4 video attachment in Video mode.`);
+      }
     }
   }
 
@@ -246,21 +266,36 @@ export const saveBanners = async ({ banners, thin_banner, expected_version } = {
     payload.expected_version = Number(expected_version);
   }
 
-  const response = await axios.post(
-    endpoint,
-    payload,
-    {
-      headers: {
-        "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
-      },
-      httpsAgent,
-      timeout: 10000,
-    }
+  const response = validateUpstreamJsonResponse(
+    await axios.post(
+      endpoint,
+      payload,
+      {
+        headers: {
+          "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
+        },
+        httpsAgent,
+        timeout: 10000,
+      }
+    ).catch((err) => {
+      throw sanitizeUpstreamErrorResponse(err, "wordpress");
+    }),
+    "wordpress"
   );
 
   // Require explicit confirmation from WordPress before reporting success
-  if (sanitizedBanners !== null && !Array.isArray(response.data?.banners)) {
-    throw new Error("WordPress failed to confirm saving homepage hero banners.");
+  if (sanitizedBanners !== null) {
+    const confirmed = response.data?.banners;
+    if (!Array.isArray(confirmed) || confirmed.length !== sanitizedBanners.length ||
+        sanitizedBanners.some((requested, index) => {
+          const saved = confirmed[index];
+          return saved?.id !== requested.id ||
+            (saved.media_type || "image") !== requested.media_type ||
+            Number(saved.video_media_id || 0) !== Number(requested.video_media_id || 0) ||
+            (requested.media_type === "video" && !saved.video_url);
+        })) {
+      throw new Error("WordPress failed to confirm saving the requested homepage hero banners.");
+    }
   }
   if (sanitizedThin !== null) {
     if (!response.data?.thin_banner) {

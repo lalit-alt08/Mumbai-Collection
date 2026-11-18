@@ -156,7 +156,7 @@ function Account() {
     try {
       const result = await logout();
       if (!result?.server_revocation_confirmed) {
-        window.alert("You have been signed out on this device, but the server could not confirm logout. Please contact support if you need to secure your account.");
+        window.alert("The server could not confirm sign-out. Your session may still be active on this or another device. Reconnect and contact support if you need to secure your account.");
       }
     } finally {
       navigate("/", { replace: true });

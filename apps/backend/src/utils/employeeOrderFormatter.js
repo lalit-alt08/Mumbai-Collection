@@ -10,6 +10,15 @@ import {
 } from "./orderStatusTransition.js";
 import { getEffectiveOrderStatus } from "./employeeOrderQuery.js";
 
+const EMPLOYEE_ORDER_META_KEYS = new Set([
+  "_delivery_status", "_delivery_completed_at", "_delivered_at",
+  "_manual_refund_email_sent_at", "_order_placed_after_hours",
+  "_payment_captured_without_delivery_slot", "_scheduled_delivery_date",
+  "_scheduled_delivery_label",
+]);
+export const sanitizeEmployeeOrderMeta = (meta) =>
+  (Array.isArray(meta) ? meta : []).filter((entry) => EMPLOYEE_ORDER_META_KEYS.has(entry.key));
+
 export const formatEmployeeOrderRecord = (o, ackSet) => {
   const effectiveStatus = getEffectiveOrderStatus(o);
   const locInfo = classifyDeliveryLocation(o);
@@ -65,7 +74,7 @@ export const formatEmployeeOrderRecord = (o, ackSet) => {
       "Guest Customer"
     ),
     phone: o.billing?.phone || o.shipping?.phone || "",
-    meta_data: o.meta_data || [],
+    meta_data: sanitizeEmployeeOrderMeta(o.meta_data),
     customer: {
       id: o.customer_id,
       name: formatCustomerDisplayName(
@@ -103,6 +112,9 @@ export const formatOverviewOrderItem = (order, effectiveStatus) => ({
   order_number: order.number || String(order.id),
   status: effectiveStatus,
   is_unpaid: isOnlineOrderUnpaid(order),
+  delivery_review_required: Array.isArray(order.meta_data) && order.meta_data.some(
+    (meta) => meta.key === "_payment_captured_without_delivery_slot" && meta.value === "yes"
+  ),
   payment_method:
     order.payment_method_title ||
     order.payment_method ||

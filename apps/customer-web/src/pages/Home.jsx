@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
 import HeroBanner from "../components/home/HeroBanner";
 import MobileThinBanner from "../components/home/MobileThinBanner";
 import BackToTopButton from "../components/home/BackToTopButton";
 import CategoryGrid from "../components/category/CategoryGrid";
 import ProductCard from "../components/product/ProductCard";
+import VerificationSpinner from "../components/common/VerificationSpinner";
 import { getHomeShelves } from "../services/productService";
 import { AlertCircle, CheckCircle2, X, ChevronRight } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession } from "../utils/productUtils";
@@ -15,9 +16,11 @@ let cachedHomeData = {
   products: null,
   categories: null,
   shelves: null,
+  pagination: null,
   timestamp: 0,
 };
 let homeDataRequest = null;
+let homeScrollY = 0;
 const HOME_RESUME_REFRESH_COOLDOWN_MS = 15_000;
 
 function fetchHomeSnapshot() {
@@ -39,9 +42,42 @@ function Home() {
   const [loadError, setLoadError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [flashMessage, setFlashMessage] = useState(location.state?.message || null);
+  const [cartCheckUnavailable, setCartCheckUnavailable] = useState(() =>
+    Boolean(location.state?.cartCheckUnavailable)
+  );
   const lastHomeFetchAt = useRef(0);
   // One randomized catalog order per browser/app session; stock refreshes reuse it.
   const [shuffleSeed] = useState(() => getSessionProductOrderSeed());
+
+  // Progressive infinite scroll pagination state for category shelves
+  const [hasMoreShelves, setHasMoreShelves] = useState(() => Boolean(cachedHomeData.pagination?.has_more));
+  const [loadingMoreShelves, setLoadingMoreShelves] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
+  const [stockWindow, setStockWindow] = useState(0);
+  const nextOffsetRef = useRef(cachedHomeData.pagination?.next_offset ?? null);
+  const sentinelRef = useRef(null);
+  const isLoadingMoreRef = useRef(false);
+  const generationRef = useRef(0);
+  const mountedRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (loading) {
+      window.scrollTo({ top: 0, behavior: "instant" });
+      return;
+    }
+
+    window.scrollTo({ top: homeScrollY, behavior: "instant" });
+    const savePosition = () => {
+      homeScrollY = Math.max(0, window.scrollY);
+    };
+    window.addEventListener("scroll", savePosition, { passive: true });
+    return () => window.removeEventListener("scroll", savePosition);
+  }, [loading]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; generationRef.current += 1; };
+  }, []);
 
   useEffect(() => {
     const prevBg = document.body.style.backgroundColor;
@@ -52,6 +88,10 @@ function Home() {
   }, []);
 
   useEffect(() => {
+    if (location.state?.cartCheckUnavailable) {
+      setCartCheckUnavailable(true);
+      window.history.replaceState({}, document.title);
+    }
     if (location.state?.message) {
       setFlashMessage(location.state.message);
       window.history.replaceState({}, document.title);
@@ -90,9 +130,37 @@ function Home() {
             if (data.degraded && !incomingShelves.length && !cachedHomeData.shelves?.length) {
               throw new Error("Home catalog temporarily unavailable");
             }
-            const shelvesById = new Map((data.degraded ? cachedHomeData.shelves || [] : []).map((shelf) => [Number(shelf.id), shelf]));
-            incomingShelves.forEach((shelf) => shelvesById.set(Number(shelf.id), shelf));
-            const shelfList = [...shelvesById.values()].slice(0, 6);
+            const existingShelves = Array.isArray(cachedHomeData.shelves) ? cachedHomeData.shelves : [];
+            let shelfList;
+            if (data.degraded) {
+              const byId = new Map(existingShelves.map((shelf) => [Number(shelf.id), shelf]));
+              incomingShelves.forEach((shelf) => byId.set(Number(shelf.id), shelf));
+              shelfList = [...byId.values()];
+            } else {
+              // Re-read the expanded portion before replacing it; an old offset is
+              // unsafe after a category is inserted, removed or reordered.
+              generationRef.current += 1;
+              const generation = generationRef.current;
+              const byId = new Map(incomingShelves.map((shelf) => [Number(shelf.id), shelf]));
+              let pagination = data.pagination;
+              const expectedTotal = pagination?.total_departments;
+              while (byId.size < existingShelves.length && pagination?.has_more) {
+                const offset = pagination.next_offset;
+                if (!Number.isSafeInteger(offset)) throw new Error("Invalid shelf offset");
+                const next = await getHomeShelves({ offset });
+                if (!isMounted || generation !== generationRef.current) return;
+                if (next?.degraded || !Array.isArray(next?.shelves) || !Number.isSafeInteger(next?.pagination?.next_offset) || next.pagination.next_offset <= offset || next.pagination.total_departments !== expectedTotal) {
+                  throw new Error("Catalog changed while refreshing");
+                }
+                next.shelves.forEach((shelf) => byId.set(Number(shelf.id), shelf));
+                pagination = next.pagination;
+              }
+              shelfList = [...byId.values()];
+              nextOffsetRef.current = Number.isSafeInteger(pagination?.next_offset) ? pagination.next_offset : null;
+              cachedHomeData.pagination = pagination || null;
+              setHasMoreShelves(Boolean(pagination?.has_more && nextOffsetRef.current !== null));
+              setLoadMoreError(false);
+            }
             const catList = Array.isArray(data.categories) ? data.categories : [];
             const productMap = new Map();
             shelfList.forEach((shelf) => {
@@ -146,12 +214,58 @@ function Home() {
     };
   }, [reloadKey]);
 
+  const loadMoreShelves = useCallback(async () => {
+    if (isLoadingMoreRef.current || !hasMoreShelves || nextOffsetRef.current === null) return;
+    const offset = nextOffsetRef.current;
+    const generation = generationRef.current;
+    isLoadingMoreRef.current = true;
+    setLoadingMoreShelves(true);
+    setLoadMoreError(false);
+    try {
+      const data = await getHomeShelves({ offset });
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      const nextOffset = data?.pagination?.next_offset;
+      if (data?.degraded || !Array.isArray(data?.shelves) || !Number.isSafeInteger(nextOffset) || nextOffset <= offset) {
+        throw new Error("Unable to load more shelves");
+      }
+      const shelvesById = new Map((cachedHomeData.shelves || []).map((shelf) => [Number(shelf.id), shelf]));
+      data.shelves.forEach((shelf) => shelvesById.set(Number(shelf.id), shelf));
+      const shelves = [...shelvesById.values()];
+      const productsById = new Map((cachedHomeData.products || []).map((product) => [Number(product.id), product]));
+      data.shelves.forEach((shelf) => (shelf.products || []).slice(0, 6).forEach((product) => {
+        if (product?.id) productsById.set(Number(product.id), product);
+      }));
+      const products = [...productsById.values()];
+      cachedHomeData.shelves = shelves;
+      cachedHomeData.products = products;
+      cachedHomeData.pagination = data.pagination;
+      nextOffsetRef.current = nextOffset;
+      setHomeShelves(shelves);
+      setProducts(products);
+      setHasMoreShelves(Boolean(data.pagination.has_more));
+    } catch {
+      if (mountedRef.current && generation === generationRef.current) setLoadMoreError(true);
+    } finally {
+      isLoadingMoreRef.current = false;
+      if (mountedRef.current) setLoadingMoreShelves(false);
+    }
+  }, [hasMoreShelves]);
+
+  useEffect(() => {
+    if (!hasMoreShelves || loadingMoreShelves || loadMoreError || !sentinelRef.current || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) loadMoreShelves();
+    }, { rootMargin: "400px 0px" });
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMoreShelves, loadingMoreShelves, loadMoreError, loadMoreShelves, loading]);
+
   // The backend returns a bounded first page for each department, so a shelf
   // is not omitted just because its products fall after the global catalog page.
   const categorySections = useMemo(() => {
     if (!Array.isArray(homeShelves) || homeShelves.length === 0) return [];
     const productsById = new Map(products.map((product) => [Number(product.id), product]));
-    return homeShelves.slice(0, 6).map((section) => ({
+    return homeShelves.map((section) => ({
       ...section,
       products: orderProductsForSession(
         (Array.isArray(section.products) ? section.products : [])
@@ -163,11 +277,24 @@ function Home() {
     }));
   }, [homeShelves, products, shuffleSeed]);
 
-  // Capped at 36 products (6 shelves x 6 products) for a single fast live stock request
-  const visibleHomeProducts = useMemo(
-    () => categorySections.flatMap((section) => section.products.slice(0, 6)),
-    [categorySections]
-  );
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") setStockWindow((value) => value + 1);
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Rotate a bounded window through the loaded products.
+  const visibleHomeProducts = useMemo(() => {
+    const unique = new Map();
+    for (const section of categorySections) for (const product of section.products || []) {
+      if (product?.id) unique.set(Number(product.id), product);
+    }
+    const items = [...unique.values()];
+    if (items.length <= 36) return items;
+    const start = (stockWindow * 36) % items.length;
+    return Array.from({ length: 36 }, (_, index) => items[(start + index) % items.length]);
+  }, [categorySections, stockWindow]);
   useLiveProductStock(visibleHomeProducts, setProducts);
 
   return (
@@ -186,6 +313,35 @@ function Home() {
           >
             <X size={15} />
           </button>
+        </div>
+      )}
+
+      {cartCheckUnavailable && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-xl bg-amber-950/40 border border-amber-800/60 p-3 sm:p-3.5 text-xs sm:text-sm font-semibold text-amber-200 shadow-xs"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle size={16} className="shrink-0 text-amber-300" aria-hidden="true" />
+            <span>We couldn’t verify your saved cart right now.</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              to="/cart"
+              onClick={() => setCartCheckUnavailable(false)}
+              className="rounded-lg bg-amber-900/60 border border-amber-700/60 px-3 py-1.5 text-xs font-bold text-amber-100 hover:bg-amber-800/60 transition"
+            >
+              Open Cart
+            </Link>
+            <button
+              type="button"
+              onClick={() => setCartCheckUnavailable(false)}
+              aria-label="Dismiss cart notice"
+              className="p-1 text-amber-300 hover:text-white transition cursor-pointer"
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -283,6 +439,18 @@ function Home() {
                 </div>
               </section>
             ))}
+
+            {hasMoreShelves && (
+              <div ref={sentinelRef} className="flex justify-center py-4" aria-live="polite">
+                {loadingMoreShelves ? (
+                  <span className="flex items-center gap-2 text-sm font-semibold text-[#22499F]"><VerificationSpinner /> Loading more categories...</span>
+                ) : (
+                  <button type="button" onClick={loadMoreShelves} className="rounded-full border border-[#22499F] px-5 py-2 text-sm font-semibold text-[#22499F]">
+                    {loadMoreError ? "Could not load categories. Retry" : "Load more categories"}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Explore All Categories Banner */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] p-5 sm:p-6 shadow-xs mt-6 sm:mt-8">

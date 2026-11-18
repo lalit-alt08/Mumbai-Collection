@@ -1,13 +1,13 @@
 /**
  * Resolves the tab ID corresponding to an incoming status query parameter.
- * Maps 'processing' or 'active' -> 'active' ("To Pack & Deliver" queue).
+ * Preserves 'processing' as the To Pack queue and 'active' as the combined queue.
  * Preserves known tabs ('packed', 'out-for-delivery', 'completed', 'cancelled', 'all').
  * Defaults to 'active' if no param is present.
  */
 export function resolveTabFromStatusParam(param) {
   if (!param) return "active";
-  if (param === "processing" || param === "active") return "active";
-  if (["packed", "out-for-delivery", "completed", "cancelled", "all"].includes(param)) {
+  if (param === "active") return "active";
+  if (["processing", "packed", "out-for-delivery", "completed", "cancelled", "all"].includes(param)) {
     return param;
   }
   return "active";

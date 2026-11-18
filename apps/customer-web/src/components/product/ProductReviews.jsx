@@ -18,6 +18,7 @@ function ProductReviews({ productId }) {
   const [totalReviews, setTotalReviews] = useState(0);
   const [ratingDistribution, setRatingDistribution] = useState({ 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   // Form State
   const [showForm, setShowForm] = useState(false);
@@ -43,6 +44,7 @@ function ProductReviews({ productId }) {
     if (!productId) return;
     try {
       setLoading(true);
+      setLoadError("");
       const data = await getProductReviews(productId);
       if (data.success) {
         setReviews(data.reviews || []);
@@ -51,7 +53,7 @@ function ProductReviews({ productId }) {
         setRatingDistribution(data.ratingDistribution || { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 });
       }
     } catch {
-      // Failed to load reviews, handled by UI empty state
+      setLoadError("Unable to load reviews right now. Please check your connection.");
     } finally {
       setLoading(false);
     }
@@ -363,6 +365,17 @@ function ProductReviews({ productId }) {
             <Loader2 size={14} className="animate-spin text-[#22499F]" />
             Loading reviews...
           </div>
+        ) : loadError ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 py-3.5 px-4 text-center">
+            <p className="text-xs font-semibold text-rose-700">{loadError}</p>
+            <button
+              type="button"
+              onClick={loadReviews}
+              className="mt-2 rounded-full bg-rose-100 border border-rose-300 px-3 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-200 transition cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
         ) : reviews.length === 0 ? (
           <div className="rounded-xl border border-[#E2E8F0] py-3.5 px-4 text-center bg-[#F0F8E8]">
             <p className="text-sm font-semibold text-[#1E293B]">No reviews yet for this product</p>
@@ -435,7 +448,7 @@ function ProductReviews({ productId }) {
                   )}
                 </div>
 
-                <p className="text-xs text-[#CBD5E1] leading-relaxed">
+                <p className="text-xs text-[#334155] leading-relaxed">
                   {r.review}
                 </p>
               </div>

@@ -1,6 +1,10 @@
 import WooCommerceRestApiModule from "@woocommerce/woocommerce-rest-api";
 import axios from "axios";
 import { httpsAgent } from "./httpAgent.js";
+import {
+  validateUpstreamJsonResponse,
+  sanitizeUpstreamErrorResponse,
+} from "../utils/upstreamJsonGuard.js";
 import "./env.js";
 
 const WooCommerceRestApi = WooCommerceRestApiModule.default;
@@ -88,7 +92,11 @@ api._request = function (method, endpoint, data, params = {}, extraConfig = {}) 
     ...extraConfig,
     headers: mergedHeaders,
   };
-  return axios(options);
+  return axios(options)
+    .then((response) => validateUpstreamJsonResponse(response, "woocommerce"))
+    .catch((error) => {
+      throw sanitizeUpstreamErrorResponse(error, "woocommerce");
+    });
 };
 
 // Augment api.get to accept extraConfig (signal, timeout, etc.)

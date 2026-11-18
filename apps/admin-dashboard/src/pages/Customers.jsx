@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import {
   getCustomers,
+  getCustomerSuggestions,
   getCustomerOrders,
   getCustomerPayments,
   lookupPaymentReference,
@@ -96,6 +97,10 @@ function Customers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionIndex, setSuggestionIndex] = useState(-1);
+  const [suggestionsError, setSuggestionsError] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef(null);
@@ -110,6 +115,7 @@ function Customers() {
 
   const locationDropdownRef = useRef(null);
   const sortDropdownRef = useRef(null);
+  const searchContainerRef = useRef(null);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -132,6 +138,9 @@ function Customers() {
   const [customerPaymentsLoading, setCustomerPaymentsLoading] = useState(false);
   const [customerPaymentsError, setCustomerPaymentsError] = useState("");
   const [customerPaymentsRetryKey, setCustomerPaymentsRetryKey] = useState(0);
+  const [paymentCursor, setPaymentCursor] = useState(null);
+  const [nextPaymentCursor, setNextPaymentCursor] = useState(null);
+  const [paymentPaginationAvailable, setPaymentPaginationAvailable] = useState(true);
 
   // Manual Reference Lookup State
   const [refQuery, setRefQuery] = useState("");
@@ -143,6 +152,9 @@ function Customers() {
   // Close dropdowns on outside click or Escape
   useEffect(() => {
     function handleClickOutside(e) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setSuggestionsOpen(false);
+      }
       if (locationDropdownRef.current && !locationDropdownRef.current.contains(e.target)) {
         setIsLocationOpen(false);
       }
@@ -153,6 +165,7 @@ function Customers() {
 
     function handleKeyDown(e) {
       if (e.key === "Escape") {
+        setSuggestionsOpen(false);
         setIsLocationOpen(false);
         setIsSortOpen(false);
       }
@@ -175,6 +188,29 @@ function Customers() {
     }, 350);
     return () => clearTimeout(handler);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const search = searchQuery.trim();
+    if (search.length < 2 || !suggestionsOpen) { setSuggestions([]); return undefined; }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const result = await getCustomerSuggestions(search, { signal: controller.signal });
+        if (!controller.signal.aborted) { setSuggestions(result.customers || []); setSuggestionsError(false); setSuggestionIndex(-1); }
+      } catch (error) {
+        if (!controller.signal.aborted) { setSuggestions([]); setSuggestionsError(true); }
+      }
+    }, 350);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchQuery, suggestionsOpen]);
+
+  const selectSuggestion = (customer) => {
+    setSuggestionsOpen(false);
+    setSelectedLocation('all');
+    setSearchQuery(customer.email || customer.display_name);
+    setDebouncedSearch(customer.email || customer.display_name);
+    setPage(1);
+  };
 
   // Fetch Customers with server pagination, sorting & search
   const fetchCustomerList = async ({ forceRefresh = false } = {}) => {
@@ -304,12 +340,19 @@ function Customers() {
       try {
         setCustomerPaymentsLoading(true);
         setCustomerPaymentsError("");
-        const res = await getCustomerPayments(selectedCustomer.id, { signal: controller.signal });
+        const res = await getCustomerPayments(selectedCustomer.id, { signal: controller.signal, params: paymentCursor ? { cursor: paymentCursor } : {} });
         if (!active || controller.signal.aborted) return;
-        setCustomerPayments(Array.isArray(res.payments) ? res.payments : []);
+        if (!Array.isArray(res.payments)) throw new Error("Invalid payment history response");
+        setCustomerPayments((current) => {
+          if (!paymentCursor) return res.payments;
+          const seen = new Set(current.map((payment) => payment.rzp_order_id));
+          return [...current, ...res.payments.filter((payment) => !seen.has(payment.rzp_order_id))];
+        });
+        setPaymentPaginationAvailable(typeof res.has_more === "boolean");
+        setNextPaymentCursor(res.has_more && typeof res.next_cursor === "string" ? res.next_cursor : null);
       } catch (err) {
         if (!active || controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
-        setCustomerPayments([]);
+        if (!paymentCursor) setCustomerPayments([]);
         setCustomerPaymentsError(err.response?.data?.message || "Payment lookup unavailable");
       } finally {
         if (active && !controller.signal.aborted) {
@@ -323,7 +366,7 @@ function Customers() {
       active = false;
       controller.abort();
     };
-  }, [selectedCustomer?.id, customerPaymentsRetryKey]);
+  }, [selectedCustomer?.id, customerPaymentsRetryKey, paymentCursor]);
 
   const handleRefLookup = async (e) => {
     e?.preventDefault();
@@ -373,6 +416,9 @@ function Customers() {
     setCustomerOrdersError("");
     setCustomerPayments([]);
     setCustomerPaymentsError("");
+    setPaymentCursor(null);
+    setNextPaymentCursor(null);
+    setPaymentPaginationAvailable(true);
     setRefResult(null);
     setRefQuery("");
     setRefError("");
@@ -457,7 +503,7 @@ function Customers() {
 
         <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
           {/* Search Box */}
-          <div className="relative flex-1">
+          <div ref={searchContainerRef} className="relative flex-1">
             <Search
               size={15}
               className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
@@ -466,8 +512,19 @@ function Customers() {
               id="customer-search-input"
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by customer name, phone, email, or location…"
+              onChange={(e) => { setSearchQuery(e.target.value); setSuggestionsOpen(true); }}
+              onFocus={() => setSuggestionsOpen(true)}
+              role="combobox"
+              aria-expanded={suggestionsOpen && suggestions.length > 0}
+              aria-controls="customer-suggestions"
+              aria-activedescendant={suggestionIndex >= 0 ? `customer-suggestion-${suggestionIndex}` : undefined}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setSuggestionsOpen(false);
+                if (event.key === 'ArrowDown' && suggestions.length) { event.preventDefault(); setSuggestionIndex((index) => Math.min(index + 1, suggestions.length - 1)); }
+                if (event.key === 'ArrowUp' && suggestions.length) { event.preventDefault(); setSuggestionIndex((index) => Math.max(index - 1, 0)); }
+                if (event.key === 'Enter' && suggestionIndex >= 0 && suggestionsOpen) { event.preventDefault(); selectSuggestion(suggestions[suggestionIndex]); }
+              }}
+              placeholder="Name, phone, or email…"
               className="w-full h-10 rounded-xl border border-gray-200 bg-gray-50/50 pl-9 pr-9 text-xs text-gray-900 placeholder-gray-400 focus:border-[#FF8A00] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#FF8A00]/15 transition"
             />
             {searchQuery && (
@@ -480,6 +537,18 @@ function Customers() {
             )}
             {searchQuery.trim().length === 1 && (
               <p className="px-2 pt-1 text-[10px] font-medium text-gray-400">Type one more character to search.</p>
+            )}
+            {suggestionsOpen && searchQuery.trim().length >= 2 && (suggestions.length > 0 || suggestionsError) && (
+              <div id="customer-suggestions" role="listbox" className="absolute z-30 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg">
+                {suggestionsError && <p className="p-3 text-xs text-gray-600">Suggestions unavailable. Directory search is still available.</p>}
+                {suggestions.map((customer, index) => (
+                  <button id={`customer-suggestion-${index}`} role="option" aria-selected={index === suggestionIndex} key={customer.customer_id} onClick={() => selectSuggestion(customer)} className={`block w-full px-3 py-2 text-left text-xs ${index === suggestionIndex ? 'bg-orange-50' : ''}`}>
+                    <span className="block font-bold text-gray-900">{customer.display_name || 'Customer'}</span>
+                    <span className="text-gray-600">{customer.location_key === 'unassigned' ? 'Location unavailable' : customer.location_key} {customer.phone_digits ? `· ••••${customer.phone_digits.slice(-4)}` : ''}</span>
+                  </button>
+                ))}
+                <button onClick={() => setSuggestionsOpen(false)} className="w-full border-t px-3 py-2 text-left text-xs font-bold text-orange-700">View all results</button>
+              </div>
             )}
           </div>
 
@@ -880,6 +949,93 @@ function Customers() {
 
             {/* Modal Scrollable Body */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 text-xs">
+              {/* Exact Staff Reference Lookup Box */}
+              <div className="rounded-2xl border border-gray-200/80 bg-gray-50/40 p-3.5 space-y-2 mt-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="ref-lookup-input" className="text-[10px] font-extrabold uppercase tracking-wider text-gray-600">
+                    Search Razorpay Reference
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={refLiveCheck}
+                      onChange={(e) => setRefLiveCheck(e.target.checked)}
+                      className="rounded text-[#FF8A00] focus:ring-[#FF8A00]"
+                    />
+                    Live gateway check
+                  </label>
+                </div>
+
+                <p className="text-[11px] text-gray-600">Enter a Razorpay order ID (order_...) or payment ID (pay_...). WooCommerce order numbers are not supported.</p>
+
+                <form onSubmit={handleRefLookup} className="flex gap-2">
+                  <input
+                    id="ref-lookup-input"
+                    type="text"
+                    value={refQuery}
+                    onChange={(e) => setRefQuery(e.target.value)}
+                    placeholder="order_... or pay_..."
+                    className="flex-1 h-9 rounded-xl border border-gray-200 bg-white px-3 text-xs text-gray-900 placeholder-gray-400 focus:border-[#FF8A00] focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={refLoading || !refQuery.trim()}
+                    className="h-9 px-3.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-black disabled:opacity-50 transition"
+                  >
+                    {refLoading ? "Searching…" : "Lookup"}
+                  </button>
+                </form>
+
+                {refError && (
+                  <div className="text-center text-[11px] font-semibold text-rose-500 pt-1">
+                    {refError}
+                  </div>
+                )}
+
+                {refResult && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2 text-xs">
+                    {/* Explicit Customer Association */}
+                    {refResult.customer_conflict ? (
+                      <div className="rounded-lg bg-rose-50 px-2.5 py-1.5 border border-rose-200 text-[10px] font-bold text-rose-800 flex items-center gap-1.5">
+                        <AlertTriangle size={12} className="text-rose-600 shrink-0" />
+                        <span>Customer conflict: Payment initiated by Customer #{refResult.payment_customer_id}, but order placed for Customer #{refResult.order_customer_id}</span>
+                      </div>
+                    ) : refResult.user_id && Number(refResult.user_id) === Number(selectedCustomer.id) ? (
+                      <div className="rounded-lg bg-emerald-50 px-2.5 py-1.5 border border-emerald-200 text-[10px] font-bold text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                        <span>Associated with this customer (#{selectedCustomer.id})</span>
+                      </div>
+                    ) : refResult.user_id && Number(refResult.user_id) !== Number(selectedCustomer.id) ? (
+                      <div className="rounded-lg bg-amber-50 px-2.5 py-1.5 border border-amber-200 text-[10px] font-bold text-amber-800 flex items-center gap-1.5">
+                        <AlertTriangle size={12} className="text-amber-600 shrink-0" />
+                        <span>Notice: Associated with Customer #{refResult.user_id} (not Customer #{selectedCustomer.id})</span>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-gray-50 px-2.5 py-1.5 border border-gray-200 text-[10px] font-medium text-gray-600 flex items-center gap-1.5">
+                        <Clock size={12} className="text-gray-400 shrink-0" />
+                        <span>Customer association could not be verified</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-extrabold border ${getPaymentOutcomeBadge(refResult.outcome_type)}`}>
+                        {refResult.outcome_label}
+                      </span>
+                      <span className="font-black text-gray-900">
+                        ₹{Number(refResult.amount || 0).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-gray-500 font-mono">
+                      {refResult.rzp_payment_id || refResult.rzp_order_id}
+                    </div>
+                    <div className="text-[10px] text-gray-400 flex items-center justify-between pt-1 border-t border-gray-100">
+                      <span>Date: {formatISTDate(refResult.date)}</span>
+                      <span>Status: {refResult.status}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Financial Metrics Strip */}
               <div className="grid grid-cols-3 gap-2.5 rounded-2xl bg-amber-50/40 p-3 sm:p-4 border border-amber-100/70 text-center">
                 <div>
@@ -889,7 +1045,7 @@ function Customers() {
                   </div>
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Total Orders</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Orders (LTV)</span>
                   <div className="text-sm sm:text-base font-black text-[#FF8A00] mt-0.5 tabular-nums">
                     {selectedCustomer.ordersCount || 0}
                   </div>
@@ -901,6 +1057,7 @@ function Customers() {
                   </div>
                 </div>
               </div>
+              <p className="text-[11px] text-gray-600">LTV counts qualifying orders; order history also includes other statuses, so the totals can differ.</p>
 
               {/* Contact & Address Details */}
               <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-4 space-y-2.5">
@@ -1051,16 +1208,16 @@ function Customers() {
                   <h4 className="font-extrabold uppercase tracking-wider text-gray-500 text-[10px] flex items-center gap-1.5">
                     <CreditCard size={13} className="text-[#FF8A00]" /> Recent Online Payments
                   </h4>
-                  <span className="text-[10px] font-medium text-gray-400">Indexed records (max 10)</span>
+                  <span className="text-[10px] font-medium text-gray-600">Newest first</span>
                 </div>
 
                 {/* Payments List */}
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {customerPaymentsLoading ? (
+                  {customerPaymentsLoading && customerPayments.length === 0 ? (
                     <div className="p-4 text-center text-xs font-semibold text-gray-400">
                       Checking recent payment records…
                     </div>
-                  ) : customerPaymentsError ? (
+                  ) : customerPaymentsError && customerPayments.length === 0 ? (
                     <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-center space-y-1.5">
                       <p className="text-xs font-semibold text-rose-600">Payment lookup unavailable</p>
                       <button
@@ -1108,91 +1265,26 @@ function Customers() {
                     ))
                   )}
                 </div>
-
-                {/* Exact Staff Reference Lookup Box */}
-                <div className="rounded-2xl border border-gray-200/80 bg-gray-50/40 p-3.5 space-y-2 mt-2">
-                  <div className="flex items-center justify-between">
-                    <label htmlFor="ref-lookup-input" className="text-[10px] font-extrabold uppercase tracking-wider text-gray-600">
-                      Search Razorpay Reference
-                    </label>
-                    <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={refLiveCheck}
-                        onChange={(e) => setRefLiveCheck(e.target.checked)}
-                        className="rounded text-[#FF8A00] focus:ring-[#FF8A00]"
-                      />
-                      Live gateway check
-                    </label>
+                {!paymentPaginationAvailable && !customerPaymentsLoading && !customerPaymentsError && (
+                  <p className="text-[11px] text-amber-700">Older payments require the updated WordPress plugin.</p>
+                )}
+                {customerPayments.length > 0 && customerPaymentsError && (
+                  <div role="alert" className="text-center text-[11px] font-semibold text-rose-600">
+                    Could not load older payments. <button onClick={() => setCustomerPaymentsRetryKey((k) => k + 1)} className="underline">Retry</button>
                   </div>
+                )}
+                {nextPaymentCursor && !customerPaymentsError && (
+                  <button
+                    onClick={() => setPaymentCursor(nextPaymentCursor)}
+                    disabled={customerPaymentsLoading}
+                    className="mx-auto flex min-h-10 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-2 text-xs font-bold text-gray-700 disabled:opacity-60"
+                  >
+                    {customerPaymentsLoading && <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-orange-500" />}
+                    {customerPaymentsLoading ? "Loading payments…" : "Load more payments"}
+                  </button>
+                )}
 
-                  <form onSubmit={handleRefLookup} className="flex gap-2">
-                    <input
-                      id="ref-lookup-input"
-                      type="text"
-                      value={refQuery}
-                      onChange={(e) => setRefQuery(e.target.value)}
-                      placeholder="order_... or pay_..."
-                      className="flex-1 h-9 rounded-xl border border-gray-200 bg-white px-3 text-xs text-gray-900 placeholder-gray-400 focus:border-[#FF8A00] focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={refLoading || !refQuery.trim()}
-                      className="h-9 px-3.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-black disabled:opacity-50 transition"
-                    >
-                      {refLoading ? "Searching…" : "Lookup"}
-                    </button>
-                  </form>
 
-                  {refError && (
-                    <div className="text-center text-[11px] font-semibold text-rose-500 pt-1">
-                      {refError}
-                    </div>
-                  )}
-
-                  {refResult && (
-                    <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-2 text-xs">
-                      {/* Explicit Customer Association */}
-                      {refResult.customer_conflict ? (
-                        <div className="rounded-lg bg-rose-50 px-2.5 py-1.5 border border-rose-200 text-[10px] font-bold text-rose-800 flex items-center gap-1.5">
-                          <AlertTriangle size={12} className="text-rose-600 shrink-0" />
-                          <span>Customer conflict: Payment initiated by Customer #{refResult.payment_customer_id}, but order placed for Customer #{refResult.order_customer_id}</span>
-                        </div>
-                      ) : refResult.user_id && Number(refResult.user_id) === Number(selectedCustomer.id) ? (
-                        <div className="rounded-lg bg-emerald-50 px-2.5 py-1.5 border border-emerald-200 text-[10px] font-bold text-emerald-800 flex items-center gap-1.5">
-                          <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
-                          <span>Associated with this customer (#{selectedCustomer.id})</span>
-                        </div>
-                      ) : refResult.user_id && Number(refResult.user_id) !== Number(selectedCustomer.id) ? (
-                        <div className="rounded-lg bg-amber-50 px-2.5 py-1.5 border border-amber-200 text-[10px] font-bold text-amber-800 flex items-center gap-1.5">
-                          <AlertTriangle size={12} className="text-amber-600 shrink-0" />
-                          <span>Notice: Associated with Customer #{refResult.user_id} (not Customer #{selectedCustomer.id})</span>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg bg-gray-50 px-2.5 py-1.5 border border-gray-200 text-[10px] font-medium text-gray-600 flex items-center gap-1.5">
-                          <Clock size={12} className="text-gray-400 shrink-0" />
-                          <span>Customer association could not be verified</span>
-                        </div>
-                      )}
-
-                      <div className="flex items-center justify-between">
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-extrabold border ${getPaymentOutcomeBadge(refResult.outcome_type)}`}>
-                          {refResult.outcome_label}
-                        </span>
-                        <span className="font-black text-gray-900">
-                          ₹{Number(refResult.amount || 0).toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-gray-500 font-mono">
-                        {refResult.rzp_payment_id || refResult.rzp_order_id}
-                      </div>
-                      <div className="text-[10px] text-gray-400 flex items-center justify-between pt-1 border-t border-gray-100">
-                        <span>Date: {formatISTDate(refResult.date)}</span>
-                        <span>Status: {refResult.status}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
 

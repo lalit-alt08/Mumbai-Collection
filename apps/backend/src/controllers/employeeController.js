@@ -11,7 +11,7 @@ import { logError, logger } from "../utils/logger.js";
 import { acquireLock, releaseLock } from "../services/paymentIntentService.js";
 import { sendRefundEmail } from "../services/brevoService.js";
 import { fetchRazorpayPayment } from "../services/razorpayService.js";
-import { fetchStockCounts } from "./adminProductController.js";
+import { EDITABLE_PRODUCT_SCOPE, fetchStockCounts } from "./adminProductController.js";
 import { publishOrderEvent, acknowledgeOrderNotification, getAcknowledgedOrderIds } from "../services/orderNotificationService.js";
 import { getVapidPublicKey, registerPushSubscription, unregisterPushSubscription } from "../services/pushNotificationService.js";
 import { invalidateOrderDetailCache } from "../services/orderDetailCache.js";
@@ -40,6 +40,7 @@ import {
 import {
   formatEmployeeOrderRecord,
   formatOverviewOrderItem,
+  sanitizeEmployeeOrderMeta,
 } from "../utils/employeeOrderFormatter.js";
 import { getEmployeePackingAlarms } from "../services/employeeAlarmService.js";
 
@@ -50,6 +51,8 @@ const employeeErrorMessages = {
   terminal_order: "A completed or cancelled order cannot be reopened.",
   invalid_transition: "This order status change is not allowed.",
   unpaid_order: "Online payment has not been confirmed.",
+  delivery_review_required: "Confirm delivery arrangements before dispatch.",
+  order_location_changed: "The delivery area changed. Refresh and review the order.",
 };
 const safeEmployeeError = (error, fallback) => error.employeeSafe === true
   ? error.message
@@ -166,7 +169,7 @@ export const getEmployeeOrders = async (req, res) => {
   try {
     const {
       status, search, location,
-      date_filter, dateFilter, date_from, dateFrom, date_to, dateTo,
+      date_filter, dateFilter, date_from, dateFrom, date_to, dateTo, date_basis,
       page = 1, per_page = 20,
     } = req.query;
 
@@ -182,6 +185,10 @@ export const getEmployeeOrders = async (req, res) => {
     };
 
     const resolvedDateFilter = date_filter || dateFilter;
+    const dateBasis = date_basis || "created";
+    if (!['created', 'completed'].includes(dateBasis) || (dateBasis === 'completed' && status !== 'completed')) {
+      return res.status(400).json({ success: false, message: "Choose a valid order date filter." });
+    }
     const resolvedDateFrom = date_from || dateFrom;
     const resolvedDateTo = date_to || dateTo;
 
@@ -199,7 +206,7 @@ export const getEmployeeOrders = async (req, res) => {
       queryParams.dates_are_gmt = true;
     }
 
-    const cleanSearch = (search || "").trim();
+    const cleanSearch = (search || "").trim().replace(/^(?:order\s*)?#(?=\d+$)/i, "");
     if (cleanSearch) queryParams.search = cleanSearch;
 
     const isCustomStatus = ["active", "processing", "packed", "out-for-delivery", "dispatched"].includes(status);
@@ -220,7 +227,7 @@ export const getEmployeeOrders = async (req, res) => {
     let totalPages = 1;
     let isCustomStatusFallback = false;
 
-    if (!isCustomStatus && !hasCustomLocation) {
+    if (!isCustomStatus && !hasCustomLocation && dateBasis !== "completed") {
       const directResponse = await api.get("orders", { ...queryParams, page: pageNum, per_page: limit });
       const batch = Array.isArray(directResponse.data) ? directResponse.data : [];
       totalOrders = Number(directResponse.headers?.["x-wp-total"]) || batch.length;
@@ -231,6 +238,7 @@ export const getEmployeeOrders = async (req, res) => {
         const response = await wp.get("/wp-json/mumbai-auth/v1/employee/orders", {
           params: {
             status,
+            ...(dateBasis === "completed" ? { date_basis: dateBasis } : {}),
             ...(hasCustomLocation ? { location } : {}),
             page: pageNum,
             per_page: limit,
@@ -240,11 +248,23 @@ export const getEmployeeOrders = async (req, res) => {
           },
         });
         const payload = response.data || {};
+        if (dateBasis === "completed" && payload.date_basis !== "completed") {
+          const error = new Error("The store must be updated before filtering by completion date.");
+          error.employeeSafe = true;
+          error.response = { status: 503 };
+          throw error;
+        }
         orders = Array.isArray(payload.orders) ? payload.orders : [];
         totalOrders = Number(payload.total) || 0;
         totalPages = Number(payload.total_pages) || 1;
       } catch (error) {
         const code = error.response?.data?.code;
+        if (dateBasis === "completed" && (error.response?.status === 404 || code === "hpos_required")) {
+          const unavailable = new Error("Completion-date filtering is unavailable. Update the store plugin and try again.");
+          unavailable.employeeSafe = true;
+          unavailable.response = { status: 503 };
+          throw unavailable;
+        }
         if (error.response?.status !== 404 && code !== "hpos_required") throw error;
         if (hasCustomLocation) {
           const locationError = new Error("Location filtering requires the updated WooCommerce plugin with HPOS enabled. Please contact an administrator.");
@@ -292,6 +312,7 @@ export const getEmployeeOrders = async (req, res) => {
 
 export const bulkDispatchOrders = async (req, res) => {
   const ids = req.body?.ids;
+  const expectedLocations = req.body?.expected_locations;
   if (req.body?.status !== "out-for-delivery" || !Array.isArray(ids) || ids.length < 1 || ids.length > 50 ||
       ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
     return res.status(400).json({ success: false, message: "Choose 1–50 unique order IDs and out-for-delivery status." });
@@ -302,8 +323,8 @@ export const bulkDispatchOrders = async (req, res) => {
     while (cursor < ids.length) {
       const index = cursor++;
       try {
-        const order = await mutateStaffOrder(ids[index], "out-for-delivery", { packedOnly: true });
-        results[index] = { id: ids[index], success: true, order };
+      const order = await mutateStaffOrder(ids[index], "out-for-delivery", { packedOnly: true, expectedLocation: expectedLocations?.[ids[index]] });
+        results[index] = { id: ids[index], success: true, order: { ...order, meta_data: sanitizeEmployeeOrderMeta(order.meta_data) } };
       } catch (error) {
         results[index] = { id: ids[index], success: false, message: safeEmployeeError(error, "Dispatch failed. Please try again.") };
       }
@@ -329,7 +350,7 @@ export const updateOrderStatus = async (req, res) => {
     res.json({
       success: true,
       message: `Order #${id} status updated to ${status}.`,
-      order,
+      order: { ...order, meta_data: sanitizeEmployeeOrderMeta(order.meta_data) },
     });
   } catch (error) {
     logError(req, error, "Update order status error");
@@ -337,6 +358,19 @@ export const updateOrderStatus = async (req, res) => {
       success: false,
       message: safeEmployeeError(error, "Failed to update order status. Please try again."),
     });
+  }
+};
+
+export const confirmOrderDeliveryReview = async (req, res) => {
+  try {
+    await wp.post(`/wp-json/mumbai-auth/v1/staff/orders/${req.params.id}/delivery-review`);
+    for (const prefix of ["employee:overview", "employee:orders_scan", "admin:customers"]) serverCache.invalidatePrefix(prefix);
+    await invalidateOrderDetailCache(req.params.id);
+    void publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: Number(req.params.id) });
+    return res.json({ success: true });
+  } catch (error) {
+    logError(req, error, "Confirm delivery review error");
+    return res.status(error.response?.status || 500).json({ success: false, message: "Could not confirm delivery arrangements. Please retry." });
   }
 };
 
@@ -412,8 +446,17 @@ export const sendOrderRefundEmail = async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: `Order #${id} not found.` });
 
     const emailMeta = (order.meta_data || []).find((meta) => meta.key === "_manual_refund_email_sent_at");
-    if (emailMeta?.value) {
-      return res.status(409).json({ success: false, message: "A refund email has already been sent for this order." });
+    const rawVal = emailMeta?.value ? String(emailMeta.value).trim() : "";
+    if (rawVal) {
+      if (rawVal.startsWith("sending:")) {
+        const markerTime = new Date(rawVal.replace(/^sending:/, "")).getTime();
+        // If stamped less than 2 minutes ago, treat as currently in flight
+        if (!isNaN(markerTime) && Date.now() - markerTime < 120000) {
+          return res.status(409).json({ success: false, message: "A refund email is currently in progress. Please wait a moment." });
+        }
+      } else {
+        return res.status(409).json({ success: false, message: "A refund email has already been sent for this order." });
+      }
     }
 
     const verifiedRefund = await verifyRefundForNotification(order);
@@ -428,7 +471,7 @@ export const sendOrderRefundEmail = async (req, res) => {
 
     const emailMarker = { key: "_manual_refund_email_sent_at", value: `sending:${new Date().toISOString()}` };
     await api.put(`orders/${encodeURIComponent(id)}`, {
-      meta_data: [...(order.meta_data || []).filter((m) => m.key !== emailMarker.key), emailMarker],
+      meta_data: [emailMarker],
     });
 
     try {
@@ -440,9 +483,10 @@ export const sendOrderRefundEmail = async (req, res) => {
         isPartial: verifiedRefund.isPartial,
       });
     } catch (emailError) {
+      // Clear in-flight sending marker on failure so subsequent retries are unblocked
       try {
         await api.put(`orders/${encodeURIComponent(id)}`, {
-          meta_data: (order.meta_data || []).filter((m) => m.key !== emailMarker.key),
+          meta_data: [{ key: emailMarker.key, value: "" }],
         });
       } catch (cleanupError) {
         logError(req, cleanupError, "Could not clear failed refund-email marker");
@@ -452,10 +496,7 @@ export const sendOrderRefundEmail = async (req, res) => {
 
     const sentAt = new Date().toISOString();
     await api.put(`orders/${encodeURIComponent(id)}`, {
-      meta_data: [
-        ...(order.meta_data || []).filter((m) => m.key !== "_manual_refund_email_sent_at"),
-        { key: "_manual_refund_email_sent_at", value: sentAt },
-      ],
+      meta_data: [{ key: "_manual_refund_email_sent_at", value: sentAt }],
     });
 
     return res.json({
@@ -469,7 +510,7 @@ export const sendOrderRefundEmail = async (req, res) => {
     logError(req, error, "Send employee-triggered refund email error");
     return res.status(error.response?.status || error.status || 502).json({
       success: false,
-      message: "Could not send the refund email. Please try again.",
+      message: "Could not confirm whether the refund email was sent. Check the order before retrying.",
     });
   } finally {
     if (locked) await releaseLock(lockKey, workerId);
@@ -502,10 +543,17 @@ export const getEmployeeOverview = async (req, res) => {
           status: "processing",
           per_page: 100,
           orderby: "date",
-          order: "desc",
-          _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+          order: "asc",
+          _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title,date_paid,transaction_id",
         }).catch(unavailable("action_orders", { data: [] })),
-        wp.get("/wp-json/mumbai-auth/v1/employee/orders/summary").catch(unavailable("order_summary", { data: null })),
+        wp.get("/wp-json/mumbai-auth/v1/employee/orders/summary").then((response) => {
+          const counts = response.data?.counts;
+          const keys = ["processing", "packed", "out-for-delivery", "dispatched"];
+          if (!counts || keys.some((key) => !Number.isSafeInteger(counts[key]) || counts[key] < 0)) {
+            throw new Error("Operational order counts are unavailable");
+          }
+          return response;
+        }).catch(unavailable("order_summary", { data: null })),
         api.get("orders", {
           after: todayBounds?.after,
           before: todayBounds?.before,
@@ -513,22 +561,23 @@ export const getEmployeeOverview = async (req, res) => {
           per_page: 1,
           _fields: "id",
         }).catch(unavailable("received_today", { headers: {}, data: [] })),
-        api.get("orders", {
-          status: "completed",
-          after: todayBounds?.after,
-          before: todayBounds?.before,
-          dates_are_gmt: true,
-          per_page: 1,
-          _fields: "id",
-        }).catch(unavailable("completed_today", { headers: {}, data: [] })),
+        wp.get("/wp-json/mumbai-auth/v1/employee/orders", {
+          params: { status: "completed", date_basis: "completed", after: todayBounds?.after, before: todayBounds?.before, page: 1, per_page: 1 },
+        }).then((response) => {
+          if (response.data?.success !== true || response.data?.date_basis !== "completed" || !Number.isSafeInteger(response.data?.total) || response.data.total < 0) {
+            throw new Error("Authoritative completion count unavailable");
+          }
+          return response;
+        }).catch(unavailable("completed_today", { data: null })),
         api.get("orders", {
           per_page: 10,
           orderby: "date",
           order: "desc",
-          _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title",
+          _fields: "id,number,status,total,date_created,billing,shipping,line_items,meta_data,payment_method,payment_method_title,date_paid,transaction_id",
         }).catch(unavailable("recent_orders", { data: [] })),
         fetchStockCounts().catch(unavailable("stock_counts", null)),
         api.get("products", {
+          ...EDITABLE_PRODUCT_SCOPE,
           stock_status: "lowstock",
           per_page: 6,
           _fields: "id,name,images,stock_quantity,stock_status,price",
@@ -565,7 +614,7 @@ export const getEmployeeOverview = async (req, res) => {
       const statusPriority = { processing: 1, packed: 2, "out-for-delivery": 3, dispatched: 3, pending: 4, "on-hold": 4 };
       actionOrders.sort((a, b) => {
         const diff = (statusPriority[a.status] || 99) - (statusPriority[b.status] || 99);
-        return diff !== 0 ? diff : new Date(b.date_created) - new Date(a.date_created);
+        return diff !== 0 ? diff : new Date(a.date_created) - new Date(b.date_created);
       });
 
       const recentOrdersFormatted = recentOrders.map((order) =>
@@ -581,7 +630,7 @@ export const getEmployeeOverview = async (req, res) => {
       }));
 
       const receivedTodayCount = Number(receivedTodayRes?.headers?.["x-wp-total"]) || 0;
-      const completedTodayCount = Number(completedTodayRes?.headers?.["x-wp-total"]) || 0;
+      const completedTodayCount = completedTodayRes?.data?.total ?? 0;
       const totalActiveCount = ordersToPackCount + ordersPackedCount + ordersOutForDeliveryCount;
 
       const operationalUnavailable = failedSections.includes("order_summary");
@@ -619,9 +668,27 @@ export const getEmployeeOverview = async (req, res) => {
     if (typeof res.set === "function") {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     }
-    res.json(responsePayload);
+    const finalPayload = {
+      ...responsePayload,
+      data: responsePayload?.data
+        ? {
+            ...responsePayload.data,
+            lowStockProducts: transformMediaUrls(responsePayload.data.lowStockProducts, req),
+          }
+        : responsePayload?.data,
+    };
+    res.json(finalPayload);
   } catch (error) {
-    if (error.overviewPayload) return res.json(error.overviewPayload);
+    if (error.overviewPayload) {
+      res.set?.("Cache-Control", "no-store, no-cache, must-revalidate, private");
+      return res.json({
+        ...error.overviewPayload,
+        data: {
+          ...error.overviewPayload.data,
+          lowStockProducts: transformMediaUrls(error.overviewPayload.data?.lowStockProducts, req),
+        },
+      });
+    }
     logError(req, error, "Employee overview error");
     res.status(500).json({ success: false, message: "Failed to load employee operations overview." });
   }

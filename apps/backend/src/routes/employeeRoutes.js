@@ -5,6 +5,7 @@ import {
   getEmployeeOrders,
   getEmployeePackingAlarms,
   updateOrderStatus,
+  confirmOrderDeliveryReview,
   bulkDispatchOrders,
   sendOrderRefundEmail,
   getEmployeeOverview,
@@ -224,6 +225,14 @@ router.patch(
   requireRole(ALLOWED_EMPLOYEE_ROLES),
   validateRequest({ params: schemas.idParam, body: schemas.orderStatus }),
   updateOrderStatus
+);
+
+router.post(
+  "/orders/:id/delivery-review",
+  requireAuth("employee"),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
+  validateRequest({ params: schemas.idParam }),
+  confirmOrderDeliveryReview
 );
 
 router.post(

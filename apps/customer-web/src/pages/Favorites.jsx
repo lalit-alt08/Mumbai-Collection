@@ -131,6 +131,11 @@ function Favorites() {
                 <ProductCard key={product.id} product={product} />
               ))}
             </div>
+            {favoriteError && (
+              <div role="alert" className="text-center text-xs font-semibold text-rose-500">
+                {favoriteError}
+              </div>
+            )}
             {favoritePage < favoriteTotalPages && (
               <div className="flex justify-center">
                 <button

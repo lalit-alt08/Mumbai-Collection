@@ -102,8 +102,9 @@ export const isCodOrder = (order) => {
  */
 export const isOnlineOrderUnpaid = (order) => {
   if (!order) return false;
-  if (isCodOrder(order)) return false;
-
+  const method = String(order.payment_method || "").trim().toLowerCase();
+  // Match the WordPress fulfillment guard: a title or missing method is not proof of COD.
+  if (method === "cod") return false;
 
   // If order has captured payment indicators, it is paid
   if (order.date_paid) return false;
@@ -131,6 +132,10 @@ export const isOnlineOrderUnpaid = (order) => {
  * 4. Unpaid online orders cannot transition to active fulfillment or completed states.
  */
 export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs = Date.now()) => {
+  if (["out-for-delivery", "dispatched", "completed"].includes(targetStatus) &&
+      currentOrder?.meta_data?.some((meta) => meta.key === "_payment_captured_without_delivery_slot" && meta.value === "yes")) {
+    return { valid: false, message: "Confirm delivery arrangements before dispatch." };
+  }
   if (targetStatus === "refunded") {
     return {
       valid: false,
@@ -164,30 +169,8 @@ export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs 
   const currentStatus = String(currentOrder?.status || "").toLowerCase();
   const effectiveStatus = currentOrder?.meta_data?.find((m) => m.key === "_delivery_status")?.value || currentStatus;
 
-  // Terminal statuses that can never be reopened: cancelled, refunded, failed.
-  // Note: completed/delivered orders are NOT permanently locked immediately;
-  // they remain editable/correctable within the 72-hour delivery window (enforced by isOrderStatusLocked above).
-  const terminal = ["cancelled", "refunded", "failed"];
-  if (terminal.includes(currentStatus) || terminal.includes(effectiveStatus)) {
-    return targetStatus === currentStatus || targetStatus === effectiveStatus
-      ? { valid: true }
-      : { valid: false, message: "A terminal order cannot be reopened or regressed through fulfillment controls." };
-  }
-  const allowed = {
-    pending: ["processing", "cancelled", "failed"],
-    "on-hold": ["cancelled", "failed"],
-    processing: ["packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
-    packed: ["out-for-delivery", "dispatched", "cancelled"],
-    "out-for-delivery": ["completed", "dispatched", "cancelled", "failed"],
-    dispatched: ["completed", "out-for-delivery", "cancelled", "failed"],
-    completed: ["processing", "packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
-  };
-  if (targetStatus !== effectiveStatus && !(allowed[effectiveStatus] || []).includes(targetStatus)) {
-    return { valid: false, message: `Cannot transition ${effectiveStatus} to ${targetStatus}.` };
-  }
-
   // 2. Terminal statuses cannot transition to active fulfillment
-  if ((currentStatus === "cancelled" || currentStatus === "refunded") && fulfillmentStatuses.includes(targetStatus)) {
+  if ((currentStatus === "cancelled" || currentStatus === "refunded" || currentStatus === "failed") && fulfillmentStatuses.includes(targetStatus)) {
     return {
       valid: false,
       message: `Cannot transition a ${currentStatus} order to ${targetStatus}.`,
@@ -200,6 +183,19 @@ export const validateOrderStatusTransition = (currentOrder, targetStatus, nowMs 
       valid: false,
       message: "Cannot fulfill order: online payment has not been received.",
     };
+  }
+
+  const allowed = {
+    pending: ["processing", "packed", "cancelled", "failed"],
+    "on-hold": ["cancelled", "failed"],
+    processing: ["packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
+    packed: ["out-for-delivery", "dispatched", "cancelled"],
+    "out-for-delivery": ["completed", "dispatched", "cancelled", "failed"],
+    dispatched: ["completed", "out-for-delivery", "cancelled", "failed"],
+    completed: ["processing", "packed", "out-for-delivery", "dispatched", "cancelled", "failed"],
+  };
+  if (targetStatus !== effectiveStatus && !(allowed[effectiveStatus] || []).includes(targetStatus)) {
+    return { valid: false, message: `Cannot transition ${effectiveStatus} to ${targetStatus}.` };
   }
 
   return { valid: true };

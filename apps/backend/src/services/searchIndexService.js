@@ -16,7 +16,7 @@ import {
 } from "../utils/searchNormalization.js";
 
 const CATALOG_PRODUCT_FIELDS =
-  "id,name,slug,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count,catalog_visibility";
+  "id,name,slug,type,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count,catalog_visibility";
 
 export const isSearchVisible = (product) => {
   if (!product) return false;

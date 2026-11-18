@@ -19,6 +19,49 @@ import {
 import { getOverview, reconcilePayment } from "../services/adminApi";
 import { useVisibleRevalidation } from "../hooks/useVisibleRevalidation.js";
 import { formatOrderDateTimeIST, getStatusBadgeClass } from "../utils/recentOrdersFormatter.js";
+import { resolveMediaUrl } from "../utils/imageUtils.js";
+
+function InventoryAlertItem({ product }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  useEffect(() => setImgFailed(false), [product.image]);
+  const resolvedUrl = !imgFailed && product.image ? resolveMediaUrl(product.image) : null;
+
+  return (
+    <Link
+      to={`/products?product_id=${encodeURIComponent(product.id)}`}
+      className="group flex items-center justify-between rounded-xl bg-gray-50 p-3 border border-gray-100 hover:bg-gray-100/80 hover:border-gray-200 transition"
+      title={`View ${product.name} in Products`}
+    >
+      <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white border border-gray-200 shadow-2xs">
+          {resolvedUrl ? (
+            <img
+              src={resolvedUrl}
+              alt={product.name}
+              className="h-full w-full object-contain"
+              loading="lazy"
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <Boxes size={18} className="text-gray-400 group-hover:text-gray-600 transition" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h4 className="truncate text-xs font-bold text-gray-900 group-hover:text-[#FF8A00] transition">
+            {product.name}
+          </h4>
+          <span className="text-[10px] text-gray-500 font-medium">₹{product.price}</span>
+        </div>
+      </div>
+
+      <span className="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 border border-rose-200">
+        {product.stock_quantity !== null && product.stock_quantity !== undefined && product.stock_quantity > 0
+          ? `${product.stock_quantity} left`
+          : "Out of stock"}
+      </span>
+    </Link>
+  );
+}
 
 function Overview() {
   const [data, setData] = useState(null);
@@ -253,28 +296,7 @@ function Overview() {
                 </p>
               )}
               {lowStockProducts.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between rounded-xl bg-gray-50 p-3 border border-gray-100"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-white border border-gray-200">
-                      {p.image ? (
-                        <img src={p.image} alt={p.name} className="h-full w-full object-contain" />
-                      ) : (
-                        <Boxes size={18} className="text-gray-400" />
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="line-clamp-1 text-xs font-bold text-gray-900">{p.name}</h4>
-                      <span className="text-[10px] text-gray-500 font-medium">₹{p.price}</span>
-                    </div>
-                  </div>
-
-                  <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 border border-rose-200">
-                    {p.stock_quantity !== null ? `${p.stock_quantity} left` : "Out of stock"}
-                  </span>
-                </div>
+                <InventoryAlertItem key={p.id} product={p} />
               ))}
             </div>
           </div>

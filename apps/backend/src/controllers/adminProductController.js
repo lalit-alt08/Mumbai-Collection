@@ -1,4 +1,5 @@
 import wp from "../services/wordpress.js";
+import { createHash } from "node:crypto";
 import axios from "axios";
 import api from "../config/woocommerce.js";
 import { httpsAgent } from "../config/httpAgent.js";
@@ -153,18 +154,24 @@ export const fetchStockCounts = async ({ bypassCache = false } = {}) => {
   };
 
   const loadCounts = async () => {
-    try {
-      const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
-      const internalKey = process.env.MUMBAI_INTERNAL_API_KEY;
-      if (internalKey) {
+    const wpBaseUrl = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+    const internalKey = process.env.MUMBAI_INTERNAL_API_KEY;
+    if (internalKey) {
+      try {
         const res = await axios.get(`${wpBaseUrl}/wp-json/mumbai-auth/v1/products/stock-counts`, {
           headers: { "X-Mumbai-Internal-Key": internalKey },
           httpsAgent,
           timeout: 4000,
         });
         if (res.data?.success && res.data?.counts) return normalizeCounts(res.data.counts);
+        throw new Error("Stock counts are temporarily unavailable.");
+      } catch (error) {
+        // Only use the legacy WooCommerce fallback when the summary endpoint is
+        // absent. Timeouts and server failures affect the same upstream store;
+        // issuing five more requests would make an outage worse.
+        if (![404, 501].includes(error?.response?.status)) throw error;
       }
-    } catch (_) {}
+    }
 
     const scope = { ...EDITABLE_PRODUCT_SCOPE, per_page: 1 };
     const [allRes, inStockRes, backorderRes, outOfStockRes, lowStockRes] = await Promise.all([
@@ -280,8 +287,8 @@ export const validateProductInput = ({ name, regular_price, sale_price, stock_qu
   if (sale_price !== undefined && sale_price !== "") {
     const sale = Number(sale_price);
     if (!Number.isFinite(sale) || sale < 0) return "Sale price must be a valid non-negative number.";
-    if (regular_price !== undefined && sale > Number(regular_price)) {
-      return "Sale price cannot be greater than regular price.";
+    if (regular_price !== undefined && sale >= Number(regular_price)) {
+      return "Sale price must be less than regular price.";
     }
   }
   if (stock_quantity !== undefined && stock_quantity !== null && stock_quantity !== "") {
@@ -299,16 +306,18 @@ export const validateProductInput = ({ name, regular_price, sale_price, stock_qu
  */
 export const getAdminProducts = async (req, res) => {
   try {
-    const { category, search, page = 1, per_page = 20, stock_status } = req.query;
+    const { category, search, page = 1, per_page = 20, stock_status, product_id } = req.query;
     const pageNum = Math.max(1, Number(page) || 1);
     const limit = Math.min(100, Math.max(1, Number(per_page) || 20));
     const cleanCategory = category && category !== "all" ? String(category).trim() : "all";
     const cleanSearch = search && search.trim() ? search.trim().toLowerCase() : "";
     const cleanStockStatus = ["instock", "outofstock", "onbackorder", "lowstock"].includes(stock_status) ? stock_status : "all";
 
-    const cacheKey = `admin_products:${pageNum}:${limit}:${cleanCategory}:${cleanStockStatus}:${cleanSearch}`;
+    const cacheKey = `admin_products:${pageNum}:${limit}:${cleanCategory}:${cleanStockStatus}:${cleanSearch}${product_id ? `:id${product_id}` : ""}`;
     const cachedData = serverCache.get(cacheKey);
-    const stockCountsPromise = settleWithinBudget(fetchStockCounts());
+    const stockCountsPromise = cleanSearch && cleanCategory === "all" && cleanStockStatus === "all"
+      ? Promise.resolve(serverCache.get(PRODUCT_STOCK_COUNTS_CACHE_KEY))
+      : settleWithinBudget(fetchStockCounts());
 
     if (cachedData) {
       const stockCounts = await stockCountsPromise;
@@ -326,6 +335,7 @@ export const getAdminProducts = async (req, res) => {
       orderby: "date",
       order: "desc",
     };
+    if (product_id) queryParams.include = String(product_id);
 
     if (cleanCategory !== "all") {
       const catId = Number(cleanCategory);
@@ -524,6 +534,7 @@ export const uploadProductImage = async (req, res) => {
  * Create New Product
  */
 export const createProduct = async (req, res) => {
+  let claimedOperation = false;
   try {
     const {
       name,
@@ -569,7 +580,36 @@ export const createProduct = async (req, res) => {
 
     if (sku && String(sku).trim()) payload.sku = String(sku).trim();
 
-    const response = await api.post("products", payload);
+    let operation;
+    let fingerprint;
+    let response;
+    if (String(req.baseUrl || "").includes("/employee")) {
+      const key = req.get?.("X-Idempotency-Key") || req.headers?.["x-idempotency-key"];
+      const actor = Number(req.wpUserId || req.user?.id);
+      if (typeof key !== "string" || !key.trim() || key.length > 128 || !Number.isSafeInteger(actor) || actor < 1) {
+        return res.status(400).json({ success: false, message: "A valid product creation key and employee identity are required." });
+      }
+      operation = createHash("sha256").update(`${actor}:${key.trim()}`).digest("hex");
+      fingerprint = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+      const claim = await wp.post("/wp-json/mumbai-auth/v1/staff/products/create-operation", { action: "claim", operation, fingerprint });
+      if (!claim.data?.claimed) {
+        if (claim.data?.state !== "complete" || !Number.isSafeInteger(Number(claim.data?.product_id)) || Number(claim.data.product_id) < 1) {
+          return res.status(409).json({ success: false, code: "PRODUCT_CREATION_UNRESOLVED", message: "Product creation is still being checked. Do not create it again until its outcome is confirmed." });
+        }
+        response = await api.get(`products/${Number(claim.data.product_id)}`);
+      } else {
+        claimedOperation = true;
+        payload.meta_data = [...(payload.meta_data || []), { key: "_mumbai_create_operation", value: operation }];
+      }
+    }
+    if (!response) {
+      response = await api.post("products", payload);
+      if (claimedOperation) {
+        const productId = Number(response.data?.id);
+        if (!Number.isSafeInteger(productId) || productId < 1) throw new Error("Product creation was not confirmed.");
+        await wp.post("/wp-json/mumbai-auth/v1/staff/products/create-operation", { action: "finish", operation, fingerprint, product_id: productId });
+      }
+    }
     await invalidateInventoryCaches();
 
     const createdProduct = response.data;
@@ -577,7 +617,12 @@ export const createProduct = async (req, res) => {
     const attachedMediaIds = (createdProduct?.images || []).map((img) => img.id).filter(Boolean);
     if (attachedMediaIds.length > 0 && createdProductId) {
       try {
-        await markMediaAttached(attachedMediaIds, createdProductId);
+        try {
+          await markMediaAttached(attachedMediaIds, createdProductId);
+        } catch {
+          // Marking existing attachments is idempotent; retry once on a transient failure.
+          await markMediaAttached(attachedMediaIds, createdProductId);
+        }
       } catch (attachErr) {
         logger.warn({ createdProductId, err: attachErr.message }, "[adminProductController] Failed to mark media attached for product");
       }
@@ -590,6 +635,9 @@ export const createProduct = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Create product error");
+    if (claimedOperation) {
+      return res.status(503).json({ success: false, code: "PRODUCT_CREATION_UNRESOLVED", message: "The product may have been created. Check its status before creating it again." });
+    }
     const safeError = sanitizeUpstreamError(error, "Failed to create product.");
     res.status(safeError.status).json(safeError.payload);
   }

@@ -23,8 +23,8 @@ import {
 } from "../services/adminApi";
 
 const DURATION_OPTIONS = [
-  { id: "3_months", label: "3 Months", desc: "Active for 90 days from today" },
-  { id: "6_months", label: "6 Months", desc: "Active for 180 days from today" },
+  { id: "3_months", label: "3 Months", desc: "Expires after three calendar months" },
+  { id: "6_months", label: "6 Months", desc: "Expires after six calendar months" },
   { id: "permanent", label: "Permanent", desc: "No expiry until manually unsuspended" },
 ];
 
@@ -107,9 +107,13 @@ export default function CustomerSuspension() {
         showSuccess(res.message || "Customer account suspended successfully.");
         setConfirmModal(null);
         // Refresh customer details
-        const updated = await lookupCustomerSuspension(customer.email);
-        if (updated.success && updated.customer) {
+        try {
+          const updated = await lookupCustomerSuspension(customer.email);
+          if (!updated.success || !updated.customer) throw new Error('Refresh failed');
           setCustomer(updated.customer);
+        } catch {
+          setCustomer(null);
+          setError('Suspension was saved, but the status could not be refreshed. Look up the customer again.');
         }
       } else {
         setError(res.message || "Failed to suspend customer.");
@@ -144,9 +148,13 @@ export default function CustomerSuspension() {
           // left for a follow-up lookup to return.
           setCustomer((current) => current ? { ...current, ...res.customer, is_suspended: false } : res.customer);
         } else {
-          const updated = await lookupCustomerSuspension(customer.email);
-          if (updated.success && updated.customer) {
+          try {
+            const updated = await lookupCustomerSuspension(customer.email);
+            if (!updated.success || !updated.customer) throw new Error('Refresh failed');
             setCustomer(updated.customer);
+          } catch {
+            setCustomer(null);
+            setError('Suspension was removed, but the status could not be refreshed. Look up the customer again.');
           }
         }
       } else {
@@ -241,8 +249,9 @@ export default function CustomerSuspension() {
             />
             <input
               type="email"
+              disabled={lookupLoading || actionLoading}
               value={searchEmail}
-              onChange={(e) => setSearchEmail(e.target.value)}
+              onChange={(e) => { setSearchEmail(e.target.value); setCustomer(null); }}
               placeholder="customer@example.com"
               className="w-full rounded-2xl border border-gray-200 bg-gray-50/50 py-3 pl-10 pr-4 text-xs font-medium text-gray-900 placeholder:text-gray-400 focus:border-[#FF8A00] focus:bg-white focus:outline-hidden transition"
             />

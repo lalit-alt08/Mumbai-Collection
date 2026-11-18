@@ -1,23 +1,48 @@
-import { Link } from "react-router-dom";
-import { Truck, Clock, MapPin, CheckCircle2, ArrowLeft } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Truck, Clock, MapPin, CheckCircle2, ChevronLeft } from "lucide-react";
+import { triggerHaptic } from "../utils/haptics";
 
 function ShippingPolicy() {
+  const navigate = useNavigate();
+
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else {
+      navigate("/");
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#F0F8E8] pb-24 text-[#1E293B] lg:pb-16">
-      <header className="sticky top-0 z-30 border-b border-[#C9D2DF] bg-[#F0F8E8]/95 px-4 py-3.5 backdrop-blur-md sm:px-6 md:px-8">
-        <div className="mx-auto flex max-w-4xl items-center gap-3">
-          <Link to="/" aria-label="Back to Home" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#BAC7D8] bg-[#FFFFFF] text-[#1E293B] shadow-[0_3px_8px_rgba(30,41,59,0.15)] transition hover:text-[#22499F] active:scale-95"><ArrowLeft size={19} /></Link>
-          <div><h1 className="text-[17px] font-extrabold leading-tight tracking-[-0.01em] text-[#17233A] sm:text-lg">Shipping & Delivery</h1><p className="text-[12px] font-medium text-[#60718A]">Mumbai Collection • Delivery information</p></div>
+    <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 pt-4 pb-24 sm:px-6 md:pt-8 md:pb-16">
+      <div className="mx-auto max-w-4xl space-y-4 sm:space-y-6">
+        {/* ================= TOP BAR / NAVIGATION (Pill Design) ================= */}
+        <div className="flex items-center justify-between gap-2.5 sm:gap-3">
+          {/* Left: Circular Back Button */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic("light");
+              handleBack();
+            }}
+            aria-label="Go back"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#1E293B] border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.06)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 hover:text-[#22499F] active:scale-95 cursor-pointer"
+          >
+            <ChevronLeft size={23} strokeWidth={2.5} />
+          </button>
+
+          {/* Center: Capsule Pill */}
+          <div className="flex-1 min-w-0 flex items-center justify-center rounded-full bg-[#FFFFFF]/95 backdrop-blur-md border border-[#E2E8F0] px-4 sm:px-7 py-2.5 sm:py-3 min-h-[48px] sm:min-h-[52px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_2px_10px_rgba(0,0,0,0.06)]">
+            <h1 className="text-[16px] sm:text-[19px] font-extrabold text-[#1E293B] tracking-[-0.01em] leading-normal antialiased select-none truncate">
+              Shipping & Delivery
+            </h1>
+          </div>
+
+          {/* Symmetrical Spacer */}
+          <div className="w-12 sm:w-[52px] shrink-0" aria-hidden="true" />
         </div>
-      </header>
-      <div className="mx-auto max-w-4xl px-4 pt-4 sm:px-6 md:pt-6">
-      <div className="rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] md:p-12 text-[#1E293B]">
-        <Link
-          to="/"
-          className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#AFC3E3] bg-[#F5F8FF] px-3.5 py-2 text-sm font-extrabold text-[#22499F] transition hover:bg-[#EAF0FF]"
-        >
-          <ArrowLeft size={16} /> Back to Home
-        </Link>
+
+        <div className="policy-page-card rounded-[24px] border border-[#C9D2DF] bg-[#FFFFFF] p-6 shadow-[0_8px_20px_rgba(30,41,59,0.15)] md:p-12 text-[#1E293B]">
 
         <div className="mb-8 border-b border-[#E2E8F0] pb-6">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#AFC3E3] bg-[#F5F8FF] px-4 py-1.5 text-xs font-extrabold text-[#22499F]">

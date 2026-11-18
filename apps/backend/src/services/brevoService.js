@@ -92,13 +92,26 @@ export const escapeHtml = (str) => {
 export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
   let title = "Reset Your Password";
   let lead = "We received a request to reset your Mumbai Collection account password. Please use the 6-digit verification code below to proceed.";
+  const isDeleteAccount = purpose === "delete_account";
 
   if (purpose === "register") {
     title = "Verify Your Email Address";
     lead = "Welcome to Mumbai Collection! Please use the 6-digit verification code below to verify your email and complete your account setup.";
+  } else if (isDeleteAccount) {
+    title = "Confirm Permanent Account Deletion";
+    lead = "We received a request to permanently delete your Mumbai Collection account, saved addresses, and wishlist. Enter the 6-digit confirmation code below only if you want to permanently delete your account. This action cannot be undone.";
   }
 
   const safeName = escapeHtml(toName);
+  const otpBoxBg = isDeleteAccount ? "#FEF2F2" : "#F5F3FF";
+  const otpBoxBorder = isDeleteAccount ? "#DC2626" : "#7C3AED";
+  const otpCodeColor = isDeleteAccount ? "#B91C1C" : "#6D28D9";
+  const noteBg = isDeleteAccount ? "#FEF2F2" : "#FFFBEB";
+  const noteBorder = isDeleteAccount ? "#FECACA" : "#FDE68A";
+  const noteColor = isDeleteAccount ? "#991B1B" : "#92400E";
+  const noteText = isDeleteAccount
+    ? "<strong>Warning:</strong> Entering this code will permanently delete your Mumbai Collection account. Valid for <strong>5 minutes</strong>. Never share this code with anyone."
+    : "<strong>Important:</strong> This verification code is valid for <strong>5 minutes</strong>. Do not share this OTP with anyone. Mumbai Collection staff will never ask for your verification code.";
 
   return `<!DOCTYPE html>
 <html>
@@ -136,15 +149,15 @@ export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
                 ${lead}
               </p>
               <!-- OTP Box -->
-              <div style="background-color: #F5F3FF; border: 2px dashed #7C3AED; border-radius: 14px; padding: 20px; text-align: center; margin: 0 0 24px 0;">
-                <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #6D28D9; display: inline-block;">
+              <div style="background-color: ${otpBoxBg}; border: 2px dashed ${otpBoxBorder}; border-radius: 14px; padding: 20px; text-align: center; margin: 0 0 24px 0;">
+                <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 8px; color: ${otpCodeColor}; display: inline-block;">
                   ${otp}
                 </span>
               </div>
               <!-- Security Notes -->
-              <div style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 12px; padding: 14px 16px; margin: 0 0 24px 0;">
-                <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #92400E;">
-                  <strong>Important:</strong> This verification code is valid for <strong>5 minutes</strong>. Do not share this OTP with anyone. Mumbai Collection staff will never ask for your verification code.
+              <div style="background-color: ${noteBg}; border: 1px solid ${noteBorder}; border-radius: 12px; padding: 14px 16px; margin: 0 0 24px 0;">
+                <p style="margin: 0; font-size: 12px; line-height: 1.5; color: ${noteColor};">
+                  ${noteText}
                 </p>
               </div>
               <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #6B7280;">
@@ -176,7 +189,7 @@ export const buildOtpEmailHtml = ({ toName, otp, purpose }) => {
  * @param {string} params.toEmail - Destination email address
  * @param {string} [params.toName] - Destination recipient name
  * @param {string} params.otp - 6-digit verification code
- * @param {string} [params.purpose] - Purpose: "register" | "reset_password"
+ * @param {string} [params.purpose] - Purpose: "register" | "reset_password" | "delete_account"
  * @returns {Promise<{success: boolean, messageId?: string, mock?: boolean}>}
  */
 export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "reset_password" }) => {
@@ -192,11 +205,13 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "reset_pass
   const cleanName = (toName || "").trim();
 
   let subject = `Your Mumbai Collection verification code: ${otp}`;
+  let textContent = `Mumbai Collection\n\nYour verification code is: ${otp}\n\nThis code is valid for 5 minutes. Do not share this code with anyone.\nIf you did not request this, please ignore this email.`;
   if (purpose === "reset_password") {
     subject = `Your Mumbai Collection password reset code: ${otp}`;
+  } else if (purpose === "delete_account") {
+    subject = `Confirm permanent account deletion — Mumbai Collection: ${otp}`;
+    textContent = `Mumbai Collection — Confirm Permanent Account Deletion\n\nYour account deletion confirmation code is: ${otp}\n\nEntering this code will permanently delete your Mumbai Collection account, saved addresses, and wishlist. This code is valid for 5 minutes. Do not share it with anyone.\nIf you did not request account deletion, please ignore this email.`;
   }
-
-  const textContent = `Mumbai Collection\n\nYour verification code is: ${otp}\n\nThis code is valid for 5 minutes. Do not share this code with anyone.\nIf you did not request this, please ignore this email.`;
   const htmlContent = buildOtpEmailHtml({ toName: cleanName, otp, purpose });
 
   // 1. Development Mock Mode

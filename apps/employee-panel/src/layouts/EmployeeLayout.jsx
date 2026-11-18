@@ -20,6 +20,7 @@ import {
   EyeOff,
   AlertTriangle,
   RotateCcw,
+  Plus,
 } from "lucide-react";
 
 import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
@@ -28,6 +29,8 @@ import { useWakeLock } from "../hooks/useWakeLock.js";
 function EmployeeLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pageRefresh, setPageRefresh] = useState(null);
+  const [categoryAddRequest, setCategoryAddRequest] = useState(0);
+  const [bannerAddRequest, setBannerAddRequest] = useState(0);
   const mainRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -321,7 +324,16 @@ function EmployeeLayout() {
 
           {/* Right Action Controls: Counter Mode & Logout */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* Quick Counter WakeLock Toggle */}
+            {location.pathname === "/categories/add" ? (
+            <button type="button" aria-label="Add category" title="Add category" onClick={() => { setCategoryAddRequest((value) => value + 1); mainRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs hover:bg-emerald-500 active:scale-95 transition cursor-pointer">
+              <Plus size={19} />
+            </button>
+            ) : location.pathname === "/banners" ? (
+            <button type="button" aria-label="Add banner" title="Add banner" onClick={() => { setBannerAddRequest((value) => value + 1); mainRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs hover:bg-emerald-500 active:scale-95 transition cursor-pointer">
+              <Plus size={19} />
+            </button>
+            ) : (
+            /* Quick Counter WakeLock Toggle */
             <button
               type="button"
               onClick={toggleCounterMode}
@@ -342,6 +354,7 @@ function EmployeeLayout() {
                 }`}
               />
             </button>
+            )}
 
             {/* Logout Button */}
             <button
@@ -511,7 +524,7 @@ function EmployeeLayout() {
 
         {/* Page Content with bottom clearance for Mobile Bottom Navigation */}
         <main ref={mainRef} className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-8">
-          <Outlet context={{ setPageRefresh }} />
+          <Outlet context={{ setPageRefresh, categoryAddRequest, bannerAddRequest }} />
         </main>
 
         {/* Mobile Bottom Navigation Bar */}

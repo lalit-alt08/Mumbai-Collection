@@ -61,7 +61,10 @@ export const uploadMedia = async (file, options = {}) => {
           url: mediaUrl,
         };
       }
+      throw new Error("WordPress upload outcome is uncertain; check the media library before retrying.");
     } catch (internalErr) {
+      // A timeout or server error can occur after WordPress stored the file.
+      if (![401, 403, 404, 405, 501].includes(internalErr.response?.status)) throw internalErr;
       logger.warn(
         { err: internalErr.response?.data || internalErr.message },
         "[wordpressMediaService] Internal media upload failed, attempting fallback to WP REST API"

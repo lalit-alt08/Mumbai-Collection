@@ -55,4 +55,5 @@ export const ERROR_CODE_HTTP_STATUS = Object.freeze({
 
   // ── 503 Service Unavailable ────────────────────────────────────────────────
   STORE_HOURS_UNAVAILABLE: 503,
+  UPSTREAM_INVALID_JSON: 503,
 });

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "./AuthContext";
 import {
   getFavoriteIds,
@@ -11,6 +11,8 @@ const FavoritesContext = createContext(null);
 
 export const FavoritesProvider = ({ children }) => {
   const { user } = useAuth();
+  const currentUserId = useRef(user?.id);
+  currentUserId.current = user?.id;
   const [favoriteIds, setFavoriteIds] = useState(new Set());
   const [favorites, setFavorites] = useState([]);
   const [favoriteError, setFavoriteError] = useState(null);
@@ -25,14 +27,21 @@ export const FavoritesProvider = ({ children }) => {
     if (!user) {
       setFavoriteIds(new Set());
       setFavorites([]);
+      setFavoriteError(null);
+      setLoading(false);
+      setLoadingMore(false);
       setFavoritePage(0);
       setFavoriteTotalPages(0);
       setFavoriteTotal(0);
       return;
     }
 
+    const requestUserId = user.id;
+
     try {
       const res = await getFavoriteIds();
+      // Guard against account switch or logout while in-flight
+      if (currentUserId.current !== requestUserId) return;
       if (res?.success) {
         const ids = new Set((res.productIds || []).map(Number));
         setFavoriteIds(ids);
@@ -49,22 +58,34 @@ export const FavoritesProvider = ({ children }) => {
       setFavoriteIds(new Set());
       setFavorites([]);
       setFavoriteError(null);
+      setLoading(false);
+      setLoadingMore(false);
       setFavoritePage(0);
       setFavoriteTotalPages(0);
       setFavoriteTotal(0);
       return [];
     }
 
+    const requestUserId = user.id;
+
     try {
       if (append) setLoadingMore(true);
       else setLoading(true);
       setFavoriteError(null);
       const res = await getFavorites({ page, perPage: 24 });
+      // Guard against account switch or logout while in-flight
+      if (currentUserId.current !== requestUserId) return [];
       if (res?.success) {
-        setFavoriteError(null);
         const ids = new Set((res.productIds || []).map(Number));
         const nextFavorites = res.favorites || [];
         setFavoriteIds(ids);
+
+        if (res.degraded) {
+          setFavoriteError("Unable to load saved items from catalog right now. Please try again.");
+          return [];
+        }
+
+        setFavoriteError(null);
         setFavorites((current) => {
           if (!append) return nextFavorites;
           const byId = new Map(current.map((product) => [Number(product.id), product]));
@@ -77,11 +98,14 @@ export const FavoritesProvider = ({ children }) => {
         return nextFavorites;
       }
     } catch (err) {
+      if (currentUserId.current !== requestUserId) return [];
       // Failed to load full customer favorites
       setFavoriteError(err?.response?.data?.message || err?.message || "Failed to load favorites");
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (currentUserId.current === requestUserId) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
     return [];
   }, [user]);
@@ -108,6 +132,7 @@ export const FavoritesProvider = ({ children }) => {
     }
 
     const productId = Number(product.id || product);
+    const requestUserId = user.id;
     const currentlyFavorited = favoriteIds.has(productId);
 
     // Optimistic UI Update
@@ -135,6 +160,8 @@ export const FavoritesProvider = ({ children }) => {
         await addFavApi(productId);
       }
 
+      if (currentUserId.current !== requestUserId) return { success: false };
+
       // A mutation changes every later offset in the paginated wishlist. When
       // the customer is viewing that page, reload page one from the canonical
       // server order so a subsequently loaded page cannot skip or duplicate an
@@ -144,6 +171,7 @@ export const FavoritesProvider = ({ children }) => {
       }
       return { success: true, isFavorited: !currentlyFavorited };
     } catch (err) {
+      if (currentUserId.current !== requestUserId) return { success: false };
       // Rollback on error
       setFavoriteIds((prev) => {
         const next = new Set(prev);

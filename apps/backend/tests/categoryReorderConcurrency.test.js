@@ -82,6 +82,7 @@ test("2. Redis Outage Fail-Closed: returns HTTP 503 REORDER_LOCK_UNAVAILABLE dur
     const req = {
       body: {
         category_ids: [19, 18, 17],
+        expected_order: [19, 18, 17],
       },
     };
     const res = createMockRes();
@@ -159,6 +160,7 @@ test("3. Concurrency Throttle: fallback updates category positions with concurre
     const req = {
       body: {
         category_ids: testCategoryIds,
+        expected_order: testCategoryIds,
       },
     };
     const res = createMockRes();
@@ -258,6 +260,7 @@ test("4. Distributed Lock: acquires 30s lock and releases with owner-verified Lu
     const req = {
       body: {
         category_ids: testCategoryIds,
+        expected_order: testCategoryIds,
       },
     };
     const res = createMockRes();
@@ -289,6 +292,7 @@ test("5. Lock Contention: returns HTTP 409 REORDER_IN_PROGRESS when lock is held
     const req = {
       body: {
         category_ids: [19, 18],
+        expected_order: [19, 18],
       },
     };
     const res = createMockRes();
@@ -366,6 +370,7 @@ test("6. Union of Explicit Failures + Omitted IDs + Malformed IDs in Batch", asy
     const req = {
       body: {
         category_ids: testCategoryIds,
+        expected_order: testCategoryIds,
       },
     };
     const res = createMockRes();
@@ -433,6 +438,7 @@ test("7. Lock Loss Detection: halts writes and aborts with 409 if lock is seized
     const req = {
       body: {
         category_ids: testCategoryIds,
+        expected_order: testCategoryIds,
       },
     };
     const res = createMockRes();
@@ -461,14 +467,15 @@ test("8. Authoritative Verification: fails with HTTP 500 if WooCommerce menu_ord
   api.get = async (path) => {
     if (path === "products/categories") {
       getCallCount++;
-      if (getCallCount === 1) {
+      if (getCallCount <= 2) {
         // Initial metadata check: valid categories
         return {
-          data: testCategoryIds.map((id) => ({
+          data: testCategoryIds.map((id, index) => ({
             id,
             name: `Category ${id}`,
             slug: `cat-${id}`,
             parent: 0,
+            menu_order: index + 1,
           })),
         };
       }
@@ -498,6 +505,7 @@ test("8. Authoritative Verification: fails with HTTP 500 if WooCommerce menu_ord
     const req = {
       body: {
         category_ids: testCategoryIds,
+        expected_order: testCategoryIds,
       },
     };
     const res = createMockRes();
@@ -628,6 +636,7 @@ test("10. Heartbeat Renewal Timer: periodic renewal returning 0 marks lock lost 
     const req = {
       body: {
         category_ids: testCategoryIds,
+        expected_order: testCategoryIds,
       },
     };
     const res = createMockRes();

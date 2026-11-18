@@ -40,6 +40,48 @@ export function CartProvider({ children }) {
   const isInitialMountRef = useRef(true);
   const retryMergeRef = useRef(null);
   const mergingEpochRef = useRef(null);
+  const authCartResolversRef = useRef([]);
+  const confirmedAuthCartRef = useRef({ userId: null, result: null });
+
+  const settleAuthCartWaiters = useCallback((targetUserId, result) => {
+    const targetKey = targetUserId != null ? String(targetUserId) : null;
+    if (targetKey && result?.status === "confirmed") {
+      confirmedAuthCartRef.current = { userId: targetKey, result };
+    } else if (!targetKey) {
+      confirmedAuthCartRef.current = { userId: null, result: null };
+    }
+    const remaining = [];
+    for (const waiter of authCartResolversRef.current) {
+      if (!targetKey || waiter.userId === targetKey) {
+        clearTimeout(waiter.timer);
+        waiter.resolve(result);
+      } else {
+        remaining.push(waiter);
+      }
+    }
+    authCartResolversRef.current = remaining;
+  }, []);
+
+  const waitForAuthenticatedCart = useCallback((expectedUserId, timeoutMs = 4000) => {
+    if (!expectedUserId) {
+      return Promise.resolve({ status: "unavailable", reason: "missing_user", cart: null });
+    }
+    const key = String(expectedUserId);
+    if (
+      confirmedAuthCartRef.current.userId === key &&
+      confirmedAuthCartRef.current.result?.status === "confirmed"
+    ) {
+      return Promise.resolve(confirmedAuthCartRef.current.result);
+    }
+    return new Promise((resolve) => {
+      const waiter = { userId: key, resolve, timer: null };
+      waiter.timer = setTimeout(() => {
+        authCartResolversRef.current = authCartResolversRef.current.filter((w) => w !== waiter);
+        resolve({ status: "unavailable", reason: "timeout", cart: null });
+      }, timeoutMs);
+      authCartResolversRef.current.push(waiter);
+    });
+  }, []);
   const recoveryOwnerRef = useRef(checkoutExpiredUserId || null);
 
   const saveRecoveryDraft = (owner, items) => {
@@ -160,6 +202,7 @@ export function CartProvider({ children }) {
 
       // Scenario 1: Logout (User -> null) - full purge
       if (!currentUserId) {
+        settleAuthCartWaiters(null, { status: "unavailable", reason: "cancelled", cart: null });
         retryMergeRef.current = null;
         setHasPendingMerge(false);
         clearCartSession();
@@ -193,6 +236,12 @@ export function CartProvider({ children }) {
         setLoading(true);
         refreshCart().then((serverCart) => {
           if (sessionEpochRef.current !== currentEpoch) return;
+          settleAuthCartWaiters(
+            currentUserId,
+            serverCart && Array.isArray(serverCart.items)
+              ? { status: "confirmed", cart: serverCart }
+              : { status: "unavailable", reason: "error", cart: null }
+          );
           if (String(currentUserId) !== String(recoveryOwner) || !draft || Date.now() - draft.timestamp > 30 * 60 * 1000) return;
           safeSessionStorage.removeItem("checkout_cart_draft");
           const expected = new Map((draft.items || []).map((item) => [getCartItemIdentity(item), Number(item.quantity)]));
@@ -201,6 +250,7 @@ export function CartProvider({ children }) {
             setCartMergeNotice({ failedItems: [{ name: "Your cart changed while you were signed out. Please review it before checkout." }], retryable: false });
           }
         }).catch(() => {
+          settleAuthCartWaiters(currentUserId, { status: "unavailable", reason: "error", cart: null });
           if (sessionEpochRef.current === currentEpoch) setCartMergeNotice({ failedItems: [{ name: "We could not reload your cart. Please try again." }], retryable: false });
         });
         return;
@@ -208,6 +258,7 @@ export function CartProvider({ children }) {
 
       // Scenario 2: Account Switch (User A -> User B) - full purge for account isolation
       if (prevUserId && currentUserId && prevUserId !== currentUserId) {
+        settleAuthCartWaiters(null, { status: "unavailable", reason: "cancelled", cart: null });
         retryMergeRef.current = null;
         setHasPendingMerge(false);
         clearCartSession();
@@ -217,7 +268,22 @@ export function CartProvider({ children }) {
         setCart(null);
         setLoading(true);
         setCartMergeNotice(null);
-        refreshCart().catch(() => {});
+        refreshCart()
+          .then((serverCart) => {
+            if (sessionEpochRef.current === currentEpoch) {
+              settleAuthCartWaiters(
+                currentUserId,
+                serverCart && Array.isArray(serverCart.items)
+                  ? { status: "confirmed", cart: serverCart }
+                  : { status: "unavailable", reason: "error", cart: null }
+              );
+            }
+          })
+          .catch(() => {
+            if (sessionEpochRef.current === currentEpoch) {
+              settleAuthCartWaiters(currentUserId, { status: "unavailable", reason: "error", cart: null });
+            }
+          });
         return;
       }
 
@@ -240,6 +306,7 @@ export function CartProvider({ children }) {
           sessionEpochRef.current === currentEpoch &&
           prevUserIdRef.current === currentUserId;
 
+        let confirmedCartResult = null;
         try {
           // Wait for a confirmed cart for the signed-in account before merging
           let serverCart = null;
@@ -254,6 +321,7 @@ export function CartProvider({ children }) {
             await waitForCartWrites();
           }
           if (!isSessionValid() || !serverCart) return;
+          confirmedCartResult = serverCart;
 
           if (guestItems.length > 0) {
             const result = await orchestrateCartMerge({
@@ -272,6 +340,7 @@ export function CartProvider({ children }) {
             }
 
             if (result.serverCart) {
+              confirmedCartResult = result.serverCart;
               setCart(result.serverCart);
               setCartConfirmed(true);
             }
@@ -303,7 +372,15 @@ export function CartProvider({ children }) {
         } finally {
           if (mergingEpochRef.current === currentEpoch) mergingEpochRef.current = null;
           if (isSessionValid()) {
+            settleAuthCartWaiters(
+              currentUserId,
+              confirmedCartResult && Array.isArray(confirmedCartResult.items)
+                ? { status: "confirmed", cart: confirmedCartResult }
+                : { status: "unavailable", reason: "error", cart: null }
+            );
             setLoading(false);
+          } else {
+            settleAuthCartWaiters(null, { status: "unavailable", reason: "cancelled", cart: null });
           }
         }
       };
@@ -337,6 +414,7 @@ export function CartProvider({ children }) {
         retryCartMerge,
         hasPendingMerge,
         updateRecoveryQuantity,
+        waitForAuthenticatedCart,
       }}
     >
       {children}
