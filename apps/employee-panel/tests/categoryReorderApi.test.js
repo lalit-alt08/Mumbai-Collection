@@ -31,12 +31,12 @@ test("Category Reorder Employee API Client", async (t) => {
 
     const res = await reorderCategories([19, 18, 17], {
       "X-Idempotency-Key": "test_idempotency_12345",
-    });
+    }, [17, 18, 19]);
 
     assert.ok(capturedConfig, "Axios request must be executed");
     assert.equal(capturedConfig.method?.toLowerCase(), "put");
     assert.ok(capturedConfig.url?.includes("/categories/reorder"));
-    assert.deepEqual(capturedConfig.data, { category_ids: [19, 18, 17] });
+    assert.deepEqual(capturedConfig.data, { category_ids: [19, 18, 17], expected_order: [17, 18, 19] });
     assert.equal(capturedConfig.headers?.["X-Idempotency-Key"], "test_idempotency_12345");
     assert.equal(res.success, true);
   });

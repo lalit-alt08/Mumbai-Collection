@@ -79,10 +79,12 @@ export const cancelPaymentOrder = async (razorpayOrderId) => {
     const response = await API.post("/cancel", { razorpay_order_id: razorpayOrderId });
     return response.data;
   } catch (err) {
+    const code = err.response?.data?.code;
     return {
       success: false,
       status: err.response?.status,
-      code: err.response?.data?.code,
+      code,
+      support_required: code === "PAYMENT_REVIEW_REQUIRED",
       message: err.response?.data?.message || err.message,
       error: err.message,
     };

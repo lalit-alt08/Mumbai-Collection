@@ -335,11 +335,11 @@ export const deleteAccount = async (req, res) => {
     }
 
     const password = typeof req.body?.password === "string" ? req.body.password : "";
-    const reset_token = typeof req.body?.reset_token === "string" ? req.body.reset_token : "";
-    if (!password && !reset_token) {
+    const delete_token = typeof req.body?.delete_token === "string" ? req.body.delete_token : "";
+    if (!password && !delete_token) {
       return res.status(400).json({
         success: false,
-        message: "Your current password is required to delete your account.",
+        message: "Your current password or account deletion confirmation code is required to delete your account.",
       });
     }
 
@@ -348,12 +348,12 @@ export const deleteAccount = async (req, res) => {
     const wpAuth =
       req.cookies?.[cookieConfig.auth] || req.cookies?.mumbai_wp_auth;
 
-    // 2. Delegate password verification and account deletion to WordPress custom plugin,
+    // 2. Delegate password / delete_token verification and account deletion to WordPress custom plugin,
     // which also enforces role protections, session revocation, and content reassignment
     const wpDeleteRes = await axios.delete(
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/profile`,
       {
-        data: { password, reset_token },
+        data: { password, delete_token },
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(userId),

@@ -23,6 +23,7 @@ export const isOrderEligibleForDispatch = (order, updatingIds = new Set()) => {
   const isPacked = effectiveStatus === "packed";
   const isUnpaid = Boolean(order.is_unpaid);
   const isStatusLocked = Boolean(order.is_status_locked);
+  const needsDeliveryReview = order.meta_data?.some((meta) => meta.key === "_payment_captured_without_delivery_slot" && meta.value === "yes");
   const isUpdating =
     updatingIds instanceof Set
       ? updatingIds.has(order.id)
@@ -30,7 +31,7 @@ export const isOrderEligibleForDispatch = (order, updatingIds = new Set()) => {
       ? updatingIds.includes(order.id)
       : false;
 
-  return isPacked && !isUnpaid && !isStatusLocked && !isUpdating;
+  return isPacked && !isUnpaid && !isStatusLocked && !isUpdating && !needsDeliveryReview;
 };
 
 /**
@@ -91,6 +92,8 @@ export const createBulkConfirmSnapshot = ({
   const reviewedIds = Array.from(activeIds);
   const orderMap = new Map(filteredOrders.map((o) => [o.id, o]));
   const groups = {};
+  const locationsById = {};
+  const locationKeysById = {};
 
   for (const id of reviewedIds) {
     const order = orderMap.get(id);
@@ -101,12 +104,16 @@ export const createBulkConfirmSnapshot = ({
       location = order.delivery_location;
     }
     groups[location] = (groups[location] || 0) + 1;
+    locationsById[id] = location;
+    locationKeysById[id] = getOrderLocationInfo?.(order)?.location_key || order?.delivery_location_key || "unassigned";
   }
 
   return {
     queryKey,
     reviewedIds,
     groups,
+    locationsById,
+    locationKeysById,
   };
 };
 
@@ -165,6 +172,9 @@ export const validateBulkConfirmSnapshot = ({
       location = order.delivery_location;
     }
     currentGroups[location] = (currentGroups[location] || 0) + 1;
+    if (snapshot.locationsById && snapshot.locationsById[id] !== location) {
+      return { valid: false, reason: "grouping_changed" };
+    }
   }
 
   const snapshotGroupKeys = Object.keys(snapshot.groups || {});

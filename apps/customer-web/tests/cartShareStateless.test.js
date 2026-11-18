@@ -4,6 +4,8 @@ import {
   serializeCartItems,
   buildCartShareUrl,
   parseSharedCartItems,
+  MAX_SHARED_CART_ITEMS,
+  isCartShareTruncated,
 } from '../src/utils/cartShareUtils.js';
 
 test('cartShareUtils: serializeCartItems produces compact id:qty format for simple products', () => {
@@ -112,4 +114,23 @@ test('cartShareUtils: parseSharedCartItems safely handles empty, null, or undefi
   assert.deepEqual(parseSharedCartItems(null), []);
   assert.deepEqual(parseSharedCartItems(undefined), []);
   assert.deepEqual(parseSharedCartItems('?other=value'), []);
+});
+
+test('cartShareUtils: serializeCartItems caps output at MAX_SHARED_CART_ITEMS and isCartShareTruncated identifies oversized carts', () => {
+  const sixtyItems = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, quantity: 1 }));
+  assert.equal(isCartShareTruncated(sixtyItems), true);
+  assert.equal(isCartShareTruncated(sixtyItems.slice(0, 50)), false);
+
+  const serialized = serializeCartItems(sixtyItems);
+  const segments = serialized.split(',');
+  assert.equal(segments.length, MAX_SHARED_CART_ITEMS);
+  assert.equal(segments.length, 50);
+  assert.equal(segments[0], '1:1');
+  assert.equal(segments[49], '50:1');
+
+  // Verify symmetric parsing produces exactly 50 items
+  const parsed = parseSharedCartItems(`?items=${encodeURIComponent(serialized)}`);
+  assert.equal(parsed.length, 50);
+  assert.equal(parsed[0].id, 1);
+  assert.equal(parsed[49].id, 50);
 });

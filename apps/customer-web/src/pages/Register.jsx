@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { register, sendOtp, verifyOtp, getCurrentUser } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import { validatePassword } from "../utils/passwordValidator.js";
-import { getSafeInternalPath } from "../utils/navigation.js";
+import { executePostAuthNavigation } from "../utils/postAuthRedirect.js";
 import { RegisterDetailsStep } from "../components/auth/RegisterDetailsStep.jsx";
 import { RegisterOtpStep } from "../components/auth/RegisterOtpStep.jsx";
 import { RegisterPasswordStep } from "../components/auth/RegisterPasswordStep.jsx";
@@ -12,7 +13,17 @@ import { RegisterPasswordStep } from "../components/auth/RegisterPasswordStep.js
 function Register() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: loginUser } = useAuth();
+  const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
+  const { cart, waitForAuthenticatedCart } = useCart();
+  const isMountedRef = useRef(true);
+  const authAttemptRef = useRef(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Step state: "details" (names + email) | "otp" (verification code)
   const [step, setStep] = useState("details");
@@ -180,12 +191,20 @@ function Register() {
       }
     }
 
+    const attemptId = ++authAttemptRef.current;
+    const preAuthEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
+    const isPreAuthActive = () =>
+      isMountedRef.current &&
+      authAttemptRef.current === attemptId &&
+      (preAuthEpoch === null || getAuthEpoch() === preAuthEpoch);
+
     try {
       submittingRef.current = true;
       setLoading(true);
 
       if (step === "otp") {
         const verification = await verifyOtp(email.trim().toLowerCase(), cleanOtp, "register");
+        if (!isPreAuthActive()) return;
         if (!verification?.registration_token) throw new Error("Email verification could not be confirmed.");
         setRegistrationToken(verification.registration_token);
         setOtp("");
@@ -207,6 +226,7 @@ function Register() {
         registration_token: registrationToken,
         password,
       });
+      if (!isPreAuthActive()) return;
 
       if (!regResponse?.user) {
         throw new Error("Registration succeeded but no active user session was returned. Please sign in.");
@@ -236,6 +256,8 @@ function Register() {
       } catch (_) {
         confirmedUser = null;
       }
+      if (!isPreAuthActive()) return;
+
       if (!confirmedUser || String(confirmedUser.id) !== String(regResponse.user.id)) {
         setPassword("");
         setConfirmPassword("");
@@ -251,14 +273,30 @@ function Register() {
         return;
       }
 
+      const hasCartItems = Boolean(cart?.items?.length > 0);
       loginUser(confirmedUser);
+      const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
       setPassword("");
       setConfirmPassword("");
       setRegistrationToken("");
 
-      const safeReturn = getSafeInternalPath(location.state?.from, "/");
-      navigate(safeReturn, { replace: true });
+      await executePostAuthNavigation({
+        from: location.state?.from,
+        hasCartItems,
+        user: confirmedUser,
+        firstName: cleanFirst,
+        lastName: cleanLast,
+        waitForAuthenticatedCart,
+        isAttemptActive: () =>
+          isMountedRef.current &&
+          authAttemptRef.current === attemptId &&
+          (expectedEpoch === null || getAuthEpoch() === expectedEpoch),
+        handleSessionExpired,
+        navigate,
+        onUnauthorized: (msg) => setError(msg),
+      });
     } catch (err) {
+      if (!isPreAuthActive()) return;
       const backendMessage =
         typeof err.response?.data?.message === "string"
           ? err.response.data.message
@@ -275,8 +313,12 @@ function Register() {
         setError(backendMessage);
       }
     } finally {
-      submittingRef.current = false;
-      setLoading(false);
+      if (authAttemptRef.current === attemptId) {
+        submittingRef.current = false;
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+      }
     }
   };
 

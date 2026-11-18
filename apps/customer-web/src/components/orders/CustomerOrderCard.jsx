@@ -29,6 +29,12 @@ export function CustomerOrderCard({
   const isLive = ["pending", "processing", "on-hold", "out-for-delivery", "dispatched"].includes(
     order.status
   );
+  const rawPaymentRef =
+    order.razorpay_order_id ||
+    order.meta_data?.find((m) => m.key === "_razorpay_order_id")?.value ||
+    "";
+  const razorpayOrderId =
+    typeof rawPaymentRef === "string" && rawPaymentRef.trim() ? rawPaymentRef.trim() : "";
 
   return (
     <div
@@ -139,10 +145,10 @@ export function CustomerOrderCard({
               )}
             </button>
 
-            {["pending", "on-hold"].includes(order.status) && (
+            {["pending", "on-hold"].includes(order.status) && razorpayOrderId && (
               <button
                 type="button"
-                onClick={() => onCheckPending(order.meta_data?.find((m) => m.key === "_razorpay_order_id")?.value || order.id)}
+                onClick={() => onCheckPending(razorpayOrderId)}
                 disabled={checkingPending}
                 className="col-span-2 sm:col-auto inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-[#22499F] px-3.5 sm:px-4 text-xs font-black text-[#FFFFFF] transition-all select-none whitespace-nowrap hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
               >

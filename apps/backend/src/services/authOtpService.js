@@ -27,18 +27,24 @@ export const processSendOtp = async (req, res) => {
   try {
     const rawTarget = req.body.phone || req.body.email;
     const { purpose } = req.body;
-    if (!rawTarget || !["reset_password", "register", "verify_phone"].includes(purpose)) {
+    const allowedPurposes = ["reset_password", "register", "verify_phone", "delete_account"];
+    if (!allowedPurposes.includes(purpose) || (purpose !== "delete_account" && !rawTarget)) {
       return res.status(400).json({ success: false, message: "Invalid phone, email or purpose." });
     }
 
+    const authenticatedUserId = req.user?.id || req.wpUserId;
     if (purpose === "verify_phone") {
-      const authenticatedUserId = req.user?.id || req.wpUserId;
       if (!authenticatedUserId) {
         return res.status(401).json({ success: false, message: "Authentication required to verify phone." });
       }
     }
+    if (purpose === "delete_account") {
+      if (!authenticatedUserId) {
+        return res.status(401).json({ success: false, message: "Authentication required to confirm account deletion." });
+      }
+    }
 
-    const { target: cleanPhone, isEmail: isEmailInput } = normalizeOtpTarget(rawTarget);
+    const { target: cleanPhone, isEmail: isEmailInput } = normalizeOtpTarget(rawTarget || req.user?.email || "");
     if (purpose === "register" && !isEmailInput) {
       return res.status(400).json({
         success: false,
@@ -47,7 +53,7 @@ export const processSendOtp = async (req, res) => {
     }
 
     if (process.env.NODE_ENV !== "production") {
-      const inputMasked = `...${String(rawTarget).trim().slice(-4)}`;
+      const inputMasked = `...${String(rawTarget || "").trim().slice(-4)}`;
       const cleanMasked = `...${cleanPhone.slice(-4)}`;
       console.log(
         `[OTP Flow] input: ${inputMasked} | normalized: ${cleanMasked} | purpose: ${purpose}`
@@ -64,7 +70,7 @@ export const processSendOtp = async (req, res) => {
         phone: cleanPhone,
         purpose,
         otp_hash: otpHash,
-        user_id: req.user?.id || req.wpUserId,
+        user_id: authenticatedUserId,
       },
       {
         headers: getInternalHeaders(),
@@ -78,7 +84,11 @@ export const processSendOtp = async (req, res) => {
       });
     }
 
-    const targetEmail = storeResponse.data?.email || req.user?.email || (purpose === "register" ? cleanPhone : "");
+    // For delete_account, always use the authoritative account email returned by WordPress.
+    const targetEmail =
+      purpose === "delete_account"
+        ? storeResponse.data?.email || ""
+        : storeResponse.data?.email || req.user?.email || (purpose === "register" ? cleanPhone : "");
     const targetName = storeResponse.data?.name || req.user?.name || req.body.first_name || req.body.name || "Valued Customer";
 
     if (purpose === "reset_password") {
@@ -113,6 +123,7 @@ export const processSendOtp = async (req, res) => {
           {
             phone: cleanPhone,
             purpose,
+            user_id: authenticatedUserId,
           },
           {
             headers: getInternalHeaders(),
@@ -132,6 +143,13 @@ export const processSendOtp = async (req, res) => {
       return res.status(200).json({
         success: true,
         message: "Verification code sent to your email address.",
+      });
+    }
+
+    if (purpose === "delete_account") {
+      return res.status(200).json({
+        success: true,
+        message: "Account deletion confirmation code sent to your email address.",
       });
     }
 
@@ -186,18 +204,24 @@ export const processVerifyOtp = async (req, res) => {
   try {
     const rawTarget = req.body.phone || req.body.email;
     const { otp, purpose } = req.body;
-    if (!rawTarget || !otp || !purpose || !["reset_password", "register", "verify_phone"].includes(purpose)) {
+    const allowedPurposes = ["reset_password", "register", "verify_phone", "delete_account"];
+    if (!otp || !purpose || !allowedPurposes.includes(purpose) || (purpose !== "delete_account" && !rawTarget)) {
       return res.status(400).json({ success: false, message: "Missing or invalid parameters." });
     }
 
+    const authenticatedUserId = req.user?.id || req.wpUserId;
     if (purpose === "verify_phone") {
-      const authenticatedUserId = req.user?.id || req.wpUserId;
       if (!authenticatedUserId) {
         return res.status(401).json({ success: false, message: "Authentication required to verify phone." });
       }
     }
+    if (purpose === "delete_account") {
+      if (!authenticatedUserId) {
+        return res.status(401).json({ success: false, message: "Authentication required to confirm account deletion." });
+      }
+    }
 
-    const { target: cleanPhone } = normalizeOtpTarget(rawTarget);
+    const { target: cleanPhone } = normalizeOtpTarget(rawTarget || req.user?.email || "");
     const otpHash = hashOtp(otp);
 
     const verifyPayload = {
@@ -205,7 +229,6 @@ export const processVerifyOtp = async (req, res) => {
       purpose,
       otp_hash: otpHash,
     };
-    const authenticatedUserId = req.user?.id || req.wpUserId;
     if (authenticatedUserId !== undefined && authenticatedUserId !== null) {
       verifyPayload.user_id = authenticatedUserId;
     }

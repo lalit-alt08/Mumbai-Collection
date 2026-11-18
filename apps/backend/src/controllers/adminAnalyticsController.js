@@ -10,6 +10,7 @@ import {
   PRODUCT_STOCK_COUNTS_CACHE_KEY,
 } from "./adminProductController.js";
 import { getISTDateBoundaries } from "../utils/orderDateBounds.js";
+import { transformMediaUrls } from "../utils/mediaUrl.js";
 
 /**
  * Returns the effective status for an order, respecting Employee Panel meta.
@@ -146,7 +147,14 @@ export const getDashboardOverview = async (req, res) => {
         if (typeof res.set === "function") {
           res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
         }
-        return res.json(cachedOverview);
+        return res.json({
+          ...cachedOverview,
+          lowStockProducts: transformMediaUrls(cachedOverview.lowStockProducts, req),
+          data: {
+            ...cachedOverview.data,
+            lowStockProducts: transformMediaUrls(cachedOverview.data?.lowStockProducts || cachedOverview.lowStockProducts, req),
+          },
+        });
       }
     }
 
@@ -285,14 +293,14 @@ export const getDashboardOverview = async (req, res) => {
       success: true,
       summary: summaryData,
       salesTrend: Array.from(last7DaysMap.values()),
-      lowStockProducts: lowStockProducts.slice(0, 6),
+      lowStockProducts,
       recentOrders,
       recentOrdersAvailable,
       inventoryAvailable,
       data: {
         summary: summaryData,
         salesTrend: Array.from(last7DaysMap.values()),
-        lowStockProducts: lowStockProducts.slice(0, 6),
+        lowStockProducts,
         recentOrders,
         recentOrdersAvailable,
         inventoryAvailable,
@@ -307,7 +315,8 @@ export const getDashboardOverview = async (req, res) => {
       res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     }
 
-    res.json(responsePayload);
+    const transformedLowStock = transformMediaUrls(lowStockProducts, req);
+    res.json({ ...responsePayload, lowStockProducts: transformedLowStock, data: { ...responsePayload.data, lowStockProducts: transformedLowStock } });
   } catch (error) {
     logError(req, error, "Admin dashboard overview error");
     res.status(500).json({
@@ -522,7 +531,7 @@ export const getAdminAnalyticsReport = async (req, res) => {
     logError(req, error, "Get date-filtered admin analytics report error");
     return res.status(error.response?.status || 502).json({
       success: false,
-      message: error.response?.data?.message || "Unable to load the selected sales report.",
+      message: "Unable to load the selected sales report. Please try again.",
     });
   }
 };

@@ -46,11 +46,27 @@ function ProfileSetup() {
   const [phoneChecking, setPhoneChecking] = useState(false);
   const [phoneAvailable, setPhoneAvailable] = useState(null);
   const phoneCheckTimeoutRef = useRef(null);
+  const phoneCheckRequestIdRef = useRef(0);
+  const phoneCheckControllerRef = useRef(null);
+  const latestPhoneRef = useRef(defaultPhone);
+  latestPhoneRef.current = form.phone;
+
+  useEffect(() => {
+    return () => {
+      if (phoneCheckTimeoutRef.current) clearTimeout(phoneCheckTimeoutRef.current);
+      phoneCheckControllerRef.current?.abort();
+    };
+  }, []);
 
   const verifyPhoneAvailability = async (phoneToCheck) => {
     const raw = String(phoneToCheck || "").replace(/\D/g, "");
+    const requestId = ++phoneCheckRequestIdRef.current;
+    phoneCheckControllerRef.current?.abort();
+    phoneCheckControllerRef.current = null;
+
     if (raw.length !== 10) {
       setPhoneAvailable(null);
+      setPhoneChecking(false);
       return null;
     }
     if (!/^[6-9]\d{9}$/.test(raw)) {
@@ -59,15 +75,26 @@ function ProfileSetup() {
         phone: "Mobile number must start with 6, 7, 8, or 9.",
       }));
       setPhoneAvailable(false);
+      setPhoneChecking(false);
       return false;
     }
+
+    const isStillCurrent = () =>
+      requestId === phoneCheckRequestIdRef.current &&
+      String(latestPhoneRef.current || "").replace(/\D/g, "") === raw;
+
+    const controller = new AbortController();
+    phoneCheckControllerRef.current = controller;
 
     try {
       setPhoneChecking(true);
       const res = await axios.get(`${API_URL}/profile/check-phone`, {
         params: { phone: raw },
         withCredentials: true,
+        signal: controller.signal,
       });
+
+      if (!isStillCurrent()) return null;
 
       if (res.data?.exists) {
         setErrors((prev) => ({
@@ -95,6 +122,9 @@ function ProfileSetup() {
       }
       return true;
     } catch (err) {
+      if (controller.signal.aborted || err?.code === "ERR_CANCELED" || !isStillCurrent()) {
+        return null;
+      }
       if (err.response?.status === 409 || err.response?.data?.exists) {
         setErrors((prev) => ({
           ...prev,
@@ -105,7 +135,10 @@ function ProfileSetup() {
       }
       return true;
     } finally {
-      setPhoneChecking(false);
+      if (requestId === phoneCheckRequestIdRef.current) {
+        setPhoneChecking(false);
+        phoneCheckControllerRef.current = null;
+      }
     }
   };
 
@@ -118,6 +151,8 @@ function ProfileSetup() {
 
   // Saved Addresses from server
   const [addresses, setAddresses] = useState([]);
+  const [addressLoadError, setAddressLoadError] = useState("");
+  const [retryingAddresses, setRetryingAddresses] = useState(false);
 
   // Active address entry form
   const [addressForm, setAddressForm] = useState({
@@ -187,6 +222,7 @@ function ProfileSetup() {
         if (addressResult.status === "fulfilled") {
           const loadedAddresses = addressResult.value.data?.addresses || [];
           if (isMounted) {
+            setAddressLoadError("");
             setAddresses(loadedAddresses);
             if (loadedAddresses.length > 0) {
               setIsEditingAddress(false);
@@ -194,6 +230,10 @@ function ProfileSetup() {
               setIsEditingAddress(true);
             }
           }
+        } else if (isMounted && addressResult.reason?.response?.status !== 401) {
+          setAddressLoadError(
+            "We couldn't load your saved addresses. Retry to check existing addresses before adding a new one."
+          );
         }
 
         // Only redirect to login if session was explicitly invalidated (both initial requests return 401)
@@ -232,6 +272,39 @@ function ProfileSetup() {
     };
   }, []);
 
+  const handleRetryAddresses = async () => {
+    try {
+      setRetryingAddresses(true);
+      setAddressLoadError("");
+      const res = await axios.get(`${API_URL}/addresses`, {
+        withCredentials: true,
+        headers: { "X-Mumbai-Panel": "customer" },
+        timeout: 8000,
+      });
+      const loadedAddresses = res.data?.addresses || [];
+      setAddresses(loadedAddresses);
+      if (loadedAddresses.length > 0) {
+        setIsEditingAddress(false);
+      } else {
+        setIsEditingAddress(true);
+      }
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        if (handleSessionExpired) handleSessionExpired();
+        navigate("/login", {
+          replace: true,
+          state: { from: location.pathname + location.search },
+        });
+        return;
+      }
+      setAddressLoadError(
+        "Still unable to load your saved addresses. Please check your connection and try again."
+      );
+    } finally {
+      setRetryingAddresses(false);
+    }
+  };
+
   const handleChange = (e) => {
     let { name, value } = e.target;
     if (name === "phone" || name === "confirm_phone") {
@@ -249,6 +322,11 @@ function ProfileSetup() {
       return;
     }
     if (name === "phone") {
+      latestPhoneRef.current = value;
+      phoneCheckRequestIdRef.current += 1;
+      phoneCheckControllerRef.current?.abort();
+      phoneCheckControllerRef.current = null;
+      setPhoneChecking(false);
       setPhoneAvailable(null);
       if (phoneCheckTimeoutRef.current) {
         clearTimeout(phoneCheckTimeoutRef.current);
@@ -437,13 +515,27 @@ function ProfileSetup() {
     }
 
     if (phoneAvailable === null && cleanPhone.length === 10) {
-      const isAvailable = await verifyPhoneAvailability(cleanPhone);
+      // Lock immediately before the asynchronous availability check so rapid
+      // double-clicks cannot both pass preflight and submit the profile twice.
+      submittingRef.current = true;
+      let isAvailable = false;
+      try {
+        isAvailable = await verifyPhoneAvailability(cleanPhone);
+      } catch {
+        setMessage({
+          type: "error",
+          text: "Could not verify your mobile number. Please try again.",
+        });
+        submittingRef.current = false;
+        return;
+      }
       if (!isAvailable) {
         const inputElem = document.querySelector('[name="phone"]');
         if (inputElem) {
           inputElem.focus();
           inputElem.scrollIntoView({ behavior: "smooth", block: "center" });
         }
+        submittingRef.current = false;
         return;
       }
     }
@@ -506,16 +598,15 @@ function ProfileSetup() {
                 headers: { "X-Mumbai-Panel": "customer" },
               });
               const currentAddrs = fetchRes.data?.addresses || [];
-              const match = currentAddrs.find(
-                (a) => (a.type || "").toLowerCase() === (addressPayload.type || "").toLowerCase()
-              );
-              if (!match?.id) {
-                throw addrErr;
-              }
-              await axios.put(`${API_URL}/addresses/${match.id}`, addressPayload, {
-                withCredentials: true,
-                headers: { "X-Mumbai-Panel": "customer" },
+              setAddresses(currentAddrs);
+              setSaving(false);
+              const typeLabel = (addressPayload.type === "office" ? "Office" : "Home");
+              setMessage({
+                type: "error",
+                text: `You already have a saved ${typeLabel} address. Please review your saved addresses below or edit the existing one.`,
               });
+              setIsEditingAddress(false);
+              return;
             } else {
               throw addrErr;
             }
@@ -751,6 +842,26 @@ function ProfileSetup() {
             verifyPhoneAvailability={verifyPhoneAvailability}
           />
 
+          {addressLoadError && (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-950/30 px-3.5 py-2.5 text-xs font-semibold text-amber-200"
+            >
+              <div className="flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                <span>{addressLoadError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetryAddresses}
+                disabled={retryingAddresses}
+                className="shrink-0 rounded-lg bg-amber-500/20 px-2.5 py-1 text-[11px] font-bold text-amber-100 hover:bg-amber-500/30 disabled:opacity-50 transition cursor-pointer"
+              >
+                {retryingAddresses ? "Retrying..." : "Retry"}
+              </button>
+            </div>
+          )}
+
           <ProfileAddressCard
             requiresAddress={requiresAddress}
             addresses={addresses}
@@ -778,7 +889,7 @@ function ProfileSetup() {
           <div className="space-y-2.5 pt-2">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || phoneChecking}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] px-6 text-sm font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               {saving ? (

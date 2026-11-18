@@ -850,7 +850,7 @@ const verifyCategoryMenuOrders = async (parsedIds, assertLockHeld) => {
 };
 
 export const reorderCategories = async (req, res) => {
-  const { category_ids } = req.body || {};
+  const { category_ids, expected_order } = req.body || {};
 
   if (!Array.isArray(category_ids) || category_ids.length === 0) {
     return res.status(400).json({
@@ -879,16 +879,37 @@ export const reorderCategories = async (req, res) => {
     });
   }
 
+  if (!Array.isArray(expected_order) || !expected_order.length || expected_order.some((id) => !Number.isSafeInteger(Number(id)) || Number(id) <= 0)) {
+    return res.status(400).json({ success: false, code: "ORDER_VERSION_REQUIRED", message: "Reload the category list before reordering." });
+  }
+
   const lease = await acquireReorderLock(req);
   if (lease.payload) return res.status(lease.status).json(lease.payload);
   const { assertLockHeld } = lease;
   const previousQueue = localReorderMutex;
   let releaseLocal;
+  let writesStarted = false;
+  let cachesInvalidated = false;
   localReorderMutex = new Promise((resolve) => { releaseLocal = resolve; });
 
   try {
     await previousQueue;
     await assertLockHeld();
+
+    const currentCategories = await fetchAllProductCategories({ fields: "id,name,slug,parent,menu_order" });
+    await assertLockHeld();
+    const currentOrder = currentCategories
+      .filter((category) => !isUncategorizedCategory(category) && (!category.parent || Number(category.parent) === 0))
+      .sort((a, b) => ((Number(a.menu_order) > 0 ? Number(a.menu_order) : 9999) - (Number(b.menu_order) > 0 ? Number(b.menu_order) : 9999)) || Number(a.id) - Number(b.id))
+      .map((category) => Number(category.id));
+    const expected = expected_order.map(Number);
+    if (currentOrder.length !== expected.length || currentOrder.some((id, index) => id !== expected[index])) {
+      await invalidateAllCategoryCaches();
+      return res.status(409).json({ success: false, code: "CATEGORY_ORDER_CONFLICT", message: "Categories changed while you were editing. Reload and review the latest order." });
+    }
+    if (parsedIds.length !== currentOrder.length || parsedIds.some((id) => !currentOrder.includes(id))) {
+      return res.status(400).json({ success: false, message: "The order must include every current department." });
+    }
 
     // Reordering is only for top-level storefront departments. Do not trust
     // the employee UI to keep child terms or the protected fallback category
@@ -914,8 +935,11 @@ export const reorderCategories = async (req, res) => {
       });
     }
 
+    writesStarted = true;
     const rejected = await syncCategoryMenuOrders(parsedIds, assertLockHeld);
   if (rejected.length > 0) {
+    await invalidateAllCategoryCaches();
+    cachesInvalidated = true;
     return res.status(400).json({
       success: false,
       message: `Failed to update category order for ${rejected.length} category(ies): ${rejected.join(", ")}.`,
@@ -925,6 +949,8 @@ export const reorderCategories = async (req, res) => {
 
     const verificationMismatches = await verifyCategoryMenuOrders(parsedIds, assertLockHeld);
     if (verificationMismatches.length > 0) {
+      await invalidateAllCategoryCaches();
+      cachesInvalidated = true;
       logger.error(
         { mismatchCount: verificationMismatches.length, verificationMismatches },
         "[reorderCategories] Authoritative verification failed: WooCommerce menu_order mismatch"
@@ -940,6 +966,7 @@ export const reorderCategories = async (req, res) => {
     // Invalidate catalog and resilience cache so public categories immediately reflect new merchandising order
     await assertLockHeld();
     const cacheSync = await invalidateAllCategoryCaches();
+    cachesInvalidated = true;
     await assertLockHeld();
 
     res.json({
@@ -951,6 +978,10 @@ export const reorderCategories = async (req, res) => {
       cache_sync: cacheSync,
     });
   } catch (error) {
+    if (writesStarted && !cachesInvalidated) {
+      await invalidateAllCategoryCaches();
+      cachesInvalidated = true;
+    }
     if (error.code === "LOCK_LOST" || error.statusCode === 409) {
       logger.error({ err: error.message }, "[reorderCategories] Operation aborted because distributed lock was lost");
       return res.status(409).json({
@@ -963,6 +994,7 @@ export const reorderCategories = async (req, res) => {
     const safeError = sanitizeUpstreamError(error, "Failed to reorder categories.");
     res.status(safeError.status).json(safeError.payload);
   } finally {
+    if (writesStarted && !cachesInvalidated) await invalidateAllCategoryCaches();
     if (lease.renewTimer) clearInterval(lease.renewTimer);
     if (typeof releaseLocal === "function") releaseLocal();
     await releaseReorderLock(lease);

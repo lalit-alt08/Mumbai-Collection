@@ -73,8 +73,8 @@ describe("Employee Panel Orders: Timezone & URL Filter Suite", () => {
   });
 
   describe("2. URL Status Filter Mapping", () => {
-    test("status=processing maps to 'active' (To Pack & Deliver)", () => {
-      assert.equal(resolveTabFromStatusParam("processing"), "active");
+    test("status=processing maps to the To Pack queue", () => {
+      assert.equal(resolveTabFromStatusParam("processing"), "processing");
     });
 
     test("status=active maps to 'active'", () => {

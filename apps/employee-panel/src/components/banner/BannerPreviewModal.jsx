@@ -68,29 +68,40 @@ export function BannerPreviewModal({
                 : "aspect-[16/7] max-w-xs mx-auto"
             }`}
           >
-            {previewMode === "desktop" ? (
-              banner.desktop_image || banner.mobile_image ? (
-                <img
-                  src={banner.desktop_image || banner.mobile_image}
-                  alt="Preview"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
+            {(() => {
+              const posterSrc =
+                previewMode === "desktop"
+                  ? banner.desktop_image || banner.mobile_image
+                  : banner.mobile_image || banner.desktop_image;
+              if (banner.media_type === "video" && banner.video_url) {
+                return (
+                  <video
+                    key={`${banner.video_url}-${previewMode}`}
+                    src={banner.video_url}
+                    poster={posterSrc || undefined}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    className="h-full w-full object-cover"
+                  />
+                );
+              }
+              if (posterSrc) {
+                return (
+                  <img
+                    src={posterSrc}
+                    alt="Preview"
+                    className="h-full w-full object-cover"
+                  />
+                );
+              }
+              return (
                 <div className="h-full w-full flex items-center justify-center bg-gray-800 text-gray-400 text-xs font-bold">
-                  No desktop image uploaded
+                  {previewMode === "desktop" ? "No desktop image uploaded" : "No mobile image uploaded"}
                 </div>
-              )
-            ) : banner.mobile_image || banner.desktop_image ? (
-              <img
-                src={banner.mobile_image || banner.desktop_image}
-                alt="Preview"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="h-full w-full flex items-center justify-center bg-gray-800 text-gray-400 text-xs font-bold">
-                No mobile image uploaded
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
 

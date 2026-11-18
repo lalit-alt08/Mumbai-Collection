@@ -6,9 +6,20 @@ import { decodeHtmlEntities } from "../utils/textUtils.js";
 import { searchIndexService } from "./searchIndexService.js";
 
 const CATALOG_PRODUCT_FIELDS =
-  "id,name,slug,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count";
+  "id,name,slug,type,price,regular_price,sale_price,on_sale,images,categories,stock_status,stock_quantity,manage_stock,backorders_allowed,average_rating,rating_count,catalog_visibility";
 const CROSS_SELL_PRODUCT_FIELDS = `${CATALOG_PRODUCT_FIELDS},cross_sell_ids`;
-const SELECTED_PRODUCT_FIELDS = `${CATALOG_PRODUCT_FIELDS},type,attributes,variations,cross_sell_ids`;
+const SELECTED_PRODUCT_FIELDS = `${CATALOG_PRODUCT_FIELDS},attributes,variations,cross_sell_ids`;
+
+const isPubliclyVisibleProduct = (product) =>
+  Boolean(
+    product &&
+      (!product.status || product.status === "publish") &&
+      product.catalog_visibility !== "hidden"
+  );
+
+const isCatalogVisibleProduct = (product) =>
+  isPubliclyVisibleProduct(product) &&
+  (!product.catalog_visibility || ["visible", "catalog"].includes(product.catalog_visibility));
 
 const SORT_OPTIONS = {
   "price-asc": { orderby: "price", order: "asc" },
@@ -26,11 +37,28 @@ const PRICE_OPTIONS = {
 
 const withoutSearchOnlyFields = ({ sku, attributes, short_description, ...publicProduct }) => publicProduct;
 
+const readNonNegativeIntegerHeader = (headers, name) => {
+  const value = headers?.[name];
+  if (!/^(0|[1-9]\d*)$/.test(String(value ?? ""))) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+};
+
+const assertSafeCatalogPage = (products, removedCount, total) => {
+  if (removedCount > 0) {
+    throw new Error("WooCommerce returned products outside the requested catalog visibility filter");
+  }
+  if (total !== null && total < products.length) {
+    throw new Error("WooCommerce returned an invalid catalog product total");
+  }
+};
+
 export const fetchProducts = async (page = 1, per_page = 50) => {
   const pageNum = Math.max(1, Number(page) || 1);
   const perPageNum = Math.min(100, Math.max(1, Number(per_page) || 50));
   const response = await api.get("products", {
     status: "publish",
+    mumbai_catalog_only: "1",
     page: pageNum,
     per_page: perPageNum,
     _fields: CATALOG_PRODUCT_FIELDS,
@@ -41,10 +69,21 @@ export const fetchProducts = async (page = 1, per_page = 50) => {
     throw new Error("Invalid WooCommerce products response");
   }
 
+  const visibleProducts = response.data.filter(isCatalogVisibleProduct);
+  const removedCount = response.data.length - visibleProducts.length;
+  const total = readNonNegativeIntegerHeader(response.headers, "x-wp-total");
+  assertSafeCatalogPage(response.data, removedCount, total);
+  // WooCommerce applies catalog visibility before counting/paging. If that
+  // contract is broken, assertSafeCatalogPage fails instead of deriving a
+  // misleading store-wide total from the current page.
+  const totalPages = total === null
+    ? (visibleProducts.length > 0 ? 1 : 0)
+    : Math.ceil(total / perPageNum);
+
   return {
-    products: response.data,
-    total: parseInt(response.headers?.["x-wp-total"], 10) || response.data.length,
-    totalPages: parseInt(response.headers?.["x-wp-totalpages"], 10) || (response.data.length > 0 ? 1 : 0),
+    products: visibleProducts,
+    total: total ?? visibleProducts.length,
+    totalPages,
     page: pageNum,
     per_page: perPageNum,
   };
@@ -133,26 +172,26 @@ export const fetchRelatedProducts = async (categoryId, currentProductId) => {
     }
   }
 
-  const queryParams = { status: "publish", per_page: 10, _fields: CATALOG_PRODUCT_FIELDS };
+  const queryParams = { status: "publish", mumbai_catalog_only: "1", per_page: 10, _fields: CATALOG_PRODUCT_FIELDS };
   if (targetCategory) queryParams.category = targetCategory;
   if (currentProductId) queryParams.exclude = currentProductId;
 
   let related = [];
   try {
     const response = await api.get("products", queryParams);
-    if (Array.isArray(response.data)) related = response.data;
+    if (Array.isArray(response.data)) related = response.data.filter(isCatalogVisibleProduct);
   } catch (err) {
     logger.warn({ err: err.message }, "Primary related products query failed");
   }
 
   if (related.length < 6) {
     try {
-      const fallbackParams = { status: "publish", per_page: 12, _fields: CATALOG_PRODUCT_FIELDS };
+      const fallbackParams = { status: "publish", mumbai_catalog_only: "1", per_page: 12, _fields: CATALOG_PRODUCT_FIELDS };
       if (currentProductId) fallbackParams.exclude = currentProductId;
       const fallbackRes = await api.get("products", fallbackParams);
       if (Array.isArray(fallbackRes.data)) {
         const existingIds = new Set(related.map((p) => Number(p.id)));
-        for (const item of fallbackRes.data) {
+        for (const item of fallbackRes.data.filter(isCatalogVisibleProduct)) {
           if (!existingIds.has(Number(item.id)) && Number(item.id) !== Number(currentProductId)) {
             related.push(item);
             existingIds.add(Number(item.id));
@@ -279,7 +318,7 @@ export const fetchProductsByCategory = async (
     category: targetCategory,
     page: Number(page) || 1,
     per_page: Number(per_page) || 20,
-    _fields: suggestions ? `${CATALOG_PRODUCT_FIELDS},catalog_visibility` : CATALOG_PRODUCT_FIELDS,
+    _fields: CATALOG_PRODUCT_FIELDS,
     ...(SORT_OPTIONS[sort] || {}),
     ...(PRICE_OPTIONS[price_range] || {}),
     ...(in_stock === "1" ? { stock_status: "instock" } : {}),
@@ -289,18 +328,29 @@ export const fetchProductsByCategory = async (
     throw new Error("Invalid WooCommerce category products response");
   }
 
-  const rawTotal = response.headers?.["x-wp-total"];
-  const totalConfirmed = rawTotal !== undefined && /^\d+$/.test(String(rawTotal));
+  const rawTotal = readNonNegativeIntegerHeader(response.headers, "x-wp-total");
+  const totalConfirmed = rawTotal !== null;
   if (!totalConfirmed && (price_range !== "all" || in_stock === "1" || sort !== "default")) {
     throw new Error("WooCommerce did not return a valid filtered product count");
   }
 
+  const visibleProducts = response.data.filter((p) =>
+    suggestions ? isPubliclyVisibleProduct(p) && ["visible", "catalog"].includes(p.catalog_visibility) : isCatalogVisibleProduct(p)
+  );
+  const removedCount = response.data.length - visibleProducts.length;
+  const pageSize = Number(per_page) || 20;
+  assertSafeCatalogPage(response.data, removedCount, rawTotal);
+  const total = totalConfirmed ? rawTotal : visibleProducts.length;
+  const totalPages = totalConfirmed
+    ? Math.ceil(total / pageSize)
+    : (visibleProducts.length > 0 ? 1 : 0);
+
   return {
-    products: suggestions ? response.data.filter((p) => ["visible", "catalog"].includes(p.catalog_visibility)) : response.data,
-    total: totalConfirmed ? Number(rawTotal) : response.data.length,
-    totalPages: parseInt(response.headers?.["x-wp-totalpages"], 10) || (response.data.length > 0 ? 1 : 0),
+    products: visibleProducts,
+    total,
+    totalPages,
     page: Number(page) || 1,
-    per_page: Number(per_page) || 20,
+    per_page: pageSize,
     category_id: targetCategory,
     total_confirmed: totalConfirmed,
   };

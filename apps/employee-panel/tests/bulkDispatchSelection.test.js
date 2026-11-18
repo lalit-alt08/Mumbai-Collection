@@ -10,6 +10,19 @@ import {
 } from "../src/utils/bulkDispatchSelection.js";
 import { buildOrdersQueryKey } from "../src/utils/ordersPipelineCoordinator.js";
 
+test("dispatch rejects orders whose delivery review is unresolved", () => {
+  const order = { id: 1, status: "packed", meta_data: [{ key: "_payment_captured_without_delivery_slot", value: "yes" }] };
+  assert.equal(isOrderEligibleForDispatch(order), false);
+});
+
+test("bulk review detects individual delivery areas swapping", () => {
+  const orders = [{ id: 1, status: "packed", delivery_location: "East" }, { id: 2, status: "packed", delivery_location: "West" }];
+  const location = (order) => ({ location: order.delivery_location });
+  const snapshot = createBulkConfirmSnapshot({ queryKey: "view", selectedIds: new Set([1, 2]), filteredOrders: orders, getOrderLocationInfo: location });
+  const changed = orders.map((order) => ({ ...order, delivery_location: order.id === 1 ? "West" : "East" }));
+  assert.equal(validateBulkConfirmSnapshot({ snapshot, currentQueryKey: "view", ordersQueryKey: "view", filteredOrders: changed, getOrderLocationInfo: location }).valid, false);
+});
+
 describe("Employee Panel Orders: Safe Bulk Dispatch Selection & Confirmation Suite", () => {
   // Mock delivery location helper matching application logic
   const mockGetOrderLocationInfo = (order) => {

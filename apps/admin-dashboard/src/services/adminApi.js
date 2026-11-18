@@ -82,6 +82,11 @@ export const getCustomers = async (params = {}, config = {}) => {
   return res.data;
 };
 
+export const getCustomerSuggestions = async (search, config = {}) => {
+  const res = await api.get('/customer-suggestions', { ...config, params: { search } });
+  return res.data;
+};
+
 export const getCustomerOrders = async (customerId, params = {}, config = {}) => {
   const res = await api.get(`/customers/${customerId}/orders`, { params, ...config });
   return res.data;

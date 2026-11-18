@@ -35,6 +35,8 @@ function ProductDetails() {
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   useLiveProductStock(product, setProduct);
 
   const abortControllerRef = useRef(null);
@@ -105,6 +107,8 @@ function ProductDetails() {
 
     const loadProduct = async () => {
       setLoading(true);
+      setError(null);
+      setProduct(null);
       try {
         const data = await getProductById(currentId, { signal: controller.signal });
         if (controller.signal.aborted || activeIdRef.current !== currentId) return;
@@ -112,7 +116,16 @@ function ProductDetails() {
       } catch (err) {
         if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         if (activeIdRef.current !== currentId) return;
-        setProduct(null);
+        const status = err.response?.status;
+        if (status === 404) {
+          setProduct(null);
+          setError({ type: "not_found", message: "The product you are looking for does not exist or has been removed." });
+        } else {
+          setError({
+            type: "network",
+            message: err.response?.data?.message || "Unable to load product details right now. Please check your connection.",
+          });
+        }
       } finally {
         if (!controller.signal.aborted && activeIdRef.current === currentId) {
           setLoading(false);
@@ -125,7 +138,7 @@ function ProductDetails() {
     return () => {
       controller.abort();
     };
-  }, [id]);
+  }, [id, retryCount]);
 
   useEffect(() => {
     if (product?.id) recordRecentlyViewedProduct(product.id);
@@ -213,19 +226,38 @@ function ProductDetails() {
   }
 
   if (!product) {
+    const isNetworkError = error?.type === "network";
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center bg-[#F0F8E8] px-4 text-center">
         <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-[#FFFFFF] border border-[#E2E8F0] shadow-sm">
-          <span className="text-4xl">🛍️</span>
+          <span className="text-4xl">{isNetworkError ? "⚠️" : "🛍️"}</span>
         </div>
-        <h2 className="mb-2 text-2xl font-bold text-[#1E293B]">Product Not Found</h2>
-        <p className="mb-8 text-[#64748B]">The product you are looking for does not exist or has been removed.</p>
-        <button
-          onClick={() => navigate("/")}
-          className="rounded-full bg-[#22499F] px-8 py-3 font-semibold text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.25)] transition-all hover:bg-[#1B3B82] active:scale-95 cursor-pointer font-extrabold"
-        >
-          Return Home
-        </button>
+        <h2 className="mb-2 text-2xl font-bold text-[#1E293B]">
+          {isNetworkError ? "Connection Error" : "Product Not Found"}
+        </h2>
+        <p className="mb-8 max-w-md text-[#64748B]">
+          {error?.message || (isNetworkError ? "Unable to retrieve product details right now." : "The product you are looking for does not exist or has been removed.")}
+        </p>
+        <div className="flex items-center gap-3">
+          {isNetworkError && (
+            <button
+              onClick={() => setRetryCount((c) => c + 1)}
+              className="rounded-full bg-[#22499F] px-8 py-3 font-semibold text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.25)] transition-all hover:bg-[#1B3B82] active:scale-95 cursor-pointer font-extrabold"
+            >
+              Retry
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/")}
+            className={`rounded-full px-8 py-3 font-semibold transition-all active:scale-95 cursor-pointer font-extrabold ${
+              isNetworkError
+                ? "bg-[#FFFFFF] border border-[#E2E8F0] text-[#1E293B] hover:bg-slate-50"
+                : "bg-[#22499F] text-[#FFFFFF] shadow-[0_4px_16px_rgba(66,214,232,0.25)] hover:bg-[#1B3B82]"
+            }`}
+          >
+            Return Home
+          </button>
+        </div>
       </div>
     );
   }

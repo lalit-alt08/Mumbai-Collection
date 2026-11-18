@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Loader2, AlertCircle } from "lucide-react";
 import { googleLogin } from "../../services/authService";
 import { useAuth } from "../../context/AuthContext";
-import { getSafeInternalPath } from "../../utils/navigation.js";
+import { useCart } from "../../context/CartContext";
+import { executePostAuthNavigation } from "../../utils/postAuthRedirect.js";
 
 function GoogleIcon({ className = "h-5 w-5 shrink-0" }) {
   return (
@@ -32,13 +33,30 @@ function GoogleIcon({ className = "h-5 w-5 shrink-0" }) {
 export default function GoogleAuthButton({ mode = "signup", onError }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: loginUser } = useAuth();
+  const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
+  const { cart, waitForAuthenticatedCart } = useCart();
+
+  const isMountedRef = useRef(true);
+  const authAttemptRef = useRef(0);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [internalError, setInternalError] = useState("");
   const [linked, setLinked] = useState(false);
 
   const handleLoginSuccess = async (codeResponse) => {
+    const attemptId = ++authAttemptRef.current;
+    const preAuthEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
+    const isPreAuthActive = () =>
+      isMountedRef.current &&
+      authAttemptRef.current === attemptId &&
+      (preAuthEpoch === null || getAuthEpoch() === preAuthEpoch);
+
     try {
       setLoading(true);
       setInternalError("");
@@ -49,6 +67,7 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
       }
 
       const res = await googleLogin(payload);
+      if (!isPreAuthActive()) return;
 
       if (mode === "link") {
         if (!res?.success || !res?.user) throw new Error("Google linking was not confirmed.");
@@ -57,20 +76,39 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
         return;
       }
 
+      const hasCartItems = Boolean(cart?.items?.length > 0);
       if (res?.user) {
         loginUser(res.user);
       }
+      const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
 
-      const safeReturn = getSafeInternalPath(location.state?.from, "/");
-      navigate(safeReturn, { replace: true });
+      await executePostAuthNavigation({
+        from: location.state?.from,
+        hasCartItems,
+        user: res?.user || null,
+        waitForAuthenticatedCart,
+        isAttemptActive: () =>
+          isMountedRef.current &&
+          authAttemptRef.current === attemptId &&
+          (expectedEpoch === null || getAuthEpoch() === expectedEpoch),
+        handleSessionExpired,
+        navigate,
+        onUnauthorized: (msg) => {
+          setInternalError(msg);
+          if (onError) onError(msg);
+        },
+      });
     } catch (err) {
+      if (!isPreAuthActive()) return;
       const msg =
         err.response?.data?.message ||
         "Unable to authenticate with Google. Please try again.";
       setInternalError(msg);
       if (onError) onError(msg);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && authAttemptRef.current === attemptId) {
+        setLoading(false);
+      }
     }
   };
 

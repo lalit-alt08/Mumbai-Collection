@@ -84,8 +84,17 @@ function ProductCard({ product }) {
   return (
     <div className="store-product-card flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3 sm:p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#22499F]/60 hover:shadow-[0_8px_24px_rgba(34,73,159,0.12)]">
       <div
+        role="link"
+        tabIndex={0}
         onClick={() => navigate(`/product/${product.id}`)}
-        className="cursor-pointer flex flex-col"
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+            e.preventDefault();
+            navigate(`/product/${product.id}`);
+          }
+        }}
+        aria-label={`View details for ${product.name}`}
+        className="cursor-pointer flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22499F] rounded-[14px]"
       >
         {/* Fixed Aspect Image Viewport */}
         <div className="store-product-image relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[14px] sm:rounded-[16px] p-2 bg-[#F8FAF6] border border-[#E2E8F0]">
@@ -151,9 +160,13 @@ function ProductCard({ product }) {
             <span role="alert" className="line-clamp-2 text-xs font-medium text-rose-400 leading-tight">
               {cartError}
             </span>
-          ) : isOutOfStock || isMaxReached ? (
+          ) : isOutOfStock ? (
             <span className="text-xs font-semibold text-amber-400 leading-tight">
               Out of stock
+            </span>
+          ) : isMaxReached ? (
+            <span className="text-xs font-semibold text-[#22499F] leading-tight">
+              Max in cart
             </span>
           ) : remainingStock <= 5 && remainingStock > 0 ? (
             <span className="text-xs font-semibold text-orange-400 leading-tight">
@@ -219,6 +232,10 @@ function ProductCard({ product }) {
                   disabled={updatingCart}
                   onClick={async () => {
                     if (updatingCart) return;
+                    if (product?.type === "variable") {
+                      navigate(`/product/${product.id}`);
+                      return;
+                    }
                     setCartError("");
                     try {
                       setUpdatingCart(true);

@@ -176,10 +176,11 @@ export const getAllProducts = async (req, res) => {
     return res.json(transformMediaUrls(prods, req));
   } catch (error) {
     logError(req, error, "Get all products error");
+    const status = error?.statusCode === 503 || error?.code === "UPSTREAM_INVALID_JSON" ? 503 : 500;
 
-    return res.status(500).json({
+    return res.status(status).json({
       success: false,
-      message: "Failed to fetch products",
+      message: status === 503 ? "Store catalog is temporarily unavailable. Please try again." : "Failed to fetch products",
       products: [],
     });
   }
@@ -209,9 +210,10 @@ export const getProductById = async (req, res) => {
       });
     }
 
-    res.status(500).json({
+    const status = error?.statusCode === 503 || error?.code === "UPSTREAM_INVALID_JSON" ? 503 : 500;
+    res.status(status).json({
       success: false,
-      message: "Failed to fetch product",
+      message: status === 503 ? "Store catalog is temporarily unavailable. Please try again." : "Failed to fetch product",
     });
   }
 };
@@ -240,7 +242,11 @@ export const getProductsByIds = async (req, res) => {
     return res.json(transformMediaUrls(availableProducts, req));
   } catch (error) {
     logError(req, error, "Get selected products error");
-    return res.status(500).json({ success: false, message: "Failed to fetch selected products." });
+    const status = error?.statusCode === 503 || error?.code === "UPSTREAM_INVALID_JSON" ? 503 : 500;
+    return res.status(status).json({
+      success: false,
+      message: status === 503 ? "Store catalog is temporarily unavailable. Please try again." : "Failed to fetch selected products.",
+    });
   }
 };
 
@@ -443,9 +449,10 @@ export const getAllCategories = async (req, res) => {
     return res.json(transformMediaUrls(allCategories, req));
   } catch (error) {
     logError(req, error, "Get all categories error");
-    res.status(500).json({
+    const status = error?.statusCode === 503 || error?.code === "UPSTREAM_INVALID_JSON" ? 503 : 500;
+    res.status(status).json({
       success: false,
-      message: "Failed to fetch categories",
+      message: status === 503 ? "Store catalog is temporarily unavailable. Please try again." : "Failed to fetch categories",
       categories: [],
     });
   }

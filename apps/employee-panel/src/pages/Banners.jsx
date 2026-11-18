@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
 import {
   Image as ImageIcon,
-  ArrowLeft,
   Upload,
   X,
   AlertCircle,
@@ -40,7 +39,13 @@ import { DestinationLinkSelector } from "../components/banner/DestinationLinkSel
 import { BannerPreviewModal } from "../components/banner/BannerPreviewModal.jsx";
 
 function Banners() {
+  const { bannerAddRequest = 0 } = useOutletContext() || {};
+  const lastBannerAddRequest = useRef(bannerAddRequest);
   const [banners, setBanners] = useState([]);
+  const bannersRef = useRef(banners);
+  useEffect(() => {
+    bannersRef.current = banners;
+  }, [banners]);
   const [thinBanner, setThinBanner] = useState({
     id: "thin-banner-1",
     title: "Welcome to Mumbai Collection",
@@ -61,6 +66,8 @@ function Banners() {
   const [bannerVersion, setBannerVersion] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const heroUploadRef = useRef(false);
+  const [pendingHeroUpload, setPendingHeroUpload] = useState(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState(null);
 
@@ -83,6 +90,13 @@ function Banners() {
     }, 3500);
   };
 
+  const normalizeHeroBanner = (banner) => ({
+    ...banner,
+    media_type: banner?.media_type === "video" ? "video" : "image",
+    video_url: banner?.video_url || "",
+    video_media_id: banner?.video_media_id || null,
+  });
+
   const fetchBannerList = async () => {
     try {
       setLoading(true);
@@ -92,9 +106,13 @@ function Banners() {
         setBannerVersion(res.version);
       }
       if (res.success && Array.isArray(res.banners)) {
-        setBanners(res.banners);
+        const normalized = res.banners.map(normalizeHeroBanner);
+        bannersRef.current = normalized;
+        setBanners(normalized);
       } else if (Array.isArray(res)) {
-        setBanners(res);
+        const normalized = res.map(normalizeHeroBanner);
+        bannersRef.current = normalized;
+        setBanners(normalized);
       }
       if (res.thin_banner) {
         setThinBanner({
@@ -165,7 +183,7 @@ function Banners() {
       if (bannerVersion === null) {
         showToast("Synchronizing banner version. Please retry in a moment.", "error");
         await fetchBannerList();
-        return;
+        return false;
       }
 
       const payload = {
@@ -183,14 +201,19 @@ function Banners() {
       }
 
       if (res.success && Array.isArray(res.banners)) {
-        setBanners(res.banners);
+        const normalized = res.banners.map(normalizeHeroBanner);
+        bannersRef.current = normalized;
+        setBanners(normalized);
       } else {
-        setBanners(updatedBanners);
+        const normalized = updatedBanners.map(normalizeHeroBanner);
+        bannersRef.current = normalized;
+        setBanners(normalized);
       }
 
       if (successMsg) {
         showToast(successMsg, "success");
       }
+      return true;
     } catch (err) {
       const isConflict = err.response?.status === 409 || err.response?.data?.code === "BANNER_CONFLICT";
       const msg = isConflict
@@ -198,7 +221,9 @@ function Banners() {
         : (err.response?.data?.message || err.message || "Failed to update banners.");
       setError(msg);
       showToast(msg, isConflict ? "error" : "error");
-      fetchBannerList(); // Roll back to server state on error or conflict
+      await fetchBannerList(); // Reload the authoritative state before retrying.
+      setError(msg);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -494,9 +519,20 @@ function Banners() {
     const banner = banners[index];
     const nextActive = !banner.is_active;
 
-    if (nextActive && !banner.desktop_image && !banner.mobile_image) {
-      showToast("Please upload an image before turning this banner Live.", "error");
-      return;
+    if (nextActive) {
+      if (banner.media_type === "video") {
+        if (!banner.video_url || !banner.video_media_id) {
+          showToast("Please upload an MP4 video before making this Video banner Live.", "error");
+          return;
+        }
+        if (!banner.desktop_media_id && !banner.mobile_media_id) {
+          showToast("At least one uploaded poster image (desktop or mobile) is required before making a Video banner Live.", "error");
+          return;
+        }
+      } else if (!banner.desktop_image && !banner.mobile_image) {
+        showToast("Please upload an image before turning this banner Live.", "error");
+        return;
+      }
     }
 
     const updated = banners.map((b, idx) =>
@@ -511,9 +547,161 @@ function Banners() {
   };
 
   /**
+   * Switch a Hero Banner slide between Image Mode and Video Mode (MP4)
+   */
+  const handleHeroSwitchMediaMode = async (index, targetMode) => {
+    if (saving || heroUploadRef.current || thinBannerOperationRef.current) return;
+    const banner = banners[index];
+    if (!banner || banner.media_type === targetMode) return;
+
+    if (targetMode === "video") {
+      if (!banner.video_url || !banner.video_media_id) {
+        showToast("Upload an MP4 video draft first before switching to Video mode.", "error");
+        return;
+      }
+      if (banner.is_active && !banner.desktop_media_id && !banner.mobile_media_id) {
+        showToast("At least one uploaded poster image (desktop or mobile) is required before switching an active banner to Video mode.", "error");
+        return;
+      }
+    }
+
+    const updated = banners.map((b, idx) =>
+      idx === index ? { ...b, media_type: targetMode } : b
+    );
+    setBanners(updated);
+    await persistBanners(
+      updated,
+      targetMode === "video"
+        ? `Slide #${index + 1} switched to Video mode.`
+        : `Slide #${index + 1} switched to Image mode.`
+    );
+  };
+
+  /**
+   * Upload an MP4 video for any Hero Banner slide (1–3)
+   */
+  const handleUploadHeroVideo = async (e, bannerIndex) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const bannerId = bannersRef.current[bannerIndex]?.id;
+    if (!bannerId) return;
+    if (heroUploadRef.current || saving || thinBannerOperationRef.current) {
+      showToast("Please wait for the current banner operation to finish.", "info");
+      e.target.value = "";
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".mp4") && file.type !== "video/mp4") {
+      showToast("Only browser-playable MP4 videos are supported.", "error");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("Video size exceeds the 5MB limit.", "error");
+      e.target.value = "";
+      return;
+    }
+
+    heroUploadRef.current = true;
+    const slotKey = `${bannerIndex}-video`;
+    setUploadingSlots((prev) => ({
+      ...prev,
+      [slotKey]: { uploading: true, progress: "Uploading video (0%)..." },
+    }));
+
+    try {
+      const uploaded = await uploadBannerVideo(file, {
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadingSlots((prev) => ({
+              ...prev,
+              [slotKey]: { uploading: true, progress: `Uploading video (${percent}%)...` },
+            }));
+          }
+        },
+      });
+
+      const videoUrl = uploaded.url || uploaded.source_url;
+      const videoMediaId = uploaded.id;
+      if (!videoUrl || !videoMediaId) {
+        throw new Error("Video upload succeeded but received no validated media reference.");
+      }
+
+      const latestList = bannersRef.current;
+      const targetBanner = latestList.find((banner) => banner.id === bannerId);
+      if (!targetBanner) {
+        showToast("The original slide was removed before the upload finished.", "error");
+        return;
+      }
+      const pending = { bannerId, slot: "video", url: videoUrl, id: videoMediaId };
+      setPendingHeroUpload(pending);
+
+      const updated = latestList.map((b) =>
+        b.id !== bannerId
+          ? b
+          : { ...b, video_url: videoUrl, video_media_id: videoMediaId }
+      );
+      setBanners(updated);
+
+      const saved = await persistBanners(
+        updated,
+        targetBanner?.media_type === "video"
+          ? `Slide #${bannerIndex + 1} video updated and published live!`
+          : `Slide #${bannerIndex + 1} video uploaded as a draft. Switch to Video Mode when ready.`
+      );
+      if (saved) setPendingHeroUpload(null);
+    } catch (err) {
+      showToast(err.response?.data?.message || err.message || "Failed to upload banner video.", "error");
+    } finally {
+      heroUploadRef.current = false;
+      setUploadingSlots((prev) => {
+        const next = { ...prev };
+        delete next[slotKey];
+        return next;
+      });
+      e.target.value = "";
+    }
+  };
+
+  /**
+   * Remove MP4 video from a Hero Banner slide (switches back to Image Mode)
+   */
+  const handleRemoveHeroVideo = async (index) => {
+    if (saving || heroUploadRef.current || thinBannerOperationRef.current) return;
+    const banner = banners[index];
+    if (!banner) return;
+    const hasImage = Boolean(banner.desktop_image || banner.mobile_image);
+    const updated = banners.map((b, idx) =>
+      idx !== index
+        ? b
+        : {
+            ...b,
+            media_type: "image",
+            video_url: "",
+            video_media_id: null,
+            is_active: hasImage ? b.is_active : false,
+          }
+    );
+    setBanners(updated);
+    await persistBanners(
+      updated,
+      hasImage
+        ? "Video removed. Switched back to Image mode."
+        : "Video removed. Banner hidden until an image is added."
+    );
+  };
+
+  /**
    * Add a new banner slot
    */
   const handleAddBanner = async () => {
+    if (saving || pendingHeroUpload || heroUploadRef.current || thinBannerOperationRef.current) {
+      showToast("Please wait for the current banner operation to finish.", "info");
+      return;
+    }
+    setActiveTab("hero");
     if (banners.length >= 3) {
       showToast("Maximum 3 homepage banners allowed.", "error");
       return;
@@ -528,18 +716,29 @@ function Banners() {
       desktop_media_id: null,
       mobile_image: "",
       mobile_media_id: null,
-      is_active: false, // Starts as draft until photo is uploaded
+      media_type: "image",
+      video_url: "",
+      video_media_id: null,
+      is_active: false, // Starts as draft until photo/video is uploaded
     };
 
     const updated = [...banners, newBanner];
     setBanners(updated);
-    await persistBanners(updated, "New banner slot created! Upload a photo to make it live.");
+    await persistBanners(updated, "Draft created. Upload an image and turn it on when ready.");
   };
+
+  useEffect(() => {
+    if (bannerAddRequest !== lastBannerAddRequest.current) {
+      lastBannerAddRequest.current = bannerAddRequest;
+      void handleAddBanner();
+    }
+  }, [bannerAddRequest]);
 
   /**
    * Delete banner slot
    */
   const handleRemoveBanner = async (index) => {
+    if (heroUploadRef.current) return;
     const updated = banners.filter((_, idx) => idx !== index);
     setBanners(updated);
     await persistBanners(updated, "Banner deleted.");
@@ -573,11 +772,16 @@ function Banners() {
   };
 
   /**
-   * Upload Image -> Auto-activates and publishes immediately!
+   * Upload an image without changing the banner's published state.
    */
   const handleUploadImage = async (e, bannerIndex, slot) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
+    if (heroUploadRef.current || saving || thinBannerOperationRef.current) {
+      showToast("Please wait for the current banner operation to finish.", "info");
+      e.target.value = "";
+      return;
+    }
 
     const file = files[0];
 
@@ -602,8 +806,10 @@ function Banners() {
       return;
     }
 
+    heroUploadRef.current = true;
     const slotKey = `${bannerIndex}-${slot}`;
     setUploadingSlots((prev) => ({ ...prev, [slotKey]: { uploading: true } }));
+    try {
 
     // Aspect ratio check: use fast header parser
     try {
@@ -662,11 +868,12 @@ function Banners() {
     try {
       const uploadRes = await uploadProductImage(fileToUpload);
       if (uploadRes.success && (uploadRes.url || uploadRes.id)) {
+        const pending = { bannerId: banners[bannerIndex]?.id, slot, url: uploadRes.url, id: uploadRes.id };
+        setPendingHeroUpload(pending);
         const updated = banners.map((b, idx) => {
           if (idx !== bannerIndex) return b;
           return {
             ...b,
-            is_active: true, // Auto-activate upon uploading image!
             ...(slot === "desktop"
               ? { desktop_image: uploadRes.url, desktop_media_id: uploadRes.id }
               : { mobile_image: uploadRes.url, mobile_media_id: uploadRes.id }),
@@ -674,7 +881,7 @@ function Banners() {
         });
 
         setBanners(updated);
-        await persistBanners(updated, `Banner ${slot} image uploaded & published live! 🎉`);
+        if (await persistBanners(updated, `Banner ${slot} image saved.`)) setPendingHeroUpload(null);
       } else {
         showToast("Upload failed. Please try again.", "error");
       }
@@ -688,6 +895,32 @@ function Banners() {
       });
       e.target.value = "";
     }
+    } finally {
+      heroUploadRef.current = false;
+      setUploadingSlots((prev) => {
+        const next = { ...prev };
+        delete next[slotKey];
+        return next;
+      });
+    }
+  };
+
+  const retryHeroUpload = async () => {
+    if (!pendingHeroUpload || saving || heroUploadRef.current) return;
+    const { bannerId, slot, url, id } = pendingHeroUpload;
+    if (!bannerId || !banners.some((banner) => banner.id === bannerId)) {
+      showToast("The original banner no longer exists. Create a banner and upload the media again.", "error");
+      return;
+    }
+    const updated = banners.map((banner) => banner.id !== bannerId ? banner : {
+      ...banner,
+      ...(slot === "video"
+        ? { video_url: url, video_media_id: id }
+        : slot === "desktop"
+        ? { desktop_image: url, desktop_media_id: id }
+        : { mobile_image: url, mobile_media_id: id }),
+    });
+    if (await persistBanners(updated, `Banner ${slot} ${slot === "video" ? "video" : "image"} saved.`)) setPendingHeroUpload(null);
   };
 
   /**
@@ -696,12 +929,17 @@ function Banners() {
   const handleRemoveSlotImage = async (bannerIndex, slot) => {
     const updated = banners.map((b, idx) => {
       if (idx !== bannerIndex) return b;
-      return {
+      const next = {
         ...b,
         ...(slot === "desktop"
           ? { desktop_image: "", desktop_media_id: null }
           : { mobile_image: "", mobile_media_id: null }),
       };
+      // An active banner (image or video poster) must keep at least one image
+      if (!next.desktop_image && !next.mobile_image) {
+        next.is_active = false;
+      }
+      return next;
     });
     setBanners(updated);
     await persistBanners(updated, "Image removed.");
@@ -731,85 +969,52 @@ function Banners() {
         </div>
       )}
 
-      {/* Action Controls Bar */}
-      <div className="flex items-center justify-between border-b border-gray-200 pb-3 sm:pb-4 gap-2">
-        <Link
-          to="/products"
-          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50 transition shadow-xs"
-        >
-          <ArrowLeft size={14} /> Back to Products
-        </Link>
-
-        {/* Action Controls: Live Sync Indicator + Add Button */}
-        <div className="flex items-center gap-2.5">
-          {/* Live Sync Status Pill */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold border border-gray-200 shadow-2xs">
-            {saving ? (
-              <>
-                <Loader2 size={13} className="animate-spin text-emerald-600" />
-                <span className="text-emerald-800 font-extrabold">Publishing live...</span>
-              </>
-            ) : (
-              <>
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-gray-700">Auto-Publishes Live</span>
-              </>
-            )}
-          </div>
+      {/* Banner Type Tabs */}
+      <div className="flex items-center justify-between border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("hero")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition cursor-pointer ${
+              activeTab === "hero"
+                ? "border-emerald-600 text-emerald-900 bg-emerald-50/60 rounded-t-xl"
+                : "border-transparent text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            <Sliders size={14} className={activeTab === "hero" ? "text-emerald-600" : "text-gray-400"} />
+            <span>Hero Carousel (16:7)</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
+              {banners.length}/3
+            </span>
+          </button>
 
           <button
             type="button"
-            onClick={handleAddBanner}
-            disabled={banners.length >= 3 || loading || saving}
-            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition active:scale-95 cursor-pointer ${
-              banners.length >= 3
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-emerald-600 hover:bg-emerald-500"
+            onClick={() => setActiveTab("thin")}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition cursor-pointer ${
+              activeTab === "thin"
+                ? "border-emerald-600 text-emerald-900 bg-emerald-50/60 rounded-t-xl"
+                : "border-transparent text-gray-500 hover:text-gray-800"
             }`}
           >
-            <Plus size={15} />
-            {banners.length >= 3 ? "3 / 3 (Max Reached)" : "Add Banner"}
+            <Smartphone size={14} className={activeTab === "thin" ? "text-emerald-600" : "text-gray-400"} />
+            <span>Mobile Banner (3:1)</span>
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                thinBanner?.is_active ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              {thinBanner?.is_active ? "Live" : "Off"}
+            </span>
           </button>
         </div>
-      </div>
 
-      {/* Banner Type Tabs */}
-      <div className="flex items-center gap-2 border-b border-gray-200">
-        <button
-          type="button"
-          onClick={() => setActiveTab("hero")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition cursor-pointer ${
-            activeTab === "hero"
-              ? "border-emerald-600 text-emerald-900 bg-emerald-50/60 rounded-t-xl"
-              : "border-transparent text-gray-500 hover:text-gray-800"
-          }`}
-        >
-          <Sliders size={14} className={activeTab === "hero" ? "text-emerald-600" : "text-gray-400"} />
-          <span>Hero Carousel (16:7)</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
-            {banners.length}/3
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("thin")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition cursor-pointer ${
-            activeTab === "thin"
-              ? "border-emerald-600 text-emerald-900 bg-emerald-50/60 rounded-t-xl"
-              : "border-transparent text-gray-500 hover:text-gray-800"
-          }`}
-        >
-          <Smartphone size={14} className={activeTab === "thin" ? "text-emerald-600" : "text-gray-400"} />
-          <span>Mobile Banner (3:1)</span>
-          <span
-            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-              thinBanner?.is_active ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
-            }`}
-          >
-            {thinBanner?.is_active ? "Live" : "Off"}
-          </span>
-        </button>
+        {saving && (
+          <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 pr-2">
+            <Loader2 size={13} className="animate-spin text-emerald-600" />
+            <span className="hidden sm:inline">Publishing live...</span>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -818,6 +1023,16 @@ function Banners() {
           <span>{error}</span>
         </div>
       )}
+
+      {pendingHeroUpload && !saving && !Object.values(uploadingSlots).some((entry) => entry?.uploading) && (
+        <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p>The {pendingHeroUpload.slot === "video" ? "video" : "image"} was uploaded but could not be saved to the banner. Review the latest banner and retry.</p>
+          <button type="button" className="mt-2 font-bold underline" onClick={retryHeroUpload}>Retry saving {pendingHeroUpload.slot === "video" ? "video" : "image"}</button>
+          <button type="button" className="ml-4 mt-2 font-bold underline" onClick={() => setPendingHeroUpload(null)}>Discard pending {pendingHeroUpload.slot === "video" ? "video" : "image"}</button>
+        </div>
+      )}
+
+      <fieldset disabled={saving || Boolean(pendingHeroUpload) || Object.values(uploadingSlots).some((entry) => entry?.uploading)} className="min-w-0 space-y-5">
 
       {/* Hero Carousel Tab Content */}
       {activeTab === "hero" && (
@@ -861,6 +1076,8 @@ function Banners() {
           {banners.map((banner, index) => {
             const isDesktopUploading = uploadingSlots[`${index}-desktop`]?.uploading;
             const isMobileUploading = uploadingSlots[`${index}-mobile`]?.uploading;
+            const videoUploadState = uploadingSlots[`${index}-video`];
+            const isVideoMode = banner.media_type === "video";
 
             return (
               <div
@@ -962,7 +1179,138 @@ function Banners() {
                   </div>
                 </div>
 
-                {/* Dual Image Slots: Desktop & Mobile */}
+                {/* Media Format Switcher: Image Mode vs Video Mode (MP4) */}
+                <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-3 sm:p-4 flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <span className="block text-xs font-black uppercase tracking-wider text-gray-800">
+                      Media Format
+                    </span>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Display static images or a looping MP4 video (with your uploaded image as poster &amp; fallback).
+                    </p>
+                  </div>
+
+                  <div className="inline-flex p-1 bg-gray-200/80 rounded-xl border border-gray-200">
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => handleHeroSwitchMediaMode(index, "image")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        !isVideoMode
+                          ? "bg-white text-gray-900 shadow-xs border border-gray-200 font-black"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <ImageIcon size={14} className={!isVideoMode ? "text-blue-600" : "text-gray-400"} />
+                      <span>Image Mode</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => handleHeroSwitchMediaMode(index, "video")}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        isVideoMode
+                          ? "bg-white text-gray-900 shadow-xs border border-gray-200 font-black"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <VideoIcon size={14} className={isVideoMode ? "text-emerald-600" : "text-gray-400"} />
+                      <span>Video Mode (MP4)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Hero Banner Video Slot (MP4) — available on all 3 slides */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Film size={15} className="text-emerald-600" />
+                      <span className="text-xs font-black uppercase tracking-wider text-emerald-950">
+                        {isVideoMode ? "Hero Banner Video (MP4)" : "Optional Video Draft (MP4)"}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200">
+                      16:6 / 16:7 Widescreen • Max 5MB • H.264
+                    </span>
+                  </div>
+
+                  <input
+                    type="file"
+                    id={`file-hero-video-${index}`}
+                    onChange={(e) => handleUploadHeroVideo(e, index)}
+                    accept="video/mp4"
+                    className="hidden"
+                  />
+
+                  {banner.video_url ? (
+                    <div className="space-y-2">
+                      <div className="relative rounded-xl overflow-hidden border border-emerald-200 bg-black aspect-[16/6] flex items-center justify-center">
+                        <video
+                          key={banner.video_url}
+                          src={banner.video_url}
+                          poster={banner.desktop_image || banner.mobile_image || undefined}
+                          controls
+                          preload="none"
+                          muted
+                          loop
+                          playsInline
+                          className="h-full w-full object-cover"
+                        />
+                        {videoUploadState?.uploading && (
+                          <div className="absolute inset-0 bg-black/75 backdrop-blur-xs flex flex-col items-center justify-center text-white gap-2 z-10">
+                            <Loader2 size={24} className="animate-spin text-emerald-400" />
+                            <span className="text-xs font-bold">{videoUploadState.progress}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between flex-wrap gap-2 text-xs text-gray-500 pt-1">
+                        <span className="text-[11px] text-emerald-800 font-medium flex items-center gap-1">
+                          <CheckCircle2 size={12} className="text-emerald-600" />
+                          {isVideoMode ? "Video active for this slide" : "Draft saved; images stay live until Video Mode is enabled"}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <label
+                            htmlFor={`file-hero-video-${index}`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 text-xs font-bold transition shadow-2xs cursor-pointer"
+                          >
+                            <Upload size={12} />
+                            {isVideoMode ? "Replace Video" : "Replace Draft"}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveHeroVideo(index)}
+                            disabled={saving}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition cursor-pointer"
+                          >
+                            <Trash2 size={12} />
+                            Remove Video
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor={`file-hero-video-${index}`}
+                      className="flex flex-col items-center justify-center aspect-[16/6] sm:aspect-[16/5] border-2 border-dashed border-emerald-300 rounded-xl hover:border-emerald-500 hover:bg-emerald-100/30 transition cursor-pointer p-4 group bg-white/60 text-center"
+                    >
+                      {videoUploadState?.uploading ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 size={24} className="animate-spin text-emerald-600" />
+                          <span className="text-xs font-bold text-gray-600">{videoUploadState.progress}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <Film size={22} className="text-emerald-500 group-hover:scale-110 transition" />
+                          <span className="text-xs font-bold text-gray-800 mt-1">Upload Slide #{index + 1} Video</span>
+                          <span className="text-[10px] text-gray-500">MP4 (H.264) • Up to 5MB • Works across desktop &amp; mobile</span>
+                        </>
+                      )}
+                    </label>
+                  )}
+                </div>
+
+                {/* Dual Image Slots: Desktop & Mobile (also serve as Poster/Fallback in Video Mode) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                   {/* Slot A: Desktop Banner */}
                   <div className="rounded-2xl border border-gray-200 bg-gray-50/40 p-4 space-y-3">
@@ -970,7 +1318,7 @@ function Banners() {
                       <div className="flex items-center gap-1.5">
                         <Monitor size={15} className="text-sky-600" />
                         <span className="text-xs font-black uppercase tracking-wider text-gray-800">
-                          Desktop Image
+                          {isVideoMode ? "Desktop Poster Image" : "Desktop Image"}
                         </span>
                       </div>
                       <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200">
@@ -1053,7 +1401,7 @@ function Banners() {
                       <div className="flex items-center gap-1.5">
                         <Smartphone size={15} className="text-indigo-600" />
                         <span className="text-xs font-black uppercase tracking-wider text-gray-800">
-                          Mobile Image
+                          {isVideoMode ? "Mobile Poster Image" : "Mobile Image"}
                         </span>
                       </div>
                       <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
@@ -1455,6 +1803,7 @@ function Banners() {
         </div>
       )}
 
+      </fieldset>
       {/* Live Preview Modal */}
       <BannerPreviewModal
         banner={previewBanner}

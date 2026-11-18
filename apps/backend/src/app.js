@@ -25,6 +25,7 @@ import crypto from "crypto";
 import { alertStaffAnomaly } from "./services/alertService.js";
 import { logger, sanitizeError } from "./utils/logger.js";
 import { operationalHealth } from "./services/operationalHealth.js";
+import { runWithRequestContext } from "./utils/requestContext.js";
 
 const app = express();
 
@@ -49,6 +50,10 @@ app.use(pinoHttp({
     err: sanitizeError,
   },
 }));
+
+app.use((req, _res, next) => {
+  runWithRequestContext({ requestId: req.id }, next);
+});
 
 app.use(
   helmet({

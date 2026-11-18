@@ -55,11 +55,12 @@ function Analytics() {
   const searchRequestId = useRef(0);
   const productSearchAbortRef = useRef(null);
   const reportAbortRef = useRef(null);
+  const forceRefreshRef = useRef(false);
   const { setPageRefresh, setRefreshLoading } = useOutletContext() || {};
 
   useEffect(() => {
     if (setPageRefresh) {
-      setPageRefresh(() => () => setRefreshTick((tick) => tick + 1));
+      setPageRefresh(() => () => { forceRefreshRef.current = true; setRefreshTick((tick) => tick + 1); });
     }
     return () => {
       if (setPageRefresh) setPageRefresh(null);
@@ -115,12 +116,15 @@ function Analytics() {
       try {
         setLoading(true);
         setError("");
+        setReport(null);
+        const forceRefresh = forceRefreshRef.current;
+        forceRefreshRef.current = false;
         const result = await getAnalyticsReport(
           {
             date_from: appliedRange.from,
             date_to: appliedRange.to,
             product_id: appliedProduct?.id,
-            refresh: refreshTick ? "true" : undefined,
+            refresh: forceRefresh ? "true" : undefined,
           },
           { signal: controller.signal }
         );
@@ -151,7 +155,6 @@ function Analytics() {
     }
     setAppliedRange({ from: dateFrom, to: dateTo });
     setAppliedProduct(selectedProduct);
-    setRefreshTick((tick) => tick + 1);
   };
 
   const setPreset = (preset) => {
@@ -190,7 +193,6 @@ function Analytics() {
     setActivePreset(preset);
     setAppliedRange({ from, to: finalTo });
     setAppliedProduct(selectedProduct);
-    setRefreshTick((tick) => tick + 1);
   };
 
   const handleCustomRangeApply = (newFrom, newTo) => {
@@ -199,7 +201,6 @@ function Analytics() {
     setActivePreset("custom");
     setAppliedRange({ from: newFrom, to: newTo });
     setAppliedProduct(selectedProduct);
-    setRefreshTick((tick) => tick + 1);
   };
 
   return (
@@ -335,10 +336,10 @@ function Analytics() {
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-gray-500">
             <span>Showing {report.date_from} to {report.date_to} (India Standard Time)</span>
-            <span>The product filter narrows the product table and units card; sales, order count, and daily totals remain store-wide. Orders are never erased.</span>
+            <span>The product filter narrows the product table and units card; sales, order count, and daily totals remain store-wide. Totals are grouped by order date and reflect current status and recorded refunds.</span>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard icon={<IndianRupee size={18} />} label="Sales in period" value={formatRupees(report.summary?.revenue)} note={`Delivered: ${formatRupees(report.summary?.completed_revenue)}`} />
+            <MetricCard icon={<IndianRupee size={18} />} label="Sales in period" value={formatRupees(report.summary?.revenue)} note={`Completed orders: ${formatRupees(report.summary?.completed_revenue)}`} />
             <MetricCard icon={<ShoppingBag size={18} />} label="Orders in period" value={Number(report.summary?.orders || 0).toLocaleString("en-IN")} note="Cancelled, failed, refunded and pending orders excluded" />
             <MetricCard icon={<TrendingUp size={18} />} label="Average order value" value={formatRupees(report.summary?.average_order)} note="Sales divided by valid orders" />
             <MetricCard icon={<PackageSearch size={18} />} label={appliedProduct ? "Selected product units" : "Units in listed products"} value={products.reduce((sum, product) => sum + Number(product.quantity || 0), 0).toLocaleString("en-IN")} note={appliedProduct ? appliedProduct.name : `Across ${products.length} products shown`} />

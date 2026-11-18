@@ -33,6 +33,7 @@ import {
   getOrders,
   bulkDispatchOrders,
   updateOrderStatus,
+  confirmOrderDeliveryReview,
   sendOrderRefundEmail,
   getEmployeeOrderStreamUrl,
   acknowledgeOrder,
@@ -86,6 +87,7 @@ export { resolveTabFromStatusParam, getOrderDateIST, getOrderTimestampDate, getC
 
 const STATUS_OPTIONS = [
   { value: "processing", label: "Processing / To Pack", shortLabel: "To Pack", dot: "bg-amber-400" },
+  { value: "packed", label: "Packed", shortLabel: "Packed", dot: "bg-purple-500" },
   { value: "out-for-delivery", label: "Out for Delivery (Rider)", shortLabel: "Out for Delivery", dot: "bg-blue-500" },
   { value: "completed", label: "Delivered (Completed)", shortLabel: "Delivered", dot: "bg-emerald-500" },
 ];
@@ -169,10 +171,12 @@ function Orders() {
   const [ordersQueryKey, setOrdersQueryKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [lastOrderRefresh, setLastOrderRefresh] = useState(null);
   const [activeTab, setActiveTab] = useState(() =>
     resolveTabFromStatusParam(searchParams.get("status"))
   );
-  const [dateFilter, setDateFilter] = useState("today");
+  const [dateFilter, setDateFilter] = useState(() => ["today", "yesterday", "7days", "all"].includes(searchParams.get("date")) ? searchParams.get("date") : "today");
+  const [dateBasis, setDateBasis] = useState(() => searchParams.get("date_basis") === "completed" && searchParams.get("status") === "completed" ? "completed" : "created");
   const [locationFilter, setLocationFilter] = useState("all");
   const [customDateRange, setCustomDateRange] = useState({ start: "", end: "" });
   const [tempDateRange, setTempDateRange] = useState({ start: "", end: "" });
@@ -184,8 +188,8 @@ function Orders() {
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const locationDropdownRef = useRef(null);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get("search") || "");
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get("search") || "");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [cancelConfirmPending, setCancelConfirmPending] = useState(false);
   const requestIdRef = useRef(0);
@@ -211,6 +215,9 @@ function Orders() {
   useEffect(() => {
     const tabFromUrl = resolveTabFromStatusParam(searchParams.get("status"));
     setActiveTab(tabFromUrl);
+    const requestedDate = searchParams.get("date");
+    if (["today", "yesterday", "7days", "all"].includes(requestedDate)) setDateFilter(requestedDate);
+    setDateBasis(searchParams.get("date_basis") === "completed" && tabFromUrl === "completed" ? "completed" : "created");
   }, [searchParams]);
 
   // Close status dropdown when clicking outside
@@ -268,6 +275,7 @@ function Orders() {
     debouncedSearch,
     locationFilter,
     dateFilter,
+    dateBasis,
     customDateRange: dateFilter === "custom" ? customDateRange : null,
     page,
   });
@@ -311,6 +319,7 @@ function Orders() {
     debouncedSearch,
     locationFilter,
     dateFilter,
+    dateBasis,
     customDateRange: dateFilter === "custom" ? customDateRange : null,
     page,
   });
@@ -319,6 +328,7 @@ function Orders() {
     debouncedSearch,
     locationFilter,
     dateFilter,
+    dateBasis,
     customDateRange: dateFilter === "custom" ? customDateRange : null,
     page,
   };
@@ -348,7 +358,9 @@ function Orders() {
         return;
       }
 
+      setError("");
       setOrders(newOrders);
+      setLastOrderRefresh(Date.now());
       setOrdersQueryKey(queryKey);
       setTotalOrders(newTotal);
       setTotalPages(newPages);
@@ -415,16 +427,22 @@ function Orders() {
     setAckError(null);
     const results = await Promise.allSettled(orderIds.map((id) => acknowledgeOrder(id)));
     const failedIds = [];
+    const localOnlyIds = [];
     results.forEach((res, index) => {
       if (res.status === "rejected" || !res.value?.success) {
         failedIds.push(orderIds[index]);
+      } else if (res.value.shared === false) {
+        localOnlyIds.push(orderIds[index]);
       }
     });
-    if (failedIds.length > 0) {
-      restoreOrderAlarms(failedIds);
+    if (failedIds.length > 0) restoreOrderAlarms(failedIds);
+    if (failedIds.length > 0 || localOnlyIds.length > 0) {
       setAckError({
-        failedIds,
-        message: `Failed to confirm acknowledgement with store network for order(s) ${failedIds.map((id) => `#${id}`).join(", ")}. Alarm restored.`,
+        failedIds: [...failedIds, ...localOnlyIds],
+        message: [
+          failedIds.length && `Could not acknowledge ${failedIds.map((id) => `#${id}`).join(", ")}; their alarms were restored.`,
+          localOnlyIds.length && `Acknowledgement for ${localOnlyIds.map((id) => `#${id}`).join(", ")} is local only; other devices may still ring. Retry when the store network is available.`,
+        ].filter(Boolean).join(" "),
       });
     }
   };
@@ -433,7 +451,14 @@ function Orders() {
     acknowledgeOrderAlarm(orderId);
     setAckError(null);
     try {
-      await acknowledgeOrder(orderId);
+      const result = await acknowledgeOrder(orderId);
+      if (!result?.success) throw new Error("Acknowledgement failed.");
+      if (result.shared === false) {
+        setAckError({
+          failedIds: [orderId],
+          message: `Order #${orderId} was acknowledged locally only; other devices may still ring. Retry when the store network is available.`,
+        });
+      }
     } catch (_) {
       restoreOrderAlarm(orderId);
       setAckError({
@@ -446,7 +471,7 @@ function Orders() {
   // 1. Fetch order list whenever user modifies filters, search, or pagination
   useEffect(() => {
     fetchOrderList(false);
-  }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
+  }, [activeTab, debouncedSearch, locationFilter, dateFilter, dateBasis, customDateRange, page]);
 
   // 2. Persistent SSE connection with 45s heartbeat watchdog & direct event notifications
   useEffect(() => {
@@ -628,6 +653,7 @@ function Orders() {
 
   const handleTabChange = (newTab) => {
     setActiveTab(newTab);
+    if (newTab !== "completed") setDateBasis("created");
     setPage(1);
     setSearchParams(
       (prev) => {
@@ -637,6 +663,7 @@ function Orders() {
         } else {
           next.set("status", newTab);
         }
+        if (newTab !== "completed") next.delete("date_basis");
         return next;
       },
       { replace: true }
@@ -645,6 +672,11 @@ function Orders() {
 
   const handleDateFilterSelect = (filterId) => {
     setIsDateDropdownOpen(false);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("date");
+      return next;
+    }, { replace: true });
     if (filterId === "custom") {
       setTempDateRange(customDateRange.start ? customDateRange : {
         start: shiftDateOnly(getISTDateString(), -6),
@@ -682,6 +714,10 @@ function Orders() {
   };
 
   const handleStatusUpdate = async (orderId, newStatus) => {
+    if (error) {
+      showToast("Refresh the order list before updating an order.", "error");
+      return;
+    }
     // Prevent duplicate concurrent requests on the same order
     if (updatingIdsRef.current.has(orderId)) return;
     // A ref locks synchronously; React state alone may not update before a
@@ -822,6 +858,53 @@ function Orders() {
     }
   };
 
+  const handleConfirmDeliveryReview = async (orderId) => {
+    if (updatingIdsRef.current.has(orderId)) return;
+    if (!window.confirm("Have you confirmed delivery arrangements with the customer?")) return;
+    updatingIdsRef.current.add(orderId);
+    setUpdatingIds(new Set(updatingIdsRef.current));
+    try {
+      await confirmOrderDeliveryReview(orderId);
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                meta_data: [
+                  ...(o.meta_data || []).filter(
+                    (m) => m.key !== "_payment_captured_without_delivery_slot"
+                  ),
+                  { key: "_payment_captured_without_delivery_slot", value: "no" },
+                  { key: "_delivery_review_confirmed_at", value: new Date().toISOString() },
+                ],
+              }
+            : o
+        )
+      );
+      setSelectedOrder((prev) =>
+        prev && prev.id === orderId
+          ? {
+              ...prev,
+              meta_data: [
+                ...(prev.meta_data || []).filter(
+                  (m) => m.key !== "_payment_captured_without_delivery_slot"
+                ),
+                { key: "_payment_captured_without_delivery_slot", value: "no" },
+                { key: "_delivery_review_confirmed_at", value: new Date().toISOString() },
+              ],
+            }
+          : prev
+      );
+      showToast("Delivery arrangements confirmed.");
+      await fetchOrderList(false);
+    } catch (err) {
+      showToast(err.response?.data?.message || "Could not confirm delivery arrangements.", "error");
+    } finally {
+      updatingIdsRef.current.delete(orderId);
+      setUpdatingIds(new Set(updatingIdsRef.current));
+    }
+  };
+
   const handleSendRefundEmail = async (order) => {
     if (!order || updatingIds.has(order.id)) return;
     const alreadySent = order.manual_refund_email_sent_at ||
@@ -935,7 +1018,7 @@ function Orders() {
     setSelectedIds(new Set());
     setBulkConfirm(null);
     setBulkResults([]);
-  }, [activeTab, debouncedSearch, locationFilter, dateFilter, customDateRange, page]);
+  }, [activeTab, debouncedSearch, locationFilter, dateFilter, dateBasis, customDateRange, page]);
 
   // Keep select-all checkbox indeterminate state in sync with partial selection
   const selectAllCheckboxRef = useRef(null);
@@ -1022,7 +1105,7 @@ function Orders() {
     let rawResults = [];
 
     try {
-      const result = await bulkDispatchOrders(reviewedIds);
+      const result = await bulkDispatchOrders(reviewedIds, bulkConfirm.locationKeysById);
       rawResults = result?.results || [];
 
       // Live view identifier check immediately after dispatch resolves
@@ -1133,18 +1216,20 @@ function Orders() {
   };
 
   const getActiveDateLabel = () => {
-    if (dateFilter === "today") return `Today (${formatDateLabel(todayDateString)})`;
-    if (dateFilter === "yesterday") return `Yesterday (${formatDateLabel(yesterdayDateString)})`;
-    if (dateFilter === "7days") return "Last 7 Days";
+    const prefix = dateBasis === "completed" ? "Delivered: " : "";
+    if (dateFilter === "today") return `${prefix}Today (${formatDateLabel(todayDateString)})`;
+    if (dateFilter === "yesterday") return `${prefix}Yesterday (${formatDateLabel(yesterdayDateString)})`;
+    if (dateFilter === "7days") return `${prefix}Last 7 Days`;
     if (dateFilter === "all") return "All Time";
     if (dateFilter === "custom" && customDateRange.start && customDateRange.end) {
-      return `${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`;
+      return `${prefix}${formatDateLabel(customDateRange.start)} - ${formatDateLabel(customDateRange.end)}`;
     }
     return `Today (${formatDateLabel(todayDateString)})`;
   };
 
   const tabs = [
     { id: "active", label: "To Pack & Deliver" },
+    { id: "processing", label: "To Pack" },
     { id: "packed", label: "Packed" },
     { id: "out-for-delivery", label: "Out for Delivery" },
     { id: "completed", label: "Delivered" },
@@ -1174,6 +1259,8 @@ function Orders() {
 
   const renderPrimaryAction = (order, isMobile = false) => {
     const isUpdating = updatingIds.has(order.id);
+
+    if (getScheduledOrderMeta(order)?.review) return renderDetailsButton(order, isMobile);
 
     if (order.is_unpaid) {
       return (
@@ -1243,6 +1330,12 @@ function Orders() {
 
   return (
     <div className="space-y-3.5 sm:space-y-4">
+      {error && hasCurrentOrders && (
+        <div role="alert" className="rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
+          {error} {lastOrderRefresh && <span>Last updated {new Date(lastOrderRefresh).toLocaleTimeString()}.</span>}
+          <button type="button" onClick={() => fetchOrderList(false)} className="ml-3 underline">Retry</button>
+        </div>
+      )}
       {alarmDegraded && (
         <div role="alert" className="rounded-xl border border-amber-400 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
           Order alerts are temporarily unavailable. Check your connection and retry.
@@ -1369,6 +1462,7 @@ function Orders() {
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
+              aria-label="Search orders by number, customer name, or phone"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search Order #, Name, Phone..."
@@ -1376,6 +1470,7 @@ function Orders() {
             />
             {searchQuery && (
               <button
+                aria-label="Clear order search"
                 onClick={() => setSearchQuery("")}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full"
               >
@@ -1385,6 +1480,7 @@ function Orders() {
           </div>
 
           <button
+            aria-label="Refresh orders"
             onClick={() => fetchOrderList(false)}
             disabled={loading}
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900 shadow-2xs transition cursor-pointer disabled:opacity-50 shrink-0"
@@ -1981,6 +2077,8 @@ function Orders() {
         onResetAll={() => {
           setActiveTab("all");
           setDateFilter("today");
+          setDateBasis("created");
+          setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("date"); next.delete("date_basis"); next.set("status", "all"); return next; }, { replace: true });
           setLocationFilter("all");
           setPage(1);
           setIsMobileFiltersOpen(false);
@@ -2006,6 +2104,7 @@ function Orders() {
           setSelectedOrder(null);
         }}
         onStatusUpdate={handleStatusUpdate}
+        onConfirmDeliveryReview={handleConfirmDeliveryReview}
         onSendRefundEmail={handleSendRefundEmail}
         updatingIds={updatingIds}
         isStatusDropdownOpen={isStatusDropdownOpen}

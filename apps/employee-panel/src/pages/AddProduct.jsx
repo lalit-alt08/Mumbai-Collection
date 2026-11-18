@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEmployeeAuth } from "../context/EmployeeAuthContext.jsx";
 import {
   Upload,
   Image as ImageIcon,
@@ -30,6 +31,8 @@ import {
 } from "../utils/imageCompressor.js";
 
 function AddProduct() {
+  const { user } = useEmployeeAuth();
+  const pendingStorageKey = `mumbai:product-create:${user?.id}`;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedCategoryId = searchParams.get("category_id");
@@ -37,6 +40,8 @@ function AddProduct() {
   const galleryInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const isSubmittingRef = useRef(false);
+  const imageBatchRef = useRef(false);
+  const previewUrlsRef = useRef(new Set());
   const hasLoadedCategoriesRef = useRef(false);
   const categoryRequestIdRef = useRef(0);
   const generateIdempotencyKey = () =>
@@ -70,11 +75,20 @@ function AddProduct() {
 
   // Media / Image Upload State
   const [images, setImages] = useState([]); // [{ file, preview, url, uploaded, uploading }]
+  const [processingImages, setProcessingImages] = useState(false);
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
+  }, []);
 
   // Submission State
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [createdProduct, setCreatedProduct] = useState(null);
+  const [pendingProduct, setPendingProduct] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(pendingStorageKey) || "null"); } catch { return null; }
+  });
 
   // Toast Notification State
   const [toast, setToast] = useState(null);
@@ -244,7 +258,7 @@ function AddProduct() {
   // Handle Image File Selection (Max 3 Images)
   const handleImageSelect = async (e) => {
     const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+    if (files.length === 0 || imageBatchRef.current || isSubmittingRef.current) return;
 
     const availableSlots = 3 - images.length;
     if (availableSlots <= 0) {
@@ -259,7 +273,9 @@ function AddProduct() {
     }
 
     const filesToProcess = files.slice(0, availableSlots);
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    imageBatchRef.current = true;
+    setProcessingImages(true);
+    try {
 
     for (const file of filesToProcess) {
       if (!isAcceptedImage(file)) {
@@ -301,6 +317,7 @@ function AddProduct() {
       }
 
       const preview = URL.createObjectURL(fileToUpload);
+      previewUrlsRef.current.add(preview);
       const newImg = {
         id: Math.random().toString(36).substring(7),
         file: fileToUpload,
@@ -329,16 +346,39 @@ function AddProduct() {
           showToast("Failed to upload image.", "error");
         }
       } catch (err) {
-        updateImage({ uploading: false, error: err.message });
-        showToast(err.response?.data?.message || "Failed to upload image.", "error");
+        const uncertain = !err.response || err.response.status >= 500;
+        updateImage({ uploading: false, uncertain, error: uncertain ? "Upload may have completed. Check the media library before uploading again." : "Upload failed. Retry." });
+        showToast(uncertain ? "Upload outcome is uncertain. Check the media library." : "Failed to upload image.", "error");
       }
     }
 
+    } finally {
+      imageBatchRef.current = false;
+      setProcessingImages(false);
+    }
     if (galleryInputRef.current) {
       galleryInputRef.current.value = "";
     }
     if (cameraInputRef.current) {
       cameraInputRef.current.value = "";
+    }
+  };
+
+  const handleRetryImage = async (img) => {
+    if (imageBatchRef.current || isSubmittingRef.current) return;
+    imageBatchRef.current = true;
+    setProcessingImages(true);
+    setImages((prev) => prev.map((entry) => entry.id === img.id ? { ...entry, uploading: true, error: null } : entry));
+    try {
+      const result = await uploadProductImage(img.file);
+      if (!result.success || (!result.id && !result.url)) throw new Error("Upload failed");
+      setImages((prev) => prev.map((entry) => entry.id === img.id ? { ...entry, url: result.url, mediaId: result.id, uploaded: true, uploading: false } : entry));
+    } catch (err) {
+      const uncertain = !err.response || err.response.status >= 500;
+      setImages((prev) => prev.map((entry) => entry.id === img.id ? { ...entry, uploading: false, uncertain, error: uncertain ? "Upload may have completed. Check the media library before uploading again." : "Upload failed. Retry." } : entry));
+    } finally {
+      imageBatchRef.current = false;
+      setProcessingImages(false);
     }
   };
 
@@ -349,10 +389,38 @@ function AddProduct() {
       if (target?.preview) {
         try {
           URL.revokeObjectURL(target.preview);
+          previewUrlsRef.current.delete(target.preview);
         } catch {}
       }
       return prev.filter((img) => img.id !== imgId);
     });
+  };
+
+  const resolveProductOperation = async (pending) => {
+    try {
+      const result = await createProduct(pending.payload, { "X-Idempotency-Key": pending.key });
+      if (!result.success || !result.product) throw new Error("The product outcome could not be confirmed.");
+      sessionStorage.removeItem(pendingStorageKey);
+      setPendingProduct(null);
+      idempotencyKeyRef.current = null;
+      setCreatedProduct(result.product);
+      showToast("Product created successfully!");
+    } catch (err) {
+      if (err.response?.status === 400) {
+        sessionStorage.removeItem(pendingStorageKey);
+        setPendingProduct(null);
+      }
+      setError(err.response?.data?.message || "The product may have been created. Check its status before creating it again.");
+    }
+  };
+
+  const handleCheckProductOperation = async () => {
+    if (!pendingProduct || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try { await resolveProductOperation(pendingProduct); }
+    finally { isSubmittingRef.current = false; setSubmitting(false); }
   };
 
   // Handle Form Submission with Concurrency Lock
@@ -360,7 +428,7 @@ function AddProduct() {
     e.preventDefault();
 
     // Prevent duplicate invocations while request is processing
-    if (isSubmittingRef.current || submitting) {
+    if (isSubmittingRef.current || submitting || imageBatchRef.current) {
       return;
     }
 
@@ -457,19 +525,11 @@ function AddProduct() {
       }
       const idempotencyKey = idempotencyKeyRef.current.key;
 
-      // 5. Call createProduct API with idempotency key
-      const res = await createProduct(payload, {
-        "X-Idempotency-Key": idempotencyKey,
-      });
-
-      if (res.success && res.product) {
-        // Form submitted successfully: rotate idempotency key for next product
-        idempotencyKeyRef.current = null;
-        setCreatedProduct(res.product);
-        showToast("Product created successfully!");
-      } else {
-        setError(res.message || "Failed to create product in WooCommerce.");
-      }
+      // Persist before sending so a reload can check the same operation safely.
+      const pending = { key: idempotencyKey, payload };
+      sessionStorage.setItem(pendingStorageKey, JSON.stringify(pending));
+      setPendingProduct(pending);
+      await resolveProductOperation(pending);
     } catch (err) {
       setError(
         err.response?.data?.message || err.message || "Failed to create product. Please try again."
@@ -481,6 +541,8 @@ function AddProduct() {
   };
 
   const handleResetForm = () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
     idempotencyKeyRef.current = null;
     setFormData({
       name: "",
@@ -543,6 +605,26 @@ function AddProduct() {
             </Link>
           </div>
         </div>
+      ) : pendingProduct ? (
+        <div role="status" className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950 space-y-3">
+          <p className="font-bold">Checking product creation: {pendingProduct.payload?.name}</p>
+          <p>The product may already exist. Check its status before creating it again. If the status remains unresolved, ask an administrator to inspect the catalog and operation record.</p>
+          {error && <p role="alert">{error}</p>}
+          <button type="button" disabled={submitting} onClick={handleCheckProductOperation} className="rounded-xl bg-emerald-700 px-4 py-2 font-bold text-white disabled:opacity-50">{submitting ? "Checking…" : "Check status"}</button>
+          <Link to="/products" className="ml-4 underline">View products</Link>
+          <button
+            type="button"
+            onClick={() => {
+              sessionStorage.removeItem(pendingStorageKey);
+              setPendingProduct(null);
+              idempotencyKeyRef.current = null;
+              setError("");
+            }}
+            className="text-xs text-amber-900 underline ml-4 font-semibold cursor-pointer"
+          >
+            Dismiss & Start New Product
+          </button>
+        </div>
       ) : (
         /* PRODUCT CREATION FORM */
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -564,13 +646,15 @@ function AddProduct() {
 
               {/* Product Name */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <label htmlFor="product-name" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
                   Product Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
+                  id="product-name"
                   name="name"
+                  maxLength={200}
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="e.g. Traditional Silk Bandhani Saree"
@@ -580,7 +664,7 @@ function AddProduct() {
 
               {/* Regular Price */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <label htmlFor="regular-price" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
                   Regular Price (₹) <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
@@ -591,7 +675,8 @@ function AddProduct() {
                     type="number"
                     required
                     min="0"
-                    step="1"
+                    step="0.01"
+                    id="regular-price"
                     name="regular_price"
                     value={formData.regular_price}
                     onChange={handleChange}
@@ -603,7 +688,7 @@ function AddProduct() {
 
               {/* Sale Price */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <label htmlFor="sale-price" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
                   Sale Price (₹) (Optional)
                 </label>
                 <div className="relative">
@@ -613,7 +698,8 @@ function AddProduct() {
                   <input
                     type="number"
                     min="0"
-                    step="1"
+                    step="0.01"
+                    id="sale-price"
                     name="sale_price"
                     value={formData.sale_price}
                     onChange={handleChange}
@@ -625,11 +711,12 @@ function AddProduct() {
 
               {/* Product Category */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700">
+                <label htmlFor="product-category" className="block text-xs font-bold uppercase tracking-wider text-gray-700">
                   Product Category <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <button
+                    id="product-category"
                     type="button"
                     ref={categoryTriggerRef}
                     aria-haspopup="listbox"
@@ -838,7 +925,7 @@ function AddProduct() {
 
               {/* Stock Quantity */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <label htmlFor="stock-quantity" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
                   Initial Stock Quantity <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -846,6 +933,7 @@ function AddProduct() {
                   required
                   min="0"
                   step="1"
+                  id="stock-quantity"
                   name="stock_quantity"
                   value={formData.stock_quantity}
                   onChange={handleChange}
@@ -867,6 +955,7 @@ function AddProduct() {
                     id="product-description"
                     rows={2}
                     name="description"
+                    maxLength={5000}
                     value={formData.description}
                     onChange={handleChange}
                     placeholder="Add a short product description..."
@@ -883,7 +972,7 @@ function AddProduct() {
                   </button>
                 </div>
                 <p className="text-[11px] text-gray-400">
-                  Shown on product details. Use the expand button for the full editor.
+                  Shown on product details. Maximum 5,000 characters. Use the expand button for the full editor.
                 </p>
               </div>
             </div>
@@ -935,7 +1024,7 @@ function AddProduct() {
                 {/* Take Photo Button */}
                 <button
                   type="button"
-                  disabled={images.length >= 3}
+                  disabled={images.length >= 3 || processingImages || submitting}
                   onClick={() => cameraInputRef.current?.click()}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 transition cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -945,7 +1034,7 @@ function AddProduct() {
                 {/* From Gallery Button */}
                 <button
                   type="button"
-                  disabled={images.length >= 3}
+                  disabled={images.length >= 3 || processingImages || submitting}
                   onClick={() => galleryInputRef.current?.click()}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -958,7 +1047,7 @@ function AddProduct() {
             {images.length === 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 {/* 1. Camera Option Card */}
-                <div
+                <button type="button" disabled={processingImages || submitting}
                   onClick={() => cameraInputRef.current?.click()}
                   className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-6 text-center hover:border-emerald-500 hover:bg-emerald-50/70 transition cursor-pointer group"
                 >
@@ -967,10 +1056,10 @@ function AddProduct() {
                   </div>
                   <p className="text-xs font-black text-gray-900">Take Photo with Camera</p>
                   <p className="text-[11px] text-emerald-700 font-medium mt-0.5">Capture product in-shop directly</p>
-                </div>
+                </button>
 
                 {/* 2. Gallery Option Card */}
-                <div
+                <button type="button" disabled={processingImages || submitting}
                   onClick={() => galleryInputRef.current?.click()}
                   className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/50 p-6 text-center hover:border-sky-400 hover:bg-sky-50/30 transition cursor-pointer group"
                 >
@@ -979,7 +1068,7 @@ function AddProduct() {
                   </div>
                   <p className="text-xs font-black text-gray-900">Choose from Gallery / Files</p>
                   <p className="text-[11px] text-gray-500 font-medium mt-0.5">Browse high-res photos from device</p>
-                </div>
+                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -1005,11 +1094,16 @@ function AddProduct() {
                         <div className="absolute top-1.5 left-1.5 bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
                           <Check size={10} />
                         </div>
+                      ) : img.error && img.uncertain ? (
+                        <div role="alert" className="absolute inset-0 flex items-center justify-center bg-rose-900/80 p-2 text-center text-white text-xs font-bold">Upload may have completed. Check the media library.</div>
+                      ) : img.error ? (
+                        <button type="button" disabled={processingImages || submitting} onClick={() => handleRetryImage(img)} className="absolute inset-0 bg-rose-900/80 text-white text-xs font-bold">Upload failed. Retry</button>
                       ) : null}
 
                       {/* Delete button */}
                       <button
                         type="button"
+                        disabled={processingImages || submitting}
                         onClick={() => handleRemoveImage(img.id)}
                         className="absolute top-1.5 right-1.5 bg-black/60 hover:bg-rose-600 text-white rounded-full p-1 transition cursor-pointer shadow-xs"
                         title="Remove image"
@@ -1020,7 +1114,7 @@ function AddProduct() {
                   ))}
 
                   {/* Add more buttons if less than 3 */}
-                  {images.length < 3 && (
+                  {images.length < 3 && !processingImages && (
                     <div className="flex flex-col gap-1.5 justify-center">
                       <button
                         type="button"
@@ -1059,7 +1153,7 @@ function AddProduct() {
 
             <button
               type="submit"
-              disabled={submitting || images.some((img) => img.uploading)}
+              disabled={submitting || processingImages || images.some((img) => img.uploading)}
               className="mx-auto inline-flex w-[94%] items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-xs font-extrabold text-white shadow-sm transition hover:bg-emerald-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:mx-0 sm:w-auto"
             >
               {submitting ? (
@@ -1067,7 +1161,7 @@ function AddProduct() {
                   <Loader2 size={16} className="animate-spin" />
                   Creating Product...
                 </>
-              ) : images.some((img) => img.uploading) ? (
+              ) : processingImages || images.some((img) => img.uploading) ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
                   Uploading Images...
@@ -1120,6 +1214,7 @@ function AddProduct() {
               autoFocus
               rows={12}
               name="description"
+              maxLength={5000}
               value={formData.description}
               onChange={handleChange}
               placeholder="Write a clear description, including key features, specifications, compatibility, and other useful information…"

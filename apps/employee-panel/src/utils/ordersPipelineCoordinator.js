@@ -12,6 +12,7 @@ export const buildOrdersQueryKey = (params = {}) =>
     debouncedSearch: params.debouncedSearch ?? "",
     locationFilter: params.locationFilter ?? "all",
     dateFilter: params.dateFilter ?? "today",
+    dateBasis: params.dateBasis ?? "created",
     customDateRange: params.dateFilter === "custom" ? params.customDateRange : null,
     page: params.page ?? 1,
   });
@@ -122,6 +123,7 @@ export class OrdersPipelineCoordinator {
           search: activeFilters.debouncedSearch || undefined,
           location: activeFilters.locationFilter !== "all" ? activeFilters.locationFilter : undefined,
           date_filter: activeFilters.dateFilter !== "all" ? activeFilters.dateFilter : undefined,
+          date_basis: activeFilters.dateBasis === "completed" && activeFilters.activeTab === "completed" ? "completed" : undefined,
           date_from: activeFilters.dateFilter === "custom" ? activeFilters.customDateRange?.start || undefined : undefined,
           date_to: activeFilters.dateFilter === "custom" ? activeFilters.customDateRange?.end || undefined : undefined,
           page: activeFilters.page || 1,
@@ -183,6 +185,9 @@ export class OrdersPipelineCoordinator {
           this.onError(errorMsg);
           return { status: "error", message: errorMsg };
         }
+        if (requestId === this.backgroundRequestId && currentForegroundId === this.foregroundRequestId) {
+          this.onError("Order refresh failed. The displayed orders may be out of date.");
+        }
         return { status: "error", message: res?.message };
       }
     } catch (err) {
@@ -200,6 +205,9 @@ export class OrdersPipelineCoordinator {
         const errorMsg = err.response?.data?.message || err.message || "Failed to load orders from server.";
         this.onError(errorMsg);
         return { status: "error", message: errorMsg, error: err };
+      }
+      if (requestId === this.backgroundRequestId && currentForegroundId === this.foregroundRequestId) {
+        this.onError("Order refresh failed. The displayed orders may be out of date.");
       }
       return { status: "error", error: err };
     } finally {

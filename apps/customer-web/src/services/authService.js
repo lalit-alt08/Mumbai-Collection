@@ -120,6 +120,14 @@ export const verifyPasswordResetOtp = async (email, otp) => {
   return verifyOtp(email, otp, "reset_password");
 };
 
+export const sendDeleteAccountOtp = async (email) => {
+  return sendOtp(email, "delete_account");
+};
+
+export const verifyDeleteAccountOtp = async (email, otp) => {
+  return verifyOtp(email, otp, "delete_account");
+};
+
 export const resetPasswordWithOtp = async (email, reset_token, new_password) => {
   return resetPasswordOtp(email, reset_token, new_password);
 };

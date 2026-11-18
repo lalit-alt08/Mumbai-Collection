@@ -190,16 +190,18 @@ export const acknowledgeOrderNotification = async ({ orderId, employeeId } = {})
   localAcknowledgedOrders.set(cleanOrderId, { ...ackRecord, expiresAt: Date.now() + ACK_TTL_MS });
 
   const redis = getRedisClient();
+  let shared = false;
   if (redis && isRedisActive()) {
     try {
       await redis.set(`mumbai:order:ack:${cleanOrderId}`, JSON.stringify(ackRecord), "EX", 86400);
+      shared = true;
     } catch (err) {
       logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Redis ack set failed, fallback retained in local memory");
     }
   }
 
   await publishOrderEvent({ event: "ORDER_ACKNOWLEDGED", orderId: cleanOrderId, employeeId: cleanEmployeeId });
-  return { success: true, orderId: cleanOrderId, employeeId: cleanEmployeeId };
+  return { success: true, shared, orderId: cleanOrderId, employeeId: cleanEmployeeId };
 };
 
 const reconcileLocalAckToRedis = (redis, id, local, now) => {

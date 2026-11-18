@@ -36,6 +36,8 @@ function TrackOrder() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isStale, setIsStale] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const pollTimerRef = useRef(null);
   const pollCountRef = useRef(0);
@@ -79,6 +81,8 @@ function TrackOrder() {
 
       if (res?.success && res?.order) {
         setOrder(res.order);
+        setIsStale(false);
+        setLastUpdated(Date.now());
         setError("");
       } else {
         setError(res?.message || "Order not found.");
@@ -99,7 +103,8 @@ function TrackOrder() {
         setOrder(null);
       } else {
         if (isBackground && orderRef.current) {
-          // Keep the last successful order visible if a background refresh fails.
+          // Keep the last successful order visible if a background refresh fails, and warn user
+          setIsStale(true);
         } else if (!isBackground) {
           setError(err.response?.data?.message || err.message || "Failed to retrieve order tracking information.");
           setOrder(null);
@@ -416,6 +421,20 @@ function TrackOrder() {
         {/* ────────────────────────────────────────────────────────── */}
         {order && !loading && (
           <div className="space-y-4 sm:space-y-5 animate-in fade-in duration-200">
+            {isStale && (
+              <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 flex items-center justify-between gap-2 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                  <span>Showing last known status. Could not connect to refresh tracking.</span>
+                </div>
+                {lastUpdated && (
+                  <span className="text-[11px] text-amber-600 font-medium shrink-0">
+                    Updated {new Date(lastUpdated).toLocaleTimeString("en-IN", { hour: "numeric", minute: "numeric" })}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* 1. TOP SUMMARY CARD & FULFILLMENT TIMELINE */}
             <div className="overflow-hidden rounded-[24px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-4 sm:p-6 shadow-xl">
               {/* Header Details */}
@@ -428,14 +447,14 @@ function TrackOrder() {
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold border ${
                         isDelivered
-                          ? "track-order-delivered-badge bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                          ? "track-order-delivered-badge bg-emerald-50 text-emerald-700 border-emerald-200"
                           : order.status === "packed"
-                          ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
+                          ? "bg-purple-50 text-purple-700 border-purple-200"
                           : order.status === "out-for-delivery" || order.status === "dispatched"
-                          ? "bg-[#22499F]/15 text-[#22499F] border border-[#22499F]/30"
+                          ? "bg-[#22499F]/10 text-[#22499F] border border-[#22499F]/20"
                           : isCancelled
                           ? "order-status-cancelled"
-                          : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                          : "bg-amber-50 text-amber-800 border border-amber-200"
                       }`}
                     >
                       {order.display_status || order.status}
@@ -472,8 +491,8 @@ function TrackOrder() {
                   </div>
                 )}
                 {isDelivered && (
-                  <div className="track-order-delivered flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3.5 py-2 text-sm font-bold text-emerald-400 border border-emerald-500/30 shadow-xs">
-                    <CheckCircle2 size={16} className="shrink-0" />
+                  <div className="track-order-delivered flex items-center gap-2 rounded-xl bg-emerald-50 px-3.5 py-2 text-sm font-bold text-emerald-700 border border-emerald-200 shadow-xs">
+                    <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
                     <span>Delivered successfully</span>
                   </div>
                 )}
@@ -744,14 +763,14 @@ function TrackOrder() {
                       </span>
                     </div>
                     {Number(order.discount_total) > 0 && (
-                      <div className="flex justify-between text-emerald-400">
+                      <div className="flex justify-between text-emerald-600">
                         <span>Discount</span>
                         <span className="font-bold">-₹{order.discount_total}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
                       <span>Delivery Charge</span>
-                      <span className="font-bold text-emerald-400">
+                      <span className="font-bold text-emerald-600">
                         {Number(order.shipping_total) === 0 ? "FREE" : `₹${order.shipping_total}`}
                       </span>
                     </div>

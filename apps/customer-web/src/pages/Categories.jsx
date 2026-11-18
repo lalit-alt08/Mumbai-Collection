@@ -148,7 +148,15 @@ function Categories() {
   useEffect(() => {
     let ticking = false;
     const savePosition = () => {
-      if (window.scrollY > 0) {
+      if (
+        !hasRestoredScrollRef.current &&
+        typeof savedSessionRef.current?.scrollY === "number" &&
+        savedSessionRef.current.scrollY > 0 &&
+        window.scrollY === 0
+      ) {
+        return;
+      }
+      if (window.scrollY >= 0) {
         try {
           sessionStorage.setItem(
             SESSION_SCROLL_KEY,
@@ -211,7 +219,11 @@ function Categories() {
           <button
             onClick={() => {
               triggerHaptic("light");
-              navigate(-1);
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate("/");
+              }
             }}
             aria-label="Back"
             className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#22499F] border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.25)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 active:scale-95 cursor-pointer"
@@ -306,6 +318,12 @@ function Categories() {
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
                     decoding="async"
+                    onError={(e) => {
+                      if (e.currentTarget.getAttribute("data-fallback") !== "true") {
+                        e.currentTarget.setAttribute("data-fallback", "true");
+                        e.currentTarget.src = "/categories/category-placeholder.svg";
+                      }
+                    }}
                   />
 
                 </div>

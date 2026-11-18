@@ -7,6 +7,19 @@ import { logError, logger } from "../utils/logger.js";
 import { fetchRazorpayPayment, fetchRazorpayOrder } from "../services/razorpayService.js";
 import { findWcOrderByRazorpayOrderId } from "../services/paymentIntentService.js";
 
+export const getCustomerSuggestions = async (req, res) => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  if (search.length < 2 || search.length > 100) return res.status(400).json({ success: false, message: "Enter at least two characters." });
+  try {
+    const result = await wp.get("/wp-json/mumbai-auth/v1/admin/customer-suggestions", { params: { search }, timeout: 8000 });
+    res.set?.("Cache-Control", "private, no-store");
+    return res.json(result.data);
+  } catch (error) {
+    logError(req, error, "Customer suggestions unavailable");
+    return res.status(503).json({ success: false, message: "Customer suggestions are temporarily unavailable." });
+  }
+};
+
 /**
  * Customer Directory with Registered Customer Primary Population,
  * Database-Level Sorting, Pagination, Lifetime Value Aggregation, & Order Reconciliation
@@ -25,9 +38,6 @@ export const getAdminCustomers = async (req, res) => {
     // Cache each query slice briefly; explicit Refresh gets a unique key to force
     // an authoritative WordPress query rather than reusing a stale cached slice.
     const cacheKey = `admin:customers:p${pageNum}:l${limit}:s${sortKey}:loc${locKey}:q${searchKey.toLowerCase()}${forceRefresh ? `:refresh:${Date.now()}` : ""}`;
-    if (forceRefresh) {
-      serverCache.invalidatePrefix("admin:customers");
-    }
 
     const data = await serverCache.getOrFetch(
       cacheKey,
@@ -84,7 +94,7 @@ export const getAdminCustomers = async (req, res) => {
     const statusCode = error.response?.status || 500;
     res.status(statusCode).json({
       success: false,
-      message: error.response?.data?.message || error.message || "Failed to load customers.",
+      message: "Unable to load the customer directory. Please try again.",
       customers: [],
       total: 0,
       totalPages: 1,
@@ -264,8 +274,14 @@ export const getAdminCustomerPayments = async (req, res) => {
       return res.status(400).json({ success: false, message: "A valid customer ID is required." });
     }
 
+    const cursor = req.query?.cursor;
+    if (cursor !== undefined && (typeof cursor !== "string" || !/^[A-Za-z0-9_]{1,64}$/.test(cursor))) {
+      return res.status(400).json({ success: false, message: "Invalid payment history cursor." });
+    }
+
     try {
       const response = await wp.get(`/wp-json/mumbai-auth/v1/admin/customers/${customerId}/payments`, {
+        params: cursor ? { cursor } : {},
         headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
         timeout: 8000,
       });

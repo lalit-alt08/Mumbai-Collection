@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { getProducts } from "../../services/employeeApi.js";
 import {
   Package,
   LayoutGrid,
@@ -28,6 +29,9 @@ export function DestinationLinkSelector({
   });
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [isChangingProduct, setIsChangingProduct] = useState(false);
   const [customLinkVal, setCustomLinkVal] = useState(currentLink);
   const [isCatDropOpen, setIsCatDropOpen] = useState(false);
@@ -69,16 +73,25 @@ export function DestinationLinkSelector({
       ) || { id: selectedCatVal, name: `Category (${selectedCatVal})`, slug: selectedCatVal }
     : null;
 
-  // Filtered products list for search
-  const filteredProducts = products.filter((p) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    return (
-      p.name?.toLowerCase().includes(q) ||
-      p.sku?.toLowerCase().includes(q) ||
-      String(p.id).includes(q)
-    );
-  });
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) { setSearchResults([]); setSearchLoading(false); setSearchError(false); return undefined; }
+    const controller = new AbortController();
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const response = await getProducts({ search: query, per_page: 20 }, { signal: controller.signal });
+        if (!controller.signal.aborted) { setSearchResults(response.products || []); setSearchError(false); }
+      } catch {
+        if (!controller.signal.aborted) { setSearchResults([]); setSearchError(true); }
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
+      }
+    }, 350);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchQuery]);
+
+  const filteredProducts = searchQuery.trim().length >= 2 ? searchResults : products;
 
   const handleSelectProduct = (prod) => {
     setIsChangingProduct(false);
@@ -235,7 +248,7 @@ export function DestinationLinkSelector({
               <div className="max-h-52 overflow-y-auto rounded-xl border border-gray-200 bg-white divide-y divide-gray-100 shadow-xs">
                 {filteredProducts.length === 0 ? (
                   <div className="p-4 text-center text-xs text-gray-400">
-                    {loadingLookups ? "Loading products..." : `No products found matching "${searchQuery}"`}
+                    {searchLoading || loadingLookups ? "Loading products..." : searchError ? "Product search unavailable. Please retry." : `No products found matching "${searchQuery}"`}
                   </div>
                 ) : (
                   filteredProducts.map((p) => {
@@ -394,9 +407,9 @@ export function DestinationLinkSelector({
           )}
         </div>
 
-        {banner.link && (
+        {banner.link && (banner.link.startsWith("http") || import.meta.env.VITE_CUSTOMER_WEB_URL || import.meta.env.DEV) && (
           <a
-            href={banner.link.startsWith("http") ? banner.link : `http://localhost:5173${banner.link}`}
+            href={banner.link.startsWith("http") ? banner.link : `${import.meta.env.VITE_CUSTOMER_WEB_URL || (import.meta.env.DEV ? "http://localhost:5173" : "")}${banner.link}`}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-800 transition"
@@ -405,6 +418,9 @@ export function DestinationLinkSelector({
             <span>Test Link</span>
             <ExternalLink size={10} />
           </a>
+        )}
+        {banner.link && !banner.link.startsWith("http") && !import.meta.env.VITE_CUSTOMER_WEB_URL && !import.meta.env.DEV && (
+          <span className="text-amber-700">Storefront address is not configured.</span>
         )}
       </div>
     </div>

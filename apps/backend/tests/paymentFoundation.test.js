@@ -12,6 +12,7 @@ const {
 } = await import("../src/services/razorpayService.js");
 
 const { default: api } = await import("../src/config/woocommerce.js");
+const { default: wp } = await import("../src/services/wordpress.js");
 const { default: storeHoursService } = await import("../src/services/storeHoursService.js");
 const {
   createOrder,
@@ -22,6 +23,7 @@ const { serverCache } = await import("../src/utils/memoryCache.js");
 
 test("Stage 1 — Backend Payment Foundation Test Suite", async (t) => {
   const originalApiGet = api.get;
+  const originalWpGet = wp.get;
   const originalApiPost = api.post;
   const originalApiPut = api.put;
   const originalGetStoreStatus = storeHoursService.getStoreStatus;
@@ -32,10 +34,12 @@ test("Stage 1 — Backend Payment Foundation Test Suite", async (t) => {
     process.env.RAZORPAY_KEY_ID = "rzp_test_mock123";
     process.env.RAZORPAY_KEY_SECRET = "mock_secret_key_456";
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
+    wp.get = async () => ({ data: { is_suspended: false } });
   });
 
   t.afterEach(() => {
     api.get = originalApiGet;
+    wp.get = originalWpGet;
     api.post = originalApiPost;
     api.put = originalApiPut;
     storeHoursService.getStoreStatus = originalGetStoreStatus;
@@ -87,6 +91,7 @@ test("Stage 1 — Backend Payment Foundation Test Suite", async (t) => {
   // ───────────────────────────────────────────────────────────────────────────
 
   await t.test("2.1. createOrder blocks suspended customer", async () => {
+    wp.get = async () => ({ data: { is_suspended: true } });
     const req = {
       wpUserId: 10,
       isSuspended: true,

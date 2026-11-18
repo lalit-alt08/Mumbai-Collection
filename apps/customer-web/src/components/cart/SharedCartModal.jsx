@@ -10,6 +10,7 @@ function SharedCartModal({
   loading = false,
   error = "",
   onAddToCart,
+  onRetry,
   hasExistingCart = false,
   existingCartCount = 0,
 }) {
@@ -94,9 +95,21 @@ function SharedCartModal({
 
         {/* Feedback / Error notifications */}
         {error && (
-          <div className="mt-3 rounded-xl bg-rose-950/40 p-3 text-xs font-semibold text-rose-300 border border-rose-800/60 flex items-center gap-2">
-            <AlertCircle size={15} className="shrink-0" />
-            <span>{error}</span>
+          <div className="mt-3 rounded-xl bg-rose-950/40 p-3 text-xs font-semibold text-rose-300 border border-rose-800/60 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={15} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={loading || submitting}
+                className="shrink-0 rounded-lg bg-rose-800/70 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-rose-700 transition cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
@@ -115,12 +128,14 @@ function SharedCartModal({
               <span>Verifying product availability...</span>
             </div>
           ) : catalogProducts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#E2E8F0] p-6 text-center bg-[#F0F8E8]">
-              <p className="text-xs font-bold text-[#1E293B]">No items available</p>
-              <p className="text-[11px] text-[#64748B] mt-0.5">
-                The shared items may have been discontinued or are currently out of stock.
-              </p>
-            </div>
+            error ? null : (
+              <div className="rounded-2xl border border-dashed border-[#E2E8F0] p-6 text-center bg-[#F0F8E8]">
+                <p className="text-xs font-bold text-[#1E293B]">No items available</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">
+                  The shared items may have been discontinued or are currently out of stock.
+                </p>
+              </div>
+            )
           ) : (
             catalogProducts.map(({ product, quantity, isAvailable, outOfStockMessage, variation }) => {
               const livePrice = Number(product.price || product.regular_price || 0);

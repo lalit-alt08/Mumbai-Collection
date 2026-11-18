@@ -1,16 +1,15 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   FolderPlus,
   FolderTree,
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Plus,
   RefreshCw,
   Layers,
   Lock,
   ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import {
   getCategories,
@@ -35,6 +34,8 @@ import SystemCategoryCard from "../components/category/SystemCategoryCard.jsx";
 import { getCategoryImageUrl } from "../utils/categoryImage.js";
 
 function AddCategory() {
+  const { categoryAddRequest = 0 } = useOutletContext() || {};
+  const lastCategoryAddRequest = useRef(categoryAddRequest);
   const fileInputRef = useRef(null);
   const updateFileInputRef = useRef(null);
   const isSubmittingRef = useRef(false);
@@ -43,6 +44,8 @@ function AddCategory() {
   const isMountedRef = useRef(true);
   const latestCategoriesRef = useRef([]);
   const queuedOrderRef = useRef(null);
+  const savedOrderRef = useRef([]);
+  const flushQueueRef = useRef(null);
   const debounceTimerRef = useRef(null);
   const retryTimerRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -59,6 +62,13 @@ function AddCategory() {
 
   // Add Category Toggle & Form State
   const [showAddForm, setShowAddForm] = useState(false);
+  useEffect(() => {
+    if (categoryAddRequest !== lastCategoryAddRequest.current) {
+      lastCategoryAddRequest.current = categoryAddRequest;
+      setParentId(0);
+      setShowAddForm(true);
+    }
+  }, [categoryAddRequest]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [parentId, setParentId] = useState(0);
@@ -133,6 +143,7 @@ function AddCategory() {
         list = res;
       }
       latestCategoriesRef.current = list;
+      savedOrderRef.current = list.filter((c) => !isUncategorized(c) && (!c.parent || Number(c.parent) === 0)).map((c) => c.id);
       setCategoriesList(list);
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -151,15 +162,21 @@ function AddCategory() {
       isMountedRef.current = false;
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
-      }
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
+        debounceTimerRef.current = null;
+        void flushQueueRef.current?.();
       }
       if (toastTimerRef.current) {
         clearTimeout(toastTimerRef.current);
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSavingOrder) return undefined;
+    const warnBeforeUnload = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [isSavingOrder]);
 
   // ─────────────────────────────────────────────────────────────
   // REORDERING (DRAG & DROP + TOUCH BUTTONS + PERSISTENCE)
@@ -267,11 +284,12 @@ function AddCategory() {
     queuedOrderRef.current = null;
     await executePersist(listToPersist);
   };
+  flushQueueRef.current = flushCategoryOrderQueue;
 
   const executePersist = async (listToPersist, retryCount = 0) => {
     try {
       isReorderingRef.current = true;
-      setIsSavingOrder(true);
+      if (isMountedRef.current) setIsSavingOrder(true);
 
       const validIds = listToPersist
         .filter((category) => !isUncategorized(category) && (!category.parent || Number(category.parent) === 0))
@@ -284,15 +302,10 @@ function AddCategory() {
 
       await reorderCategories(validIds, {
         "X-Idempotency-Key": idempotencyKey,
-      });
+      }, savedOrderRef.current);
+      savedOrderRef.current = validIds;
 
       // If component unmounted while HTTP request was in flight, abort cleanly
-      if (!isMountedRef.current) {
-        queuedOrderRef.current = null;
-        isReorderingRef.current = false;
-        return;
-      }
-
       // If another order modification was queued while this request was in flight, execute it immediately
       if (queuedOrderRef.current) {
         const nextList = queuedOrderRef.current;
@@ -318,7 +331,6 @@ function AddCategory() {
         const delay = Math.pow(2, retryCount) * 1000;
         retryTimerRef.current = setTimeout(async () => {
           retryTimerRef.current = null;
-          if (!isMountedRef.current) return;
           const hasNewQueuedOrder = Boolean(queuedOrderRef.current);
           const targetList = queuedOrderRef.current || listToPersist;
           queuedOrderRef.current = null;
@@ -743,34 +755,6 @@ function AddCategory() {
           <span>{toast.message}</span>
         </div>
       )}
-
-      {/* Top Action Toolbar */}
-      <div className="flex items-center justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            setParentId(0);
-            setShowAddForm((prev) => !prev);
-          }}
-          className={`inline-flex items-center gap-2 rounded-2xl py-2.5 px-5 text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer ${
-            showAddForm
-              ? "bg-gray-100 text-gray-700 border-2 border-gray-300 hover:bg-gray-200"
-              : "bg-emerald-600 text-white border-2 border-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20"
-          }`}
-        >
-          {showAddForm ? (
-            <>
-              <ChevronUp size={16} />
-              <span>Hide Form</span>
-            </>
-          ) : (
-            <>
-              <Plus size={16} strokeWidth={2.5} />
-              <span>Add Category</span>
-            </>
-          )}
-        </button>
-      </div>
 
       {/* ───────────────────────────────────────────────────────────── */}
       {/* SECTION 1: ADD NEW CATEGORY FORM COMPONENT                    */}

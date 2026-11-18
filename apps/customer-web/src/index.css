@@ -46,6 +46,7 @@
 .checkout-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
 .auth-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
 .order-status-cancelled { background: #FCE5E7; border-color: #D98A94; color: #852532; }
+.track-order-delivered-badge, .track-order-delivered { background: #ECFDF5; border-color: #A7F3D0; color: #047857; }
 .order-invoice-toggle-expanded { background: #22499F; border-color: #22499F; color: #FFFFFF; }
 .store-payment-loading { background: #17243B; border: 1px solid #4766A7; color: #FFFFFF; box-shadow: 0 0 18px rgb(34 73 159 / 20%); }
 .store-payment-spinner { color: #FF942F; }
@@ -81,6 +82,7 @@ html[data-store-theme="dark"] .pending-checkout-cancel:hover { color: #FFD2D4; }
 html[data-store-theme="dark"] .checkout-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .auth-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .order-status-cancelled { background: #49353B; border-color: #A05A66; color: #FFD2D4; }
+html[data-store-theme="dark"] .track-order-delivered-badge, html[data-store-theme="dark"] .track-order-delivered { background: #1C3829; border-color: #059669; color: #A7F3D0; }
 html[data-store-theme="dark"] .order-invoice-toggle-expanded { background: #FF942F; border-color: #FF942F; color: #1F272E; }
 html[data-store-theme="dark"] .store-payment-loading { background: #303A43; border-color: #C68042; color: #FAF8F4; box-shadow: 0 0 18px rgb(255 148 47 / 18%); }
 html[data-store-theme="dark"] .store-payment-spinner { color: #FFBF80; }

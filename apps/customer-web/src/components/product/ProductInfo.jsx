@@ -55,6 +55,10 @@ function ProductInfo({ product }) {
 
   const handleAddToCart = async () => {
     if (isOutOfStock || isMaxReached) return;
+    if (product?.type === "variable") {
+      setCartError("This item has options that must be selected before adding to cart.");
+      return;
+    }
     setCartError("");
     try {
       setLoading(true);
@@ -94,6 +98,10 @@ function ProductInfo({ product }) {
 
   const handleBuyNow = async () => {
     if (isOutOfStock || loading) return;
+    if (product?.type === "variable") {
+      setCartError("This item has options that must be selected before purchasing.");
+      return;
+    }
     setCartError("");
     triggerHaptic("medium");
 
@@ -236,9 +244,14 @@ function ProductInfo({ product }) {
 
           {/* Stock Availability Badge */}
           <div className="mt-3">
-            {isOutOfStock || isMaxReached ? (
+            {isOutOfStock ? (
               <span className="store-out-of-stock inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-extrabold tracking-[0.01em]">
                 <ShieldAlert size={14} /> Out of Stock
+              </span>
+            ) : isMaxReached ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3.5 py-1.5 text-xs font-bold text-amber-800">
+                <AlertTriangle size={14} aria-hidden="true" />
+                Max available in cart ({currentQuantity})
               </span>
             ) : remainingStock <= 5 ? (
               <span className="store-low-stock inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold">

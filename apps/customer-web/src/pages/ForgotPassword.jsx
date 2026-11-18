@@ -10,7 +10,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import {
   sendPasswordResetOtp,
   verifyPasswordResetOtp,
@@ -24,12 +25,20 @@ import {
 
 function ForgotPassword() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, handleSessionExpired } = useAuth();
+  const isSetPasswordMode = location.state?.mode === "set_password";
+  const returnPath = typeof location.state?.from === "string" && location.state.from.startsWith("/")
+    ? location.state.from
+    : "/login";
 
   // Stepper: 1 = Email Input, 2 = OTP Verification, 3 = New Password Setup
   const [step, setStep] = useState(1);
 
   // Form fields
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() =>
+    typeof location.state?.email === "string" ? location.state.email : ""
+  );
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [resetToken, setResetToken] = useState("");
   const [password, setPassword] = useState("");
@@ -277,14 +286,19 @@ function ForgotPassword() {
         resetToken,
         password
       );
+      if (user && handleSessionExpired) {
+        handleSessionExpired();
+      }
       setSuccess(
-        res?.message || "Password reset successfully! Redirecting to login..."
+        isSetPasswordMode
+          ? "Password set successfully! Redirecting to sign in..."
+          : res?.message || "Password reset successfully! Redirecting to login..."
       );
       setPassword("");
       setConfirmPassword("");
 
       setTimeout(() => {
-        navigate("/login");
+        navigate("/login", { replace: true });
       }, 1800);
     } catch (err) {
       const msg =
@@ -314,13 +328,19 @@ function ForgotPassword() {
               setError("");
               setFieldError("");
             } else {
-              navigate("/login");
+              navigate(returnPath);
             }
           }}
           className="mb-6 flex w-fit items-center gap-2 text-sm font-semibold text-[#64748B] transition hover:text-[#22499F] cursor-pointer"
         >
           <ArrowLeft size={18} />
-          {step === 1 ? "Back to Sign In" : step === 2 ? "Back to Email" : "Back to Verification"}
+          {step === 1
+            ? isSetPasswordMode
+              ? "Back to Profile"
+              : "Back to Sign In"
+            : step === 2
+            ? "Back to Email"
+            : "Back to Verification"}
         </button>
 
         {/* Stepper Progress Bar */}
@@ -349,11 +369,26 @@ function ForgotPassword() {
           <div>
             <div className="mb-6">
               <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E293B] md:text-[32px]">
-                Forgot Password?
+                {isSetPasswordMode ? "Set a Password" : "Forgot Password?"}
               </h1>
               <p className="mt-2 text-[15px] leading-relaxed text-[#64748B] md:text-[16px]">
-                Enter your registered email address and we'll send you a 6-digit verification code.
+                {isSetPasswordMode
+                  ? "Verify your email with a 6-digit code to add a Mumbai Collection store password. Your Google account password stays separate, and you can still sign in with Google afterward."
+                  : "Enter your email address. If an account exists, we'll send a 6-digit verification code."}
               </p>
+              {!isSetPasswordMode && (
+                <p className="mt-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3.5 py-2.5 text-xs leading-relaxed text-[#475569]">
+                  This creates or resets your <strong>Mumbai Collection store password</strong> — not your Google password. If you usually sign in with Google, you can also use{" "}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/login")}
+                    className="font-bold text-[#22499F] hover:underline cursor-pointer"
+                  >
+                    Continue with Google
+                  </button>
+                  .
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleEmailSubmit} className="flex flex-col gap-5">
@@ -417,8 +452,9 @@ function ForgotPassword() {
                 Verify Your Email
               </h1>
               <p className="mt-2 text-[15px] leading-relaxed text-[#64748B] md:text-[16px]">
-                We sent a 6-digit verification code to{" "}
-                <span className="font-semibold text-[#1E293B]">{email}</span>.
+                If an account exists for{" "}
+                <span className="font-semibold text-[#1E293B]">{email}</span>, we sent a 6-digit verification code.
+                {!isSetPasswordMode && " If you usually sign in with Google, you can also sign in with Continue with Google."}
               </p>
               <button
                 type="button"

@@ -66,8 +66,13 @@ export const updateOrderStatus = async (id, status) => {
   return res.data;
 };
 
-export const bulkDispatchOrders = async (ids) => {
-  const res = await api.post("/orders/bulk-status", { ids, status: "out-for-delivery" }, { timeout: 180000 });
+export const confirmOrderDeliveryReview = async (id) => {
+  const res = await api.post(`/orders/${id}/delivery-review`);
+  return res.data;
+};
+
+export const bulkDispatchOrders = async (ids, expectedLocations) => {
+  const res = await api.post("/orders/bulk-status", { ids, status: "out-for-delivery", ...(expectedLocations ? { expected_locations: expectedLocations } : {}) }, { timeout: 180000 });
   return res.data;
 };
 
@@ -172,7 +177,7 @@ export const deleteProduct = async (id) => {
 };
 
 export const createProduct = async (data, headers = {}) => {
-  const config = {};
+  const config = { timeout: 70000 };
   if (headers && Object.keys(headers).length > 0) {
     config.headers = headers;
   }
@@ -242,12 +247,12 @@ export const updateCategory = async (id, data, headers = {}) => {
   return res.data;
 };
 
-export const reorderCategories = async (categoryIds, headers = {}) => {
+export const reorderCategories = async (categoryIds, headers = {}, expectedOrder) => {
   const config = {};
   if (headers && Object.keys(headers).length > 0) {
     config.headers = headers;
   }
-  const res = await api.put("/categories/reorder", { category_ids: categoryIds }, config);
+  const res = await api.put("/categories/reorder", { category_ids: categoryIds, expected_order: expectedOrder }, config);
   return res.data;
 };
 

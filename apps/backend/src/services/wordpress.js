@@ -1,6 +1,10 @@
 import axios from "axios";
 import { httpsAgent } from "../config/httpAgent.js";
 import { shouldRetryUpstreamRead } from "../utils/upstreamReadRetry.js";
+import {
+  validateUpstreamJsonResponse,
+  sanitizeUpstreamErrorResponse,
+} from "../utils/upstreamJsonGuard.js";
 
 const wp = axios.create({
   baseURL: process.env.WORDPRESS_URL,
@@ -33,14 +37,14 @@ wp.interceptors.request.use((config) => {
   return config;
 });
 
-// Retry only read-only upstream calls. A failed write may already have been applied
-// by WordPress even when the response is lost, so mutation calls are not replayed.
+// Reject malformed/non-JSON upstream responses even on HTTP 200, and retry
+// only read-only upstream calls when a transient transport error occurs.
 wp.interceptors.response.use(
-  (response) => response,
+  (response) => validateUpstreamJsonResponse(response, "wordpress"),
   async (error) => {
     const config = error.config;
     if (!shouldRetryUpstreamRead(error)) {
-      return Promise.reject(error);
+      return Promise.reject(sanitizeUpstreamErrorResponse(error, "wordpress"));
     }
 
     config._retry = true;

@@ -4,7 +4,7 @@ import { getProductsByIds, getLiveProductStockByIds } from "../services/productS
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
-import { ArrowLeft, ChevronLeft, Share, Check, ShoppingBag, AlertTriangle, Trash2, Moon } from "lucide-react";
+import { ArrowLeft, ChevronLeft, Share, Check, ShoppingBag, AlertTriangle, AlertCircle, X, Trash2, Moon } from "lucide-react";
 import CartItem from "../components/cart/CartItem";
 import CartSummary from "../components/cart/CartSummary";
 import CartCrossSells from "../components/cart/CartCrossSells";
@@ -12,9 +12,10 @@ import SharedCartModal from "../components/cart/SharedCartModal";
 import BillingForm from "../components/checkout/BillingForm";
 import { checkPaymentStatus } from "../services/paymentService";
 import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey } from "../utils/checkoutIdempotency";
-import { buildCartShareUrl, parseSharedCartItems } from "../utils/cartShareUtils";
+import { buildCartShareUrl, parseSharedCartItems, isCartShareTruncated, MAX_SHARED_CART_ITEMS } from "../utils/cartShareUtils";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
+import { executeCartProfileRetry } from "../utils/postAuthRedirect";
 
 function Cart() {
   useNoIndex();
@@ -35,10 +36,53 @@ function Cart() {
     updateRecoveryQuantity,
     hasPendingMerge,
   } = useCart();
-  const { isAuthenticated, user, checkoutExpiredUserId } = useAuth();
+  const { isAuthenticated, user, checkoutExpiredUserId, handleSessionExpired, getAuthEpoch } = useAuth();
   const [updatingKey, setUpdatingKey] = useState(null);
   const [storeHours, setStoreHours] = useState(null);
+  const [profileCheckUnavailable, setProfileCheckUnavailable] = useState(() =>
+    Boolean(location.state?.profileCheckUnavailable)
+  );
+  const [retryingProfileCheck, setRetryingProfileCheck] = useState(false);
+  const isMountedRef = useRef(true);
+  const profileRetryAttemptRef = useRef(0);
   const lastCartResumeRefreshAt = useRef(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setProfileCheckUnavailable(Boolean(location.state?.profileCheckUnavailable));
+  }, [location.state?.profileCheckUnavailable, user?.id]);
+
+  const handleRetryProfileCheck = async () => {
+    if (retryingProfileCheck) return;
+    const attemptId = ++profileRetryAttemptRef.current;
+    const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
+    const isRetryActive = () =>
+      isMountedRef.current &&
+      profileRetryAttemptRef.current === attemptId &&
+      (expectedEpoch === null || getAuthEpoch() === expectedEpoch);
+
+    setRetryingProfileCheck(true);
+    try {
+      await executeCartProfileRetry({
+        user,
+        isRetryActive,
+        onIncomplete: () => setProfileCheckUnavailable(false),
+        onComplete: () => setProfileCheckUnavailable(false),
+        handleSessionExpired,
+        navigate,
+      });
+    } finally {
+      if (isMountedRef.current && profileRetryAttemptRef.current === attemptId) {
+        setRetryingProfileCheck(false);
+      }
+    }
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -114,28 +158,44 @@ function Cart() {
   const [catalogProducts, setCatalogProducts] = useState([]);
   const [verifyingShared, setVerifyingShared] = useState(false);
   const [sharedError, setSharedError] = useState("");
-  const sharedHandledRef = useRef(false);
+  const [sharedErrorMode, setSharedErrorMode] = useState("");
+  const sharedHandledRef = useRef(null);
+  const [actionError, setActionError] = useState("");
+  const actionErrorTimerRef = useRef(null);
+
+  const showActionError = (msg) => {
+    setActionError(msg);
+    if (actionErrorTimerRef.current) clearTimeout(actionErrorTimerRef.current);
+    actionErrorTimerRef.current = setTimeout(() => {
+      setActionError("");
+      actionErrorTimerRef.current = null;
+    }, 4000);
+  };
 
   useEffect(() => {
     return () => {
       if (shareTimerRef.current) {
         clearTimeout(shareTimerRef.current);
       }
+      if (actionErrorTimerRef.current) {
+        clearTimeout(actionErrorTimerRef.current);
+      }
     };
   }, []);
 
   // Check for shared cart query parameter on mount / navigation
   const checkSharedQuery = useCallback(async () => {
-    if (sharedHandledRef.current) return;
+    if (sharedHandledRef.current === location.search) return;
 
     const parsed = parseSharedCartItems(location.search);
     if (!parsed || parsed.length === 0) return;
 
-    sharedHandledRef.current = true;
+    sharedHandledRef.current = location.search;
     setSharedItems(parsed);
     setSharedModalOpen(true);
     setVerifyingShared(true);
     setSharedError("");
+    setSharedErrorMode("");
 
     try {
       const hydratedProducts = await getProductsByIds(
@@ -267,14 +327,7 @@ function Cart() {
               }
             }
           } catch {
-            // If Store API lookup blips, fall back to parent catalog product.variations list
-            if (
-              variationId &&
-              Array.isArray(product.variations) &&
-              !product.variations.includes(Number(variationId))
-            ) {
-              variationError = "Selected variation is no longer available.";
-            }
+            throw new Error("Could not verify the selected variation.");
           }
 
           if (variationError) {
@@ -321,6 +374,10 @@ function Cart() {
         results.push(...group);
       }
 
+      if (results.some((result) => result.status === "rejected")) {
+        throw new Error("Some items could not be verified.");
+      }
+
       const resolved = results
         .filter((r) => r.status === "fulfilled" && r.value !== null)
         .map((r) => r.value);
@@ -330,11 +387,18 @@ function Cart() {
         setSharedError("None of the shared items are currently available.");
       }
     } catch {
-      setSharedError("Could not verify some shared items. Please try again.");
+      sharedHandledRef.current = false;
+      setSharedErrorMode("verify");
+      setSharedError("Could not verify shared items. Please check your connection and retry.");
     } finally {
       setVerifyingShared(false);
     }
   }, [location.search]);
+
+  const handleRetrySharedVerification = useCallback(() => {
+    sharedHandledRef.current = false;
+    checkSharedQuery();
+  }, [checkSharedQuery]);
 
   useEffect(() => {
     checkSharedQuery();
@@ -351,11 +415,14 @@ function Cart() {
       return;
     }
 
+    const isTruncated = isCartShareTruncated(cart.items);
     const shareUrl = buildCartShareUrl(cart.items);
-    const count = cart.items.length;
+    const count = Math.min(cart.items.length, MAX_SHARED_CART_ITEMS);
     const shareData = {
       title: "My Cart - Mumbai Collection",
-      text: `Check out these ${count} item${count === 1 ? "" : "s"} from Mumbai Collection!`,
+      text: isTruncated
+        ? `Check out the first ${count} items from my Mumbai Collection cart!`
+        : `Check out these ${count} item${count === 1 ? "" : "s"} from Mumbai Collection!`,
       url: shareUrl,
     };
 
@@ -382,7 +449,7 @@ function Cart() {
         document.execCommand("copy");
         document.body.removeChild(textarea);
       }
-      setShareFeedback("Cart link copied!");
+      setShareFeedback(isTruncated ? "Link copied! (First 50 items)" : "Cart link copied!");
       if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
       shareTimerRef.current = setTimeout(() => {
         setShareFeedback(null);
@@ -405,19 +472,30 @@ function Cart() {
     }
 
     try {
+      const failedRemovals = [];
       // If replacing, remove all existing items from the cart first
       if (replace && cart?.items && cart.items.length > 0) {
         for (const existingItem of cart.items) {
           try {
             await removeCartItem(existingItem.key);
           } catch {
-            // ignore individual removal error and continue
+            failedRemovals.push(existingItem);
           }
         }
       }
 
+      if (failedRemovals.length > 0) {
+        await refreshCart().catch(() => {});
+        setCatalogProducts([]);
+        setSharedErrorMode("apply");
+        throw new Error("Some previous items could not be removed. Review your cart before trying again.");
+      }
+
       // Add each shared available item sequentially via WooCommerce Store API
       let lastCartState = null;
+      const failedAdds = [];
+      const addedItems = [];
+
       for (const item of availableItems) {
         try {
           const res = await addToCart(
@@ -427,9 +505,12 @@ function Cart() {
               ? item.variation
               : []
           );
-          if (res) lastCartState = res;
-        } catch {
-          // continue with remaining items if one fails
+          if (res) {
+            lastCartState = res;
+            addedItems.push(item);
+          }
+        } catch (itemErr) {
+          failedAdds.push({ item, error: itemErr });
         }
       }
 
@@ -439,10 +520,19 @@ function Cart() {
         await refreshCart().catch(() => {});
       }
 
+      if (failedRemovals.length > 0 || failedAdds.length > 0) {
+        const errorMsg = failedAdds.length > 0
+          ? `${addedItems.length} added, but ${failedAdds.length} could not be added.`
+          : `Some previous items could not be cleared.`;
+        setCatalogProducts([]);
+        setSharedErrorMode("apply");
+        throw new Error(`${errorMsg} Close this window and review your cart before continuing.`);
+      }
+
       // Remove the items query from the URL cleanly without reloading
       navigate("/cart", { replace: true });
     } catch (err) {
-      setSharedError("Some items could not be added. Please try again.");
+      setSharedError(err.message || "Some items could not be added. Please try again.");
       throw err;
     }
   };
@@ -462,8 +552,9 @@ function Cart() {
         triggerHaptic("light");
         updateCart(updated);
       }
-    } catch {
+    } catch (err) {
       await refreshCart().catch(() => {});
+      showActionError(err.response?.data?.message || err.message || "Could not update item quantity.");
     } finally {
       setUpdatingKey(null);
     }
@@ -479,8 +570,9 @@ function Cart() {
         triggerHaptic("light");
         updateCart(updated);
       }
-    } catch {
+    } catch (err) {
       await refreshCart().catch(() => {});
+      showActionError(err.response?.data?.message || err.message || "Could not increase item quantity.");
     } finally {
       setUpdatingKey(null);
     }
@@ -496,8 +588,9 @@ function Cart() {
         : await removeCartItem(item.key);
       if (updated) updateCart(updated);
       else await refreshCart();
-    } catch {
+    } catch (err) {
       await refreshCart().catch(() => {});
+      showActionError(err.response?.data?.message || err.message || "Could not adjust stock.");
     } finally {
       setUpdatingKey(null);
     }
@@ -790,6 +883,18 @@ function Cart() {
         </div>
       )}
 
+      {actionError && (
+        <div role="alert" className="mb-4 flex items-center justify-between rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs sm:text-sm font-semibold text-rose-700 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="shrink-0 text-rose-500" />
+            <span>{actionError}</span>
+          </div>
+          <button type="button" onClick={() => setActionError("")} className="ml-2 text-rose-500 hover:text-rose-700 cursor-pointer">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
       {cartMergeNotice?.retryable && (
         <div role="alert" className="mx-auto mb-4 flex max-w-[700px] items-center justify-between gap-3 rounded-2xl border border-amber-800 bg-amber-950/40 p-4 text-sm text-amber-200">
           <span>Some cart items could not be restored. {cartMergeNotice.failedItems?.map((item) => item.name).join(", ")}</span>
@@ -860,6 +965,36 @@ function Cart() {
               </div>
             </div>
           )}
+          {/* Profile Completion Check Unavailable Banner */}
+          {isAuthenticated && profileCheckUnavailable && (
+            <div
+              role="alert"
+              className="rounded-[22px] bg-amber-950/40 border border-amber-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-900/50 text-amber-300 border border-amber-800/60">
+                  <AlertTriangle size={20} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-[13px] font-bold text-amber-200 leading-snug">
+                    We couldn’t verify your profile details
+                  </p>
+                  <p className="text-[11px] text-amber-400 leading-tight">
+                    Retry to confirm your phone and delivery address before placing your order.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetryProfileCheck}
+                disabled={retryingProfileCheck}
+                className="rounded-xl bg-amber-900/60 border border-amber-700/60 px-3 py-1.5 text-xs font-bold text-amber-200 shadow-xs hover:bg-amber-800/60 transition active:scale-95 disabled:opacity-60 cursor-pointer flex-shrink-0"
+              >
+                {retryingProfileCheck ? "Checking..." : "Retry"}
+              </button>
+            </div>
+          )}
+
           {/* Cart Merge Failure Notice Banner */}
           {!cartMergeNotice?.retryable && cartMergeNotice?.failedItems?.length > 0 && (
             <div className="rounded-[22px] bg-amber-950/40 border border-amber-800/60 p-4 shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-200">
@@ -976,12 +1111,18 @@ function Cart() {
       {/* Shared Cart Modal Dialog */}
       <SharedCartModal
         isOpen={sharedModalOpen}
-        onClose={() => setSharedModalOpen(false)}
+        onClose={() => {
+          setSharedModalOpen(false);
+          if (sharedErrorMode === "apply") {
+            navigate("/cart", { replace: true });
+          }
+        }}
         sharedItems={sharedItems}
         catalogProducts={catalogProducts}
         loading={verifyingShared}
         error={sharedError}
         onAddToCart={handleApplySharedItems}
+        onRetry={sharedErrorMode === "verify" ? handleRetrySharedVerification : undefined}
         hasExistingCart={Boolean(cart?.items && cart.items.length > 0)}
         existingCartCount={cart?.items?.length || 0}
       />

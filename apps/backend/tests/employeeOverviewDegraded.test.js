@@ -39,3 +39,24 @@ test("order error responses do not disclose internal error messages", async () =
     assert.equal(body.message.includes("C:/private"), false);
   } finally { api.get = originalApi; }
 });
+
+test("degraded overview still transforms available low-stock images", async () => {
+  const originalApi = api.get, originalWp = wp.get;
+  api.get = async (path) => {
+    if (path === "products") return { data: [{ id: 10, name: "Item", images: [{ src: "http://localhost:10004/wp-content/uploads/item.jpg" }], stock_quantity: 3 }] };
+    throw new Error("Orders unavailable");
+  };
+  wp.get = async () => { throw new Error("Unavailable"); };
+  serverCache.delete("employee:overview");
+  let body;
+  const res = { json(value) { body = value; return this; }, status() { return this; }, set() { return this; } };
+  try {
+    await getEmployeeOverview({ headers: { "x-forwarded-host": "api.example", "x-forwarded-proto": "https" } }, res);
+    assert.equal(body.data.is_degraded, true);
+    assert.equal(body.data.lowStockProducts[0].image, "https://api.example/api/media/uploads/item.jpg");
+  } finally {
+    api.get = originalApi;
+    wp.get = originalWp;
+    serverCache.delete("employee:overview");
+  }
+});

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 test("Admin filtered reports", async (t) => {
   const { getAdminAnalyticsReport } = await import("../src/controllers/adminAnalyticsController.js");
@@ -50,6 +51,24 @@ test("Admin filtered reports", async (t) => {
     assert.equal(request.config.params.product_id, 42);
     assert.deepEqual(response, payload);
     serverCache.delete(key);
+  });
+
+  await t.test("report SQL keeps the order summary independent of the product filter", () => {
+    const php = readFileSync(new URL("../../../mumbai-auth.php", import.meta.url), "utf8");
+    const report = php.slice(php.indexOf("function mumbai_admin_get_analytics_report("));
+    const summary = report.slice(0, report.indexOf("$summary ="));
+    const productQuery = report.slice(report.indexOf("$table_items ="), report.indexOf("'daily'"));
+    assert.doesNotMatch(summary, /\$reporting_source\s*=\s*\$wpdb->prepare/);
+    assert.match(productQuery, /product_clause\s*=\s*' AND CAST\(product_meta\.meta_value AS UNSIGNED\) = %d'/);
+  });
+
+  await t.test("report hides unexpected upstream server details", async () => {
+    wp.get = async () => { const error = new Error("upstream failure"); error.response = { status: 500, data: { message: "SQL secret /var/www/private" } }; throw error; };
+    let body;
+    const res = { status(code) { this.code = code; return this; }, json(value) { body = value; return this; } };
+    await getAdminAnalyticsReport({ query: { date_from: "2026-10-01", date_to: "2026-10-31", refresh: "true" } }, res);
+    assert.equal(res.code, 500);
+    assert.equal(body.message, "Unable to load the selected sales report. Please try again.");
   });
 
   await t.test("requests a customer's selected order-history page", async () => {

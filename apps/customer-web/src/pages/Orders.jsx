@@ -35,12 +35,14 @@ function Orders() {
   const [page, setPage] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [loadMoreError, setLoadMoreError] = useState("");
 
   const hasMore = page < totalPages;
   const userEmail = user?.email || "";
   const abortControllerRef = useRef(null);
 
   const fetchOrders = async (targetPage = 1, isLoadMore = false) => {
+    const safePage = typeof targetPage === "number" && Number.isInteger(targetPage) && targetPage > 0 ? targetPage : 1;
     let controller = null;
     if (!isLoadMore) {
       abortControllerRef.current?.abort();
@@ -52,13 +54,15 @@ function Orders() {
     try {
       if (isLoadMore) {
         setLoadingMore(true);
+        setLoadMoreError("");
       } else {
         setLoading(true);
         setError("");
+        setLoadMoreError("");
       }
 
       const data = await getMyOrders({
-        page: targetPage,
+        page: safePage,
         per_page: 10,
         email: userEmail,
         signal: currentSignal,
@@ -80,7 +84,7 @@ function Orders() {
           setOrders(data.orders);
         }
 
-        setPage(data.page || targetPage);
+        setPage(data.page || safePage);
         setTotalOrders(data.total !== undefined ? data.total : (isLoadMore ? orders.length + data.orders.length : data.orders.length));
         setTotalPages(data.totalPages || 1);
       } else {
@@ -94,6 +98,8 @@ function Orders() {
       if (controller?.signal?.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
       if (!isLoadMore) {
         setError("Unable to load your orders right now. Please try again.");
+      } else {
+        setLoadMoreError("Unable to load more orders right now. Please try again.");
       }
     } finally {
       if (controller?.signal?.aborted) return;
@@ -266,7 +272,8 @@ function Orders() {
           <div className="rounded-[24px] border border-rose-800/60 bg-rose-950/30 p-6 text-center text-rose-300 shadow-sm">
             <p className="font-semibold">{error}</p>
             <button
-              onClick={fetchOrders}
+              type="button"
+              onClick={() => fetchOrders(1, false)}
               className="mt-3 rounded-full bg-rose-900/60 border border-rose-700/60 px-5 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-800/60 cursor-pointer"
             >
               Try Again
@@ -319,13 +326,18 @@ function Orders() {
         {/* Compact Load More Orders Button */}
         {!loading && !error && hasMore && (
           <div className="pt-6 pb-2 text-center">
+            {loadMoreError && (
+              <p role="alert" className="mb-2 text-xs font-semibold text-rose-500">
+                {loadMoreError}
+              </p>
+            )}
             <button
               type="button"
               onClick={handleLoadMore}
               disabled={loadingMore}
               className="inline-flex items-center justify-center rounded-full bg-[#22499F] px-7 py-2.5 text-xs sm:text-sm font-black text-[#FFFFFF] shadow-sm shadow-[#22499F]/20 transition-all hover:bg-[#1B3B82] active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
             >
-              Load More
+              {loadingMore ? "Loading..." : "Load More"}
             </button>
           </div>
         )}

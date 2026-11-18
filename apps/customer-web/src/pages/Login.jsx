@@ -5,24 +5,37 @@ import axios from "axios";
 import API_URL from "../config/api.js";
 import { login } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
 import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
-import { getSafeInternalPath } from "../utils/navigation.js";
+import { executePostAuthNavigation } from "../utils/postAuthRedirect.js";
 
 
 function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { login: loginUser } = useAuth();
+  const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
+  const { cart, waitForAuthenticatedCart } = useCart();
 
   const submittingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const authAttemptRef = useRef(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const [email, setEmail] = useState(location.state?.email || "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() =>
+    typeof location.state?.message === "string" ? location.state.message : ""
+  );
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
@@ -62,6 +75,13 @@ function Login() {
       return;
     }
 
+    const attemptId = ++authAttemptRef.current;
+    const preAuthEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
+    const isPreAuthActive = () =>
+      isMountedRef.current &&
+      authAttemptRef.current === attemptId &&
+      (preAuthEpoch === null || getAuthEpoch() === preAuthEpoch);
+
     try {
       submittingRef.current = true;
       setLoading(true);
@@ -69,21 +89,31 @@ function Login() {
 
       // Login
       const response = await login(email, password);
+      if (!isPreAuthActive()) {
+        return;
+      }
+
+      const hasCartItems = Boolean(cart?.items?.length > 0);
 
       // Save logged-in user
       loginUser(response.user);
+      const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
 
-      /*
-       * Existing/complete user.
-       *
-       * If the user was redirected to login from a
-       * protected page, return them to that page.
-       *
-       * Otherwise, normal login goes to Home.
-       */
-      const safeReturn = getSafeInternalPath(location.state?.from, "/");
-      navigate(safeReturn, { replace: true });
+      await executePostAuthNavigation({
+        from: location.state?.from,
+        hasCartItems,
+        user: response.user,
+        waitForAuthenticatedCart,
+        isAttemptActive: () =>
+          isMountedRef.current &&
+          authAttemptRef.current === attemptId &&
+          (expectedEpoch === null || getAuthEpoch() === expectedEpoch),
+        handleSessionExpired,
+        navigate,
+        onUnauthorized: (msg) => setError(msg),
+      });
     } catch (err) {
+      if (!isPreAuthActive()) return;
       if (err.response?.status === 401) {
         setError(err.response.data?.message || "Invalid email or password.");
       } else if (err.response?.status === 429) {
@@ -99,8 +129,12 @@ function Login() {
         setError("Unable to connect to the server. Please try again.");
       }
     } finally {
-      setLoading(false);
-      submittingRef.current = false;
+      if (authAttemptRef.current === attemptId) {
+        submittingRef.current = false;
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+      }
     }
   };
 

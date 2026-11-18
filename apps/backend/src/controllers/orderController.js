@@ -8,12 +8,30 @@ import { sendResult } from "../utils/responseHelper.js";
 import { getOrderDetail } from "../services/orderDetailCache.js";
 import { customerDeliveryTime } from "../utils/customerDeliveryTime.js";
 
+const SAFE_CUSTOMER_ORDER_META_KEYS = new Set([
+  "_razorpay_order_id",
+  "_order_placed_after_hours",
+  "_scheduled_delivery_date",
+  "_scheduled_delivery_label",
+  "_payment_captured_without_delivery_slot",
+]);
+
 /**
  * Fetch authenticated customer's orders from WooCommerce
  */
 const formatCustomerOrder = (order) => {
   const deliveryMeta = order.meta_data?.find((m) => m.key === "_delivery_status");
   const effectiveStatus = deliveryMeta?.value || order.status;
+  const safeMetaData = Array.isArray(order.meta_data)
+    ? order.meta_data
+        .filter((entry) => entry && SAFE_CUSTOMER_ORDER_META_KEYS.has(entry.key))
+        .map(({ key, value }) => ({ key, value }))
+    : [];
+  const rawRazorpayOrderId = safeMetaData.find((entry) => entry.key === "_razorpay_order_id")?.value;
+  const razorpayOrderId =
+    typeof rawRazorpayOrderId === "string" && rawRazorpayOrderId.trim()
+      ? rawRazorpayOrderId.trim()
+      : null;
 
   let trackingStage = 1; // 1: Placed, 2: Packed, 3: Out for Delivery, 4: Delivered, 0: Cancelled
   let displayStatus = "Order Placed";
@@ -124,6 +142,8 @@ const formatCustomerOrder = (order) => {
     shipping_total: order.shipping_total || "0.00",
     discount_total: order.discount_total || "0.00",
     total_tax: order.total_tax || "0.00",
+    razorpay_order_id: razorpayOrderId,
+    meta_data: safeMetaData,
   };
 };
 
@@ -159,6 +179,7 @@ const fetchCustomerOrderPage = async ({ userId, page, limit, after, before }) =>
     totalPages = Number(response.headers?.["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
   } catch (error) {
     logger.warn({ userId, err: error.message }, "Could not query orders by customer ID");
+    throw error;
   }
 
   const normalizedUserId = Number(userId);
@@ -210,11 +231,14 @@ export const getCustomerOrders = async (req, res) => {
     });
   } catch (error) {
     logError(req, error, "Get customer orders error");
+    const isUpstreamInvalid = error?.code === "UPSTREAM_INVALID_JSON" || error?.statusCode === 503;
 
     return sendResult(res, {
       success: false,
-      errorCode: "INTERNAL_SERVER_ERROR",
-      message: "Unable to retrieve orders.",
+      errorCode: isUpstreamInvalid ? "UPSTREAM_INVALID_JSON" : "INTERNAL_SERVER_ERROR",
+      message: isUpstreamInvalid
+        ? "Store service is temporarily unavailable. Please try again in a moment."
+        : "Unable to retrieve orders.",
       orders: [],
     });
   }
