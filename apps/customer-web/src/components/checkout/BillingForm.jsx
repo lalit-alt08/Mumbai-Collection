@@ -10,6 +10,12 @@ import { CheckoutBottomBar } from "./CheckoutBottomBar";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { buildCheckoutAddresses } from "../../utils/checkoutAddressBuilder.js";
+import {
+  buildAddressPricingSyncKey,
+  isCartAddressPriced,
+  syncCartAddressPricing,
+} from "../../utils/checkoutAddressPricing.js";
+import { updateCartCustomer } from "../../services/storeApi.js";
 import { usePendingPayment } from "./usePendingPayment.js";
 import { createRazorpayHandler } from "./useRazorpayCheckout.js";
 import { useCheckoutAddresses } from "./useCheckoutAddresses.js";
@@ -65,8 +71,11 @@ function BillingForm({
   const [paymentStep, setPaymentStep] = useState("");
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [unconfirmedQuote, setUnconfirmedQuote] = useState(null);
+  const [syncingAddressPricing, setSyncingAddressPricing] = useState(false);
 
   const isSubmittingRef = useRef(false);
+  const pricedAddressKeyRef = useRef("");
+  const autoSyncAttemptedKeyRef = useRef("");
   const idempotencyKeyRef = useRef(getOrCreateCheckoutIdempotencyKey(cart, user?.id));
   const activeOrderRef = useRef(null);
   const activeUserRef = useRef(user?.id);
@@ -137,6 +146,88 @@ function BillingForm({
       setUnconfirmedQuote(null);
     }
   }, [selectedAddressId, cart?.items, unconfirmedQuote]);
+
+  // Sync the selected delivery address to WooCommerce cart upfront so delivery
+  // charges and grand total are accurate before tapping Place Order (allowing
+  // Razorpay to open directly on the first tap without a CHECKOUT_TOTAL_CHANGED detour).
+  const hasCartItems = Boolean(cart?.items?.length > 0);
+  const cartItemsKey = computeCartItemsFingerprint(cart);
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id || !hasCartItems) {
+      pricedAddressKeyRef.current = "";
+      autoSyncAttemptedKeyRef.current = "";
+      setSyncingAddressPricing(false);
+      return;
+    }
+    if (!selectedAddress || isSubmittingRef.current) return;
+
+    const addressResult = buildCheckoutAddresses(selectedAddress, user);
+    if (addressResult.error) return;
+    const { billingAddress, shippingAddress } = addressResult;
+
+    const syncKey = buildAddressPricingSyncKey(user.id, selectedAddress, shippingAddress);
+    const attemptKey = `${syncKey}|${cartItemsKey}`;
+
+    if (isCartAddressPriced(cart, shippingAddress)) {
+      pricedAddressKeyRef.current = syncKey;
+      autoSyncAttemptedKeyRef.current = attemptKey;
+      return;
+    }
+    if (pricedAddressKeyRef.current === syncKey) {
+      // Cart no longer matches the selected address or lost its selected rate; allow re-sync.
+      pricedAddressKeyRef.current = "";
+    }
+    if (autoSyncAttemptedKeyRef.current === attemptKey) {
+      return;
+    }
+
+    let cancelled = false;
+    let settled = false;
+    autoSyncAttemptedKeyRef.current = attemptKey;
+    setSyncingAddressPricing(true);
+
+    syncCartAddressPricing({
+      cart,
+      billingAddress,
+      shippingAddress,
+      updateCartCustomerFn: updateCartCustomer,
+      updateCartFn: updateCart,
+      isStillCurrent: () => !cancelled && activeUserRef.current === user.id,
+    })
+      .then((result) => {
+        if (cancelled || activeUserRef.current !== user.id) return;
+        settled = true;
+        if (result.status === "priced") {
+          pricedAddressKeyRef.current = syncKey;
+        }
+        // On "unpriced", leave pricedAddressKeyRef empty so Place Order retries pricing.
+      })
+      .catch(() => {
+        // Leave pricedAddressKeyRef empty so Place Order retries pricing cleanly.
+        settled = true;
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSyncingAddressPricing(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (!settled && autoSyncAttemptedKeyRef.current === attemptKey) {
+        autoSyncAttemptedKeyRef.current = "";
+      }
+      setSyncingAddressPricing(false);
+    };
+  }, [
+    isAuthenticated,
+    user,
+    selectedAddress,
+    hasCartItems,
+    cartItemsKey,
+    cart,
+    updateCart,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -226,11 +317,75 @@ function BillingForm({
         return;
       }
       const { billingAddress, shippingAddress } = addressResult;
+      const syncKey = buildAddressPricingSyncKey(user?.id, selectedAddress, shippingAddress);
+
+      let effectiveCart = cart;
+      let effectiveFinalTotal = finalTotal;
+
+      // If the background pricing sync failed or never received a selected shipping rate,
+      // retry once before creating the payment order.
+      if (!isCartAddressPriced(cart, shippingAddress)) {
+        try {
+          setPaymentStep("preparing");
+          const syncResult = await syncCartAddressPricing({
+            cart,
+            billingAddress,
+            shippingAddress,
+            updateCartCustomerFn: updateCartCustomer,
+            updateCartFn: updateCart,
+            isStillCurrent: () => activeUserRef.current === user?.id,
+          });
+          if (syncResult.status === "cancelled") {
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+            return;
+          }
+          if (syncResult.status !== "priced") {
+            setError(
+              "Unable to calculate delivery pricing for your selected address. Please tap Place Order to retry."
+            );
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+            return;
+          }
+          pricedAddressKeyRef.current = syncKey;
+          effectiveCart = syncResult.cart;
+          effectiveFinalTotal = Number(syncResult.actualTotalPaise) / 100;
+
+          if (syncResult.changedTotal) {
+            setUnconfirmedQuote({
+              expected_total_paise: syncResult.previousTotalPaise,
+              actual_total_paise: syncResult.actualTotalPaise,
+              itemsFingerprint: computeCartItemsFingerprint(effectiveCart),
+              addressId: selectedAddressId,
+            });
+            setError(
+              `Your cart total updated from ₹${(syncResult.previousTotalPaise / 100).toFixed(2)} to ₹${(
+                syncResult.actualTotalPaise / 100
+              ).toFixed(2)} after applying delivery charges. Please review and confirm to continue.`
+            );
+            isSubmittingRef.current = false;
+            setLoading(false);
+            setPaymentStep("");
+            return;
+          }
+        } catch {
+          setError(
+            "Unable to calculate delivery pricing for your selected address. Please tap Place Order to retry."
+          );
+          isSubmittingRef.current = false;
+          setLoading(false);
+          setPaymentStep("");
+          return;
+        }
+      }
 
       const startPayment = createRazorpayHandler({
         user,
-        cart,
-        finalTotal,
+        cart: effectiveCart,
+        finalTotal: effectiveFinalTotal,
         billingAddress,
         shippingAddress,
         idempotencyKeyRef,
@@ -437,6 +592,8 @@ function BillingForm({
     ? "retry_addresses"
     : addresses.length === 0
     ? "add_address"
+    : syncingAddressPricing
+    ? "syncing_pricing"
     : hasOutOfStock
     ? "review_cart"
     : isBelowMin || isStoreClosed
@@ -447,6 +604,7 @@ function BillingForm({
     loading ||
     cancellingPending ||
     checkoutAction === "loading_addresses" ||
+    checkoutAction === "syncing_pricing" ||
     checkoutAction === "auth_loading" ||
     (checkoutAction === "checkout" && !selectedAddress) ||
     (checkoutAction === "confirm_quote" && !selectedAddress) ||

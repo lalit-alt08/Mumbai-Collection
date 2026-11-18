@@ -244,9 +244,9 @@ test("Finding #3 & #4: mumbai_sso shares mumbai_reg_ lock, verifies _google_sub 
   const sessionLockIdx = ssoFn.indexOf("mumbai_with_user_session_lock");
   assert.ok(releaseIdx > 0 && sessionLockIdx > releaseIdx, "mumbai_reg_ lock must be released before session lock");
 
-  // Accurate copy without misleading "email OTP first" sign-in wording
+  // Accurate copy without misleading "email OTP first" or dual-method linking wording
   assert.doesNotMatch(ssoFn, /sign in with your password or email OTP first/i);
-  assert.match(ssoFn, /Forgot Password/i);
+  assert.match(ssoFn, /sso_email_uses_password/);
 });
 
 test("Finding #5: privileged/staff/admin accounts are blocked across all storefront password recovery endpoints", () => {
@@ -281,4 +281,84 @@ test("Finding #5: privileged/staff/admin accounts are blocked across all storefr
     wpPluginSource.indexOf("function mumbai_product_create_operation(")
   );
   assert.match(otpResetFn, /mumbai_is_privileged_account\(\$user\)/);
+});
+
+test("Google-only accounts cannot set or reset a separate store password end-to-end", () => {
+  assert.match(wpPluginSource, /function mumbai_is_google_only_account\(\$user\)/);
+
+  const loginFn = wpPluginSource.slice(
+    wpPluginSource.indexOf("function mumbai_login("),
+    wpPluginSource.indexOf("function mumbai_is_privileged_account(")
+  );
+  assert.match(loginFn, /mumbai_is_google_only_account\(\$user\)/);
+
+  const forgotFn = wpPluginSource.slice(
+    wpPluginSource.indexOf("function mumbai_forgot_password("),
+    wpPluginSource.indexOf("function mumbai_reset_password(")
+  );
+  assert.match(forgotFn, /mumbai_is_google_only_account\(\$user\)/);
+
+  const otpStoreFn = wpPluginSource.slice(
+    wpPluginSource.indexOf("function mumbai_otp_store("),
+    wpPluginSource.indexOf("function mumbai_otp_invalidate(")
+  );
+  assert.match(otpStoreFn, /mumbai_is_google_only_account\(\$user\)/);
+
+  const saveProfileFn = wpPluginSource.slice(
+    wpPluginSource.indexOf("function mumbai_save_profile_locked("),
+    wpPluginSource.indexOf("function mumbai_check_profile_complete(")
+  );
+  assert.match(saveProfileFn, /google_account_password_disabled/);
+
+  const profileSource = fs.readFileSync(
+    path.resolve(__dirname, "../../customer-web/src/pages/Profile.jsx"),
+    "utf8"
+  );
+  assert.doesNotMatch(profileSource, /Sign-In Password \(Optional\)/);
+  assert.doesNotMatch(profileSource, /mode:\s*"set_password"/);
+
+  const forgotSource = fs.readFileSync(
+    path.resolve(__dirname, "../../customer-web/src/pages/ForgotPassword.jsx"),
+    "utf8"
+  );
+  assert.doesNotMatch(forgotSource, /isSetPasswordMode/);
+  assert.doesNotMatch(forgotSource, /set_password/);
+  assert.doesNotMatch(forgotSource, /google_account_only/);
+  assert.match(forgotSource, /https:\/\/myaccount\.google\.com\/security/);
+  assert.match(forgotSource, /aria-label=\{showPassword \? "Hide password" : "Show password"\}/);
+  assert.match(forgotSource, /aria-label=\{showConfirmPassword \? "Hide confirm password" : "Show confirm password"\}/);
+
+  const accountSource = fs.readFileSync(
+    path.resolve(__dirname, "../../customer-web/src/pages/Account.jsx"),
+    "utf8"
+  );
+  assert.doesNotMatch(accountSource, /GoogleAuthButton/);
+  assert.doesNotMatch(accountSource, /mode="link"/);
+});
+
+test("processSendOtp keeps public reset_password response neutral and sends zero emails when WP returns user_found=false (Google-only or unknown)", async () => {
+  const originalWpPost = wp.post;
+  try {
+    wp.post = async () => ({
+      data: {
+        success: true,
+        user_found: false,
+        message: "If an account is registered with this email, an OTP has been sent.",
+      },
+    });
+
+    const req = {
+      body: { email: "googleuser@example.com", purpose: "reset_password" },
+      headers: {},
+    };
+    const res = makeRes();
+    await processSendOtp(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.code, undefined);
+    assert.match(res.body.message, /If an account is registered/i);
+  } finally {
+    wp.post = originalWpPost;
+  }
 });

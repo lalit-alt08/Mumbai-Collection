@@ -13,10 +13,21 @@ import { RegisterPasswordStep } from "../components/auth/RegisterPasswordStep.js
 function Register() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
+  const {
+    user,
+    isAuthenticated,
+    loading: authLoading,
+    isReconnecting,
+    login: loginUser,
+    logout,
+    handleSessionExpired,
+    getAuthEpoch,
+  } = useAuth();
   const { cart } = useCart();
   const isMountedRef = useRef(true);
   const authAttemptRef = useRef(0);
+  const registrationCompletedRef = useRef(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -133,7 +144,9 @@ function Register() {
         err.response?.data?.code === "email_exists" ||
         backendMessage.toLowerCase().includes("already exists")
       ) {
-        setEmailError("An account with this email already exists.");
+        setEmailError(
+          "An account with this email already exists. Please sign in with your password or Continue with Google."
+        );
       } else {
         setError(backendMessage);
       }
@@ -274,6 +287,7 @@ function Register() {
       }
 
       const hasCartItems = Boolean(cart?.items?.length > 0);
+      registrationCompletedRef.current = true;
       loginUser(confirmedUser);
       const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
       setPassword("");
@@ -323,6 +337,78 @@ function Register() {
       }
     }
   };
+
+  if ((authLoading || isReconnecting) && !registrationCompletedRef.current) {
+    return (
+      <div role="status" className="flex min-h-[50vh] items-center justify-center bg-[#F0F8E8] text-sm font-semibold text-[#475569]">
+        {isReconnecting ? "Reconnecting to your account..." : "Checking your account..."}
+      </div>
+    );
+  }
+
+  const isAlreadySignedIn =
+    isAuthenticated &&
+    Boolean(user?.id) &&
+    !loading &&
+    !submittingRef.current &&
+    !registrationCompletedRef.current;
+
+  if (isAlreadySignedIn) {
+    return (
+      <div className="bg-[#F0F8E8] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">
+        <div className="mx-auto flex w-full max-w-md flex-col px-4 pt-6 pb-24 sm:px-6 sm:pb-28 md:max-w-[480px] md:rounded-[24px] md:bg-[#FFFFFF] md:border md:border-[#E2E8F0]/80 md:px-10 md:py-10 md:shadow-lg">
+          <div className="rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] p-6 text-center shadow-xs md:border-0 md:p-0 md:shadow-none space-y-4">
+            <h1 className="text-[24px] sm:text-[26px] font-extrabold tracking-tight text-[#1E293B]">
+              Already Signed In
+            </h1>
+            <p className="text-[14.5px] leading-relaxed text-[#475569]">
+              You are already signed in
+              {user.email ? (
+                <>
+                  {" "}as <span className="font-semibold text-[#1E293B]">{user.email}</span>
+                </>
+              ) : null}
+              .
+            </p>
+            {user.is_google_user && (
+              <p className="text-sm text-[#475569]">Your account is linked to Google.</p>
+            )}
+            <div className="flex flex-col gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => navigate("/", { replace: true })}
+                className="flex h-[50px] w-full items-center justify-center rounded-2xl bg-[#22499F] text-[15px] font-black text-[#FFFFFF] shadow-md transition hover:bg-[#1B3B82] active:scale-[0.98] cursor-pointer"
+              >
+                Go to Home
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/account")}
+                className="flex h-[48px] w-full items-center justify-center rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] text-[14.5px] font-bold text-[#1E293B] transition hover:border-[#22499F]/40 active:scale-[0.98] cursor-pointer"
+              >
+                My Account
+              </button>
+              <button
+                type="button"
+                disabled={signingOut}
+                onClick={async () => {
+                  try {
+                    setSigningOut(true);
+                    await logout();
+                  } finally {
+                    if (isMountedRef.current) setSigningOut(false);
+                  }
+                }}
+                className="mt-1 text-[13px] font-semibold text-[#22499F] hover:underline disabled:opacity-60 cursor-pointer"
+              >
+                {signingOut ? "Signing out..." : "Sign out to create a different account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#F0F8E8] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">

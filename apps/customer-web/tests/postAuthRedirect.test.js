@@ -456,3 +456,13 @@ test("Brand-new registration skips waitForAuthenticatedCart so empty-cart direct
   assert.equal(result.status, "default");
   assert.deepEqual(navigated, [{ p: "/", o: { replace: true, state: undefined } }]);
 });
+
+test("Register guards already-signed-in users and shows neutral Google/password sign-in guidance on 409 email_exists", () => {
+  const regSrc = fs.readFileSync(path.join(customerWebSrc, "pages/Register.jsx"), "utf8");
+  assert.match(regSrc, /isAlreadySignedIn/);
+  assert.match(regSrc, /Your account is linked to Google/);
+  assert.match(
+    regSrc,
+    /An account with this email already exists\. Please sign in with your password or Continue with Google\./
+  );
+});

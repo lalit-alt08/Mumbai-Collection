@@ -944,39 +944,6 @@ function Profile() {
             </h3>
           </div>
 
-          {passwordlessGoogle && (
-            <div className="rounded-[18px] border border-[#E2E8F0] bg-[#FFFFFF] p-4 shadow-xs">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-[#1E293B]">
-                    <Lock size={14} className="text-[#22499F]" />
-                    <span>Sign-In Password (Optional)</span>
-                  </div>
-                  <p className="mt-0.5 text-xs leading-snug text-[#64748B]">
-                    You sign in with Google. Set a password if you also want to sign in with email and password.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate("/forgot-password", {
-                      state: {
-                        email: profile?.email || user?.email || "",
-                        mode: "set_password",
-                        from: "/account/profile",
-                      },
-                    })
-                  }
-                  className="shrink-0 flex min-h-11 items-center gap-1.5 rounded-xl border border-[#22499F]/30 bg-[#FFFFFF] px-3.5 py-2 text-xs sm:text-sm font-bold text-[#22499F] transition hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 cursor-pointer whitespace-nowrap"
-                >
-                  <Lock size={13} />
-                  <span>Set Password</span>
-                </button>
-              </div>
-            </div>
-          )}
-
           <div className="account-delete rounded-[18px] border p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1036,29 +1003,29 @@ function Profile() {
               </span>
             </p>
             <div className="mt-5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                 <label
                   htmlFor="delete-account-auth-input"
-                  className="text-[12.5px] sm:text-xs font-bold uppercase tracking-wider text-[#334155]"
+                  className="text-[11.5px] sm:text-xs font-bold uppercase tracking-wider text-[#334155] whitespace-nowrap"
                 >
                   {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
                 </label>
                 {passwordlessGoogle && deleteCodeSent && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#22499F]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#22499F] animate-pulse" />
+                  <span className="inline-flex shrink-0 items-center gap-1.5 text-[11.5px] sm:text-xs font-bold text-[#22499F] whitespace-nowrap">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#22499F] animate-pulse" />
                     Code sent to email
                   </span>
                 )}
               </div>
               {passwordlessGoogle ? (
-                <div className="mt-2.5 flex items-center gap-2.5">
+                <div className="mt-2.5 flex w-full min-w-0 items-center gap-2 sm:gap-2.5">
                   <input
                     id="delete-account-auth-input"
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
                     maxLength={6}
-                    placeholder="Enter 6-digit code"
+                    placeholder="6-digit code"
                     value={deletePassword}
                     onChange={(event) => {
                       setDeletePassword(event.target.value.replace(/\D/g, "").slice(0, 6));
@@ -1066,13 +1033,13 @@ function Profile() {
                     }}
                     autoComplete="one-time-code"
                     disabled={isDeleting}
-                    className="h-12 sm:h-[50px] flex-1 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
+                    className="h-12 sm:h-[50px] min-w-0 w-full flex-1 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-3.5 sm:px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-[13.5px] sm:placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
                   />
                   <button
                     type="button"
                     disabled={deleteCodeSending || isDeleting || deleteResendSeconds > 0}
                     onClick={sendDeleteCode}
-                    className="h-12 sm:h-[50px] shrink-0 flex items-center justify-center gap-2 rounded-2xl border border-[#22499F]/40 bg-[#FFFFFF] px-4 sm:px-5 text-[13px] sm:text-sm font-black text-[#22499F] shadow-xs hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
+                    className="h-12 sm:h-[50px] shrink-0 flex items-center justify-center gap-1.5 sm:gap-2 rounded-2xl border border-[#22499F]/40 bg-[#FFFFFF] px-3.5 sm:px-5 text-[12.5px] sm:text-sm font-black text-[#22499F] shadow-xs hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
                   >
                     {deleteCodeSending ? (
                       <>

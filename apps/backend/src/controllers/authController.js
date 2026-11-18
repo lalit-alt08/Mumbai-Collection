@@ -437,10 +437,11 @@ export const googleLogin = async (req, res) => {
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const authenticated_user_id = req.user?.id || req.wpUserId || null;
 
-    if (intent === "link" && !authenticated_user_id) {
-      return res.status(401).json({
+    if (intent === "link") {
+      return res.status(400).json({
         success: false,
-        message: "You must be signed in to link a Google account. Please refresh and try again.",
+        code: "account_linking_disabled",
+        message: "Account linking is disabled. Each account uses either Google Sign-In or email and password.",
       });
     }
 

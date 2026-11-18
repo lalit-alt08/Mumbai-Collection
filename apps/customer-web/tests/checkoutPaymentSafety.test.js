@@ -336,3 +336,191 @@ test("BillingForm destructures setAddressSignInRequired and CustomerOrderCard ne
   );
   assert.doesNotMatch(cardSource, /onCheckPending\([^)]*\|\|\s*order\.id/);
 });
+
+test("Upfront address pricing rejects incomplete/mismatched carts, preserves retry on failure, and opens Razorpay once priced", async () => {
+  const {
+    hasSelectedShippingRate,
+    isUsableCartTotal,
+    isCartAddressPriced,
+    syncCartAddressPricing,
+  } = await import("../src/utils/checkoutAddressPricing.js");
+  const { createRazorpayHandler } = await import("../src/components/checkout/useRazorpayCheckout.js");
+
+  const billingAddress = {
+    first_name: "Lalit",
+    last_name: "Sirvi",
+    email: "lalit@example.com",
+    phone: "9820123456",
+    address_1: "Near broadway park",
+    city: "Vasai West",
+    state: "MH",
+    postcode: "401202",
+    country: "IN",
+  };
+  const shippingAddress = { ...billingAddress };
+
+  // 1. Nonempty shipping_rates without any selected rate must NOT count as priced
+  const unselectedRatesCart = {
+    items: [{ id: 1, quantity: 2 }],
+    needs_shipping: true,
+    shipping_address: { ...shippingAddress },
+    shipping_rates: [
+      {
+        package_id: 0,
+        shipping_rates: [{ rate_id: "flat_rate:1", price: "4000", selected: false }],
+      },
+    ],
+    totals: { total_items: "355200", total_shipping: "0", total_price: "355200" },
+  };
+  assert.equal(hasSelectedShippingRate(unselectedRatesCart), false);
+  assert.equal(isCartAddressPriced(unselectedRatesCart, shippingAddress), false);
+
+  // 2. Transient pricing failure throws and does not update cart
+  let updateCartCalls = 0;
+  await assert.rejects(
+    syncCartAddressPricing({
+      cart: unselectedRatesCart,
+      billingAddress,
+      shippingAddress,
+      updateCartCustomerFn: async () => {
+        throw new Error("Network timeout");
+      },
+      updateCartFn: () => {
+        updateCartCalls += 1;
+      },
+    }),
+    /Network timeout/
+  );
+  assert.equal(updateCartCalls, 0);
+
+  // 3. Returned carts with unselected rates, mismatched address, or unusable total_price are rejected as "unpriced"
+  const incompleteResponses = [
+    unselectedRatesCart,
+    {
+      ...unselectedRatesCart,
+      shipping_address: { ...shippingAddress, city: "Other City" },
+      shipping_rates: [
+        { package_id: 0, shipping_rates: [{ rate_id: "flat_rate:1", price: "4000", selected: true }] },
+      ],
+    },
+    {
+      ...unselectedRatesCart,
+      shipping_rates: [
+        { package_id: 0, shipping_rates: [{ rate_id: "flat_rate:1", price: "4000", selected: true }] },
+      ],
+      totals: { total_items: "355200", total_shipping: "4000", total_price: "0" },
+    },
+    {
+      ...unselectedRatesCart,
+      shipping_rates: [
+        { package_id: 0, shipping_rates: [{ rate_id: "flat_rate:1", price: "4000", selected: true }] },
+      ],
+      totals: { total_items: "355200", total_shipping: "4000", total_price: "" },
+    },
+  ];
+  for (const badCart of incompleteResponses) {
+    const res = await syncCartAddressPricing({
+      cart: unselectedRatesCart,
+      billingAddress,
+      shippingAddress,
+      updateCartCustomerFn: async () => badCart,
+      updateCartFn: () => {
+        updateCartCalls += 1;
+      },
+    });
+    assert.equal(res.status, "unpriced");
+  }
+  assert.equal(isUsableCartTotal({ totals: { total_price: "NaN" } }), false);
+  assert.equal(updateCartCalls, 0);
+
+  // 4. Successful sync returns matching address, selected shipping rate, and usable total_price (₹3,552 -> ₹3,592)
+  const pricedCart = {
+    items: [{ id: 1, quantity: 2 }],
+    needs_shipping: true,
+    shipping_address: { ...shippingAddress },
+    shipping_rates: [
+      {
+        package_id: 0,
+        shipping_rates: [{ rate_id: "flat_rate:1", price: "4000", selected: true }],
+      },
+    ],
+    totals: { total_items: "355200", total_shipping: "4000", total_price: "359200" },
+  };
+  let syncedCartState = unselectedRatesCart;
+  const pricedResult = await syncCartAddressPricing({
+    cart: unselectedRatesCart,
+    billingAddress,
+    shippingAddress,
+    updateCartCustomerFn: async () => pricedCart,
+    updateCartFn: (nextCart) => {
+      syncedCartState = nextCart;
+      updateCartCalls += 1;
+    },
+  });
+  assert.equal(pricedResult.status, "priced");
+  assert.equal(pricedResult.changedTotal, true);
+  assert.equal(pricedResult.previousTotalPaise, 355200);
+  assert.equal(pricedResult.actualTotalPaise, 359200);
+  assert.equal(updateCartCalls, 1);
+  assert.equal(isCartAddressPriced(syncedCartState, shippingAddress), true);
+
+  // 5. Once upfront pricing succeeded before the tap, createRazorpayHandler sends 359200 and opens Razorpay directly
+  let createOrderPayload = null;
+  let razorpayOpened = false;
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    Razorpay: class MockRazorpay {
+      constructor(opts) {
+        this.opts = opts;
+      }
+      on() {}
+      open() {
+        razorpayOpened = true;
+      }
+    },
+  };
+  const restoreAdapter = setupMockAdapter(async (config) => {
+    if (String(config.url).includes("/create-order")) {
+      createOrderPayload = JSON.parse(config.data);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          razorpay_order_id: "order_first_tap_123",
+          key_id: "rzp_test_key",
+          amount: 359200,
+          currency: "INR",
+        },
+      };
+    }
+    throw new Error(`Unexpected request: ${config.url}`);
+  });
+
+  try {
+    const startPayment = createRazorpayHandler({
+      user: { id: 42, email: "lalit@example.com", name: "Lalit Sirvi" },
+      cart: syncedCartState,
+      finalTotal: Number(syncedCartState.totals.total_price) / 100,
+      billingAddress,
+      shippingAddress,
+      idempotencyKeyRef: { current: "idem-first-tap-1" },
+      activeOrderRef: { current: null },
+      activeUserRef: { current: 42 },
+      isSubmittingRef: { current: true },
+      pollTimerRef: { current: null },
+      setLoading: () => {},
+      setPaymentStep: () => {},
+      setError: () => {},
+      setIsPersistentPending: () => {},
+      refreshCart: async () => {},
+      navigate: () => {},
+    });
+
+    await startPayment();
+    assert.equal(createOrderPayload.expected_total_paise, 359200);
+    assert.equal(razorpayOpened, true, "Razorpay must open when upfront pricing already matched");
+  } finally {
+    restoreAdapter();
+    globalThis.window = originalWindow;
+  }
+});

@@ -108,6 +108,7 @@ $GLOBALS['fail_session_lock'] = false;
 
 $GLOBALS['wpdb'] = new class {
     public $prefix = 'wp_';
+    public $usermeta = 'wp_usermeta';
     public $last_error = '';
     public function prepare($q, ...$args) {
         $i = 0;
@@ -392,7 +393,7 @@ $ssoNoRollback = mumbai_sso(new WP_REST_Request([
 ]));
 $GLOBALS['drop_google_sub_write'] = false;
 $GLOBALS['fail_user_delete'] = false;
-assert_true(is_wp_error($ssoNoRollback) && str_contains($ssoNoRollback->get_error_message(), 'Forgot Password'), '2c: Unrolled-back failure directs customer to Forgot Password');
+assert_true(is_wp_error($ssoNoRollback) && str_contains($ssoNoRollback->get_error_message(), 'contact support'), '2c: Unrolled-back failure directs customer to retry Google or contact support');
 
 // =========================================================================
 // TEST 3: Account Deletion Active-Order Guard Preserves delete_token Until Eligible
@@ -449,5 +450,62 @@ $okDel = mumbai_delete_account(new WP_REST_Request(
 assert_true(!is_wp_error($okDel) && $okDel['success'] === true, '3e: Eligible deletion succeeds with preserved delete_token');
 assert_true(get_user_by('id', 205) === false, '3e: User 205 deleted');
 assert_true(get_user_meta(205, '_mumbai_delete_auth_token', true) === '', '3e: delete_token consumed');
+
+// =========================================================================
+// TEST 4: Google-Only Accounts Cannot Set or Reset a Separate Store Password
+// =========================================================================
+$gOnlyUser = new WP_User(206, 'googleonly@example.com', ['customer']);
+$GLOBALS['test_users'][206] = $gOnlyUser;
+update_user_meta(206, '_google_sub', 'sub-only-206');
+update_user_meta(206, '_mumbai_has_custom_password', '0');
+
+assert_true(mumbai_is_google_only_account($gOnlyUser) === true, '4a: Google-only account detected');
+
+$gForgot = mumbai_forgot_password(new WP_REST_Request(['email' => 'googleonly@example.com']));
+assert_true(!is_wp_error($gForgot) && $gForgot['success'] === true, '4b: forgot_password returns neutral response for Google-only user (anti-enumeration)');
+assert_true(get_user_meta(206, '_mumbai_reset_token', true) === '', '4b: forgot_password stores no reset token for Google-only user');
+
+$gOtpStore = mumbai_otp_store(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'googleonly@example.com',
+    'otp_hash' => 'hash_g_206',
+]));
+assert_true(!is_wp_error($gOtpStore) && $gOtpStore['user_found'] === false, '4c: reset_password OTP store returns neutral user_found=false for Google-only user (zero emails sent)');
+assert_true(get_user_meta(206, '_mumbai_otp_hash', true) === '', '4c: No reset OTP hash saved for Google-only user');
+
+$gOtpVerify = mumbai_otp_verify_locked(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'googleonly@example.com',
+    'otp_hash' => 'hash_g_206',
+]));
+assert_true(is_wp_error($gOtpVerify) && $gOtpVerify->get_error_code() === 'invalid_otp', '4d: reset_password OTP verify rejected for Google-only user');
+
+$gOtpReset = mumbai_otp_reset_password(new WP_REST_Request([
+    'phone' => 'googleonly@example.com',
+    'reset_token' => 'any_token',
+    'new_password' => 'StrongPass#123',
+]));
+assert_true(is_wp_error($gOtpReset) && $gOtpReset->get_error_code() === 'invalid_request', '4e: otp_reset_password rejected for Google-only user');
+
+$gProfileSave = mumbai_save_profile_locked(new WP_REST_Request([
+    'first_name' => 'Google',
+    'last_name' => 'Only',
+    'phone' => '9820123456',
+    'password' => 'StrongPass#123',
+], ['X-Mumbai-User-ID' => '206']));
+assert_true(is_wp_error($gProfileSave) && $gProfileSave->get_error_code() === 'google_account_password_disabled', '4f: save_profile rejects password creation for Google-only user');
+
+// 4g: Existing email+password account cannot be linked to Google Sign-In
+$pwUser = new WP_User(207, 'passwordonly@example.com', ['customer']);
+$GLOBALS['test_users'][207] = $pwUser;
+update_user_meta(207, '_mumbai_has_custom_password', true);
+$linkAttempt = mumbai_sso(new WP_REST_Request([
+    'email' => 'passwordonly@example.com',
+    'name' => 'Password User',
+    'google_sub' => 'sub-link-207',
+    'authenticated_user_id' => 207,
+]));
+assert_true(is_wp_error($linkAttempt) && $linkAttempt->get_error_code() === 'sso_email_uses_password', '4g: Existing email+password account cannot link Google Sign-In');
+assert_true(get_user_meta(207, '_google_sub', true) === '', '4g: _google_sub not written on blocked link attempt');
 
 echo "ALL_PHP_CONCURRENCY_AND_RECOVERY_TESTS_PASSED\n";

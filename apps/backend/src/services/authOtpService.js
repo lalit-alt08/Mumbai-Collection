@@ -133,6 +133,13 @@ export const processSendOtp = async (req, res) => {
         logError(req, invalidateErr, "Failed to invalidate OTP after email failure");
       }
 
+      if (purpose === "reset_password") {
+        return res.status(200).json({
+          success: true,
+          message: storeResponse.data?.message || (isEmailInput ? "If an account is registered with this email, an OTP has been sent." : "If the number is registered, an OTP has been sent."),
+        });
+      }
+
       return res.status(500).json({
         success: false,
         message: "Unable to send verification code. Please try again.",

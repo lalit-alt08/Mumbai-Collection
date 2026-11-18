@@ -199,6 +199,8 @@ export function CheckoutBottomBar({
                 </>
               ) : checkoutAction === "auth_loading" ? (
                 <span>Checking account…</span>
+              ) : checkoutAction === "syncing_pricing" ? (
+                <span>Updating total…</span>
               ) : checkoutAction === "legacy_payment" ? (
                 <span>Payment needs review</span>
               ) : checkoutAction === "payment_signin" ? (

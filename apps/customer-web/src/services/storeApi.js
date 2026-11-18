@@ -338,6 +338,22 @@ export const applyCoupon = (code) => {
   });
 };
 
+export const updateCartCustomer = (billingAddress, shippingAddress) => {
+  return serializeCartWrite(async (queuedEpoch) => {
+    const response = await storeClient.post(
+      "/cart/update-customer",
+      {
+        billing_address: billingAddress,
+        shipping_address: shippingAddress,
+      },
+      {
+        _cartSessionEpoch: queuedEpoch,
+      }
+    );
+    return response.data;
+  });
+};
+
 export const getCheckout = async () => {
   const response = await storeClient.get("/checkout");
   return response.data;

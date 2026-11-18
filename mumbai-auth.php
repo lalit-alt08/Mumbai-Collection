@@ -874,7 +874,7 @@ function mumbai_login(WP_REST_Request $request)
     if (!$user) {
         $user = get_user_by('login', $email);
     }
-    if (!$user) {
+    if (!$user || mumbai_is_google_only_account($user)) {
         // Equalize response timing with valid accounts to prevent timing enumeration
         $dummy_hash = '$P$B71VqT0EaKz.w6m0/5Q6Gz2sC/l0Bq.';
         wp_check_password($password, $dummy_hash);
@@ -1018,6 +1018,22 @@ function mumbai_is_privileged_account($user)
         return true;
     }
     return false;
+}
+
+/**
+ * Returns true if the account was created via Google SSO without a separate
+ * store password. Google-only accounts sign in exclusively with Google and
+ * cannot set or reset a store password.
+ */
+function mumbai_is_google_only_account($user)
+{
+    if (!$user || empty($user->ID)) {
+        return false;
+    }
+    if (!(bool) get_user_meta($user->ID, '_google_sub', true)) {
+        return false;
+    }
+    return !(bool) get_user_meta($user->ID, '_mumbai_has_custom_password', true);
 }
 
 /**
@@ -1169,25 +1185,18 @@ function mumbai_sso(WP_REST_Request $request)
                     );
                 }
 
-                // If account exists with this email but has never been linked to Google:
-                // Require proof of ownership: caller must already be authenticated as this candidate user.
-                $authenticated_user_id = (int) $request->get_param('authenticated_user_id');
-                $is_owner_confirmed = ($authenticated_user_id > 0 && $authenticated_user_id === (int) $candidate_user->ID);
-
-                if ($existing_google_sub === '' && !$is_owner_confirmed) {
+                // Enforce single sign-in method per account: email+password accounts
+                // cannot be linked to Google Sign-In.
+                if ($existing_google_sub === '') {
                     return new WP_Error(
-                        'sso_linking_verification_required',
-                        'An account with this email already exists. Sign in with your password (or reset it via Forgot Password), then link Google from My Account.',
+                        'sso_email_uses_password',
+                        'An account with this email already exists using email and password. Please sign in with your email and password.',
                         ['status' => 409]
                     );
                 }
 
-                // Verified linking of existing account to Google
+                // Existing account already linked to this Google identity
                 $user = $candidate_user;
-                if ($existing_google_sub === '') {
-                    update_user_meta($user->ID, '_google_sub', $google_sub);
-                    mumbai_log("Linked Google Sub to existing user {$user->ID}");
-                }
             }
         }
 
@@ -1266,7 +1275,7 @@ function mumbai_sso(WP_REST_Request $request)
                 'sso_link_persistence_failed',
                 $rolled_back
                     ? 'Unable to finish Google sign-in right now. Please try signing in with Google again.'
-                    : 'Unable to finish Google sign-in. If your account was created, use Forgot Password with this email to sign in, then link Google from My Account.',
+                    : 'Unable to finish Google sign-in right now. Please try signing in with Google again or contact support.',
                 ['status' => 500]
             );
         }
@@ -1645,9 +1654,9 @@ function mumbai_forgot_password(WP_REST_Request $request)
     if (!$user) {
         $user = get_user_by('login', $email);
     }
-    if (!$user || mumbai_is_privileged_account($user)) {
+    if (!$user || mumbai_is_privileged_account($user) || mumbai_is_google_only_account($user)) {
         if ($user) {
-            mumbai_log("Blocked storefront forgot-password attempt for privileged user {$user->ID}");
+            mumbai_log("Blocked storefront forgot-password attempt for user {$user->ID}");
         }
         return $generic_response;
     }
@@ -1741,9 +1750,9 @@ function mumbai_reset_password(WP_REST_Request $request)
         );
     }
     $user = $users[0];
-    if (mumbai_is_privileged_account($user)) {
+    if (mumbai_is_privileged_account($user) || mumbai_is_google_only_account($user)) {
         mumbai_clear_all_password_recovery_credentials($user->ID, false);
-        mumbai_log("Blocked storefront reset-password attempt for privileged user {$user->ID}");
+        mumbai_log("Blocked storefront reset-password attempt for user {$user->ID}");
         return new WP_Error(
             'invalid_token',
             'This password reset link is invalid or has expired.',
@@ -2969,6 +2978,13 @@ function mumbai_save_profile_locked(WP_REST_Request $request)
     if (!empty($password)) {
         $current_password = (string) $request->get_param('current_password');
         $user_obj = get_userdata($user_id);
+        if (mumbai_is_google_only_account($user_obj)) {
+            return new WP_Error(
+                'google_account_password_disabled',
+                'Google accounts sign in with Google only and cannot set a store password.',
+                ['status' => 403]
+            );
+        }
         // Only explicitly marked, newly created passwordless accounts qualify.
         // Missing metadata on legacy accounts must never bypass reauthentication.
         $cookie = $_COOKIE[LOGGED_IN_COOKIE] ?? '';
@@ -4283,9 +4299,9 @@ function mumbai_otp_store(WP_REST_Request $request) {
         } else {
             $user = mumbai_get_user_by_phone($phone);
         }
-        if (!$user || mumbai_is_privileged_account($user)) {
+        if (!$user || mumbai_is_privileged_account($user) || mumbai_is_google_only_account($user)) {
             if ($user) {
-                mumbai_log("Blocked storefront OTP password reset store for privileged user {$user->ID}");
+                mumbai_log("Blocked storefront OTP password reset store for user {$user->ID}");
             }
             return array_merge($generic_success, ['user_found' => false]);
         }
@@ -4525,7 +4541,7 @@ function mumbai_otp_verify_locked(WP_REST_Request $request) {
         } else {
             $user = mumbai_get_user_by_phone($phone);
         }
-        if (!$user || mumbai_is_privileged_account($user)) {
+        if (!$user || mumbai_is_privileged_account($user) || mumbai_is_google_only_account($user)) {
             return new WP_Error('invalid_otp', 'Invalid or expired OTP.', ['status' => 400]);
         }
     }
@@ -4627,7 +4643,7 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
     } else {
         $user = mumbai_get_user_by_phone($phone);
     }
-    if (!$user || mumbai_is_privileged_account($user)) {
+    if (!$user || mumbai_is_privileged_account($user) || mumbai_is_google_only_account($user)) {
         return new WP_Error('invalid_request', 'Invalid request.', ['status' => 400]);
     }
 

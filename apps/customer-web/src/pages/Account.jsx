@@ -4,7 +4,6 @@ import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import API_URL from "../config/api.js";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
-import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
 import {
   User,
   Heart,
@@ -136,12 +135,6 @@ function Account() {
   const formattedPhone = formatPhoneNumber(rawPhone);
 
   const displayEmail = (profile?.email || user?.email || "").trim();
-
-  const isGoogleLinked =
-    user?.is_google_user === true ||
-    profile?.is_google_user === true ||
-    Boolean(user?.google_id) ||
-    Boolean(profile?.google_id);
 
   const avatarInitials =
     displayName
@@ -418,11 +411,6 @@ function Account() {
         {/* LOGOUT ACTION CARD                                         */}
         {/* ────────────────────────────────────────────────────────── */}
         <div className="pt-1">
-          {!isGoogleLinked && (
-            <div className="mb-3">
-              <GoogleAuthButton mode="link" />
-            </div>
-          )}
           <button
             onClick={handleLogout}
             className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-900/60 bg-[#FFFFFF] px-5 py-3.5 text-sm font-bold text-rose-400 shadow-xs transition-all hover:bg-rose-950/40 hover:border-rose-800 active:scale-[0.99] cursor-pointer"

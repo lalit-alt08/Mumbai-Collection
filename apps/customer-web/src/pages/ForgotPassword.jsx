@@ -27,10 +27,6 @@ function ForgotPassword() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, handleSessionExpired } = useAuth();
-  const isSetPasswordMode = location.state?.mode === "set_password";
-  const returnPath = typeof location.state?.from === "string" && location.state.from.startsWith("/")
-    ? location.state.from
-    : "/login";
 
   // Stepper: 1 = Email Input, 2 = OTP Verification, 3 = New Password Setup
   const [step, setStep] = useState(1);
@@ -289,11 +285,7 @@ function ForgotPassword() {
       if (user && handleSessionExpired) {
         handleSessionExpired();
       }
-      setSuccess(
-        isSetPasswordMode
-          ? "Password set successfully! Redirecting to sign in..."
-          : res?.message || "Password reset successfully! Redirecting to login..."
-      );
+      setSuccess(res?.message || "Password reset successfully! Redirecting to login...");
       setPassword("");
       setConfirmPassword("");
 
@@ -328,16 +320,14 @@ function ForgotPassword() {
               setError("");
               setFieldError("");
             } else {
-              navigate(returnPath);
+              navigate("/login");
             }
           }}
           className="mb-6 flex w-fit items-center gap-2 text-sm font-semibold text-[#64748B] transition hover:text-[#22499F] cursor-pointer"
         >
           <ArrowLeft size={18} />
           {step === 1
-            ? isSetPasswordMode
-              ? "Back to Profile"
-              : "Back to Sign In"
+            ? "Back to Sign In"
             : step === 2
             ? "Back to Email"
             : "Back to Verification"}
@@ -369,16 +359,16 @@ function ForgotPassword() {
           <div>
             <div className="mb-6">
               <h1 className="text-[28px] font-extrabold tracking-tight text-[#1E293B] md:text-[32px]">
-                {isSetPasswordMode ? "Set a Password" : "Forgot Password?"}
+                Forgot Password?
               </h1>
               <p className="mt-2 text-[15px] leading-relaxed text-[#64748B] md:text-[16px]">
-                {isSetPasswordMode
-                  ? "Verify your email with a 6-digit code to add a Mumbai Collection store password. Your Google account password stays separate, and you can still sign in with Google afterward."
-                  : "Enter your email address. If an account exists, we'll send a 6-digit verification code."}
+                Enter your email address. If an email &amp; password account exists, we&apos;ll send a 6-digit verification code.
               </p>
-              {!isSetPasswordMode && (
-                <p className="mt-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3.5 py-2.5 text-xs leading-relaxed text-[#475569]">
-                  This creates or resets your <strong>Mumbai Collection store password</strong> — not your Google password. If you usually sign in with Google, you can also use{" "}
+              <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-3 text-xs leading-relaxed text-[#475569] space-y-2">
+                <p>
+                  <strong>Signed up with Google?</strong> Google accounts do not use a separate store password and will not receive a reset email here. Sign in with Google or manage your password on your official Google Account page.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={() => navigate("/login")}
@@ -386,9 +376,17 @@ function ForgotPassword() {
                   >
                     Continue with Google
                   </button>
-                  .
-                </p>
-              )}
+                  <span className="text-[#CBD5E1]" aria-hidden="true">•</span>
+                  <a
+                    href="https://myaccount.google.com/security"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-bold text-[#22499F] hover:underline"
+                  >
+                    Open Google Account Security
+                  </a>
+                </div>
+              </div>
             </div>
 
             <form onSubmit={handleEmailSubmit} className="flex flex-col gap-5">
@@ -413,7 +411,7 @@ function ForgotPassword() {
                     }}
                     className={`h-[56px] w-full rounded-2xl border bg-[#F0F8E8] pl-12 pr-4 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                       fieldError
-                        ? "border-rose-400 focus:border-rose-400"
+                        ? "border-rose-500 focus:border-rose-500"
                         : "border-[#E2E8F0] focus:border-[#22499F]"
                     }`}
                     required
@@ -422,7 +420,7 @@ function ForgotPassword() {
                 </div>
 
                 {fieldError && (
-                  <p className="mt-2 text-sm text-rose-400">{fieldError}</p>
+                  <p className="auth-field-error mt-2 text-sm font-semibold">{fieldError}</p>
                 )}
               </div>
 
@@ -452,10 +450,31 @@ function ForgotPassword() {
                 Verify Your Email
               </h1>
               <p className="mt-2 text-[15px] leading-relaxed text-[#64748B] md:text-[16px]">
-                If an account exists for{" "}
+                If an email &amp; password account exists for{" "}
                 <span className="font-semibold text-[#1E293B]">{email}</span>, we sent a 6-digit verification code.
-                {!isSetPasswordMode && " If you usually sign in with Google, you can also sign in with Continue with Google."}
               </p>
+              <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-2.5 text-xs leading-relaxed text-[#475569] space-y-1.5">
+                <p>
+                  Didn&apos;t receive a code? If this account is linked to Google Sign-In, no store reset email is sent — use{" "}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/login")}
+                    className="font-bold text-[#22499F] hover:underline cursor-pointer"
+                  >
+                    Continue with Google
+                  </button>{" "}
+                  or change your password on your{" "}
+                  <a
+                    href="https://myaccount.google.com/security"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-bold text-[#22499F] hover:underline"
+                  >
+                    official Google Account page
+                  </a>
+                  .
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -590,6 +609,7 @@ function ForgotPassword() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                     className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                   >
                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
@@ -599,19 +619,19 @@ function ForgotPassword() {
                 {/* Password Rule Checklist */}
                 {password.length > 0 && (
                   <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/80 p-2.5 text-xs text-[#64748B]">
-                    <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                    <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                       <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
                     </span>
-                    <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                    <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                       <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
                     </span>
-                    <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                    <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                       <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
                     </span>
-                    <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                    <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                       <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
                     </span>
-                    <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                    <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                       <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special character (!@#$%^&*)
                     </span>
                   </div>
@@ -625,7 +645,7 @@ function ForgotPassword() {
                 </label>
 
                 <div className="relative flex items-center">
-                  <div className="absolute left-4 text-[#64748B]">
+                  <div className="pointer-events-none absolute left-4 text-[#64748B]">
                     <Lock size={20} strokeWidth={2} />
                   </div>
 
@@ -640,7 +660,7 @@ function ForgotPassword() {
                     }}
                     className={`h-[56px] w-full rounded-2xl border bg-[#F0F8E8] pl-12 pr-12 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                       fieldError && password !== confirmPassword
-                        ? "border-rose-400 focus:border-rose-400"
+                        ? "border-rose-500 focus:border-rose-500"
                         : "border-[#E2E8F0] focus:border-[#22499F]"
                     }`}
                     required
@@ -650,6 +670,7 @@ function ForgotPassword() {
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
                     className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                   >
                     {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
@@ -658,7 +679,7 @@ function ForgotPassword() {
               </div>
 
               {fieldError && (
-                <p className="text-sm text-rose-400">{fieldError}</p>
+                <p className="auth-field-error text-sm font-semibold">{fieldError}</p>
               )}
 
               {error && (
@@ -668,8 +689,8 @@ function ForgotPassword() {
               )}
 
               {success && (
-                <div className="flex items-center gap-3 rounded-xl border border-emerald-800/80 bg-emerald-950/40 p-4 text-[13px] font-medium text-emerald-300">
-                  <CheckCircle size={20} className="text-emerald-400 flex-shrink-0" />
+                <div className="track-order-delivered flex items-center gap-3 rounded-xl border p-4 text-[13px] font-semibold">
+                  <CheckCircle size={20} className="shrink-0" />
                   <span>{success}</span>
                 </div>
               )}
