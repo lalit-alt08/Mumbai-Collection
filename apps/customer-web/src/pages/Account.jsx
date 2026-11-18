@@ -19,6 +19,8 @@ import {
   Home,
   Phone,
   Mail,
+  AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
@@ -26,7 +28,8 @@ import { setStorefrontTheme, useStorefrontTheme } from "../utils/storefrontTheme
 
 function Account() {
   useNoIndex();
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout, logoutPending, setLogoutPending, updateUser } = useAuth();
+  const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
   const theme = useStorefrontTheme();
 
@@ -145,14 +148,16 @@ function Account() {
       .join("")
       .toUpperCase() || "MC";
 
-  const handleLogout = async () => {
+  const handleLogout = async (options = {}) => {
+    if (loggingOut) return;
     try {
-      const result = await logout();
-      if (!result?.server_revocation_confirmed) {
-        window.alert("The server could not confirm sign-out. Your session may still be active on this or another device. Reconnect and contact support if you need to secure your account.");
+      setLoggingOut(true);
+      const result = await logout(options);
+      if (result?.success) {
+        navigate("/", { replace: true });
       }
     } finally {
-      navigate("/", { replace: true });
+      setLoggingOut(false);
     }
   };
 
@@ -412,16 +417,77 @@ function Account() {
         {/* ────────────────────────────────────────────────────────── */}
         <div className="pt-1">
           <button
-            onClick={handleLogout}
-            className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-900/60 bg-[#FFFFFF] px-5 py-3.5 text-sm font-bold text-rose-400 shadow-xs transition-all hover:bg-rose-950/40 hover:border-rose-800 active:scale-[0.99] cursor-pointer"
+            type="button"
+            disabled={loggingOut}
+            onClick={() => handleLogout({ force: false })}
+            className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-900/60 bg-[#FFFFFF] px-5 py-3.5 text-sm font-bold text-rose-400 shadow-xs transition-all hover:bg-rose-950/40 hover:border-rose-800 active:scale-[0.99] disabled:opacity-60 cursor-pointer"
           >
             <LogOut
               size={17}
               className="transition-transform group-hover:-translate-x-0.5 text-rose-400"
             />
-            <span>Log Out</span>
+            <span>{loggingOut ? "Logging Out..." : "Log Out"}</span>
           </button>
         </div>
+
+        {logoutPending && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customer-logout-pending-title"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-amber-300 bg-[#FFFFFF] p-6 text-[#1E293B] shadow-2xl">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                  <AlertTriangle size={20} aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 id="customer-logout-pending-title" className="text-base font-extrabold text-[#1E293B]">
+                    Sign-Out Not Confirmed
+                  </h3>
+                  <p className="text-xs font-semibold text-amber-700">
+                    Server session revocation pending
+                  </p>
+                </div>
+              </div>
+
+              <p className="mb-5 text-xs leading-relaxed text-[#475569]">
+                {logoutPending.message ||
+                  "We could not confirm sign-out with the server. Retry revoking your session, or sign out on this device."}
+              </p>
+
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => handleLogout({ force: false })}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#22499F] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#1B3B82] disabled:opacity-60 cursor-pointer"
+                >
+                  <RotateCcw size={14} className={loggingOut ? "animate-spin" : ""} aria-hidden="true" />
+                  {loggingOut ? "Retrying Sign Out..." : "Retry Server Sign Out"}
+                </button>
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => handleLogout({ force: true })}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60 cursor-pointer"
+                >
+                  <LogOut size={14} aria-hidden="true" />
+                  Sign Out on This Device
+                </button>
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => setLogoutPending(null)}
+                  className="w-full rounded-xl px-4 py-2 text-xs font-semibold text-[#64748B] hover:text-[#1E293B] cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ────────────────────────────────────────────────────────── */}
         {/* BRAND WATERMARK                                            */}

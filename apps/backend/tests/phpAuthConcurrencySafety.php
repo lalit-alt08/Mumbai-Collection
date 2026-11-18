@@ -82,8 +82,11 @@ class WP_Session_Tokens {
                 $GLOBALS['destroyed_sessions'][] = $this->uid;
                 unset($GLOBALS['test_sessions'][$this->uid]);
             }
+            public function destroy($tok) {
+                unset($GLOBALS['test_sessions'][$this->uid][$tok]);
+            }
             public function create($exp) {
-                $tok = 'tok_' . $this->uid . '_' . $exp;
+                $tok = 'tok_' . $this->uid . '_' . $exp . '_' . count($GLOBALS['test_sessions'][$this->uid] ?? []);
                 $GLOBALS['test_sessions'][$this->uid][$tok] = ['login' => time(), 'expiration' => $exp];
                 return $tok;
             }
@@ -105,6 +108,10 @@ $GLOBALS['destroyed_sessions'] = [];
 $GLOBALS['deleted_users'] = [];
 $GLOBALS['next_user_id'] = 500;
 $GLOBALS['fail_session_lock'] = false;
+$GLOBALS['drop_session_version_write'] = false;
+$GLOBALS['on_before_session_lock'] = null;
+$GLOBALS['test_transients'] = [];
+$GLOBALS['cache_deletes'] = [];
 
 $GLOBALS['wpdb'] = new class {
     public $prefix = 'wp_';
@@ -120,6 +127,11 @@ $GLOBALS['wpdb'] = new class {
     public function get_var($q) {
         if (preg_match("/SELECT GET_LOCK\('([^']+)'/", $q, $m)) {
             $name = $m[1];
+            if (is_callable($GLOBALS['on_before_session_lock']) && str_starts_with($name, 'mumbai_sess_lock_')) {
+                $hook = $GLOBALS['on_before_session_lock'];
+                $GLOBALS['on_before_session_lock'] = null;
+                $hook($name);
+            }
             $GLOBALS['lock_log'][] = ['acquire', $name];
             if ($GLOBALS['fail_session_lock'] && str_starts_with($name, 'mumbai_sess_lock_')) {
                 return 0;
@@ -166,8 +178,24 @@ function sanitize_email($v) { return trim((string) $v); }
 function sanitize_user($v, $strict = false) { return preg_replace('/[^a-zA-Z0-9_.-]/', '', (string) $v); }
 function is_email($v) { return (bool) filter_var($v, FILTER_VALIDATE_EMAIL); }
 function wp_generate_password($len = 12) { return substr(bin2hex(random_bytes(max(16, $len))), 0, $len); }
-function wp_cache_delete($id, $group = '') {}
+function wp_cache_delete($id, $group = '') { $GLOBALS['cache_deletes'][] = [$id, $group]; }
 function clean_user_cache($id) {}
+function get_transient($key) { return $GLOBALS['test_transients'][$key] ?? false; }
+function set_transient($key, $val, $ttl = 0) { $GLOBALS['test_transients'][$key] = $val; return true; }
+function delete_transient($key) { unset($GLOBALS['test_transients'][$key]); return true; }
+function wp_validate_auth_cookie($cookie, $scheme = '') {
+    if (preg_match('/^cookie_(\d+)_(.+)$/', (string) $cookie, $m)) {
+        return (int) $m[1];
+    }
+    return false;
+}
+function wp_parse_auth_cookie($cookie, $scheme = '') {
+    if (preg_match('/^cookie_(\d+)_(.+)$/', (string) $cookie, $m)) {
+        return ['username' => 'u' . $m[1], 'token' => $m[2]];
+    }
+    return false;
+}
+function wp_get_session_token() { return ''; }
 function wp_mail($to, $sub, $msg) { $GLOBALS['test_mails'][] = [$to, $sub, $msg]; return true; }
 function username_exists($u) {
     foreach ($GLOBALS['test_users'] as $user) {
@@ -222,6 +250,9 @@ function update_user_meta($id, $key, $val) {
     if ($key === '_google_sub' && $GLOBALS['drop_google_sub_write']) {
         return false; // Simulate failed meta write
     }
+    if ($key === '_mumbai_session_version' && $GLOBALS['drop_session_version_write']) {
+        return false; // Simulate failed session-version persistence inside lock
+    }
     $GLOBALS['test_meta'][$id][$key] = $val;
     return true;
 }
@@ -233,7 +264,18 @@ function user_can($id, $cap) {
 function is_super_admin($id) { return false; }
 function reset_password($user, $pw) { $user->user_pass = 'reset_' . $pw; }
 function wp_set_password($pw, $id) { if (isset($GLOBALS['test_users'][$id])) $GLOBALS['test_users'][$id]->user_pass = 'set_' . $pw; }
-function wp_check_password($pw, $hash, $id) { return false; }
+function wp_check_password($pw, $hash, $id = 0) {
+    return $hash === 'reset_' . $pw || $hash === 'set_' . $pw || $hash === $pw;
+}
+function wp_authenticate($login, $pw) {
+    $u = get_user_by('login', $login);
+    if (!$u) $u = get_user_by('email', $login);
+    if (!$u || !wp_check_password($pw, $u->user_pass, $u->ID)) {
+        return new WP_Error('incorrect_password', 'Invalid credentials');
+    }
+    return $u;
+}
+function do_action(...$a) {}
 function wp_set_current_user($id) {}
 function is_ssl() { return false; }
 function wp_set_auth_cookie(...$a) {}
@@ -328,16 +370,28 @@ update_user_meta(101, '_mumbai_reset_token', hash('sha256', $legacyToken));
 update_user_meta(101, '_mumbai_reset_expires', time() + 600);
 update_user_meta(101, '_mumbai_reset_token_cred_ver', 1);
 
-// Force mumbai_revoke_all_user_sessions to fail via session lock error!
+// If session lock cannot be acquired, password is NOT partially mutated (429 session_lock_busy)
+$pwBeforeBusy = $u1->user_pass;
 $GLOBALS['fail_session_lock'] = true;
-$partialFailRes = mumbai_otp_reset_password(new WP_REST_Request([
+$busyResetRes = mumbai_otp_reset_password(new WP_REST_Request([
     'phone' => 'alice@example.com',
     'reset_token' => $issuedResetToken,
     'new_password' => 'StrongPass1!',
 ]));
 $GLOBALS['fail_session_lock'] = false;
+assert_true(is_wp_error($busyResetRes) && $busyResetRes->get_error_code() === 'session_lock_busy', '1d: Session lock timeout rejects before mutating password');
+assert_true($u1->user_pass === $pwBeforeBusy, '1d: Password remains unchanged when session lock could not be acquired');
 
-assert_true(is_wp_error($partialFailRes), '1d: Session revocation error propagated');
+// Force session revocation persistence to fail INSIDE the lock AFTER reset_password() saves new password!
+$GLOBALS['drop_session_version_write'] = true;
+$partialFailRes = mumbai_otp_reset_password(new WP_REST_Request([
+    'phone' => 'alice@example.com',
+    'reset_token' => $issuedResetToken,
+    'new_password' => 'StrongPass1!',
+]));
+$GLOBALS['drop_session_version_write'] = false;
+
+assert_true(is_wp_error($partialFailRes) && $partialFailRes->get_error_code() === 'session_revocation_failed', '1d: Session revocation error propagated');
 assert_true($u1->user_pass === 'reset_StrongPass1!', '1d: Password was saved');
 assert_true((int) get_user_meta(101, '_mumbai_credential_version', true) === 2, '1d: Credential version advanced to 2 even on partial failure');
 assert_true(get_user_meta(101, '_mumbai_reset_auth_token', true) === '', '1d: OTP reset token cleared even on partial failure');
@@ -507,5 +561,167 @@ $linkAttempt = mumbai_sso(new WP_REST_Request([
 ]));
 assert_true(is_wp_error($linkAttempt) && $linkAttempt->get_error_code() === 'sso_email_uses_password', '4g: Existing email+password account cannot link Google Sign-In');
 assert_true(get_user_meta(207, '_google_sub', true) === '', '4g: _google_sub not written on blocked link attempt');
+
+// =========================================================================
+// TEST 5: In-Flight Login Cannot Mint a Session Across a Completed Password Reset
+// =========================================================================
+$raceUser = new WP_User(208, 'raceuser@example.com', ['customer']);
+$raceUser->user_pass = 'reset_OldPass1!';
+$GLOBALS['test_users'][208] = $raceUser;
+update_user_meta(208, '_mumbai_has_custom_password', true);
+update_user_meta(208, '_mumbai_failed_logins', 2);
+
+// Prepare a valid OTP reset token for user 208
+$raceStore = mumbai_otp_store(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'raceuser@example.com',
+    'otp_hash' => 'race_otp_208',
+]));
+assert_true(!is_wp_error($raceStore), '5a: Reset OTP stored for race user');
+$raceVerify = mumbai_otp_verify_locked(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'raceuser@example.com',
+    'otp_hash' => 'race_otp_208',
+]));
+assert_true(!is_wp_error($raceVerify) && !empty($raceVerify['reset_token']), '5a: Reset OTP verified for race user');
+$raceResetToken = $raceVerify['reset_token'];
+
+// Simulate an in-flight login with OldPass1! that passes wp_authenticate(),
+// then pauses right before acquiring mumbai_sess_lock_208 while a password
+// reset to NewPass2! runs to completion under the shared lock.
+$GLOBALS['on_before_session_lock'] = function ($lockName) use ($raceResetToken) {
+    if ($lockName === 'mumbai_sess_lock_208') {
+        $resetRes = mumbai_otp_reset_password(new WP_REST_Request([
+            'phone' => 'raceuser@example.com',
+            'reset_token' => $raceResetToken,
+            'new_password' => 'NewPass2!',
+        ]));
+        assert_true(!is_wp_error($resetRes) && $resetRes['success'] === true, '5b: Concurrent password reset completed');
+    }
+};
+
+$staleLoginRes = mumbai_login(new WP_REST_Request([
+    'email' => 'raceuser@example.com',
+    'password' => 'OldPass1!',
+]));
+assert_true(is_wp_error($staleLoginRes) && $staleLoginRes->get_error_code() === 'login_failed', '5c: In-flight login with old password rejected after concurrent reset');
+assert_true(empty($GLOBALS['test_sessions'][208]), '5c: Stale login issued zero session tokens');
+
+// Logging in with the NEW password succeeds and binds to the post-reset session version
+$freshLoginRes = mumbai_login(new WP_REST_Request([
+    'email' => 'raceuser@example.com',
+    'password' => 'NewPass2!',
+]));
+assert_true(!is_wp_error($freshLoginRes) && $freshLoginRes['success'] === true, '5d: Login with new password succeeds');
+assert_true((int) $freshLoginRes['session_version'] >= 2, '5d: Fresh login uses post-reset session version');
+assert_true(count($GLOBALS['test_sessions'][208] ?? []) === 1, '5d: Fresh login issued exactly one session token');
+
+// =========================================================================
+// TEST 6: Single-Device Logout Uses Per-User Session Lock & Clears Cache
+// =========================================================================
+$logoutUser = new WP_User(209, 'logoutuser@example.com', ['customer']);
+$GLOBALS['test_users'][209] = $logoutUser;
+$mgr209 = WP_Session_Tokens::get_instance(209);
+$tokA = $mgr209->create(time() + 3600);
+$tokB = $mgr209->create(time() + 3600);
+$_COOKIE[LOGGED_IN_COOKIE] = "cookie_209_{$tokA}";
+
+// While mumbai_sess_lock_209 is held by a concurrent login, logout fails closed
+$GLOBALS['held_locks']['mumbai_sess_lock_209'] = true;
+$busyLogout = mumbai_logout(new WP_REST_Request([], []));
+assert_true($busyLogout['success'] === false, '6a: Single-device logout fails closed when mumbai_sess_lock_209 is busy');
+assert_true(!empty($GLOBALS['test_sessions'][209][$tokA]), '6a: Token A not modified while lock is held');
+unset($GLOBALS['held_locks']['mumbai_sess_lock_209']);
+
+// Once lock is free, logout clears user_meta cache under lock and destroys ONLY tokA (preserving tokB)
+$GLOBALS['lock_log'] = [];
+$GLOBALS['cache_deletes'] = [];
+$okLogout = mumbai_logout(new WP_REST_Request([], []));
+assert_true($okLogout['success'] === true, '6b: Single-device logout succeeds under session lock');
+assert_true(empty($GLOBALS['test_sessions'][209][$tokA]), '6b: Logged-out token A destroyed');
+assert_true(!empty($GLOBALS['test_sessions'][209][$tokB]), '6b: Other device token B preserved');
+$acquired209 = false;
+foreach ($GLOBALS['lock_log'] as $entry) {
+    if ($entry[0] === 'acquire' && $entry[1] === 'mumbai_sess_lock_209') $acquired209 = true;
+}
+assert_true($acquired209, '6b: Single-device logout acquired mumbai_sess_lock_209');
+$clearedMeta209 = false;
+foreach ($GLOBALS['cache_deletes'] as $entry) {
+    if ((int) $entry[0] === 209 && $entry[1] === 'user_meta') $clearedMeta209 = true;
+}
+assert_true($clearedMeta209, '6b: Single-device logout cleared user_meta cache inside lock');
+unset($_COOKIE[LOGGED_IN_COOKIE]);
+
+// =========================================================================
+// TEST 7: Conditional OTP Invalidation Preserves Newer OTP Under Lock
+// =========================================================================
+$regEmail = 'newreg@example.com';
+$regKey = '_mumbai_reg_otp_' . md5($regEmail);
+$regLock = 'mumbai_reg_' . md5($regEmail);
+
+$storeReg1 = mumbai_otp_store(new WP_REST_Request([
+    'purpose' => 'register',
+    'phone' => $regEmail,
+    'otp_hash' => 'reg_hash_old',
+]));
+assert_true(!is_wp_error($storeReg1) && $storeReg1['success'] === true, '7a: Registration OTP 1 stored');
+
+// Simulate a newer registration OTP replacing the old one (after cooldown expires)
+delete_transient('_mumbai_last_reg_otp_' . md5($regEmail));
+$storeReg2 = mumbai_otp_store(new WP_REST_Request([
+    'purpose' => 'register',
+    'phone' => $regEmail,
+    'otp_hash' => 'reg_hash_new',
+]));
+assert_true(!is_wp_error($storeReg2) && $storeReg2['success'] === true, '7b: Registration OTP 2 stored');
+
+// Late email-send failure for OTP 1 calls invalidate with reg_hash_old -> MUST NOT delete reg_hash_new
+$invStale = mumbai_otp_invalidate(new WP_REST_Request([
+    'purpose' => 'register',
+    'phone' => $regEmail,
+    'otp_hash' => 'reg_hash_old',
+]));
+assert_true(!is_wp_error($invStale) && $invStale['success'] === true, '7c: Stale invalidation call returns success');
+$storedReg = get_transient($regKey);
+assert_true(is_array($storedReg) && $storedReg['hash'] === 'reg_hash_new', '7c: Stale OTP invalidation preserved newer registration OTP');
+
+// Matching otp_hash invalidation DOES delete the stored registration OTP
+$invMatch = mumbai_otp_invalidate(new WP_REST_Request([
+    'purpose' => 'register',
+    'phone' => $regEmail,
+    'otp_hash' => 'reg_hash_new',
+]));
+assert_true(!is_wp_error($invMatch) && $invMatch['success'] === true, '7d: Matching OTP invalidation succeeds');
+assert_true(get_transient($regKey) === false, '7d: Matching OTP hash removed transient');
+
+// Concurrent registration OTP store blocked when mumbai_reg_ lock is held
+$GLOBALS['held_locks'][$regLock] = true;
+$busyRegStore = mumbai_otp_store(new WP_REST_Request([
+    'purpose' => 'register',
+    'phone' => $regEmail,
+    'otp_hash' => 'reg_hash_busy',
+]));
+assert_true(is_wp_error($busyRegStore) && $busyRegStore->get_error_code() === 'registration_busy', '7e: Concurrent registration OTP store serialized by mumbai_reg_ lock');
+unset($GLOBALS['held_locks'][$regLock]);
+
+// Reset-password OTP invalidation with mismatched otp_hash preserves newer OTP
+delete_user_meta(101, '_mumbai_last_otp_request');
+mumbai_otp_store(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'alice@example.com',
+    'otp_hash' => 'reset_hash_new',
+]));
+mumbai_otp_invalidate(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'alice@example.com',
+    'otp_hash' => 'reset_hash_old',
+]));
+assert_true(get_user_meta(101, '_mumbai_otp_hash', true) === 'reset_hash_new', '7f: Stale reset_password invalidation preserves newer OTP');
+mumbai_otp_invalidate(new WP_REST_Request([
+    'purpose' => 'reset_password',
+    'phone' => 'alice@example.com',
+    'otp_hash' => 'reset_hash_new',
+]));
+assert_true(get_user_meta(101, '_mumbai_otp_hash', true) === '', '7f: Matching reset_password invalidation clears OTP');
 
 echo "ALL_PHP_CONCURRENCY_AND_RECOVERY_TESTS_PASSED\n";

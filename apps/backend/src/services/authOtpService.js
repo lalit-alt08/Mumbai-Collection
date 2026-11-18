@@ -124,6 +124,7 @@ export const processSendOtp = async (req, res) => {
             phone: cleanPhone,
             purpose,
             user_id: authenticatedUserId,
+            otp_hash: otpHash,
           },
           {
             headers: getInternalHeaders(),
@@ -256,6 +257,9 @@ export const processVerifyOtp = async (req, res) => {
 
     return res.status(200).json(verifyResponse.data);
   } catch (error) {
+    if (req.body?.purpose === "reset_password" && [400, 401, 404].includes(error.response?.status)) {
+      return res.status(400).json({ success: false, code: "invalid_otp", message: "Invalid or expired OTP." });
+    }
     if (error.message === "OTP_HMAC_SECRET is not configured") {
       logError(req, error, "Critical OTP Configuration Error: OTP_HMAC_SECRET is missing");
     } else {

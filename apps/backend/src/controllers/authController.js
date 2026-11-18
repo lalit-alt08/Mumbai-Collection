@@ -27,6 +27,7 @@ import {
   buildUserProfile,
 } from "../utils/authCookieUtils.js";
 import { verifyGoogleAuthPayload } from "../services/googleAuthService.js";
+import { accountLoginThrottle } from "../middlewares/rateLimiter.js";
 import {
   hashOtp,
   processSendOtp,
@@ -68,6 +69,8 @@ export const login = async (req, res) => {
       cookieConfig,
     });
 
+    await accountLoginThrottle.recordSuccess(email);
+
     res.json({
       success: data.success,
       message: data.message,
@@ -79,6 +82,10 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     const status = error.response?.status || 500;
+    if (status === 401) {
+      const failedEmail = String(req.body?.email || "").trim().toLowerCase();
+      await accountLoginThrottle.recordFailure(failedEmail, resolveContext(req));
+    }
     if (status !== 401 && status !== 429) {
       logError(req, error, "Login error");
     }

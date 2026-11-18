@@ -134,6 +134,138 @@ export const authLimiter = createRateLimiter({
   },
 });
 
+const ACCOUNT_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const PROGRESSIVE_COOLDOWNS_SEC = [15, 30, 60, 180, 300];
+
+const normalizeAccountKey = (email) =>
+  String(email || "").trim().toLowerCase().slice(0, 128);
+
+export const createAccountLoginThrottle = ({
+  windowMs = ACCOUNT_LOGIN_WINDOW_MS,
+  staffThreshold = 3,
+  customerThreshold = 5,
+  cooldownScheduleSec = PROGRESSIVE_COOLDOWNS_SEC,
+  maxStoreKeys = 10000,
+} = {}) => {
+  const store = new Map();
+
+  const purgeExpired = (now = Date.now()) => {
+    for (const [k, v] of store.entries()) {
+      if (now >= v.expiresAt && now >= v.blockedUntil) store.delete(k);
+    }
+  };
+
+  const cleanupTimer = setInterval(purgeExpired, 10 * 60 * 1000);
+  if (cleanupTimer?.unref) cleanupTimer.unref();
+
+  const getRecord = async (key, now) => {
+    const redis = getRedisClient();
+    if (redis) {
+      try {
+        const raw = await redis.get(`ratelimit:acct_login:${key}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && (now < parsed.expiresAt || now < parsed.blockedUntil)) {
+            return parsed;
+          }
+        }
+        return null;
+      } catch (_) {}
+    }
+    const local = store.get(key);
+    if (!local || (now >= local.expiresAt && now >= local.blockedUntil)) {
+      store.delete(key);
+      return null;
+    }
+    return local;
+  };
+
+  const setRecord = async (key, record, now) => {
+    const ttlMs = Math.max(1000, Math.max(record.expiresAt, record.blockedUntil) - now);
+    const redis = getRedisClient();
+    if (redis) {
+      try {
+        await redis.set(`ratelimit:acct_login:${key}`, JSON.stringify(record), "PX", ttlMs);
+        return;
+      } catch (_) {}
+    }
+    if (store.size >= maxStoreKeys) {
+      purgeExpired(now);
+      if (store.size >= maxStoreKeys) {
+        const firstKey = store.keys().next().value;
+        if (firstKey) store.delete(firstKey);
+      }
+    }
+    store.set(key, record);
+  };
+
+  const middleware = async (req, res, next) => {
+    if (process.env.DISABLE_RATE_LIMIT === "true" && process.env.NODE_ENV !== "production") {
+      return next();
+    }
+    const key = normalizeAccountKey(req.body?.email);
+    if (!key) return next();
+
+    const now = Date.now();
+    const record = await getRecord(key, now);
+    if (record && record.blockedUntil > now) {
+      const remainingSeconds = Math.max(1, Math.ceil((record.blockedUntil - now) / 1000));
+      res.set("Retry-After", String(remainingSeconds));
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed sign-in attempts for this account. Please try again in ${remainingSeconds}s.`,
+        retryAfter: remainingSeconds,
+      });
+    }
+    return next();
+  };
+
+  middleware.recordFailure = async (email, context = "customer") => {
+    if (process.env.DISABLE_RATE_LIMIT === "true" && process.env.NODE_ENV !== "production") {
+      return { count: 0, cooldownSec: 0 };
+    }
+    const key = normalizeAccountKey(email);
+    if (!key) return { count: 0, cooldownSec: 0 };
+
+    const now = Date.now();
+    const existing = await getRecord(key, now);
+    const count = existing && now < existing.expiresAt ? existing.count + 1 : 1;
+    const isStaff = context === "admin" || context === "employee";
+    const threshold = isStaff ? staffThreshold : customerThreshold;
+
+    let cooldownSec = 0;
+    if (count >= threshold) {
+      const idx = Math.min(count - threshold, cooldownScheduleSec.length - 1);
+      cooldownSec = cooldownScheduleSec[idx];
+    }
+
+    const record = {
+      count,
+      expiresAt: now + windowMs,
+      blockedUntil: cooldownSec > 0 ? now + cooldownSec * 1000 : 0,
+    };
+    await setRecord(key, record, now);
+    return { count, cooldownSec };
+  };
+
+  middleware.recordSuccess = async (email) => {
+    const key = normalizeAccountKey(email);
+    if (!key) return;
+    store.delete(key);
+    const redis = getRedisClient();
+    if (redis) {
+      try {
+        await redis.del(`ratelimit:acct_login:${key}`);
+      } catch (_) {}
+    }
+  };
+
+  middleware.reset = () => store.clear();
+  return middleware;
+};
+
+export const accountLoginThrottle = createAccountLoginThrottle();
+
 export const uploadLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 30,

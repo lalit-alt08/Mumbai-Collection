@@ -46,9 +46,10 @@ export const getCurrentUser = async () => {
   return response.data;
 };
 
-export const logoutAdmin = async () => {
+export const logoutAdmin = async (options = {}) => {
   const response = await authApi.post("/auth/logout", {
     context: "admin",
+    ...options,
   });
 
   return response.data;

@@ -17,6 +17,8 @@ export function RegisterDetailsStep({
   error,
   setError,
   loading,
+  googleBusy = false,
+  onGoogleBusyChange,
   handleSendOtp,
   navigate,
   location,
@@ -152,7 +154,7 @@ export function RegisterDetailsStep({
         {/* Continue / Send Code Button */}
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || googleBusy}
           className="mt-1 flex h-[44px] sm:h-[48px] md:h-[50px] w-full items-center justify-center gap-2 rounded-xl sm:rounded-2xl bg-[#22499F] text-[15px] font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
         >
           {loading ? "Sending verification code..." : "Continue"}
@@ -172,6 +174,8 @@ export function RegisterDetailsStep({
       <div>
         <GoogleAuthButton
           mode="signup"
+          disabled={loading}
+          onBusyChange={onGoogleBusyChange}
           onError={(msg) => setError(msg)}
         />
       </div>

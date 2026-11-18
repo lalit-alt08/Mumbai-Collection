@@ -362,3 +362,82 @@ test("processSendOtp keeps public reset_password response neutral and sends zero
     wp.post = originalWpPost;
   }
 });
+
+test("processVerifyOtp normalizes 400/401/404 reset_password errors to one neutral response", async () => {
+  const { processVerifyOtp } = await import("../src/services/authOtpService.js");
+  const originalWpPost = wp.post;
+  try {
+    for (const status of [400, 401, 404]) {
+      wp.post = async () => {
+        const err = new Error("Upstream error");
+        err.response = { status, data: { code: `err_${status}`, message: `Specific detail ${status}` } };
+        throw err;
+      };
+      const req = {
+        body: { email: "user@example.com", otp: "123456", purpose: "reset_password" },
+        headers: {},
+      };
+      const res = makeRes();
+      await processVerifyOtp(req, res);
+
+      assert.equal(res.statusCode, 400);
+      assert.deepEqual(res.body, {
+        success: false,
+        code: "invalid_otp",
+        message: "Invalid or expired OTP.",
+      });
+    }
+  } finally {
+    wp.post = originalWpPost;
+  }
+});
+
+test("accountLoginThrottle applies progressive per-account cooldowns across rotating IPs and clears on success", async () => {
+  const { createAccountLoginThrottle } = await import("../src/middlewares/rateLimiter.js");
+  const throttle = createAccountLoginThrottle({
+    staffThreshold: 3,
+    customerThreshold: 5,
+    cooldownScheduleSec: [15, 30, 60],
+  });
+
+  const makeThrottleRes = () => {
+    const headers = {};
+    return {
+      statusCode: 200,
+      headers,
+      body: null,
+      set(k, v) { headers[k] = v; },
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.body = payload; return this; },
+    };
+  };
+
+  // Staff account hits progressive cooldown after 3 failures even when requests come from rotating IPs
+  await throttle.recordFailure("Staff@Example.com", "admin");
+  await throttle.recordFailure("staff@example.com", "admin");
+  let nextCalled = false;
+  await throttle({ body: { email: "staff@example.com" }, ip: "1.1.1.1" }, makeThrottleRes(), () => { nextCalled = true; });
+  assert.equal(nextCalled, true, "Under threshold should still pass");
+
+  const third = await throttle.recordFailure("staff@example.com", "admin");
+  assert.equal(third.cooldownSec, 15);
+
+  // Request from a completely different IP is blocked by per-account cooldown
+  const blockedRes = makeThrottleRes();
+  nextCalled = false;
+  await throttle({ body: { email: "STAFF@example.com" }, ip: "9.9.9.9" }, blockedRes, () => { nextCalled = true; });
+  assert.equal(nextCalled, false);
+  assert.equal(blockedRes.statusCode, 429);
+  assert.ok(Number(blockedRes.headers["Retry-After"]) >= 1);
+  assert.equal(blockedRes.body.success, false);
+
+  // Subsequent failure escalates cooldown progressively (15s -> 30s)
+  const fourth = await throttle.recordFailure("staff@example.com", "admin");
+  assert.equal(fourth.cooldownSec, 30);
+
+  // Successful login clears the throttle state immediately
+  await throttle.recordSuccess("staff@example.com");
+  nextCalled = false;
+  await throttle({ body: { email: "staff@example.com" }, ip: "8.8.8.8" }, makeThrottleRes(), () => { nextCalled = true; });
+  assert.equal(nextCalled, true, "Cleared after successful login");
+});

@@ -15,6 +15,7 @@ import {
   CircleDot,
   LogOut,
   RotateCcw,
+  AlertTriangle,
 } from "lucide-react";
 
 import { useAdminAuth } from "../context/AdminAuthContext.jsx";
@@ -48,7 +49,8 @@ function AdminLayout() {
     void pageRefresh?.();
   };
 
-  const { logout } = useAdminAuth();
+  const { logout, logoutPending, setLogoutPending } = useAdminAuth();
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // Page components own refresh callback registration and cleanup.
   useEffect(() => {
@@ -75,9 +77,17 @@ function AdminLayout() {
     { name: "Customers", href: "/customers", exact: false, icon: Users },
   ];
 
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
+  const handleLogout = async (options = {}) => {
+    if (loggingOut) return;
+    try {
+      setLoggingOut(true);
+      const res = await logout(options);
+      if (res?.success) {
+        navigate("/login", { replace: true });
+      }
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   const getPageTitle = () => {
@@ -194,11 +204,13 @@ function AdminLayout() {
 
           {/* Logout */}
           <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-gray-400 transition hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+            type="button"
+            disabled={loggingOut}
+            onClick={() => handleLogout({ force: false })}
+            className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-gray-400 transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-60 cursor-pointer"
           >
             <LogOut size={15} />
-            Logout
+            {loggingOut ? "Logging out..." : "Logout"}
           </button>
         </div>
       </aside>
@@ -261,15 +273,78 @@ function AdminLayout() {
 
             <button
               type="button"
-              onClick={handleLogout}
-              className="flex h-9 sm:h-10 items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-bold text-gray-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 active:scale-95 transition cursor-pointer shadow-xs"
+              disabled={loggingOut}
+              onClick={() => handleLogout({ force: false })}
+              className="flex h-9 sm:h-10 items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 text-xs font-bold text-gray-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 active:scale-95 transition disabled:opacity-60 cursor-pointer shadow-xs"
               title="Logout"
             >
               <LogOut size={14} />
-              <span className="hidden sm:inline">Logout</span>
+              <span className="hidden sm:inline">{loggingOut ? "Logging out..." : "Logout"}</span>
             </button>
           </div>
         </header>
+
+        {/* Logout Pending / Server Unconfirmed Modal */}
+        {logoutPending && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-logout-pending-title"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          >
+            <div className="relative w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#121417] p-6 text-white shadow-2xl">
+              <div className="flex items-center gap-3 text-amber-400 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <AlertTriangle size={20} aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 id="admin-logout-pending-title" className="font-bold text-base text-white">
+                    Server Revocation Pending
+                  </h3>
+                  <p className="text-xs text-amber-400/90 font-medium">
+                    Single-device logout verification
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-300 leading-relaxed mb-6">
+                {logoutPending.message ||
+                  "WordPress could not confirm destruction of this device's session token. You can retry revoking it on the server, or proceed to sign out on this device."}
+              </p>
+
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => handleLogout({ force: false })}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#FF8A00] hover:bg-[#E67C00] px-4 py-2.5 text-xs font-bold text-white transition disabled:opacity-60 cursor-pointer shadow-sm"
+                >
+                  <RotateCcw size={14} className={loggingOut ? "animate-spin" : ""} aria-hidden="true" />
+                  {loggingOut ? "Retrying Revocation..." : "Retry Server Logout"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => handleLogout({ force: true })}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-white/5 hover:bg-rose-500/20 hover:text-rose-300 border border-white/10 px-4 py-2.5 text-xs font-bold text-rose-400 transition cursor-pointer"
+                >
+                  <LogOut size={14} aria-hidden="true" />
+                  Sign Out on This Device
+                </button>
+
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => setLogoutPending(null)}
+                  className="w-full rounded-xl px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Page Content with bottom clearance for Mobile Bottom Navigation */}
         <main ref={mainRef} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">

@@ -19,7 +19,9 @@ function Register() {
     loading: authLoading,
     isReconnecting,
     login: loginUser,
+    reconcileSupersededAuth,
     logout,
+    logoutPending,
     handleSessionExpired,
     getAuthEpoch,
   } = useAuth();
@@ -28,6 +30,7 @@ function Register() {
   const authAttemptRef = useRef(0);
   const registrationCompletedRef = useRef(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -79,6 +82,7 @@ function Register() {
 
   const handleSendOtp = async (e) => {
     e.preventDefault();
+    if (loading || googleBusy) return;
 
     setFirstNameError("");
     setLastNameError("");
@@ -239,7 +243,10 @@ function Register() {
         registration_token: registrationToken,
         password,
       });
-      if (!isPreAuthActive()) return;
+      if (!isPreAuthActive()) {
+        void reconcileSupersededAuth();
+        return;
+      }
 
       if (!regResponse?.user) {
         throw new Error("Registration succeeded but no active user session was returned. Please sign in.");
@@ -269,7 +276,10 @@ function Register() {
       } catch (_) {
         confirmedUser = null;
       }
-      if (!isPreAuthActive()) return;
+      if (!isPreAuthActive()) {
+        void reconcileSupersededAuth();
+        return;
+      }
 
       if (!confirmedUser || String(confirmedUser.id) !== String(regResponse.user.id)) {
         setPassword("");
@@ -403,6 +413,43 @@ function Register() {
               >
                 {signingOut ? "Signing out..." : "Sign out to create a different account"}
               </button>
+              {logoutPending && (
+                <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-left text-xs text-amber-950 space-y-2">
+                  <p className="font-medium leading-relaxed">{logoutPending.message}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={signingOut}
+                      onClick={async () => {
+                        try {
+                          setSigningOut(true);
+                          await logout({ force: false });
+                        } finally {
+                          if (isMountedRef.current) setSigningOut(false);
+                        }
+                      }}
+                      className="rounded-lg bg-[#22499F] px-3 py-1.5 font-bold text-white disabled:opacity-60 cursor-pointer"
+                    >
+                      Retry Sign Out
+                    </button>
+                    <button
+                      type="button"
+                      disabled={signingOut}
+                      onClick={async () => {
+                        try {
+                          setSigningOut(true);
+                          await logout({ force: true });
+                        } finally {
+                          if (isMountedRef.current) setSigningOut(false);
+                        }
+                      }}
+                      className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 font-bold text-amber-950 disabled:opacity-60 cursor-pointer"
+                    >
+                      Sign Out on This Device
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -431,6 +478,8 @@ function Register() {
               error={error}
               setError={setError}
               loading={loading}
+              googleBusy={googleBusy}
+              onGoogleBusyChange={setGoogleBusy}
               handleSendOtp={handleSendOtp}
               navigate={navigate}
               location={location}

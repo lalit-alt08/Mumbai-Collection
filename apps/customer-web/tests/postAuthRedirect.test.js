@@ -398,7 +398,12 @@ test("Login, Register, and GoogleAuthButton capture pre-auth attempt & epoch BEF
     "Login must capture preAuthEpoch before await login()"
   );
   assert.ok(
-    loginSrc.indexOf("if (!isPreAuthActive())") < loginSrc.indexOf("loginUser(response.user)"),
+    loginSrc.indexOf("await confirmAuthenticatedUser(response.user)") > loginSrc.indexOf("await login(email, password)") &&
+    loginSrc.indexOf("await confirmAuthenticatedUser(response.user)") < loginSrc.indexOf("loginUser(confirmedUser)"),
+    "Login must confirm browser session before loginUser(confirmedUser)"
+  );
+  assert.ok(
+    loginSrc.indexOf("if (!isPreAuthActive())") < loginSrc.indexOf("loginUser(confirmedUser)"),
     "Login must verify isPreAuthActive() before loginUser()"
   );
 
@@ -408,18 +413,23 @@ test("Login, Register, and GoogleAuthButton capture pre-auth attempt & epoch BEF
     "Register must capture preAuthEpoch before await verifyOtp/register"
   );
   assert.ok(
-    regSrc.indexOf("if (!isPreAuthActive()) return;") < regSrc.indexOf("loginUser(confirmedUser)"),
+    regSrc.indexOf("if (!isPreAuthActive())") < regSrc.indexOf("loginUser(confirmedUser)"),
     "Register must verify isPreAuthActive() before loginUser()"
   );
 
   const googleSrc = fs.readFileSync(path.join(customerWebSrc, "components/auth/GoogleAuthButton.jsx"), "utf8");
   assert.ok(
-    googleSrc.indexOf("const preAuthEpoch") < googleSrc.indexOf("await googleLogin(payload)"),
-    "GoogleAuthButton must capture preAuthEpoch before await googleLogin()"
+    googleSrc.indexOf("pendingPopupAttemptRef.current = { attemptId, preAuthEpoch }") > 0,
+    "GoogleAuthButton must capture attemptId & preAuthEpoch when popup opens"
   );
   assert.ok(
-    googleSrc.indexOf("if (!isPreAuthActive()) return;") < googleSrc.indexOf("loginUser(res.user)"),
-    "GoogleAuthButton must verify isPreAuthActive() before loginUser()"
+    googleSrc.indexOf("if (!isPreAuthActive())") < googleSrc.indexOf("await googleLogin(payload)"),
+    "GoogleAuthButton must verify popup attempt before exchanging Google code with Node"
+  );
+  assert.ok(
+    googleSrc.indexOf("await confirmAuthenticatedUser(res?.user)") > googleSrc.indexOf("await googleLogin(payload)") &&
+    googleSrc.indexOf("await confirmAuthenticatedUser(res?.user)") < googleSrc.indexOf("loginUser(confirmedUser)"),
+    "GoogleAuthButton must confirm browser session before loginUser(confirmedUser)"
   );
 });
 
@@ -461,8 +471,37 @@ test("Register guards already-signed-in users and shows neutral Google/password 
   const regSrc = fs.readFileSync(path.join(customerWebSrc, "pages/Register.jsx"), "utf8");
   assert.match(regSrc, /isAlreadySignedIn/);
   assert.match(regSrc, /Your account is linked to Google/);
+  assert.match(regSrc, /googleBusy/);
   assert.match(
     regSrc,
     /An account with this email already exists\. Please sign in with your password or Continue with Google\./
   );
+
+  const detailsSrc = fs.readFileSync(
+    path.join(customerWebSrc, "components/auth/RegisterDetailsStep.jsx"),
+    "utf8"
+  );
+  assert.match(detailsSrc, /disabled=\{loading \|\| googleBusy\}/);
+  assert.match(detailsSrc, /onBusyChange=\{onGoogleBusyChange\}/);
+
+  const authCtxSrc = fs.readFileSync(path.join(customerWebSrc, "context/AuthContext.jsx"), "utf8");
+  assert.match(authCtxSrc, /mc_auth_session_change/);
+  assert.match(authCtxSrc, /isUnverified:\s*true/);
+  assert.match(authCtxSrc, /const isAccountSwitch = prevId && String\(prevId\) !== String\(userData\.id\)/);
+  assert.match(authCtxSrc, /logoutApi\(\{\s*force:\s*true\s*\}\)/);
+  assert.match(authCtxSrc, /logoutPending/);
+
+  const accountSrc = fs.readFileSync(path.join(customerWebSrc, "pages/Account.jsx"), "utf8");
+  assert.match(accountSrc, /Retry Server Sign Out/);
+  assert.match(accountSrc, /Sign Out on This Device/);
+
+  const loginSrc = fs.readFileSync(path.join(customerWebSrc, "pages/Login.jsx"), "utf8");
+  assert.match(loginSrc, /void reconcileSupersededAuth\(\)/);
+
+  const googleSrc = fs.readFileSync(
+    path.join(customerWebSrc, "components/auth/GoogleAuthButton.jsx"),
+    "utf8"
+  );
+  assert.match(googleSrc, /void reconcileSupersededAuth\(\)/);
+  assert.match(googleSrc, /onBusyChangeRef\.current\?\.\(false\)/);
 });

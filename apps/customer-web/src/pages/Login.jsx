@@ -3,7 +3,7 @@ import { useRef, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import API_URL from "../config/api.js";
-import { login } from "../services/authService";
+import { login, confirmAuthenticatedUser } from "../services/authService";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 import GoogleAuthButton from "../components/auth/GoogleAuthButton.jsx";
@@ -14,7 +14,7 @@ function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
+  const { login: loginUser, reconcileSupersededAuth, handleSessionExpired, getAuthEpoch } = useAuth();
   const { cart, waitForAuthenticatedCart } = useCart();
 
   const submittingRef = useRef(false);
@@ -33,6 +33,7 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState(() =>
     typeof location.state?.message === "string" ? location.state.message : ""
   );
@@ -43,7 +44,7 @@ function Login() {
     e.preventDefault();
 
     // Prevent duplicate login requests
-    if (submittingRef.current) {
+    if (submittingRef.current || googleBusy) {
       return;
     }
 
@@ -90,19 +91,26 @@ function Login() {
       // Login
       const response = await login(email, password);
       if (!isPreAuthActive()) {
+        // The server may have updated the browser session cookie; re-sync to the live session.
+        void reconcileSupersededAuth();
         return;
       }
 
+      const confirmedUser = await confirmAuthenticatedUser(response.user);
+      if (!isPreAuthActive()) {
+        void reconcileSupersededAuth();
+        return;
+      }
       const hasCartItems = Boolean(cart?.items?.length > 0);
 
       // Save logged-in user
-      loginUser(response.user);
+      loginUser(confirmedUser);
       const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
 
       await executePostAuthNavigation({
         from: location.state?.from,
         hasCartItems,
-        user: response.user,
+        user: confirmedUser,
         waitForAuthenticatedCart,
         isAttemptActive: () =>
           isMountedRef.current &&
@@ -246,7 +254,7 @@ function Login() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || googleBusy}
               className="mt-1 md:mt-2 flex h-[56px] md:h-[50px] w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] text-[16px] font-black text-[#FFFFFF] shadow-lg transition-all hover:bg-[#1B3B82] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
             >
               {loading ? "Signing in..." : "Sign In"}
@@ -267,6 +275,8 @@ function Login() {
           <div>
             <GoogleAuthButton
               mode="signin"
+              disabled={loading}
+              onBusyChange={setGoogleBusy}
               onError={(msg) => setError(msg)}
             />
           </div>

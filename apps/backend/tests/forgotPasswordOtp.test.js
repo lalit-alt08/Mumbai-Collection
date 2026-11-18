@@ -186,7 +186,7 @@ test("Phase 4: Forgot Password via Email OTP Test Suite", async (suite) => {
 
     assert.strictEqual(res.status, 400);
     assert.strictEqual(res.data.success, false);
-    assert.match(res.data.message, /Invalid OTP/i);
+    assert.match(res.data.message, /Invalid(?: or expired)? OTP/i);
   });
 
   // 4. Expired OTP rejection

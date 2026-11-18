@@ -16,6 +16,9 @@ import { clearCartSession, invalidateCartRequests } from "../services/storeApi";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
 
 const AuthContext = createContext();
+const hasExplicitLogout = () =>
+  safeStorage.getItem("mc_explicit_logout") === "true" ||
+  safeSessionStorage.getItem("mc_explicit_logout") === "true";
 
 const persistUserCache = (userData) => {
   if (!userData?.id) {
@@ -51,7 +54,10 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(null);
   const authEpochRef = useRef(1);
+  const userRef = useRef(null);
+  userRef.current = user;
   const [checkoutExpiredUserId, setCheckoutExpiredUserId] = useState(() => safeSessionStorage.getItem("checkout_expired_user_id"));
   const clearCheckoutRecovery = () => {
     safeSessionStorage.removeItem("checkout_expired_user_id");
@@ -204,6 +210,7 @@ export function AuthProvider({ children }) {
     safeStorage.removeItem("mc_explicit_logout");
     invalidateCartRequests();
     setIsReconnecting(false);
+    setLogoutPending(null);
     // Address and user caches are purged on login to prevent cross-account leakage;
     // Cart session token is preserved so CartContext can perform safe guest-to-customer cart merge
     clearAllProfileCaches(user?.id);
@@ -214,6 +221,10 @@ export function AuthProvider({ children }) {
     safeSessionStorage.removeItem("selected_address_id");
     setUser(userData);
     persistUserCache(userData);
+    safeStorage.setItem(
+      "mc_auth_session_change",
+      JSON.stringify({ userId: userData?.id || null, ts: Date.now() })
+    );
   };
 
   // ==========================================
@@ -234,7 +245,7 @@ export function AuthProvider({ children }) {
 
   const handleSessionExpired = (options = {}) => {
     authEpochRef.current += 1;
-    const outgoingId = user?.id;
+    const outgoingId = userRef.current?.id;
     if (options.checkout && outgoingId) {
       safeSessionStorage.setItem("checkout_expired_user_id", String(outgoingId));
       setCheckoutExpiredUserId(String(outgoingId));
@@ -243,6 +254,7 @@ export function AuthProvider({ children }) {
       setCheckoutExpiredUserId(null);
     }
     setIsReconnecting(false);
+    setLogoutPending(null);
     setUser(null);
     safeSessionStorage.removeItem("user");
     safeStorage.removeItem("user");
@@ -258,28 +270,91 @@ export function AuthProvider({ children }) {
     const onStorage = (event) => {
       if (event.key === "mc_explicit_logout" && event.newValue === "true") {
         handleSessionExpired();
+      } else if (event.key === "mc_auth_session_change" && event.newValue) {
+        authEpochRef.current += 1;
+        setUser((prev) => (prev ? { ...prev, isUnverified: true } : prev));
+        try {
+          const change = JSON.parse(event.newValue);
+          if (change.userId && safeStorage.getItem("mc_explicit_logout") !== "true") {
+            safeSessionStorage.removeItem("mc_explicit_logout");
+          }
+        } catch {
+          // Ignore malformed notifications.
+        }
+        if (!hasExplicitLogout()) void refreshUser();
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [user?.id]);
+  }, []);
 
   // ==========================================
   // LOGOUT
   // ==========================================
 
-  const logout = async () => {
+  const logout = async (options = {}) => {
+    const isForce = options?.force === true;
     authEpochRef.current += 1;
-    safeSessionStorage.setItem("mc_explicit_logout", "true");
-    safeStorage.setItem("mc_explicit_logout", "true");
     try {
       // Call Node → WordPress logout
-      return await logoutApi();
-    } catch {
-      return { server_revocation_confirmed: false };
-    } finally {
-      // Always clear frontend authentication & cart state
+      const res = await logoutApi(options);
+      if (
+        !isForce &&
+        (res?.success === false ||
+          res?.server_revocation_confirmed === false ||
+          res?.code === "LOGOUT_REVOCATION_FAILED")
+      ) {
+        const message =
+          res?.message ||
+          "Could not confirm sign-out with the server. Your session may still be active until you retry or sign out on this device.";
+        setLogoutPending({
+          message,
+          code: res?.code || "LOGOUT_REVOCATION_FAILED",
+        });
+        return {
+          success: false,
+          pending: true,
+          server_revocation_confirmed: false,
+          message,
+        };
+      }
+
+      safeSessionStorage.setItem("mc_explicit_logout", "true");
+      safeStorage.setItem("mc_explicit_logout", "true");
+      setLogoutPending(null);
       handleSessionExpired();
+      return {
+        ...res,
+        success: true,
+        server_revocation_confirmed: Boolean(res?.server_revocation_confirmed),
+        forced: isForce,
+      };
+    } catch (err) {
+      if (!isForce) {
+        const message =
+          err?.response?.data?.message ||
+          "Could not confirm sign-out with the server. You can retry revoking your session or sign out on this device.";
+        setLogoutPending({
+          message,
+          code: err?.response?.data?.code || "LOGOUT_REVOCATION_FAILED",
+        });
+        return {
+          success: false,
+          pending: true,
+          server_revocation_confirmed: false,
+          message,
+        };
+      }
+
+      safeSessionStorage.setItem("mc_explicit_logout", "true");
+      safeStorage.setItem("mc_explicit_logout", "true");
+      setLogoutPending(null);
+      handleSessionExpired();
+      return {
+        success: true,
+        server_revocation_confirmed: false,
+        forced: true,
+      };
     }
   };
 
@@ -304,10 +379,11 @@ export function AuthProvider({ children }) {
   // ==========================================
 
   const refreshUser = async () => {
+    if (hasExplicitLogout()) return { ok: false, reason: "logged_out" };
     const epoch = authEpochRef.current;
     try {
       const response = await getCurrentUser();
-      if (epoch !== authEpochRef.current) {
+      if (epoch !== authEpochRef.current || hasExplicitLogout()) {
         return { ok: false, reason: "superseded" };
       }
       if ((response?.success && response?.user) || (response?.logged_in && response?.current_user_id)) {
@@ -339,12 +415,29 @@ export function AuthProvider({ children }) {
           userData.has_usable_password = response.has_usable_password === true;
         }
 
-        if (epoch !== authEpochRef.current) {
+        if (epoch !== authEpochRef.current || hasExplicitLogout()) {
           return { ok: false, reason: "superseded" };
         }
 
-        setUser((prev) => ({ ...(prev || {}), ...userData, isUnverified: false }));
-        persistUserCache({ ...(user || {}), ...userData });
+        const prevId = userRef.current?.id;
+        const isAccountSwitch = prevId && String(prevId) !== String(userData.id);
+        if (isAccountSwitch) {
+          clearAllProfileCaches(prevId);
+          safeStorage.removeItem("saved_addresses_cache");
+          safeStorage.removeItem("selected_address_id");
+          safeSessionStorage.removeItem("saved_addresses_cache");
+          safeSessionStorage.removeItem("selected_address_id");
+          invalidateCartRequests();
+        }
+
+        setUser((prev) => {
+          const sameUser = prev?.id && String(prev.id) === String(userData.id);
+          const nextUser = sameUser
+            ? { ...prev, ...userData, isUnverified: false }
+            : { ...userData, isUnverified: false };
+          persistUserCache(nextUser);
+          return nextUser;
+        });
         return { ok: true, user: userData };
       } else {
         if (epoch !== authEpochRef.current) {
@@ -377,6 +470,23 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const reconcileSupersededAuth = async () => {
+    if (hasExplicitLogout()) {
+      try {
+        await logoutApi({ force: true });
+      } catch {
+        // Best-effort revocation of late-arriving cookie after explicit logout.
+      }
+      handleSessionExpired();
+      return { ok: false, reason: "logged_out_reconciled" };
+    }
+    safeStorage.setItem("mc_auth_session_change", JSON.stringify({
+      reason: "superseded_response",
+      nonce: `${Date.now()}-${Math.random()}`,
+    }));
+    return refreshUser();
+  };
+
   useEffect(() => {
     if (!isReconnecting) return;
     let cancelled = false;
@@ -399,7 +509,10 @@ export function AuthProvider({ children }) {
         login,
         updateUser,
         refreshUser,
+        reconcileSupersededAuth,
         logout,
+        logoutPending,
+        setLogoutPending,
         handleSessionExpired,
         deleteAccount,
         isAuthenticated: !!user && !isReconnecting && !user?.isUnverified,

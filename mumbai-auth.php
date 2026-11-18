@@ -794,6 +794,9 @@ function mumbai_with_user_session_lock($user_id, callable $callback) {
  * Requires being called inside or with mumbai_with_user_session_lock.
  */
 function mumbai_create_versioned_session_token($user_id, $expiration) {
+    if (function_exists('wp_cache_delete')) {
+        wp_cache_delete($user_id, 'user_meta');
+    }
     $manager = WP_Session_Tokens::get_instance($user_id);
     $raw = get_user_meta($user_id, '_mumbai_session_version', true);
     $version = ($raw !== '' && $raw !== false && $raw !== null) ? max(1, (int) $raw) : 1;
@@ -827,24 +830,35 @@ function mumbai_create_versioned_session_token($user_id, $expiration) {
  * Monotonically increments the user's session version and destroys all active sessions.
  * Returns the new version.
  */
+/**
+ * Revokes all active sessions for a user while the caller already holds
+ * mumbai_with_user_session_lock($user_id).
+ */
+function mumbai_revoke_all_user_sessions_locked($user_id) {
+    if (function_exists('wp_cache_delete')) {
+        wp_cache_delete($user_id, 'user_meta');
+    }
+    $raw = get_user_meta($user_id, '_mumbai_session_version', true);
+    $current = ($raw !== '' && $raw !== false && $raw !== null) ? (int) $raw : 0;
+    $new_version = max(1, $current) + 1;
+
+    update_user_meta($user_id, '_mumbai_session_version', $new_version);
+    $saved_ver = (int) get_user_meta($user_id, '_mumbai_session_version', true);
+    if ($saved_ver !== $new_version) {
+        throw new \RuntimeException("Failed to persist updated session version {$new_version} for user {$user_id}");
+    }
+
+    // Destroy all existing tokens in WordPress
+    WP_Session_Tokens::get_instance($user_id)->destroy_all();
+
+    mumbai_log("All sessions revoked for user {$user_id}. Version advanced to {$new_version}.");
+
+    return $new_version;
+}
+
 function mumbai_revoke_all_user_sessions($user_id) {
     return mumbai_with_user_session_lock($user_id, function () use ($user_id) {
-        $raw = get_user_meta($user_id, '_mumbai_session_version', true);
-        $current = ($raw !== '' && $raw !== false && $raw !== null) ? (int) $raw : 0;
-        $new_version = max(1, $current) + 1;
-
-        $updated = update_user_meta($user_id, '_mumbai_session_version', $new_version);
-        $saved_ver = (int) get_user_meta($user_id, '_mumbai_session_version', true);
-        if ($saved_ver !== $new_version) {
-            throw new \RuntimeException("Failed to persist updated session version {$new_version} for user {$user_id}");
-        }
-
-        // Destroy all existing tokens in WordPress
-        WP_Session_Tokens::get_instance($user_id)->destroy_all();
-
-        mumbai_log("All sessions revoked for user {$user_id}. Version advanced to {$new_version}.");
-
-        return $new_version;
+        return mumbai_revoke_all_user_sessions_locked($user_id);
     });
 }
 /*
@@ -915,26 +929,29 @@ function mumbai_login(WP_REST_Request $request)
         );
     }
     /*
-     * Login successful — clear any failed attempt counters
-     */
-    delete_user_meta($signon->ID, '_mumbai_failed_logins');
-    delete_user_meta($signon->ID, '_mumbai_lockout_until');
-    // A successful password login proves this is a customer-known credential,
-    // including older accounts created before the explicit marker existed.
-    update_user_meta($signon->ID, '_mumbai_has_custom_password', true);
-    wp_set_current_user($signon->ID);
-    /*
      * Create ONE session token and use it everywhere.
      * Enforce 12-hour expiration on server-side WordPress session for staff/admins,
      * and 30 days for regular customers.
-     * Binds token strictly to the user's current session version with atomic lock.
+     * Re-verify the password and account type inside the shared per-user session
+     * lock so an in-flight login can never mint a session across a completed reset.
      */
     $user_roles = (array) $signon->roles;
     $is_staff = !empty(array_intersect(['administrator', 'employee', 'shop_manager'], $user_roles));
     $expiration = time() + ($is_staff ? (12 * HOUR_IN_SECONDS) : (30 * DAY_IN_SECONDS));
 
     try {
-        $session_data = mumbai_with_user_session_lock($signon->ID, function () use ($signon, $expiration) {
+        $session_data = mumbai_with_user_session_lock($signon->ID, function () use ($signon, $expiration, $password) {
+            if (function_exists('clean_user_cache')) {
+                clean_user_cache($signon->ID);
+            }
+            $current_user = get_userdata($signon->ID);
+            if (
+                !$current_user ||
+                mumbai_is_google_only_account($current_user) ||
+                !wp_check_password($password, $current_user->user_pass, $signon->ID)
+            ) {
+                return new WP_Error('login_failed', 'Invalid email or password.', ['status' => 401]);
+            }
             return mumbai_create_versioned_session_token($signon->ID, $expiration);
         });
         if (is_wp_error($session_data)) {
@@ -946,6 +963,14 @@ function mumbai_login(WP_REST_Request $request)
         mumbai_log("Login session token generation failed: " . $e->getMessage());
         return new WP_Error('session_error', 'Unable to establish secure session.', ['status' => 500]);
     }
+
+    /*
+     * Locked login succeeded — now clear failed attempt counters and mark custom password.
+     */
+    delete_user_meta($signon->ID, '_mumbai_failed_logins');
+    delete_user_meta($signon->ID, '_mumbai_lockout_until');
+    update_user_meta($signon->ID, '_mumbai_has_custom_password', true);
+    wp_set_current_user($signon->ID);
 
     /*
      * Set WordPress authentication cookie
@@ -1702,11 +1727,7 @@ function mumbai_forgot_password(WP_REST_Request $request)
     $sent = wp_mail($user->user_email, $subject, $message);
     if (!$sent) {
         mumbai_log("Failed to send password reset email to user {$user->ID}");
-        return new WP_Error(
-            'email_failed',
-            'Unable to send the password reset email.',
-            ['status' => 500]
-        );
+        return $generic_response;
     }
     mumbai_log("Password reset email sent to user {$user->ID}");
     return $generic_response;
@@ -1798,14 +1819,20 @@ function mumbai_reset_password(WP_REST_Request $request)
                 ['status' => 400]
             );
         }
-        // Reset the password and immediately clear + bump credential version before
-        // session revocation so a partial failure cannot leave any recovery proof usable.
-        reset_password($user, $password);
-        update_user_meta($user->ID, '_mumbai_has_custom_password', true);
-        mumbai_clear_all_password_recovery_credentials($user->ID);
-
-        // Revoke ALL active sessions atomically and advance session version
-        $session_version = mumbai_revoke_all_user_sessions($user->ID);
+        // Atomically save the new password, clear all recovery proofs + bump credential
+        // version, and revoke all active sessions under the shared per-user session lock
+        // so an in-flight login cannot straddle the reset.
+        try {
+            $session_version = mumbai_with_user_session_lock($user->ID, function () use ($user, $password) {
+                reset_password($user, $password);
+                update_user_meta($user->ID, '_mumbai_has_custom_password', true);
+                mumbai_clear_all_password_recovery_credentials($user->ID);
+                return mumbai_revoke_all_user_sessions_locked($user->ID);
+            });
+        } catch (\Throwable $e) {
+            mumbai_log("Password reset session revocation failed for user {$user->ID}: " . $e->getMessage());
+            return new WP_Error('session_revocation_failed', 'Password was updated, but active sessions could not be revoked. Please sign in again.', ['status' => 500]);
+        }
         if (is_wp_error($session_version)) {
             return $session_version;
         }
@@ -1867,15 +1894,33 @@ function mumbai_logout(WP_REST_Request $request)
              */
             $parsed = wp_parse_auth_cookie($cookie_value, 'logged_in');
             $token = $parsed ? ($parsed['token'] ?? '') : wp_get_session_token();
-            $session_manager = WP_Session_Tokens::get_instance($user_id);
             if ($token) {
-                $session_manager->destroy($token);
-                $remaining = $session_manager->get($token);
-                if (!empty($remaining)) {
+                $destroy_result = mumbai_with_user_session_lock($user_id, function () use ($user_id, $token) {
+                    if (function_exists('wp_cache_delete')) {
+                        wp_cache_delete($user_id, 'user_meta');
+                    }
+                    $session_manager = WP_Session_Tokens::get_instance($user_id);
+                    $session_manager->destroy($token);
+                    if (function_exists('wp_cache_delete')) {
+                        wp_cache_delete($user_id, 'user_meta');
+                    }
+                    $remaining = $session_manager->get($token);
+                    if (!empty($remaining)) {
+                        return [
+                            'success' => false,
+                            'message' => 'Could not destroy session token in WordPress database.',
+                        ];
+                    }
+                    return ['success' => true];
+                });
+                if (is_wp_error($destroy_result)) {
                     return [
                         'success' => false,
-                        'message' => 'Could not destroy session token in WordPress database.',
+                        'message' => $destroy_result->get_error_message(),
                     ];
+                }
+                if (empty($destroy_result['success'])) {
+                    return $destroy_result;
                 }
             } else {
                 // A valid cookie normally has an extractable token. Failure to extract it
@@ -3008,9 +3053,6 @@ function mumbai_save_profile_locked(WP_REST_Request $request)
         if ($pw_check !== true) {
             return new WP_Error('weak_password', $pw_check, ['status' => 400]);
         }
-        wp_set_password($password, $user_id);
-        update_user_meta($user_id, '_mumbai_has_custom_password', true);
-        mumbai_clear_all_password_recovery_credentials($user_id);
         $password_changed = true;
     }
 
@@ -3051,26 +3093,27 @@ function mumbai_save_profile_locked(WP_REST_Request $request)
     ];
 
     if ($password_changed) {
-        // Password changes invalidate cookies signed with the previous hash.
-        // Revoke all older sessions atomically and bump the session version.
-        $session_version = mumbai_revoke_all_user_sessions($user_id);
-        if (is_wp_error($session_version)) {
-            return $session_version;
-        }
-
+        // Atomically update password, clear recovery proofs, revoke all older sessions,
+        // and create the single replacement session token inside the shared per-user
+        // session lock so an in-flight login cannot straddle the password change.
         wp_set_current_user($user_id);
         $expiration = time() + (30 * DAY_IN_SECONDS);
 
         try {
-            $session_data = mumbai_with_user_session_lock($user_id, function () use ($user_id, $expiration) {
+            $session_data = mumbai_with_user_session_lock($user_id, function () use ($user_id, $password, $expiration) {
+                wp_set_password($password, $user_id);
+                update_user_meta($user_id, '_mumbai_has_custom_password', true);
+                mumbai_clear_all_password_recovery_credentials($user_id);
+                mumbai_revoke_all_user_sessions_locked($user_id);
                 return mumbai_create_versioned_session_token($user_id, $expiration);
             });
             if (is_wp_error($session_data)) {
                 return $session_data;
             }
             $session_token = $session_data['token'];
+            $session_version = (int) $session_data['version'];
         } catch (\Throwable $e) {
-            mumbai_log("Profile replacement session token generation failed: " . $e->getMessage());
+            mumbai_log("Profile password update / replacement session failed: " . $e->getMessage());
             return new WP_Error('session_error', 'Unable to establish replacement session.', ['status' => 500]);
         }
 
@@ -4259,6 +4302,13 @@ function mumbai_otp_store(WP_REST_Request $request) {
         if (!is_email($phone)) {
             return new WP_Error('invalid_email', 'Please enter a valid email address.', ['status' => 400]);
         }
+        global $wpdb;
+        $has_db_lock = !empty($wpdb) && method_exists($wpdb, 'get_var');
+        $registration_lock = 'mumbai_reg_' . md5(strtolower(trim($phone)));
+        if ($has_db_lock && (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $registration_lock)) !== 1) {
+            return new WP_Error('registration_busy', 'Registration is in progress. Please retry.', ['status' => 429]);
+        }
+        try {
         $existing = get_user_by('email', $phone);
         if ($existing) {
             return new WP_Error('email_exists', 'An account with this email already exists. Please sign in.', ['status' => 409]);
@@ -4283,6 +4333,11 @@ function mumbai_otp_store(WP_REST_Request $request) {
             'email'      => $phone,
             'name'       => '',
         ];
+        } finally {
+            if ($has_db_lock) {
+                $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $registration_lock));
+            }
+        }
     }
 
     $generic_success = [
@@ -4358,22 +4413,41 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
     $purpose = sanitize_text_field($request->get_param('purpose'));
     $phone = sanitize_text_field($request->get_param('phone'));
     $user_id = (int) $request->get_param('user_id');
+    $expected_hash = (string) $request->get_param('otp_hash');
 
     if ($purpose === 'register') {
         if ($phone) {
             $norm_email = strtolower(trim($phone));
-            delete_transient('_mumbai_reg_otp_' . md5($norm_email));
-            delete_transient('_mumbai_last_reg_otp_' . md5($norm_email));
+            global $wpdb;
+            $has_db_lock = !empty($wpdb) && method_exists($wpdb, 'get_var');
+            $lock = 'mumbai_reg_' . md5($norm_email);
+            if ($has_db_lock && (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock)) !== 1) {
+                return new WP_Error('registration_busy', 'Registration is in progress. Please retry.', ['status' => 429]);
+            }
+            try {
+                $stored = get_transient('_mumbai_reg_otp_' . md5($norm_email));
+                if ($expected_hash !== '' && is_array($stored) && !empty($stored['hash']) && hash_equals((string) $stored['hash'], $expected_hash)) {
+                    delete_transient('_mumbai_reg_otp_' . md5($norm_email));
+                    delete_transient('_mumbai_last_reg_otp_' . md5($norm_email));
+                }
+            } finally {
+                if ($has_db_lock) {
+                    $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+                }
+            }
         }
         return ['success' => true];
     }
 
     if ($purpose === 'delete_account') {
         if ($user_id > 0) {
-            delete_user_meta($user_id, '_mumbai_delete_otp_hash');
-            delete_user_meta($user_id, '_mumbai_delete_otp_expires');
-            delete_user_meta($user_id, '_mumbai_delete_otp_attempts');
-            delete_user_meta($user_id, '_mumbai_last_delete_otp_request');
+            $stored_hash = (string) get_user_meta($user_id, '_mumbai_delete_otp_hash', true);
+            if ($expected_hash === '' || ($stored_hash !== '' && hash_equals($stored_hash, $expected_hash))) {
+                delete_user_meta($user_id, '_mumbai_delete_otp_hash');
+                delete_user_meta($user_id, '_mumbai_delete_otp_expires');
+                delete_user_meta($user_id, '_mumbai_delete_otp_attempts');
+                delete_user_meta($user_id, '_mumbai_last_delete_otp_request');
+            }
         }
         return ['success' => true];
     }
@@ -4390,13 +4464,16 @@ function mumbai_otp_invalidate(WP_REST_Request $request) {
     }
 
     if ($user) {
-        delete_user_meta($user->ID, '_mumbai_otp_hash');
-        delete_user_meta($user->ID, '_mumbai_otp_expires');
-        delete_user_meta($user->ID, '_mumbai_otp_attempts');
-        delete_user_meta($user->ID, '_mumbai_otp_purpose');
-        delete_user_meta($user->ID, '_mumbai_otp_pending_phone');
-        delete_user_meta($user->ID, '_mumbai_otp_cred_ver');
-        delete_user_meta($user->ID, '_mumbai_last_otp_request');
+        $stored_hash = (string) get_user_meta($user->ID, '_mumbai_otp_hash', true);
+        if ($expected_hash === '' || ($stored_hash !== '' && hash_equals($stored_hash, $expected_hash))) {
+            delete_user_meta($user->ID, '_mumbai_otp_hash');
+            delete_user_meta($user->ID, '_mumbai_otp_expires');
+            delete_user_meta($user->ID, '_mumbai_otp_attempts');
+            delete_user_meta($user->ID, '_mumbai_otp_purpose');
+            delete_user_meta($user->ID, '_mumbai_otp_pending_phone');
+            delete_user_meta($user->ID, '_mumbai_otp_cred_ver');
+            delete_user_meta($user->ID, '_mumbai_last_otp_request');
+        }
     }
 
     return ['success' => true];
@@ -4672,13 +4749,20 @@ function mumbai_otp_reset_password(WP_REST_Request $request) {
             return new WP_Error('invalid_token', 'Reset session expired or invalid. Please verify OTP again.', ['status' => 401]);
         }
 
-        // Save new password and immediately clear recovery proofs + bump credential
-        // version before session revocation so partial failure cannot leave proofs usable.
-        reset_password($user, $new_password);
-        update_user_meta($user->ID, '_mumbai_has_custom_password', true);
-        mumbai_clear_all_password_recovery_credentials($user->ID);
-
-        $session_version = mumbai_revoke_all_user_sessions($user->ID);
+        // Atomically save new password, clear all recovery proofs + bump credential
+        // version, and revoke all active sessions under the shared per-user session lock
+        // so an in-flight login cannot straddle the password reset.
+        try {
+            $session_version = mumbai_with_user_session_lock($user->ID, function () use ($user, $new_password) {
+                reset_password($user, $new_password);
+                update_user_meta($user->ID, '_mumbai_has_custom_password', true);
+                mumbai_clear_all_password_recovery_credentials($user->ID);
+                return mumbai_revoke_all_user_sessions_locked($user->ID);
+            });
+        } catch (\Throwable $e) {
+            mumbai_log("OTP password reset session revocation failed for user {$user->ID}: " . $e->getMessage());
+            return new WP_Error('session_revocation_failed', 'Password was updated, but active sessions could not be revoked. Please sign in again.', ['status' => 500]);
+        }
         if (is_wp_error($session_version)) {
             return $session_version;
         }

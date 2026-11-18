@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Loader2, AlertCircle } from "lucide-react";
-import { googleLogin } from "../../services/authService";
+import { googleLogin, confirmAuthenticatedUser } from "../../services/authService";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { executePostAuthNavigation } from "../../utils/postAuthRedirect.js";
@@ -30,18 +30,24 @@ function GoogleIcon({ className = "h-5 w-5 shrink-0" }) {
   );
 }
 
-export default function GoogleAuthButton({ mode = "signup", onError }) {
+export default function GoogleAuthButton({ mode = "signup", onError, disabled = false, onBusyChange }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: loginUser, handleSessionExpired, getAuthEpoch } = useAuth();
+  const { login: loginUser, reconcileSupersededAuth, handleSessionExpired, getAuthEpoch } = useAuth();
   const { cart, waitForAuthenticatedCart } = useCart();
 
   const isMountedRef = useRef(true);
   const authAttemptRef = useRef(0);
+  const pendingPopupAttemptRef = useRef(null);
+  const onBusyChangeRef = useRef(onBusyChange);
+  onBusyChangeRef.current = onBusyChange;
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      authAttemptRef.current += 1;
+      pendingPopupAttemptRef.current = null;
+      onBusyChangeRef.current?.(false);
     };
   }, []);
 
@@ -50,12 +56,24 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
   const [linked, setLinked] = useState(false);
 
   const handleLoginSuccess = async (codeResponse) => {
-    const attemptId = ++authAttemptRef.current;
-    const preAuthEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
+    const pendingAttempt = pendingPopupAttemptRef.current;
+    pendingPopupAttemptRef.current = null;
+    const attemptId = pendingAttempt?.attemptId ?? ++authAttemptRef.current;
+    const preAuthEpoch =
+      pendingAttempt && "preAuthEpoch" in pendingAttempt
+        ? pendingAttempt.preAuthEpoch
+        : (typeof getAuthEpoch === "function" ? getAuthEpoch() : null);
     const isPreAuthActive = () =>
       isMountedRef.current &&
       authAttemptRef.current === attemptId &&
       (preAuthEpoch === null || getAuthEpoch() === preAuthEpoch);
+
+    // Reject callbacks from popups opened before unmount, logout, or account switch
+    if (!isPreAuthActive()) {
+      onBusyChangeRef.current?.(false);
+      if (isMountedRef.current) setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
@@ -67,25 +85,33 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
       }
 
       const res = await googleLogin(payload);
-      if (!isPreAuthActive()) return;
+      if (!isPreAuthActive()) {
+        // The server may have updated the browser session cookie; re-sync or revoke if logged out.
+        void reconcileSupersededAuth();
+        return;
+      }
+
+      const confirmedUser = await confirmAuthenticatedUser(res?.user);
+      if (!isPreAuthActive()) {
+        void reconcileSupersededAuth();
+        return;
+      }
 
       if (mode === "link") {
         if (!res?.success || !res?.user) throw new Error("Google linking was not confirmed.");
-        loginUser(res.user);
+        loginUser(confirmedUser);
         setLinked(true);
         return;
       }
 
       const hasCartItems = Boolean(cart?.items?.length > 0);
-      if (res?.user) {
-        loginUser(res.user);
-      }
+      loginUser(confirmedUser);
       const expectedEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
 
       await executePostAuthNavigation({
         from: location.state?.from,
         hasCartItems,
-        user: res?.user || null,
+        user: confirmedUser,
         waitForAuthenticatedCart: res?.is_new_user ? null : waitForAuthenticatedCart,
         isAttemptActive: () =>
           isMountedRef.current &&
@@ -106,6 +132,7 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
       setInternalError(msg);
       if (onError) onError(msg);
     } finally {
+      onBusyChange?.(false);
       if (isMountedRef.current && authAttemptRef.current === attemptId) {
         setLoading(false);
       }
@@ -117,12 +144,21 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
     scope: "openid email profile",
     onSuccess: handleLoginSuccess,
     onError: (err) => {
+      pendingPopupAttemptRef.current = null;
       const msg =
         err?.error_description ||
         "Google authentication was cancelled or failed.";
-      setInternalError(msg);
+      if (isMountedRef.current) {
+        setInternalError(msg);
+        setLoading(false);
+      }
       if (onError) onError(msg);
-      setLoading(false);
+      onBusyChangeRef.current?.(false);
+    },
+    onNonOAuthError: () => {
+      pendingPopupAttemptRef.current = null;
+      if (isMountedRef.current) setLoading(false);
+      onBusyChangeRef.current?.(false);
     },
   });
 
@@ -139,10 +175,16 @@ export default function GoogleAuthButton({ mode = "signup", onError }) {
       <button
         type="button"
         onClick={() => {
+          if (disabled || loading) return;
+          const attemptId = ++authAttemptRef.current;
+          const preAuthEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
+          pendingPopupAttemptRef.current = { attemptId, preAuthEpoch };
           setInternalError("");
+          setLoading(true);
+          onBusyChange?.(true);
           login();
         }}
-        disabled={loading}
+        disabled={loading || disabled}
         className="flex h-[46px] sm:h-[50px] md:h-[52px] w-full items-center justify-center gap-2.5 rounded-xl sm:rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-[14px] sm:text-[15px] font-bold text-[#1E293B] shadow-sm transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
       >
         {loading ? (

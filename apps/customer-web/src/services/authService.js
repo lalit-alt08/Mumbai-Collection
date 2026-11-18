@@ -47,9 +47,19 @@ export const getCurrentUser = async () => {
   return data;
 };
 
-export const logout = async () => {
+export const confirmAuthenticatedUser = async (expectedUser) => {
+  if (!expectedUser?.id) throw new Error("Sign-in could not be confirmed. Please try again.");
+  const result = await getCurrentUser();
+  if (!result?.success || !result.user || String(result.user.id) !== String(expectedUser.id)) {
+    throw new Error("Sign-in could not be confirmed. Please try again.");
+  }
+  return result.user;
+};
+
+export const logout = async (options = {}) => {
   const { data } = await API.post("/logout", {
     context: "customer",
+    ...options,
   });
   return data;
 };
