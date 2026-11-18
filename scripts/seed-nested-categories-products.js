@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile, mkdir, writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,9 @@ api.timeout = 120_000;
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scratchDir = path.join(rootDir, "apps/backend/scratch");
-const logoPath = path.join(rootDir, "App Logo.png");
+const logoPath = existsSync(path.join(rootDir, "assets", "App Logo.png"))
+  ? path.join(rootDir, "assets", "App Logo.png")
+  : path.join(rootDir, "App Logo.png");
 
 // CLI Flags and Parameters
 const args = process.argv.slice(2);

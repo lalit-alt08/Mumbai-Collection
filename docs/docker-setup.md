@@ -31,25 +31,31 @@ This guide gets a developer from a fresh machine to a working **MySQL + WordPres
 
 ## Step 2: Configure Local Docker Environment
 
-From the repository root:
+All Docker files are organized in the `docker/` folder. From the repository root:
 
 ```powershell
-Copy-Item .env.docker.example .env.docker
+Copy-Item docker/.env.example docker/.env
 ```
-*(macOS/Linux: `cp .env.docker.example .env.docker`)*
+*(macOS/Linux: `cp docker/.env.example docker/.env`)*
 
-The defaults in `.env.docker.example` work out of the box for local development (`MOCK_EMAIL=true`, so OTP codes print in the backend logs without requiring Brevo keys). Fill in `GOOGLE_CLIENT_ID` / `RAZORPAY_*` only if you want to test Google SSO or Razorpay locally.
+The defaults in `docker/.env.example` work out of the box for local development (`MOCK_EMAIL=true`, so OTP codes print in the backend logs without requiring Brevo keys). Fill in `GOOGLE_CLIENT_ID` / `RAZORPAY_*` only if you want to test Google SSO or Razorpay locally.
 
-> Never commit `.env.docker` (it is already ignored by `.gitignore`).
+> Never commit `docker/.env` (it is already ignored by `.gitignore`).
 
 ---
 
 ## Step 3: Start the Backend Stack
 
-From the repository root:
+You can run directly from `docker/`:
 
 ```powershell
-docker compose --env-file .env.docker up -d --build
+cd docker
+docker compose up -d --build
+```
+
+Or from the repository root:
+```powershell
+docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --build
 ```
 
 What happens automatically on the first boot (~1–2 minutes while WooCommerce installs):
@@ -61,6 +67,7 @@ What happens automatically on the first boot (~1–2 minutes while WooCommerce i
 
 Check progress and status:
 ```powershell
+cd docker
 docker compose ps
 docker compose logs -f wordpress-init
 docker compose logs -f backend
@@ -102,11 +109,13 @@ Keep the three Vite apps running natively on your machine so hot reload stays in
 
 ## Common Commands
 
+From `docker/` (or add `-f docker/docker-compose.yml --env-file docker/.env` from root):
+
 | Task | Command |
 | :--- | :--- |
 | Stop containers (keep DB & WP data) | `docker compose stop` |
-| Start again later | `docker compose --env-file .env.docker up -d` |
-| Rebuild backend after changing `package.json` | `docker compose --env-file .env.docker up -d --build backend` |
+| Start again later | `docker compose up -d` |
+| Rebuild backend after changing `package.json` | `docker compose up -d --build backend` |
 | View mock OTP emails & backend logs | `docker compose logs -f backend` |
 | Wipe all local Docker data & start completely fresh | `docker compose down -v` |
 

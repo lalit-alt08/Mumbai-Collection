@@ -14,14 +14,13 @@ coordinates application-specific operations and external services.
 | `apps/admin-dashboard` | Admin operations and reporting (React/Vite) |
 | `apps/backend` | Node/Express API, authentication, payments and integrations |
 | `mumbai-auth.php` | Custom WordPress plugin and protected endpoints |
+| `docker/` | Docker Compose configuration, environment template, and WordPress init scripts |
 | `docs/feature-map.md` | Starting points for the principal user flows |
 | `docs/runtime-flows.md` | API call paths, payment recovery and request tracing |
 | `docs/docker-setup.md` | One-command Docker setup for MySQL, WordPress, WooCommerce, Redis & Node API |
 | `docs/production-recovery.md` | Operational backup, restore and recovery guidance |
-| `audits/` | Existing audits and release-readiness notes |
 
-Each application has its own `package.json` and `pnpm-lock.yaml`; this checkout
-does not define a root pnpm workspace. `packages/` is currently a placeholder.
+Each application has its own `package.json` and `pnpm-lock.yaml`; this repository does not define a root pnpm workspace.
 
 ## Local setup
 

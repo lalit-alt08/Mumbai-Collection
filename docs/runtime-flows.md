@@ -189,5 +189,4 @@ operations have identical permissions or fallback behavior.
    or support tickets. Use staging and test accounts for reproduction.
 
 For backup, restore, alerts and reconciliation operations, see
-[production recovery](production-recovery.md). Existing local test failures and
-release follow-up are recorded in [organization follow-up](../audits/organization-follow-up.md).
+[production recovery](production-recovery.md).

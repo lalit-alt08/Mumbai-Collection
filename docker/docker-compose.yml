@@ -50,7 +50,7 @@ services:
         define('MUMBAI_FRONTEND_URL', '${CUSTOMER_ORIGIN:-http://localhost:5173}');
     volumes:
       - wp_data:/var/www/html
-      - ./mumbai-auth.php:/var/www/html/wp-content/plugins/mumbai-auth/mumbai-auth.php:ro
+      - ../mumbai-auth.php:/var/www/html/wp-content/plugins/mumbai-auth/mumbai-auth.php:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/wp-includes/version.php >/dev/null || exit 1"]
       interval: 10s
@@ -81,13 +81,13 @@ services:
       WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-cs_dev_mumbai_local_secret_000000000000000}
     volumes:
       - wp_data:/var/www/html
-      - ./mumbai-auth.php:/var/www/html/wp-content/plugins/mumbai-auth/mumbai-auth.php:ro
-      - ./docker/wp-init.sh:/usr/local/bin/wp-init.sh:ro
+      - ../mumbai-auth.php:/var/www/html/wp-content/plugins/mumbai-auth/mumbai-auth.php:ro
+      - ./wp-init.sh:/usr/local/bin/wp-init.sh:ro
     entrypoint: ["sh", "/usr/local/bin/wp-init.sh"]
 
   backend:
     build:
-      context: ./apps/backend
+      context: ../apps/backend
       dockerfile: Dockerfile
     restart: unless-stopped
     command: ["node", "--watch-path=src", "src/server.js"]
@@ -129,7 +129,7 @@ services:
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       ALLOW_TEST_PAYMENTS: ${ALLOW_TEST_PAYMENTS:-true}
     volumes:
-      - ./apps/backend/src:/app/src:ro
+      - ../apps/backend/src:/app/src:ro
       - backend_var:/app/var
 
 volumes:

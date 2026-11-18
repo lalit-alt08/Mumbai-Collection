@@ -32,7 +32,7 @@ Paths in the backend column are relative to `apps/backend/src/`, except for
 The authentication refactor, session lookup, role-isolation and registration
 suites passed locally after updating outdated fixtures and checkout-policy
 assertions. This does not replace integration tests against WordPress and Redis.
-The wider backend run exposed other failures; see `audits/organization-follow-up.md`.
+Verify contracts against active services before release.
 
 Checkout policy confirmed by the project owner: a valid delivery contact phone
 is sufficient for paid orders; account-phone verification is not required. The
