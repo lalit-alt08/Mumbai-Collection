@@ -193,7 +193,7 @@ function Login() {
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#64748B]">
+                <div className="pointer-events-none absolute left-4 text-[#64748B]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -214,6 +214,7 @@ function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}

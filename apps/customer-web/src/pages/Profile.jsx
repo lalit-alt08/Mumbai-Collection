@@ -19,6 +19,8 @@ import {
   Trash2,
   Shield,
   Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import axios from "axios";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
@@ -52,6 +54,7 @@ function Profile() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [deleteCodeSent, setDeleteCodeSent] = useState(false);
   const [deleteCodeSending, setDeleteCodeSending] = useState(false);
@@ -703,13 +706,13 @@ function Profile() {
               {/* FIRST NAME & LAST NAME */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.first_name ? "text-rose-400" : "text-[#64748B]"}`}>
-                    First Name <span className={fieldErrors.first_name ? "text-rose-400" : "text-[#22499F]"}>*</span>
+                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.first_name ? "auth-field-error" : "text-[#64748B]"}`}>
+                    First Name <span className={fieldErrors.first_name ? "auth-field-error" : "text-[#22499F]"}>*</span>
                   </label>
                   <div className="relative">
                     <User
                       size={15}
-                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.first_name ? "text-rose-400" : "text-[#64748B]"}`}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.first_name ? "auth-field-error" : "text-[#64748B]"}`}
                     />
                     <input
                       type="text"
@@ -721,27 +724,27 @@ function Profile() {
                       required
                       className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#1E293B] outline-none transition ${
                         fieldErrors.first_name
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
+                          ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
                           : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                   </div>
                   {fieldErrors.first_name && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold auth-field-error">
+                      <AlertCircle size={12} className="shrink-0" />
                       <span>{fieldErrors.first_name}</span>
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.last_name ? "text-rose-400" : "text-[#64748B]"}`}>
-                    Last Name <span className={fieldErrors.last_name ? "text-rose-400" : "text-[#22499F]"}>*</span>
+                  <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.last_name ? "auth-field-error" : "text-[#64748B]"}`}>
+                    Last Name <span className={fieldErrors.last_name ? "auth-field-error" : "text-[#22499F]"}>*</span>
                   </label>
                   <div className="relative">
                     <User
                       size={15}
-                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.last_name ? "text-rose-400" : "text-[#64748B]"}`}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 ${fieldErrors.last_name ? "auth-field-error" : "text-[#64748B]"}`}
                     />
                     <input
                       type="text"
@@ -753,14 +756,14 @@ function Profile() {
                       required
                       className={`h-11 w-full rounded-xl border pl-10 pr-3.5 text-sm text-[#1E293B] outline-none transition ${
                         fieldErrors.last_name
-                          ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20"
+                          ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
                           : "border-[#E2E8F0] bg-[#F0F8E8] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                       }`}
                     />
                   </div>
                   {fieldErrors.last_name && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                      <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold auth-field-error">
+                      <AlertCircle size={12} className="shrink-0" />
                       <span>{fieldErrors.last_name}</span>
                     </p>
                   )}
@@ -769,11 +772,11 @@ function Profile() {
 
               {/* PRIMARY PHONE */}
               <div>
-                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
+                <label className={`mb-1.5 block text-xs font-bold ${fieldErrors.phone ? "auth-field-error" : "text-[#64748B]"}`}>
                   Primary Mobile
                 </label>
                 <div className="relative flex items-center">
-                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
+                  <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${fieldErrors.phone ? "auth-field-error" : "text-[#64748B]"}`}>
                     +91
                   </span>
                   <input
@@ -799,18 +802,18 @@ function Profile() {
                     disabled={saving}
                     className={`h-11 w-full rounded-xl border pl-11 pr-3.5 outline-none transition font-semibold text-sm ${
                       fieldErrors.phone
-                        ? "border-rose-500 bg-rose-950/20 ring-1 ring-rose-500 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/20 text-[#1E293B]"
+                        ? "border-rose-500 bg-[#F0F8E8] ring-1 ring-rose-500/40 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20 text-[#1E293B]"
                         : "border-[#E2E8F0] bg-[#F0F8E8] text-[#1E293B] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
                     }`}
                   />
                 </div>
                 {fieldErrors.phone ? (
-                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-400">
-                    <AlertCircle size={12} className="shrink-0 text-rose-400" />
+                  <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold auth-field-error">
+                    <AlertCircle size={12} className="shrink-0" />
                     <span>{fieldErrors.phone}</span>
                   </p>
                 ) : phoneAvailability !== "idle" ? (
-                  <p role="status" aria-live="polite" className={`mt-1 flex items-center gap-1 text-[11px] ${phoneAvailability === "taken" ? "text-rose-400" : "text-[#64748B]"}`}>
+                  <p role="status" aria-live="polite" className={`mt-1 flex items-center gap-1 text-[11px] ${phoneAvailability === "taken" ? "auth-field-error" : "text-[#64748B]"}`}>
                     {phoneAvailability === "checking" && <Loader2 size={12} className="animate-spin" />}
                     {phoneAvailability === "checking" ? "Checking availability…" : phoneAvailability === "available" ? "Number available" : phoneAvailability === "taken" ? "This number is already registered to another account." : "Couldn’t check availability. We’ll check when you save."}
                   </p>
@@ -1008,6 +1011,7 @@ function Profile() {
           if (!isDeleting) {
             setShowDeleteModal(false);
             setDeletePassword("");
+            setShowDeletePassword(false);
             setDeleteError("");
             setDeleteCodeSent(false);
             setDeleteResendSeconds(0);
@@ -1016,10 +1020,16 @@ function Profile() {
         onConfirm={handleDeleteAccount}
         title="Delete Account Permanently?"
         message={
-          <div className="block text-left">
-            <p className="text-center text-[13.5px] sm:text-[14.5px] font-medium text-[#CBD5E1] leading-relaxed">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleDeleteAccount();
+            }}
+            className="block text-left"
+          >
+            <p className="text-center text-[13.5px] sm:text-[14.5px] font-medium text-[#475569] leading-relaxed">
               This permanently erases your profile, saved addresses, and favorites.{" "}
-              <span className="text-[#94A3B8]">
+              <span className="font-semibold text-[#1E293B]">
                 {passwordlessGoogle
                   ? "Click Send Code to receive a 6-digit confirmation code on your account email."
                   : "Enter your current password to continue."}
@@ -1027,7 +1037,10 @@ function Profile() {
             </p>
             <div className="mt-5">
               <div className="flex items-center justify-between gap-2">
-                <label className="text-[12.5px] sm:text-xs font-bold uppercase tracking-wider text-[#475569]">
+                <label
+                  htmlFor="delete-account-auth-input"
+                  className="text-[12.5px] sm:text-xs font-bold uppercase tracking-wider text-[#334155]"
+                >
                   {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
                 </label>
                 {passwordlessGoogle && deleteCodeSent && (
@@ -1040,6 +1053,7 @@ function Profile() {
               {passwordlessGoogle ? (
                 <div className="mt-2.5 flex items-center gap-2.5">
                   <input
+                    id="delete-account-auth-input"
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
@@ -1052,7 +1066,7 @@ function Profile() {
                     }}
                     autoComplete="one-time-code"
                     disabled={isDeleting}
-                    className="h-12 sm:h-[50px] flex-1 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-1 focus:ring-[#22499F]/30 disabled:opacity-60"
+                    className="h-12 sm:h-[50px] flex-1 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
                   />
                   <button
                     type="button"
@@ -1075,26 +1089,41 @@ function Profile() {
                   </button>
                 </div>
               ) : (
-                <input
-                  type="password"
-                  placeholder="Enter your current password"
-                  value={deletePassword}
-                  onChange={(event) => {
-                    setDeletePassword(event.target.value);
-                    setDeleteError("");
-                  }}
-                  autoComplete="current-password"
-                  disabled={isDeleting}
-                  className="mt-2.5 h-12 sm:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-4 text-sm sm:text-base text-[#1E293B] placeholder:text-sm placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-1 focus:ring-[#22499F]/30 disabled:opacity-60"
-                />
+                <div className="relative mt-2.5 flex items-center">
+                  <div className="pointer-events-none absolute left-3.5 text-[#64748B]">
+                    <Lock size={17} strokeWidth={2} />
+                  </div>
+                  <input
+                    id="delete-account-auth-input"
+                    type={showDeletePassword ? "text" : "password"}
+                    placeholder="Enter your current password"
+                    value={deletePassword}
+                    onChange={(event) => {
+                      setDeletePassword(event.target.value);
+                      setDeleteError("");
+                    }}
+                    autoComplete="current-password"
+                    disabled={isDeleting}
+                    className="h-12 sm:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] pl-11 pr-12 text-[15px] font-medium text-[#1E293B] placeholder:text-sm placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeletePassword((prev) => !prev)}
+                    disabled={isDeleting}
+                    aria-label={showDeletePassword ? "Hide password" : "Show password"}
+                    className="absolute right-3.5 flex h-9 w-9 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:text-[#22499F] disabled:opacity-50 cursor-pointer"
+                  >
+                    {showDeletePassword ? <EyeOff size={19} /> : <Eye size={19} />}
+                  </button>
+                </div>
               )}
             </div>
             {deleteError && (
-              <span role="alert" className="mt-2.5 block text-xs sm:text-[13px] font-semibold text-rose-400">
+              <span role="alert" className="auth-field-error mt-2.5 block text-xs sm:text-[13px] font-semibold">
                 {deleteError}
               </span>
             )}
-          </div>
+          </form>
         }
         confirmText="Yes, Delete Account"
         cancelText="Keep Account"

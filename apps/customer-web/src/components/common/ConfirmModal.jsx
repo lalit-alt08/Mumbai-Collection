@@ -62,7 +62,7 @@ function ConfirmModal({
           onClick={onClose}
           disabled={isLoading}
           aria-label="Close modal"
-          className="absolute right-4.5 top-4.5 flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition hover:bg-[#FFFFFF] hover:text-[#1E293B] disabled:opacity-50 cursor-pointer"
+          className="absolute right-4.5 top-4.5 flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition hover:bg-[#F0F8E8] hover:text-[#1E293B] disabled:opacity-50 cursor-pointer"
         >
           <X size={20} />
         </button>
@@ -72,7 +72,7 @@ function ConfirmModal({
           <div
             className={`flex h-16 w-16 sm:h-[68px] sm:w-[68px] items-center justify-center rounded-2xl border ${
               isDanger
-                ? "border-rose-900/60 bg-rose-950/40 text-rose-400"
+                ? "confirm-modal-danger-icon"
                 : "border-[#E2E8F0] bg-[#FFFFFF] text-[#22499F]"
             }`}
           >
@@ -88,7 +88,7 @@ function ConfirmModal({
           >
             {title}
           </h3>
-          <div className="mx-auto mt-2.5 w-full text-xs leading-relaxed text-[#CBD5E1] sm:text-sm">
+          <div className="mx-auto mt-2.5 w-full text-xs leading-relaxed text-[#475569] sm:text-sm">
             {message}
           </div>
         </div>
@@ -101,7 +101,7 @@ function ConfirmModal({
             disabled={isLoading}
             className={`flex h-[52px] sm:h-[56px] w-full items-center justify-center gap-2.5 rounded-2xl px-6 text-[15px] sm:text-base font-extrabold shadow-md transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer ${
               isDanger
-                ? "bg-rose-600 text-white shadow-[0_6px_20px_rgba(225,29,72,0.28)] hover:bg-rose-700"
+                ? "bg-[#DC2626] text-white shadow-[0_6px_20px_rgba(220,38,38,0.28)] hover:bg-[#B91C1C]"
                 : "bg-[#22499F] text-[#FFFFFF] font-black shadow-[0_6px_20px_rgba(66,214,232,0.3)] hover:bg-[#1B3B82]"
             }`}
           >

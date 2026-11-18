@@ -128,7 +128,7 @@ function ResetPassword() {
 
         {!token ? (
           <div className="flex flex-col gap-4">
-            <div className="rounded-2xl border border-rose-900/60 bg-rose-950/40 p-5 text-sm font-medium text-rose-300">
+            <div role="alert" className="auth-error-banner rounded-2xl border p-5 text-sm font-semibold">
               This password reset link is invalid or has expired.
             </div>
             <button
@@ -153,7 +153,7 @@ function ResetPassword() {
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#64748B]">
+                <div className="pointer-events-none absolute left-4 text-[#64748B]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -168,7 +168,7 @@ function ResetPassword() {
                   }}
                   className={`h-[56px] w-full rounded-2xl border bg-[#F0F8E8] pl-12 pr-12 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                     passwordError
-                      ? "border-rose-400 focus:border-rose-400"
+                      ? "border-rose-500 focus:border-rose-500"
                       : "border-[#E2E8F0] focus:border-[#22499F]"
                   }`}
                   required
@@ -179,6 +179,7 @@ function ResetPassword() {
                   onClick={() =>
                     setShowPassword(!showPassword)
                   }
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                 >
                   {showPassword ? (
@@ -191,26 +192,26 @@ function ResetPassword() {
 
               {password.length > 0 && (
                 <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/80 p-2.5 text-xs text-[#64748B]">
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
                   </span>
-                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-400 font-medium" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special character (!@#$%^&*)
                   </span>
                 </div>
               )}
 
               {passwordError && (
-                <p className="mt-2 text-sm text-rose-400">
+                <p className="auth-field-error mt-2 text-sm font-semibold">
                   {passwordError}
                 </p>
               )}
@@ -224,7 +225,7 @@ function ResetPassword() {
               </label>
 
               <div className="relative flex items-center">
-                <div className="absolute left-4 text-[#64748B]">
+                <div className="pointer-events-none absolute left-4 text-[#64748B]">
                   <Lock size={20} strokeWidth={2} />
                 </div>
 
@@ -239,7 +240,7 @@ function ResetPassword() {
                   }}
                   className={`h-[56px] w-full rounded-2xl border bg-[#F0F8E8] pl-12 pr-12 text-[15px] text-[#1E293B] placeholder-[#64748B] outline-none transition-all focus:bg-[#F0F8E8] focus:ring-4 focus:ring-[#22499F]/15 ${
                     confirmPasswordError
-                      ? "border-rose-400 focus:border-rose-400"
+                      ? "border-rose-500 focus:border-rose-500"
                       : "border-[#E2E8F0] focus:border-[#22499F]"
                   }`}
                   required
@@ -250,6 +251,7 @@ function ResetPassword() {
                   onClick={() =>
                     setShowConfirmPassword(!showConfirmPassword)
                   }
+                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
                   className="absolute right-4 text-[#64748B] transition-colors hover:text-[#22499F] cursor-pointer"
                 >
                   {showConfirmPassword ? (
@@ -261,7 +263,7 @@ function ResetPassword() {
               </div>
 
               {confirmPasswordError && (
-                <p className="mt-2 text-sm text-rose-400">
+                <p className="auth-field-error mt-2 text-sm font-semibold">
                   {confirmPasswordError}
                 </p>
               )}
@@ -270,7 +272,7 @@ function ResetPassword() {
             {/* General Error */}
 
             {error && (
-              <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-4 text-[13px] font-medium text-rose-300">
+              <div role="alert" className="auth-error-banner rounded-xl border p-4 text-[13px] font-semibold">
                 {error}
               </div>
             )}
