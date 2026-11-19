@@ -1,8 +1,6 @@
 import axios from "axios";
 import { readRetryDelayMs, shouldRetryRead } from "../utils/readRetry.js";
-
-const API_BASE =
-  import.meta.env?.VITE_API_URL || "http://localhost:5000/api";
+import API_BASE from "../config/api.js";
 
 const authApi = axios.create({
   baseURL: API_BASE,

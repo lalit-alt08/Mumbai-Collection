@@ -1,5 +1,6 @@
-const configuredApi = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
-  (typeof process !== "undefined" && process.env?.VITE_API_URL) || "";
+import API_BASE from "../config/api.js";
+
+const configuredApi = API_BASE;
 
 const mediaOrigin = () => {
   if (typeof window === "undefined" || !window.location) return "";

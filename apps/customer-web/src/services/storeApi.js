@@ -133,19 +133,9 @@ storeClient.interceptors.request.use(
       cartToken = safeStorage.getItem("wc_cart_token") || "";
     }
 
-    const tracking = getSessionTracking(config._cartSessionEpoch);
-    const isMutation = config.method && config.method.toLowerCase() !== "get";
-    if (isMutation) {
-      tracking.totalWritesInitiated += 1;
-      tracking.activeWritesCount += 1;
-      config._writeId = tracking.totalWritesInitiated;
-    } else {
-      config._readStartWriteId = tracking.latestCompletedWriteId;
-      config._hadActiveWritesAtStart = tracking.activeWritesCount > 0;
-    }
-
     // WooCommerce Store API requires a valid Nonce for all mutations and checkout endpoints.
     // If nonce is completely missing, fetch the cart first to initialize session and acquire a nonce.
+    const isMutation = config.method && config.method.toLowerCase() !== "get";
     const urlStr = config.url || "";
     const isCheckout = urlStr === "/checkout" || urlStr === `${STORE_API}/checkout` || urlStr.includes("/checkout");
     const isCartGet = urlStr === "/cart" || urlStr === `${STORE_API}/cart`;
@@ -153,6 +143,16 @@ storeClient.interceptors.request.use(
 
     if (needsNonce && !nonce) {
       await ensureSessionNonce();
+    }
+
+    const tracking = getSessionTracking(config._cartSessionEpoch);
+    if (isMutation) {
+      tracking.totalWritesInitiated += 1;
+      tracking.activeWritesCount += 1;
+      config._writeId = tracking.totalWritesInitiated;
+    } else {
+      config._readStartWriteId = tracking.latestCompletedWriteId;
+      config._hadActiveWritesAtStart = tracking.activeWritesCount > 0;
     }
 
     if (config._cartSessionEpoch !== cartSessionEpoch) throw new axios.CanceledError("Cart session changed");
@@ -194,9 +194,10 @@ storeClient.interceptors.response.use(
       if (!response.config?._writeId && response.config?._readStartWriteId !== undefined) {
         // Reject reads that overlap a write and return an older snapshot
         const isStale =
-          response.config._hadActiveWritesAtStart ||
-          currentTracking.latestCompletedWriteId > response.config._readStartWriteId ||
-          currentTracking.activeWritesCount > 0;
+          !response.config?._isInitializing &&
+          (response.config._hadActiveWritesAtStart ||
+            currentTracking.latestCompletedWriteId > response.config._readStartWriteId ||
+            currentTracking.activeWritesCount > 0);
 
         if (isStale) {
           const staleErr = new Error("Cart read overlapped an active or newer cart write; discarding stale snapshot");
