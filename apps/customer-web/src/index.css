@@ -426,9 +426,11 @@ html, body {
   html[data-store-theme="dark"] .policy-page-card { background: #303A43; border-color: #66717A; }
   html[data-store-theme="dark"] .policy-reading,
   html[data-store-theme="dark"] .policy-reading p,
-  html[data-store-theme="dark"] .policy-reading li { color: #E3E7EA; }
+  html[data-store-theme="dark"] .policy-reading li,
+  html[data-store-theme="dark"] .policy-intro { color: #E3E7EA; }
   html[data-store-theme="dark"] .policy-reading h2,
-  html[data-store-theme="dark"] .policy-reading strong { color: #FFFFFF; }
+  html[data-store-theme="dark"] .policy-reading strong,
+  html[data-store-theme="dark"] .policy-intro strong { color: #FFFFFF; }
   html[data-store-theme="dark"] .return-eligible-card { background: #253B32; border-color: #548B6D; }
   html[data-store-theme="dark"] .return-ineligible-card { background: #442F35; border-color: #A05A66; }
   html[data-store-theme="dark"] :is(.return-eligible-card, .return-ineligible-card) ul,

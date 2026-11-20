@@ -65,22 +65,41 @@ function ShippingPolicy() {
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-[#22499F]/40 bg-[#FFFFFF]/60 p-4 text-center">
-                <div className="text-xs font-bold uppercase tracking-wider text-[#22499F]">Vasai Local Area</div>
+                <span className="inline-block rounded-md bg-[#22499F]/10 px-2 py-0.5 text-[10px] font-black uppercase text-[#22499F]">
+                  Order Online
+                </span>
+                <div className="mt-1 text-xs font-bold uppercase tracking-wider text-[#22499F]">Vasai-Virar Local Area</div>
                 <div className="mt-2 text-xl font-extrabold text-[#1E293B]">Same Day Delivery</div>
                 <p className="mt-1 text-xs text-[#64748B]">Vasai West & East, Nalasopara, Naigaon, Virar</p>
               </div>
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8]/60 p-4 text-center">
-                <div className="text-xs font-bold uppercase tracking-wider text-[#64748B]">Mumbai & Maharashtra</div>
+                <span className="inline-block rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700">
+                  Courier Delivery
+                </span>
+                <div className="mt-1 text-xs font-bold uppercase tracking-wider text-[#64748B]">Mumbai & Maharashtra</div>
                 <div className="mt-2 text-xl font-extrabold text-[#1E293B]">2 – 4 Days</div>
-                <p className="mt-1 text-xs text-[#64748B]">Standard surface & express courier</p>
+                <p className="mt-1 text-xs text-[#64748B]">Arranged via external courier</p>
               </div>
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8]/60 p-4 text-center">
-                <div className="text-xs font-bold uppercase tracking-wider text-[#64748B]">Rest of India</div>
+                <span className="inline-block rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-amber-700">
+                  Courier Delivery
+                </span>
+                <div className="mt-1 text-xs font-bold uppercase tracking-wider text-[#64748B]">Rest of India</div>
                 <div className="mt-2 text-xl font-extrabold text-[#1E293B]">4 – 7 Days</div>
-                <p className="mt-1 text-xs text-[#64748B]">All serviceable 6-digit PIN codes</p>
+                <p className="mt-1 text-xs text-[#64748B]">Available upon contacting store</p>
               </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-[#22499F]/20 bg-[#22499F]/5 p-3.5 text-xs text-[#1E293B]">
+              <p className="text-xs text-[#64748B] leading-relaxed">
+                <strong className="text-[#1E293B]">Notice:</strong> Instant website checkout is currently available for our 4 local zones (Vasai West, Vasai East, Nalasopara, Virar). For deliveries to other parts of Mumbai, Maharashtra, or Rest of India, please{" "}
+                <Link to="/contact" className="font-bold text-[#22499F] underline hover:text-[#1B3B82]">
+                  contact our store team
+                </Link>{" "}
+                to arrange manual courier fulfillment.
+              </p>
             </div>
           </section>
 

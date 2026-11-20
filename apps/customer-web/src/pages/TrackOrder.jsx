@@ -480,7 +480,7 @@ function TrackOrder() {
                     ) : isAfterHoursOrder ? (
                       <>
                         <Moon size={16} className="shrink-0 text-indigo-400" />
-                        <span>Fulfillment starts {scheduledFulfillmentLabel}</span>
+                        <span>Scheduled Night Order</span>
                       </>
                     ) : (
                       <>

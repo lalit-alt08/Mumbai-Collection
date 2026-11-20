@@ -86,7 +86,7 @@ function Contact() {
                     +91 87936 01567
                   </p>
                   <p className="text-xs font-medium text-[#64748B] mt-0.5">
-                    Instant reply for order tracking & item inquiries
+                    Fast reply during store hours (10:00 AM – 9:30 PM)
                   </p>
                 </div>
               </div>

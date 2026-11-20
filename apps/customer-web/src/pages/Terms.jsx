@@ -55,7 +55,7 @@ function Terms() {
             <p className="text-xs font-semibold text-[#64748B]">
               Last Updated: September 2026
             </p>
-            <p className="pt-2 text-[15px] leading-7 text-[#52647E] sm:text-[16px]">
+            <p className="policy-intro pt-2 text-[15px] leading-7 text-[#52647E] sm:text-[16px]">
               Welcome to <strong className="text-[#1E293B]">Mumbai Collection</strong>. These Terms & Conditions govern your access to and use of our website and your purchase of products through our platform. By using our website or placing an order, you agree to these Terms & Conditions.
             </p>
           </div>

@@ -12,8 +12,8 @@ import { triggerHaptic } from "../../utils/haptics";
 
 const SORT_OPTIONS = [
   { id: "default", label: "Featured" },
-  { id: "price-asc", label: "Price: Low to High" },
-  { id: "price-desc", label: "Price: High to Low" },
+  { id: "price-asc", label: "Lowest Price" },
+  { id: "price-desc", label: "Highest Price" },
   { id: "rating", label: "Top Rated" },
   { id: "newest", label: "Newest Arrivals" },
 ];

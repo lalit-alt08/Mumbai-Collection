@@ -286,7 +286,7 @@ function OrderSuccess() {
   const deliveryEtaText = needsDeliveryReview
     ? "To be confirmed by the store"
     : isAfterHours
-      ? scheduledFulfillmentLabel
+      ? `${scheduledFulfillmentLabel} (Delivery follows)`
     : "Same Day Local Delivery";
 
   return (
@@ -373,7 +373,7 @@ function OrderSuccess() {
 
             <SummaryRow
               icon={isAfterHours ? <Moon size={17} className="text-[#22499F]" /> : <Calendar size={17} />}
-              label="Est. Delivery"
+              label={isAfterHours ? "Fulfillment Starts" : "Est. Delivery"}
               value={
                 <span className="font-extrabold text-[#22499F]">
                   {deliveryEtaText}
@@ -388,7 +388,7 @@ function OrderSuccess() {
             {needsDeliveryReview
               ? "Payment is confirmed. Our store team will contact you to arrange fulfillment."
               : isAfterHours
-              ? `Fulfillment begins when the store opens (${scheduledFulfillmentLabel}); delivery follows preparation.`
+              ? `Preparation starts when the store opens (${scheduledFulfillmentLabel}). Delivery follows packing.`
               : "Our local team will begin packing and dispatching your order shortly."}
           </p>
 
