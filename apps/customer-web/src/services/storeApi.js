@@ -105,18 +105,26 @@ export const storeClient = axios.create({
   timeout: 12000,
 });
 
-let initializingPromise = null;
+let cartInitialization;
+
+const fetchCartResponse = () => storeClient.get("/cart", { _isInitializing: true });
+
+const initializeCartSession = () => {
+  const epoch = cartSessionEpoch;
+  if (cartInitialization?.epoch === epoch) return cartInitialization.promise;
+
+  const initialization = { epoch };
+  initialization.promise = fetchCartResponse().finally(() => {
+    if (cartInitialization === initialization) cartInitialization = undefined;
+  });
+  cartInitialization = initialization;
+  return initialization.promise;
+};
 
 export const ensureSessionNonce = async () => {
-  if (nonce) return nonce;
-  if (!initializingPromise) {
-    initializingPromise = getCart()
-      .catch(() => null)
-      .finally(() => {
-        initializingPromise = null;
-      });
+  if (!nonce && !cartToken) {
+    await initializeCartSession().catch(() => null);
   }
-  await initializingPromise;
   return nonce;
 };
 
@@ -133,15 +141,14 @@ storeClient.interceptors.request.use(
       cartToken = safeStorage.getItem("wc_cart_token") || "";
     }
 
-    // WooCommerce Store API requires a valid Nonce for all mutations and checkout endpoints.
-    // If nonce is completely missing, fetch the cart first to initialize session and acquire a nonce.
+    // Initialize cart credentials before a write or checkout if neither credential is available.
     const isMutation = config.method && config.method.toLowerCase() !== "get";
     const urlStr = config.url || "";
     const isCheckout = urlStr === "/checkout" || urlStr === `${STORE_API}/checkout` || urlStr.includes("/checkout");
     const isCartGet = urlStr === "/cart" || urlStr === `${STORE_API}/cart`;
-    const needsNonce = (isMutation || isCheckout) && !isCartGet && !config._isInitializing;
+    const needsCredentials = (isMutation || isCheckout) && !isCartGet && !config._isInitializing;
 
-    if (needsNonce && !nonce) {
+    if (needsCredentials && !nonce && !cartToken) {
       await ensureSessionNonce();
     }
 
@@ -194,10 +201,9 @@ storeClient.interceptors.response.use(
       if (!response.config?._writeId && response.config?._readStartWriteId !== undefined) {
         // Reject reads that overlap a write and return an older snapshot
         const isStale =
-          !response.config?._isInitializing &&
-          (response.config._hadActiveWritesAtStart ||
-            currentTracking.latestCompletedWriteId > response.config._readStartWriteId ||
-            currentTracking.activeWritesCount > 0);
+          response.config._hadActiveWritesAtStart ||
+          currentTracking.latestCompletedWriteId > response.config._readStartWriteId ||
+          currentTracking.activeWritesCount > 0;
 
         if (isStale) {
           const staleErr = new Error("Cart read overlapped an active or newer cart write; discarding stale snapshot");
@@ -224,7 +230,7 @@ storeClient.interceptors.response.use(
     if (config._cartSessionEpoch !== cartSessionEpoch) return Promise.reject(error);
 
     // Cart/checkout writes can be applied even if their response is lost; only
-    // retry safe reads automatically. Nonce recovery below is a separate explicit 401.
+    // retry safe reads automatically. An explicit nonce rejection is handled below.
     if (!config._retry && shouldRetryReadRequest(error, config)) {
       const delayMs = getReadRetryDelayMs(error);
       if (delayMs === null) return Promise.reject(error);
@@ -234,29 +240,50 @@ storeClient.interceptors.response.use(
       return storeClient(config);
     }
 
-    // Auto-recover from 401 missing or expired nonce:
-    // Fetch a fresh nonce via GET /cart and retry the original request once.
+    // Auto-recover strictly from exact, known pre-mutation Store API nonce errors (401/403)
+    const statusCode = error.response?.status;
+    const errorCode = error.response?.data?.code;
     const isNonceError =
-      error.response?.status === 401 &&
-      (error.response?.data?.code === "woocommerce_rest_missing_nonce" ||
-        error.response?.data?.code === "woocommerce_rest_invalid_nonce" ||
-        error.response?.data?.message?.toLowerCase()?.includes("nonce"));
+      (statusCode === 401 || statusCode === 403) &&
+      (errorCode === "woocommerce_rest_invalid_nonce" ||
+        errorCode === "woocommerce_rest_missing_nonce" ||
+        errorCode === "woocommerce_rest_cookie_invalid_nonce");
+
+    const rejectedNonce = getHeader(config.headers, "nonce");
+    const rejectedToken = getHeader(config.headers, "cart-token");
+    const clearRejectedNonce = () => {
+      if (!rejectedNonce || nonce !== rejectedNonce) return;
+      nonce = "";
+      if (safeStorage.getItem("wc_nonce") === rejectedNonce) {
+        safeStorage.removeItem("wc_nonce");
+      }
+    };
+    if (isNonceError) clearRejectedNonce();
 
     if (isNonceError && !config._nonceRetried && !config._isInitializing) {
       config._nonceRetried = true;
+      const hasFreshCredentials = (response) => {
+        const newNonce = getHeader(response.headers, "nonce");
+        const newToken = getHeader(response.headers, "cart-token");
+        return (newNonce && newNonce !== rejectedNonce && newNonce === nonce) ||
+          (newToken && newToken !== rejectedToken && newToken === cartToken);
+      };
+
       try {
-        await getCart();
+        updateTokens(error.response);
+        clearRejectedNonce();
+        let refreshed = error.response;
+        if (!hasFreshCredentials(refreshed)) {
+          refreshed = await initializeCartSession();
+        }
         if (config._cartSessionEpoch !== cartSessionEpoch) throw new axios.CanceledError("Cart session changed");
-        if (nonce) {
-          config.headers = config.headers || {};
-          config.headers["Nonce"] = nonce;
-        }
-        if (cartToken) {
-          config.headers = config.headers || {};
-          config.headers["Cart-Token"] = cartToken;
-        }
+        clearRejectedNonce();
+        if (!hasFreshCredentials(refreshed)) return Promise.reject(error);
+        config.headers.delete("Nonce");
+        config.headers.delete("Cart-Token");
         return storeClient(config);
       } catch (refreshErr) {
+        if (axios.isCancel(refreshErr)) throw refreshErr;
         return Promise.reject(error);
       }
     }
@@ -266,9 +293,7 @@ storeClient.interceptors.response.use(
 );
 
 export const getCart = async () => {
-  const response = await storeClient.get("/cart", {
-    _isInitializing: true,
-  });
+  const response = await storeClient.get("/cart");
   return response.data;
 };
 

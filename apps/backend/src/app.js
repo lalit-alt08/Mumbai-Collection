@@ -96,15 +96,36 @@ app.use(
 );
 
 const rawAllowedOrigins = [
-  process.env.CUSTOMER_ORIGIN || "http://localhost:5173",
-  process.env.ADMIN_ORIGIN || "http://localhost:5174",
-  process.env.EMPLOYEE_ORIGIN || "http://localhost:5175",
-  process.env.CLIENT_ORIGIN,
-  process.env.FRONTEND_URL,
-  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()) : []),
-].filter(Boolean);
+  ...String(process.env.CUSTOMER_ORIGIN || "http://localhost:5173").split(","),
+  ...String(process.env.ADMIN_ORIGIN || "http://localhost:5174").split(","),
+  ...String(process.env.EMPLOYEE_ORIGIN || "http://localhost:5175").split(","),
+  ...String(process.env.CLIENT_ORIGIN || "").split(","),
+  ...String(process.env.FRONTEND_URL || "").split(","),
+  ...String(process.env.ALLOWED_ORIGINS || "").split(","),
+]
+  .map((s) => s.trim().replace(/\/$/, ""))
+  .filter(Boolean);
 
-const allowedOrigins = [...new Set(rawAllowedOrigins)];
+const expandedOrigins = new Set(rawAllowedOrigins);
+for (const originStr of rawAllowedOrigins) {
+  try {
+    const url = new URL(originStr);
+    if (url.hostname.startsWith("www.")) {
+      url.hostname = url.hostname.slice(4);
+      expandedOrigins.add(url.origin);
+    } else if (
+      !url.hostname.startsWith("admin.") &&
+      !url.hostname.startsWith("employee.") &&
+      url.hostname.includes(".") &&
+      !["localhost", "127.0.0.1"].includes(url.hostname)
+    ) {
+      url.hostname = `www.${url.hostname}`;
+      expandedOrigins.add(url.origin);
+    }
+  } catch (_) {}
+}
+
+const allowedOrigins = [...expandedOrigins];
 
 app.use(cookieParser());
 

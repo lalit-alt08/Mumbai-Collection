@@ -117,6 +117,7 @@ services:
       EMPLOYEE_ORIGIN: ${EMPLOYEE_ORIGIN:-http://localhost:5175}
       CLIENT_ORIGIN: ${CUSTOMER_ORIGIN:-http://localhost:5173}
       FRONTEND_URL: ${CUSTOMER_ORIGIN:-http://localhost:5173}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://mumbaicollections.in,https://www.mumbaicollections.in}
       ALLOW_LOCAL_ORIGINS: "true"
       MOCK_EMAIL: ${MOCK_EMAIL:-true}
       BREVO_API_KEY: ${BREVO_API_KEY:-}

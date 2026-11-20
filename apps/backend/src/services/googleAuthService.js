@@ -36,6 +36,19 @@ export const isAllowedGoogleOrigin = (origin) => {
       .filter(Boolean)
   );
 
+  for (const originStr of [...customerOrigins]) {
+    try {
+      const u = new URL(originStr);
+      if (u.hostname.startsWith("www.")) {
+        u.hostname = u.hostname.slice(4);
+        customerOrigins.add(u.origin);
+      } else if (!u.hostname.startsWith("admin.") && !u.hostname.startsWith("employee.") && u.hostname.includes(".")) {
+        u.hostname = `www.${u.hostname}`;
+        customerOrigins.add(u.origin);
+      }
+    } catch (_) {}
+  }
+
   if (process.env.NODE_ENV !== "production") {
     customerOrigins.add("http://localhost:5173");
     customerOrigins.add("http://127.0.0.1:5173");

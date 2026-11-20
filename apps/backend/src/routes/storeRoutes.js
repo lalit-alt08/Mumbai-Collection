@@ -151,11 +151,11 @@ async function proxyStoreApi(req, res) {
     const cleanPhone = rawDigits.length === 12 && rawDigits.startsWith("91") ? rawDigits.slice(2) : rawDigits;
     const isPayloadPhoneValid = /^[6-9]\d{9}$/.test(cleanPhone);
 
-    if (!sessionData.isPhoneVerified && !isPayloadPhoneValid) {
+    if (!sessionData.isPhoneVerified) {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
-        message: "Please verify your mobile number before placing an order.",
+        message: "Please enter your mobile number in your profile before placing an order.",
       });
     }
 
@@ -279,6 +279,13 @@ async function proxyStoreApi(req, res) {
     }
     if (response.headers["set-cookie"]) {
       res.setHeader("Set-Cookie", response.headers["set-cookie"]);
+    }
+
+    // Prevent aggressive mobile browser caching on cart and checkout mutations and reads
+    if (targetPath.startsWith("/cart") || targetPath.startsWith("/checkout")) {
+      res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
     }
 
     // Real-time invalidation: Immediately clear operational caches upon successful order placement
@@ -451,11 +458,11 @@ const resolveCheckoutCustomer = async (req, res, next) => {
     const cleanPhone = rawDigits.length === 12 && rawDigits.startsWith("91") ? rawDigits.slice(2) : rawDigits;
     const isPayloadPhoneValid = /^[6-9]\d{9}$/.test(cleanPhone);
 
-    if (!sessionData.isPhoneVerified && !isPayloadPhoneValid) {
+    if (!sessionData.isPhoneVerified) {
       return res.status(403).json({
         success: false,
         code: "PHONE_NOT_VERIFIED",
-        message: "Please verify your mobile number before placing an order.",
+        message: "Please enter your mobile number in your profile before placing an order.",
       });
     }
 
