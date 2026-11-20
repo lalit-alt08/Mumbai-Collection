@@ -953,8 +953,8 @@ function Cart() {
                       🌙 Fulfillment at next opening
                     </span>
                   </div>
-                  <p className="text-xs text-[#CBD5E1] font-medium mt-1 leading-snug">
-                    We are closed right now. Place your order and our team will begin preparing it when the store opens {storeHours.next_opening?.label || "again"}. Delivery begins after preparation; 10:00 AM is not a guaranteed arrival time.
+                  <p className="text-xs text-[#64748B] font-medium mt-1 leading-snug">
+                    We are closed right now. Your order will be prepared and ready for dispatch when the store opens {storeHours.next_opening?.label ? `(${storeHours.next_opening.label})` : "again"}.
                   </p>
                 </div>
               </div>
