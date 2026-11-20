@@ -2,7 +2,7 @@ User-agent: *
 Allow: /
 Allow: /api/products
 Allow: /api/categories
-Allow: /api/store/
+Allow: /api/store/sitemap.xml
 Allow: /api/store-hours
 
 Disallow: /account
@@ -20,3 +20,4 @@ Disallow: /api/payments/
 Disallow: /api/addresses/
 
 Sitemap: https://mumbaicollections.in/sitemap.xml
+Sitemap: https://mumbaicollections.in/api/store/sitemap.xml

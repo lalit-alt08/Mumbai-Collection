@@ -83,7 +83,24 @@ function ProductCard({ product }) {
   };
 
   return (
-    <div className="store-product-card flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3 sm:p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#22499F]/60 hover:shadow-[0_8px_24px_rgba(34,73,159,0.12)]">
+    <div className="store-product-card relative flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3 sm:p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#22499F]/60 hover:shadow-[0_8px_24px_rgba(34,73,159,0.12)]">
+      {/* Heart Favorite Button - independent sibling outside Link to prevent invalid interactive nesting */}
+      <button
+        type="button"
+        onClick={handleToggleFav}
+        aria-label={favorited ? "Remove from wishlist" : "Add to wishlist"}
+        className="absolute top-4.5 right-4.5 sm:top-5 sm:right-5 z-20 flex h-7.5 w-7.5 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-[#FFFFFF]/90 text-[#64748B] shadow-xs border border-[#E2E8F0] backdrop-blur-xs transition-all hover:scale-110 active:scale-125 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22499F]"
+      >
+        <Heart
+          size={15}
+          className={`transition-colors ${
+            favorited
+              ? "fill-[#F4B54B] text-[#F4B54B]"
+              : "text-gray-400 hover:text-[#22499F]"
+          }`}
+        />
+      </button>
+
       <Link
         to={`/product/${product.id}`}
         aria-label={`View details for ${product.name}`}
@@ -113,22 +130,6 @@ function ProductCard({ product }) {
               {discountPercent}% OFF
             </div>
           )}
-
-          {/* Heart Favorite Button */}
-          <button
-            onClick={handleToggleFav}
-            aria-label={favorited ? "Remove from wishlist" : "Add to wishlist"}
-            className="absolute top-1.5 right-1.5 z-10 flex h-7.5 w-7.5 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-[#FFFFFF]/90 text-[#64748B] shadow-xs border border-[#E2E8F0] backdrop-blur-xs transition-all hover:scale-110 active:scale-125 cursor-pointer"
-          >
-            <Heart
-              size={15}
-              className={`transition-colors ${
-                favorited
-                  ? "fill-[#F4B54B] text-[#F4B54B]"
-                  : "text-gray-400 hover:text-[#22499F]"
-              }`}
-            />
-          </button>
 
           {isOutOfStock && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-[14px] sm:rounded-[16px]">

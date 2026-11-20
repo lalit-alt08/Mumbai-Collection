@@ -706,7 +706,7 @@ export const generateSitemapXml = async (req, res) => {
   } catch (error) {
     logger.warn({ err: error.message }, "[SEO] Failed generating dynamic sitemap, returning static fallback");
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
-    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://mumbaicollection.in/</loc><priority>1.0</priority></url>\n</urlset>`);
+    return res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>https://mumbaicollections.in/</loc><priority>1.0</priority></url>\n</urlset>`);
   }
 };
 
