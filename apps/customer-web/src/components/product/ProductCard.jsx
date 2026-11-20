@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getLiveProductStockByIds } from "../../services/productService";
 import { Heart } from "lucide-react";
@@ -74,6 +74,7 @@ function ProductCard({ product }) {
     : 0;
 
   const handleToggleFav = async (e) => {
+    e.preventDefault();
     e.stopPropagation();
     const res = await toggleFavorite(product);
     if (res?.requiresAuth) {
@@ -83,16 +84,8 @@ function ProductCard({ product }) {
 
   return (
     <div className="store-product-card flex h-full flex-col justify-between rounded-[18px] sm:rounded-[20px] border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3 sm:p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-all duration-300 hover:-translate-y-[3px] hover:border-[#22499F]/60 hover:shadow-[0_8px_24px_rgba(34,73,159,0.12)]">
-      <div
-        role="link"
-        tabIndex={0}
-        onClick={() => navigate(`/product/${product.id}`)}
-        onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
-            e.preventDefault();
-            navigate(`/product/${product.id}`);
-          }
-        }}
+      <Link
+        to={`/product/${product.id}`}
         aria-label={`View details for ${product.name}`}
         className="cursor-pointer flex flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22499F] rounded-[14px]"
       >
@@ -150,7 +143,7 @@ function ProductCard({ product }) {
         <h2 className="store-product-title mt-3 h-[42px] min-h-[42px] line-clamp-2 text-[15px] font-bold leading-[1.38] tracking-[-0.012em] text-[#17233A] transition-colors group-hover:text-[#22499F] sm:h-[46px] sm:min-h-[46px] sm:text-[16px]">
           {cleanProductTitle(product.name)}
         </h2>
-      </div>
+      </Link>
 
       {/* Bottom Sticky Action Area */}
       <div className="mt-auto pt-1.5 flex flex-col gap-1">

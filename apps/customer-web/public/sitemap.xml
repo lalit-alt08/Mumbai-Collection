@@ -1,37 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://mumbaicollection.in/</loc>
+    <loc>https://mumbaicollections.in/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://mumbaicollection.in/categories</loc>
+    <loc>https://mumbaicollections.in/categories</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://mumbaicollection.in/contact</loc>
+    <loc>https://mumbaicollections.in/contact</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://mumbaicollection.in/privacy-policy</loc>
+    <loc>https://mumbaicollections.in/privacy-policy</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://mumbaicollection.in/terms</loc>
+    <loc>https://mumbaicollections.in/terms</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://mumbaicollection.in/return-policy</loc>
+    <loc>https://mumbaicollections.in/return-policy</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://mumbaicollection.in/shipping-policy</loc>
+    <loc>https://mumbaicollections.in/shipping-policy</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

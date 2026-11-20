@@ -1,10 +1,22 @@
 User-agent: *
 Allow: /
+Allow: /api/products
+Allow: /api/categories
+Allow: /api/store/
+Allow: /api/store-hours
+
 Disallow: /account
 Disallow: /checkout
 Disallow: /cart
 Disallow: /orders
 Disallow: /order-success
-Disallow: /api/
+Disallow: /api/admin/
+Disallow: /api/employee/
+Disallow: /api/staff/
+Disallow: /api/internal/
+Disallow: /api/auth/
+Disallow: /api/profile/
+Disallow: /api/payments/
+Disallow: /api/addresses/
 
-Sitemap: https://mumbaicollection.in/sitemap.xml
+Sitemap: https://mumbaicollections.in/sitemap.xml

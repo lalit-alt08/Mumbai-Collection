@@ -596,7 +596,7 @@ export const generateSitemapXml = async (req, res) => {
       process.env.CUSTOMER_ORIGIN ||
       process.env.CLIENT_ORIGIN ||
       process.env.FRONTEND_URL ||
-      "https://mumbaicollection.in"
+      "https://mumbaicollections.in"
     ).replace(/\/+$/, "");
 
     // 1. Static Core Pages
