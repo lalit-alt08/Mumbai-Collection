@@ -88,10 +88,13 @@ function CartSummary({
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-[14px] font-bold text-[#1E293B] leading-tight">
-                  {storeHours?.delivery_eta_text ||
-                    (storeHours?.is_peak_hours
-                      ? "Same Day Delivery (High Demand)"
-                      : "Same Day Local Delivery")}
+                  {storeHours?.is_peak_hours
+                    ? (!storeHours?.peak_delivery_text || /2[–-]3\s*hours|60[–-]90/i.test(storeHours.peak_delivery_text)
+                        ? "Same Day Delivery (High Demand)"
+                        : storeHours.peak_delivery_text)
+                    : (!storeHours?.delivery_eta_text || /60[–-]90|2[–-]3\s*hours/i.test(storeHours.delivery_eta_text)
+                        ? "Same Day Local Delivery"
+                        : storeHours.delivery_eta_text)}
                 </h3>
                 {storeHours?.is_peak_hours && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/50 px-2.5 py-0.5 text-[11px] font-black text-amber-300 border border-amber-800/60">
@@ -102,9 +105,9 @@ function CartSummary({
               </div>
               {storeHours?.is_peak_hours && (
                 <p className="mt-1 text-xs font-semibold text-amber-300 leading-snug">
-                  {storeHours?.peak_notice ||
-                    storeHours?.peak_notice_message ||
-                    "High order volume in progress. Deliveries may arrive by late evening today."}
+                  {(!storeHours?.peak_notice && !storeHours?.peak_notice_message) || /2[–-]3\s*hours/i.test(storeHours?.peak_notice || storeHours?.peak_notice_message || "")
+                    ? "High order volume in progress. Deliveries may arrive by late evening today."
+                    : (storeHours?.peak_notice || storeHours?.peak_notice_message)}
                 </p>
               )}
             </div>

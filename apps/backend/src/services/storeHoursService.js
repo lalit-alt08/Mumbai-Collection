@@ -118,9 +118,19 @@ export const normalizeStoreHoursConfig = (raw) => {
   const manual_override = ["auto", "open", "closed"].includes(raw.manual_override) ? raw.manual_override : "auto";
   const notice_message = trimOrFallback(raw.closed_message, raw.notice_message, DEFAULT_STORE_HOURS_CONFIG.notice_message);
   const is_peak_hours = Boolean(raw.is_peak_hours);
-  const peak_delivery_text = trimOrFallback(raw.peak_delivery_text, DEFAULT_STORE_HOURS_CONFIG.peak_delivery_text);
-  const normal_delivery_text = trimOrFallback(raw.normal_delivery_text, DEFAULT_STORE_HOURS_CONFIG.normal_delivery_text);
-  const peak_notice_message = trimOrFallback(raw.peak_notice_message, raw.peak_notice, DEFAULT_STORE_HOURS_CONFIG.peak_notice_message);
+  let peak_delivery_text = trimOrFallback(raw.peak_delivery_text, DEFAULT_STORE_HOURS_CONFIG.peak_delivery_text);
+  let normal_delivery_text = trimOrFallback(raw.normal_delivery_text, DEFAULT_STORE_HOURS_CONFIG.normal_delivery_text);
+  let peak_notice_message = trimOrFallback(raw.peak_notice_message, raw.peak_notice, DEFAULT_STORE_HOURS_CONFIG.peak_notice_message);
+
+  if (normal_delivery_text.includes("60") || normal_delivery_text.includes("90")) {
+    normal_delivery_text = "Same Day Local Delivery";
+  }
+  if (peak_delivery_text.includes("2–3") || peak_delivery_text.includes("2-3") || peak_delivery_text.includes("60")) {
+    peak_delivery_text = "Same Day Delivery (High Demand)";
+  }
+  if (peak_notice_message.includes("2–3 hours") || peak_notice_message.includes("2-3 hours")) {
+    peak_notice_message = "High order volume in progress. Deliveries may arrive by late evening today.";
+  }
   const delivery_eta_text = is_peak_hours ? peak_delivery_text : normal_delivery_text;
 
   const rawSchedule = raw.schedule || {};

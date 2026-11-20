@@ -112,7 +112,19 @@ function Cart() {
     let isMounted = true;
     getStoreHours()
       .then((data) => {
-        if (isMounted && data) setStoreHours(data);
+        if (isMounted && data) {
+          const sanitized = { ...data };
+          if (sanitized.delivery_eta_text && /60[–-]90/i.test(sanitized.delivery_eta_text)) {
+            sanitized.delivery_eta_text = "Same Day Local Delivery";
+          }
+          if (sanitized.normal_delivery_text && /60[–-]90/i.test(sanitized.normal_delivery_text)) {
+            sanitized.normal_delivery_text = "Same Day Local Delivery";
+          }
+          if (sanitized.peak_delivery_text && /2[–-]3\s*hours|60[–-]90/i.test(sanitized.peak_delivery_text)) {
+            sanitized.peak_delivery_text = "Same Day Delivery (High Demand)";
+          }
+          setStoreHours(sanitized);
+        }
       })
       .catch(() => {
         if (isMounted) {

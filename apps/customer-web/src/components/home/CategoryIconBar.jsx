@@ -126,7 +126,7 @@ export default function CategoryIconBar({
             />
           </div>
           <span
-            className={`text-[11px] sm:text-xs tracking-tight transition-colors text-center truncate max-w-full px-0.5 ${
+            className={`text-[10px] sm:text-xs tracking-tight transition-colors text-center whitespace-nowrap px-0.5 ${
               isAllActive ? "font-bold text-[#1E293B]" : "font-semibold text-[#64748B] group-hover:text-[#1E293B]"
             }`}
           >
@@ -172,7 +172,7 @@ export default function CategoryIconBar({
                 )}
               </div>
               <span
-                className={`text-[11px] sm:text-xs tracking-tight transition-colors text-center truncate max-w-full px-0.5 ${
+                className={`text-[10px] sm:text-xs tracking-tight transition-colors text-center whitespace-nowrap px-0.5 ${
                   isActive ? "font-bold text-[#1E293B]" : "font-semibold text-[#64748B] group-hover:text-[#1E293B]"
                 }`}
                 title={category.name}
@@ -200,7 +200,7 @@ export default function CategoryIconBar({
               className="text-[#22499F] transition-transform group-hover:scale-110"
             />
           </div>
-          <span className="text-[11px] sm:text-xs tracking-tight transition-colors text-center font-bold text-[#22499F] group-hover:text-[#1E293B] truncate max-w-full px-0.5">
+          <span className="text-[10px] sm:text-xs tracking-tight transition-colors text-center font-bold text-[#22499F] group-hover:text-[#1E293B] whitespace-nowrap px-0.5">
             View All
           </span>
         </Link>
