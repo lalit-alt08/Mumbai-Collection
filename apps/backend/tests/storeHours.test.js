@@ -265,9 +265,9 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
     };
     const normalStatus = evaluateStoreStatus(normalConfig);
     assert.equal(normalStatus.is_peak_hours, false);
-    assert.equal(normalStatus.delivery_eta_text, "Delivery in 60–90 mins");
-    assert.equal(normalStatus.normal_delivery_text, "Delivery in 60–90 mins");
-    assert.equal(normalStatus.peak_delivery_text, "Delivery in 2–3 hours");
+    assert.equal(normalStatus.delivery_eta_text, "Same Day Local Delivery");
+    assert.equal(normalStatus.normal_delivery_text, "Same Day Local Delivery");
+    assert.equal(normalStatus.peak_delivery_text, "Same Day Delivery (High Demand)");
 
     // Peak hours active with default peak message
     const peakConfig = {
@@ -276,10 +276,10 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
     };
     const peakStatus = evaluateStoreStatus(peakConfig);
     assert.equal(peakStatus.is_peak_hours, true);
-    assert.equal(peakStatus.delivery_eta_text, "Delivery in 2–3 hours");
+    assert.equal(peakStatus.delivery_eta_text, "Same Day Delivery (High Demand)");
     assert.equal(
       peakStatus.peak_notice,
-      "High order volume in progress. Deliveries may take 2–3 hours today."
+      "High order volume in progress. Deliveries may arrive by late evening today."
     );
 
     // Custom peak hours configuration
@@ -311,9 +311,9 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
       version: 1,
       manual_override: "open",
       is_peak_hours: false,
-      peak_delivery_text: "Delivery in 2–3 hours",
-      normal_delivery_text: "Delivery in 60–90 mins",
-      peak_notice_message: "High order volume in progress. Deliveries may take 2–3 hours today.",
+      peak_delivery_text: "Same Day Delivery (High Demand)",
+      normal_delivery_text: "Same Day Local Delivery",
+      peak_notice_message: "High order volume in progress. Deliveries may arrive by late evening today.",
     };
 
     storeHoursService.getStoreHoursConfig = async () => storedState;
@@ -338,13 +338,13 @@ test("Store Operating Hours Test Suite (Asia/Kolkata)", async (t) => {
       await toggleAdminPeakHours({ body: { expected_version: 1, is_peak_hours: true } }, mockRes);
       assert.equal(jsonResult.success, true);
       assert.equal(jsonResult.is_peak_hours, true);
-      assert.equal(jsonResult.delivery_eta_text, "Delivery in 2–3 hours");
+      assert.equal(jsonResult.delivery_eta_text, "Same Day Delivery (High Demand)");
 
       // Toggle OFF
       await toggleAdminPeakHours({ body: { expected_version: 1, is_peak_hours: false } }, mockRes);
       assert.equal(jsonResult.success, true);
       assert.equal(jsonResult.is_peak_hours, false);
-      assert.equal(jsonResult.delivery_eta_text, "Delivery in 60–90 mins");
+      assert.equal(jsonResult.delivery_eta_text, "Same Day Local Delivery");
     } finally {
       storeHoursService.getStoreHoursConfig = originalGet;
       storeHoursService.saveStoreHoursConfig = originalSave;

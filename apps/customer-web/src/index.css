@@ -4,20 +4,19 @@
 /* Dark appearance: slate surfaces with tangerine actions and highlights. */
 .store-theme-picker {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 8px 12px;
   border: 1px solid #E2E8F0;
-  border-radius: 18px;
+  border-radius: 14px;
   background: #FFFFFF;
   color: #1E293B;
 }
-.store-theme-picker h2 { font-size: 0.95rem; font-weight: 700; margin: 0; }
-.store-theme-picker p { color: #64748B; font-size: 0.75rem; margin: 4px 0 0; }
-.store-theme-options { display: flex; gap: 2px; padding: 3px; background: #F0F8E8; border-radius: 999px; }
-.store-theme-options button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; color: #1E293B; font-size: 0.875rem; font-weight: 700; cursor: pointer; }
+.store-theme-picker h2 { font-size: 0.8125rem; font-weight: 700; margin: 0; line-height: 1.2; }
+.store-theme-picker p { color: #64748B; font-size: 0.6875rem; margin: 2px 0 0; line-height: 1.2; }
+.store-theme-options { display: inline-flex; gap: 2px; padding: 2px; background: #F0F8E8; border-radius: 999px; }
+.store-theme-options button { min-height: 28px; padding: 0 10px; border: 0; border-radius: 999px; color: #1E293B; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all 0.15s ease; }
 .store-theme-options button[aria-pressed="true"] { background: #22499F; color: #FFFFFF; }
 .store-low-stock { background: #FFF3E6; border: 1px solid #D99851; color: #88420C; }
 .store-out-of-stock {
@@ -49,6 +48,9 @@
 .confirm-modal-danger-icon { background: #FEF2F2; border-color: #FCA5A5; color: #DC2626; }
 .order-status-cancelled { background: #FCE5E7; border-color: #D98A94; color: #852532; }
 .track-order-delivered-badge, .track-order-delivered { background: #ECFDF5; border-color: #A7F3D0; color: #047857; }
+.track-order-delivered-badge svg, .track-order-delivered svg { color: #059669; }
+.order-delivered-details-btn { background: #FFFFFF; border-color: rgba(34, 73, 159, 0.35); color: #22499F; }
+.order-delivered-details-btn:hover { background: #F0F8E8; border-color: rgba(34, 73, 159, 0.7); }
 .order-invoice-toggle-expanded { background: #22499F; border-color: #22499F; color: #FFFFFF; }
 .store-payment-loading { background: #17243B; border: 1px solid #4766A7; color: #FFFFFF; box-shadow: 0 0 18px rgb(34 73 159 / 20%); }
 .store-payment-spinner { color: #FF942F; }
@@ -86,7 +88,16 @@ html[data-store-theme="dark"] .auth-error-banner { background: #3C2D32; border-c
 html[data-store-theme="dark"] .auth-field-error { color: #FDA4AF; }
 html[data-store-theme="dark"] .confirm-modal-danger-icon { background: #49353B; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .order-status-cancelled { background: #49353B; border-color: #A05A66; color: #FFD2D4; }
-html[data-store-theme="dark"] .track-order-delivered-badge, html[data-store-theme="dark"] .track-order-delivered { background: #1C3829; border-color: #059669; color: #A7F3D0; }
+html[data-store-theme="dark"] .store-theme-picker { background: #303A43; border-color: #475569; color: #FAF8F4; }
+html[data-store-theme="dark"] .store-theme-options { background: #1F272E; }
+html[data-store-theme="dark"] .store-theme-options button { color: #D1D5D8; }
+html[data-store-theme="dark"] .store-theme-options button[aria-pressed="true"] { background: #FF942F; color: #1F272E; }
+html[data-store-theme="dark"] .track-order-delivered-badge, html[data-store-theme="dark"] .track-order-delivered { background: #143223 !important; border-color: #059669 !important; color: #A7F3D0 !important; }
+html[data-store-theme="dark"] .track-order-delivered-badge svg, html[data-store-theme="dark"] .track-order-delivered svg { color: #34D399 !important; }
+html[data-store-theme="dark"] .track-order-delivered-badge span, html[data-store-theme="dark"] .track-order-delivered span { color: #A7F3D0 !important; }
+html[data-store-theme="dark"] .order-delivered-details-btn { background: #303A43 !important; border-color: #475569 !important; color: #FAF8F4 !important; }
+html[data-store-theme="dark"] .order-delivered-details-btn:hover { background: #3A4652 !important; border-color: #FF942F !important; color: #FFBF80 !important; }
+html[data-store-theme="dark"] .order-delivered-details-btn svg { color: #FFBF80 !important; }
 html[data-store-theme="dark"] .order-invoice-toggle-expanded { background: #FF942F; border-color: #FF942F; color: #1F272E; }
 html[data-store-theme="dark"] .store-payment-loading { background: #303A43; border-color: #C68042; color: #FAF8F4; box-shadow: 0 0 18px rgb(255 148 47 / 18%); }
 html[data-store-theme="dark"] .store-payment-spinner { color: #FFBF80; }
@@ -145,6 +156,35 @@ html[data-store-theme="dark"] .account-edit { background: #FF942F; border-color:
 html[data-store-theme="dark"] .account-edit:hover { background: #FFAC5C; color: #1F272E; }
 html[data-store-theme="dark"] .account-menu > button > div > div:first-child { background: #303941; border-color: #59656E; }
 html[data-store-theme="dark"] .account-menu > button:hover { background: #46515B; }
+/* WhatsApp support card dark theme */
+html[data-store-theme="dark"] .product-whatsapp-card {
+  background-color: #162C20 !important;
+  border-color: #2D583D !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4) !important;
+}
+html[data-store-theme="dark"] .product-whatsapp-icon-wrap {
+  background-color: #1F3E2C !important;
+  border-color: #386C4B !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+html[data-store-theme="dark"] .product-whatsapp-icon {
+  color: #25D366 !important;
+}
+html[data-store-theme="dark"] .product-whatsapp-title {
+  color: #FAF8F4 !important;
+}
+html[data-store-theme="dark"] .product-whatsapp-desc {
+  color: #A3D9B5 !important;
+}
+html[data-store-theme="dark"] .product-whatsapp-btn {
+  background-color: #25D366 !important;
+  color: #0A2417 !important;
+  box-shadow: 0 4px 14px rgba(37, 211, 102, 0.25) !important;
+}
+html[data-store-theme="dark"] .product-whatsapp-btn:hover {
+  background-color: #1EBE5D !important;
+  box-shadow: 0 6px 18px rgba(37, 211, 102, 0.35) !important;
+}
 /* Keep catalog photography neutral even when surrounding cards are dark. */
 html[data-store-theme="dark"] .store-product-image { background-color: #F4F1ED; border-color: #DFD8D0; }
 /* Light account header uses white capsules and needs dark text. */

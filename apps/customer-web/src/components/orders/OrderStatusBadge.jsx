@@ -10,7 +10,7 @@ export function OrderStatusBadge({ status, displayStatus }) {
   switch (status) {
     case "completed":
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#FFFFFF] px-3 py-1 text-xs font-bold text-[#22499F] border border-[#E2E8F0]">
+        <span className="track-order-delivered-badge inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold border">
           <CheckCircle2 size={13} />
           {displayStatus || "Delivered"}
         </span>

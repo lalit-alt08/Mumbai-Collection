@@ -307,10 +307,13 @@ export const createOrder = async (req, res) => {
             const { status, ...payload } = reservationFailure;
             return res.status(status).json({ success: false, ...payload });
           }
-          // Reuse the gateway intent, but refresh delivery scheduling from the
-          // authoritative store status checked for this checkout attempt.
+          // Reuse the gateway intent, but refresh delivery scheduling and latest address details
+          // from the authoritative store status and current checkout request.
           existingIntent.checkout_payload = {
             ...(existingIntent.checkout_payload || {}),
+            billing: billing || existingIntent.checkout_payload?.billing,
+            shipping: shipping || existingIntent.checkout_payload?.shipping,
+            customer_note: customer_note !== undefined ? customer_note : existingIntent.checkout_payload?.customer_note,
             ...checkoutScheduleFields(storeGuard),
           };
           const refreshedIntent = await paymentIntentService.storePaymentIntent(existingRzpOrderId, existingIntent);

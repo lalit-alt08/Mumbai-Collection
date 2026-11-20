@@ -447,7 +447,7 @@ function TrackOrder() {
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold border ${
                         isDelivered
-                          ? "track-order-delivered-badge bg-emerald-50 text-emerald-700 border-emerald-200"
+                          ? "track-order-delivered-badge"
                           : order.status === "packed"
                           ? "bg-purple-50 text-purple-700 border-purple-200"
                           : order.status === "out-for-delivery" || order.status === "dispatched"
@@ -485,14 +485,14 @@ function TrackOrder() {
                     ) : (
                       <>
                         <Truck size={16} className="animate-pulse shrink-0" />
-                        <span>Est. Delivery: 60–90 Mins</span>
+                        <span>Est. Delivery: Same Day</span>
                       </>
                     )}
                   </div>
                 )}
                 {isDelivered && (
-                  <div className="track-order-delivered flex items-center gap-2 rounded-xl bg-emerald-50 px-3.5 py-2 text-sm font-bold text-emerald-700 border border-emerald-200 shadow-xs">
-                    <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+                  <div className="track-order-delivered flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-bold border shadow-xs">
+                    <CheckCircle2 size={16} className="shrink-0" />
                     <span>Delivered successfully</span>
                   </div>
                 )}

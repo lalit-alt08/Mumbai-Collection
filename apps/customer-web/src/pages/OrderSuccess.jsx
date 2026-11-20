@@ -287,7 +287,7 @@ function OrderSuccess() {
     ? "To be confirmed by the store"
     : isAfterHours
       ? scheduledFulfillmentLabel
-    : "60–90 mins";
+    : "Same Day Local Delivery";
 
   return (
     <div className="order-success-page min-h-[calc(100vh-2rem)] w-full bg-[#F0F8E8] text-[#1E293B] flex items-center justify-center px-4 py-8 sm:py-12">

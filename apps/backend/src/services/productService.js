@@ -284,6 +284,10 @@ export const fetchProductsByCategory = async (
       const catRes = await api.get("products/categories", { slug: String(categoryId).trim(), _fields: "id,slug" });
       if (!Array.isArray(catRes.data)) throw new Error("Invalid WooCommerce category slug response");
       if (!catRes.data[0]?.id) {
+        const lowerSlug = String(categoryId).trim().toLowerCase();
+        if (lowerSlug === "trending" || lowerSlug === "imported") {
+          return { page: 1, per_page: 20, total: 0, totalPages: 0, products: [] };
+        }
         const error = new Error("Category not found");
         error.status = 404;
         error.code = "CATEGORY_NOT_FOUND";

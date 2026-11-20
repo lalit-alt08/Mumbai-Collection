@@ -90,8 +90,8 @@ function CartSummary({
                 <h3 className="text-[14px] font-bold text-[#1E293B] leading-tight">
                   {storeHours?.delivery_eta_text ||
                     (storeHours?.is_peak_hours
-                      ? "Delivery in 2–3 hours"
-                      : "Delivery in 60–90 mins")}
+                      ? "Same Day Delivery (High Demand)"
+                      : "Same Day Local Delivery")}
                 </h3>
                 {storeHours?.is_peak_hours && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/50 px-2.5 py-0.5 text-[11px] font-black text-amber-300 border border-amber-800/60">
@@ -104,7 +104,7 @@ function CartSummary({
                 <p className="mt-1 text-xs font-semibold text-amber-300 leading-snug">
                   {storeHours?.peak_notice ||
                     storeHours?.peak_notice_message ||
-                    "High order volume in progress. Deliveries may take 2–3 hours today."}
+                    "High order volume in progress. Deliveries may arrive by late evening today."}
                 </p>
               )}
             </div>

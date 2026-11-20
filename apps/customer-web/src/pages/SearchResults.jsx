@@ -5,16 +5,20 @@ import ProductCard from "../components/product/ProductCard";
 import { searchProducts } from "../services/productService";
 
 const RESULTS_PER_PAGE = 20;
+const searchMemoryCache = new Map();
 
 function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = (searchParams.get("q") || "").trim();
   const parsedPage = Number.parseInt(searchParams.get("page") || "1", 10);
   const page = Number.isFinite(parsedPage) ? Math.max(1, Math.min(10000, parsedPage)) : 1;
-  const [products, setProducts] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const cacheKey = `${query}:${page}`;
+  const cached = searchMemoryCache.get(cacheKey);
+
+  const [products, setProducts] = useState(cached?.products || []);
+  const [total, setTotal] = useState(cached?.total || 0);
+  const [totalPages, setTotalPages] = useState(cached?.totalPages || 0);
+  const [loading, setLoading] = useState(Boolean(!cached && query.length >= 2));
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
 
@@ -29,7 +33,9 @@ function SearchResults() {
       return () => controller.abort();
     }
 
-    setLoading(true);
+    if (!searchMemoryCache.has(cacheKey)) {
+      setLoading(true);
+    }
     setError("");
     searchProducts(query, {
       page,
@@ -38,15 +44,25 @@ function SearchResults() {
     })
       .then((data) => {
         if (controller.signal.aborted) return;
-        setProducts(Array.isArray(data?.products) ? data.products : []);
-        setTotal(Number(data?.total) || 0);
-        setTotalPages(Number(data?.totalPages) || 0);
+        const incomingProducts = Array.isArray(data?.products) ? data.products : [];
+        const incomingTotal = Number(data?.total) || 0;
+        const incomingTotalPages = Number(data?.totalPages) || 0;
+        setProducts(incomingProducts);
+        setTotal(incomingTotal);
+        setTotalPages(incomingTotalPages);
+        searchMemoryCache.set(cacheKey, {
+          products: incomingProducts,
+          total: incomingTotal,
+          totalPages: incomingTotalPages,
+        });
       })
       .catch((requestError) => {
         if (controller.signal.aborted) return;
-        setProducts([]);
-        setTotal(0);
-        setTotalPages(0);
+        if (!searchMemoryCache.has(cacheKey)) {
+          setProducts([]);
+          setTotal(0);
+          setTotalPages(0);
+        }
         setError(requestError?.response?.data?.message || "Search couldn’t load. Check your connection and try again.");
       })
       .finally(() => {
@@ -54,7 +70,7 @@ function SearchResults() {
       });
 
     return () => controller.abort();
-  }, [query, page, retryCount]);
+  }, [query, page, retryCount, cacheKey]);
 
   const updatePage = (nextPage) => {
     setSearchParams((current) => {

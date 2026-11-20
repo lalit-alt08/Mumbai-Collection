@@ -11,9 +11,9 @@ export const DEFAULT_STORE_HOURS_CONFIG = {
   timezone: "Asia/Kolkata",
   notice_message: "Our store is currently closed for new orders. We operate daily from 9:00 AM to 10:00 PM IST.",
   is_peak_hours: false,
-  peak_delivery_text: "Delivery in 2–3 hours",
-  normal_delivery_text: "Delivery in 60–90 mins",
-  peak_notice_message: "High order volume in progress. Deliveries may take 2–3 hours today.",
+  peak_delivery_text: "Same Day Delivery (High Demand)",
+  normal_delivery_text: "Same Day Local Delivery",
+  peak_notice_message: "High order volume in progress. Deliveries may arrive by late evening today.",
   schedule: Object.fromEntries(
     DAYS_OF_WEEK.map((d) => [d, { is_enabled: true, open: "09:00", close: "22:00" }])
   ),

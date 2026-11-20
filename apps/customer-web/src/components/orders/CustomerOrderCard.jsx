@@ -168,7 +168,7 @@ export function CustomerOrderCard({
             ) : (
               <Link
                 to={`/orders/${order.id}/track`}
-                className="col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border border-[#22499F]/35 bg-[#FFFFFF] px-3.5 sm:px-4 text-xs font-bold text-[#22499F] transition-all select-none whitespace-nowrap hover:bg-[#FFFFFF] hover:border-[#22499F]/70 active:scale-[0.98]"
+                className="order-delivered-details-btn col-span-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl border border-[#22499F]/35 bg-[#FFFFFF] px-3.5 sm:px-4 text-xs font-bold text-[#22499F] transition-all select-none whitespace-nowrap active:scale-[0.98]"
               >
                 <Package size={14} className="shrink-0 text-[#22499F]" />
                 <span>Order Details</span>

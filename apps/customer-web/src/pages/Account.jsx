@@ -21,6 +21,8 @@ import {
   Mail,
   AlertTriangle,
   RotateCcw,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
@@ -274,13 +276,36 @@ function Account() {
           </div>
 
           <section className="store-theme-picker" aria-labelledby="store-theme-title">
-            <div>
-              <h2 id="store-theme-title">Appearance</h2>
-              <p>Choose your theme.</p>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F0F8E8] text-[#22499F]">
+                {theme === "dark" ? <Moon size={15} /> : <Sun size={15} />}
+              </div>
+              <div>
+                <h2 id="store-theme-title">Appearance</h2>
+                <p>Choose theme</p>
+              </div>
             </div>
             <div className="store-theme-options" role="group" aria-label="Store appearance">
-              <button type="button" aria-pressed={theme === "light"} onClick={() => setStorefrontTheme("light")}>Light</button>
-              <button type="button" aria-pressed={theme === "dark"} onClick={() => setStorefrontTheme("dark")}>Dark</button>
+              <button
+                type="button"
+                aria-pressed={theme === "light"}
+                onClick={() => {
+                  triggerHaptic("selection");
+                  setStorefrontTheme("light");
+                }}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                aria-pressed={theme === "dark"}
+                onClick={() => {
+                  triggerHaptic("selection");
+                  setStorefrontTheme("dark");
+                }}
+              >
+                Dark
+              </button>
             </div>
           </section>
 

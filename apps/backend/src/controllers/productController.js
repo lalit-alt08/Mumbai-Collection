@@ -306,8 +306,9 @@ export const searchAllProducts = async (req, res) => {
       cacheKey,
       async () => {
         const r = await searchProducts(normalizedQuery, { page, per_page: perPage });
-        // Reject caching: non-empty total with zero products means index is reconciling
-        if (r && Array.isArray(r.products) && r.products.length === 0 && r.total > 0) {
+        const totalPages = r?.total ? Math.ceil(r.total / perPage) : 0;
+        // Reject caching: non-empty total with zero products within valid page range means index is reconciling
+        if (r && Array.isArray(r.products) && r.products.length === 0 && r.total > 0 && page <= totalPages) {
           const reconcileErr = new Error("Search index reconciling — not caching empty result");
           reconcileErr.code = "SEARCH_PAGE_RECONCILING";
           reconcileErr.status = 503;

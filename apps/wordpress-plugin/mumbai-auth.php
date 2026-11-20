@@ -556,6 +556,16 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_cleanup_pending_orphans',
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
+    register_rest_route('mumbai-auth/v1', '/admin/purge-test-products', [
+        'methods'             => ['POST', 'GET'],
+        'callback'            => 'mumbai_purge_seed_test_products',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
+    register_rest_route('mumbai-auth/v1', '/admin/ensure-core-categories', [
+        'methods'             => ['POST', 'GET'],
+        'callback'            => 'mumbai_ensure_core_categories',
+        'permission_callback' => '__return_true',
+    ]);
 
     // Live Inventory Stock Counts (Internal Node.js only)
     register_rest_route('mumbai-auth/v1', '/products/stock-counts', [
@@ -5374,6 +5384,110 @@ function mumbai_secure_uploads_directory() {
 }
 add_action('admin_init', 'mumbai_secure_uploads_directory');
 add_action('mumbai_daily_media_cleanup', 'mumbai_secure_uploads_directory');
+
+/**
+ * Ensures core product categories (Trending, Imported) exist in WooCommerce.
+ */
+function mumbai_ensure_core_categories() {
+    if (!taxonomy_exists('product_cat')) {
+        return rest_ensure_response(['success' => false, 'message' => 'product_cat taxonomy unavailable']);
+    }
+    $categories_to_ensure = [
+        [
+            'name'        => 'Trending',
+            'slug'        => 'trending',
+            'description' => 'Trending, popular, and top-rated products at Mumbai Collection.',
+        ],
+        [
+            'name'        => 'Imported',
+            'slug'        => 'imported',
+            'description' => 'Exclusive imported novelties, specialty toys, and gadgets.',
+        ],
+    ];
+    $results = [];
+    foreach ($categories_to_ensure as $cat) {
+        $existing = get_term_by('slug', $cat['slug'], 'product_cat');
+        $term_id = null;
+        if (!$existing) {
+            $inserted = wp_insert_term($cat['name'], 'product_cat', [
+                'slug'        => $cat['slug'],
+                'description' => $cat['description'],
+            ]);
+            if (!is_wp_error($inserted)) {
+                $term_id = (int)$inserted['term_id'];
+                $results[$cat['slug']] = 'created';
+            } else {
+                $results[$cat['slug']] = $inserted->get_error_message();
+            }
+        } else {
+            $term_id = (int)$existing->term_id;
+            $results[$cat['slug']] = 'exists';
+        }
+
+        // If category has zero items, link up to 6 published genuine products to it
+        if ($term_id) {
+            $term_obj = get_term($term_id, 'product_cat');
+            if ($term_obj && (int)$term_obj->count === 0) {
+                $p_ids = get_posts([
+                    'post_type'      => 'product',
+                    'post_status'    => 'publish',
+                    'posts_per_page' => 6,
+                    'fields'         => 'ids',
+                ]);
+                foreach ($p_ids as $pid) {
+                    $title = get_the_title($pid);
+                    if (strpos($title, 'TEST-') === false && strpos($title, 'LOADTEST-') === false) {
+                        wp_set_object_terms($pid, [$term_id], 'product_cat', true);
+                    }
+                }
+            }
+        }
+    }
+    return rest_ensure_response(['success' => true, 'results' => $results]);
+}
+add_action('init', 'mumbai_ensure_core_categories', 25);
+
+/**
+ * Purges seed test products (TEST-* and LOADTEST-*) created during development/benchmarking.
+ */
+function mumbai_purge_seed_test_products(WP_REST_Request $request = null) {
+    global $wpdb;
+    $post_ids = $wpdb->get_col("
+        SELECT ID FROM {$wpdb->posts}
+        WHERE post_type IN ('product', 'product_variation')
+          AND (post_title LIKE 'TEST-%' OR post_title LIKE 'LOADTEST-%' OR post_name LIKE 'test-%')
+        LIMIT 1000
+    ");
+    $deleted = 0;
+    if (!empty($post_ids)) {
+        foreach ($post_ids as $id) {
+            wp_delete_post((int)$id, true);
+            $deleted++;
+        }
+    }
+
+    $term_ids = $wpdb->get_col("
+        SELECT t.term_id FROM {$wpdb->terms} t
+        INNER JOIN {$wpdb->term_taxonomy} tt ON t.term_id = tt.term_id
+        WHERE tt.taxonomy = 'product_cat'
+          AND (t.name LIKE 'TEST-%' OR t.slug LIKE 'test-%')
+    ");
+    $deleted_terms = 0;
+    if (!empty($term_ids)) {
+        foreach ($term_ids as $tid) {
+            wp_delete_term((int)$tid, 'product_cat');
+            $deleted_terms++;
+        }
+    }
+
+    return rest_ensure_response([
+        'success'       => true,
+        'deleted_count' => $deleted,
+        'deleted_terms' => $deleted_terms,
+        'has_more'      => count($post_ids) === 1000,
+        'message'       => "Purged {$deleted} test products and {$deleted_terms} test categories.",
+    ]);
+}
 
 /*
  * ─────────────────────────────────────────────
@@ -11360,8 +11474,13 @@ function mumbai_find_order_by_razorpay_order_id(WP_REST_Request $request) {
 
     $orders = wc_get_orders([
         'limit'      => 1,
-        'meta_key'   => '_razorpay_order_id',
-        'meta_value' => $rzp_order_id,
+        'meta_query' => [
+            [
+                'key'     => '_razorpay_order_id',
+                'value'   => $rzp_order_id,
+                'compare' => '=',
+            ],
+        ],
         'return'     => 'objects',
     ]);
 
@@ -11412,7 +11531,17 @@ function mumbai_create_paid_order_once(WP_REST_Request $request) {
         return new WP_Error('order_in_progress', 'Payment order creation is in progress.', ['status' => 409]);
     }
     try {
-        $orders = wc_get_orders(['limit' => 1, 'meta_key' => '_razorpay_order_id', 'meta_value' => $rzp_order_id]);
+        $orders = wc_get_orders([
+            'limit'      => 1,
+            'meta_query' => [
+                [
+                    'key'     => '_razorpay_order_id',
+                    'value'   => $rzp_order_id,
+                    'compare' => '=',
+                ],
+            ],
+            'return'     => 'objects',
+        ]);
         if ($wpdb->last_error) throw new RuntimeException('Could not verify existing payment order.');
         $controller = new WC_REST_Orders_Controller();
         if (!empty($orders)) {

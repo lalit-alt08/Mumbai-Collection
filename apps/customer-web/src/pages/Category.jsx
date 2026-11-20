@@ -298,8 +298,28 @@ function Category() {
       } catch (err) {
         if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         if (isMounted && requestId === categoryRequestIdRef.current) {
-          setProducts([]);
-          setLoadError("We couldn't load products for this category. Check your connection and try again.");
+          const lowerId = String(effectiveCategoryId || "").toLowerCase();
+          if (
+            err.response?.status === 404 ||
+            err.response?.data?.code === "CATEGORY_NOT_FOUND" ||
+            lowerId === "trending" ||
+            lowerId === "imported"
+          ) {
+            setProducts([]);
+            setTotalCount(0);
+            setTotalPages(0);
+            setLoadError("");
+            setCategoryTitle(
+              lowerId === "trending"
+                ? "Trending"
+                : lowerId === "imported"
+                ? "Imported"
+                : "Category Products"
+            );
+          } else {
+            setProducts([]);
+            setLoadError("We couldn't load products for this category. Check your connection and try again.");
+          }
         }
       } finally {
         if (isMounted && !controller.signal.aborted) setLoading(false);

@@ -16,6 +16,8 @@ import {
   Coffee,
   Package,
   LayoutGrid,
+  Flame,
+  Globe,
 } from "lucide-react";
 import { triggerHaptic } from "../../utils/haptics";
 
@@ -24,6 +26,8 @@ import { triggerHaptic } from "../../utils/haptics";
  */
 function getCategoryIcon(name = "", slug = "") {
   const text = `${name} ${slug}`.toLowerCase();
+  if (text.includes("trend") || text.includes("hot") || text.includes("viral")) return Flame;
+  if (text.includes("import") || text.includes("global") || text.includes("world")) return Globe;
   if (text.includes("winter") || text.includes("season") || text.includes("fest")) return Sparkles;
   if (text.includes("electr") || text.includes("gadget") || text.includes("phone") || text.includes("tech")) return Laptop;
   if (text.includes("beauty") || text.includes("cosmetic") || text.includes("care") || text.includes("skin")) return Sparkles;
@@ -47,19 +51,48 @@ export default function CategoryIconBar({
 }) {
   const scrollContainerRef = useRef(null);
 
-  // Keep strictly 4 top root categories (Total 5 with "All", directly followed by "View All")
+  // Strictly 4 categories in requested order: 1. Trending, 2. Toys, 3. Electronics, 4. Imported (Followed by "View All")
   const rootCategories = useMemo(() => {
     if (!Array.isArray(categories)) return [];
-    return categories
-      .filter(
+
+    const findCat = (regex) =>
+      categories.find(
         (c) =>
           c &&
           (!c.parent || Number(c.parent) === 0) &&
           c.slug?.toLowerCase() !== "uncategorized" &&
           c.name?.toLowerCase() !== "uncategorized" &&
-          (c.count === undefined || Number(c.count) > 0 || c.has_products)
-      )
-      .slice(0, 4);
+          regex.test(`${c.name || ""} ${c.slug || ""}`)
+      );
+
+    // 1. Trending (replacing stationery, strictly first)
+    const trending = findCat(/\btrend/i) || {
+      id: "trending",
+      slug: "trending",
+      name: "Trending",
+    };
+
+    // 2. Toys (strictly second, clean name)
+    const toysRaw = findCat(/\b(toy|game)/i);
+    const toys = toysRaw
+      ? { ...toysRaw, name: "Toys" }
+      : { id: 17, slug: "toys", name: "Toys" };
+
+    // 3. Electronics (strictly third)
+    const electronics = findCat(/\b(electr|gadget|tech)/i) || {
+      id: 19,
+      slug: "electronics",
+      name: "Electronics",
+    };
+
+    // 4. Imported (strictly fourth)
+    const imported = findCat(/\bimport/i) || {
+      id: "imported",
+      slug: "imported",
+      name: "Imported",
+    };
+
+    return [trending, toys, electronics, imported];
   }, [categories]);
 
   const isAllActive = selectedCategoryId === null || selectedCategoryId === "all";

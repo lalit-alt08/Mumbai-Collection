@@ -21,6 +21,7 @@ let cachedHomeData = {
 };
 let homeDataRequest = null;
 let homeScrollY = 0;
+let lastHomeFetchAt = 0;
 const HOME_RESUME_REFRESH_COOLDOWN_MS = 15_000;
 
 function fetchHomeSnapshot() {
@@ -45,7 +46,6 @@ function Home() {
   const [cartCheckUnavailable, setCartCheckUnavailable] = useState(() =>
     Boolean(location.state?.cartCheckUnavailable)
   );
-  const lastHomeFetchAt = useRef(0);
   // One randomized catalog order per browser/app session; stock refreshes reuse it.
   const [shuffleSeed] = useState(() => getSessionProductOrderSeed());
 
@@ -110,8 +110,8 @@ function Home() {
       }, 30000);
     };
     const loadHomeData = async ({ force = false } = {}) => {
-      if (!force && Date.now() - lastHomeFetchAt.current < HOME_RESUME_REFRESH_COOLDOWN_MS) return;
-      lastHomeFetchAt.current = Date.now();
+      if (!force && Date.now() - lastHomeFetchAt < HOME_RESUME_REFRESH_COOLDOWN_MS) return;
+      lastHomeFetchAt = Date.now();
       try {
         setLoadError("");
         // Only trigger skeleton if we have no prior cache
@@ -201,7 +201,7 @@ function Home() {
     const refreshOnPageShow = () => loadHomeData();
     const refreshOnOnline = () => loadHomeData({ force: true });
 
-    loadHomeData({ force: true });
+    loadHomeData({ force: !cachedHomeData.shelves || reloadKey > 0 });
     document.addEventListener("visibilitychange", refreshWhenVisible);
     window.addEventListener("pageshow", refreshOnPageShow);
     window.addEventListener("online", refreshOnOnline);

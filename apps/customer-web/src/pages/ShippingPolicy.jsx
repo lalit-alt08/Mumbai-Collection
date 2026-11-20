@@ -66,7 +66,7 @@ function ShippingPolicy() {
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-[#22499F]/40 bg-[#FFFFFF]/60 p-4 text-center">
                 <div className="text-xs font-bold uppercase tracking-wider text-[#22499F]">Vasai Local Area</div>
-                <div className="mt-2 text-xl font-extrabold text-[#1E293B]">1 – 2 Days</div>
+                <div className="mt-2 text-xl font-extrabold text-[#1E293B]">Same Day Delivery</div>
                 <p className="mt-1 text-xs text-[#64748B]">Vasai West & East, Nalasopara, Naigaon, Virar</p>
               </div>
 

@@ -119,7 +119,7 @@ function Cart() {
           setStoreHours({
             is_open: true,
             is_peak_hours: false,
-            delivery_eta_text: "Delivery in 60–90 mins",
+            delivery_eta_text: "Same Day Local Delivery",
           });
         }
       });

@@ -153,7 +153,7 @@ describe("Night Ordering & Next-Day Delivery Architecture Suite", () => {
     // ETA text
     const etaText = isAfterHours
       ? `Delivery Tomorrow (from ${nightStoreHours.next_opening.time_formatted})`
-      : "Delivery in 60–90 mins";
+      : "Same Day Local Delivery";
     assert.equal(etaText, "Delivery Tomorrow (from 10:00 AM)");
   });
 

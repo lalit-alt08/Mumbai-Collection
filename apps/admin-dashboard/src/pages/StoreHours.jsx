@@ -44,30 +44,30 @@ const RUSH_PRESETS = [
   {
     id: "high_demand",
     label: "⚡ High Demand",
-    tag: "2–3 hrs",
-    deliveryText: "Delivery in 2–3 hours",
-    notice: "High order volume in progress. Deliveries may take 2–3 hours today.",
+    tag: "Late Evening",
+    deliveryText: "Same Day Delivery (by Late Evening)",
+    notice: "High order volume today. Deliveries may arrive by late evening.",
   },
   {
     id: "monsoon",
     label: "🌧️ Monsoon Rain",
-    tag: "3–4 hrs",
-    deliveryText: "Delivery in 3–4 hours",
-    notice: "Heavy rainfall in Mumbai. Riders are traveling safely; deliveries may take 3–4 hours.",
+    tag: "Weather Delay",
+    deliveryText: "Same Day Delivery (Subject to Rain)",
+    notice: "Heavy rainfall in Mumbai / Vasai. Riders are traveling safely; deliveries may be delayed.",
   },
   {
     id: "festival",
     label: "📦 Festival Rush",
-    tag: "2–4 hrs",
-    deliveryText: "Delivery in 2–4 hours",
-    notice: "Festival demand surge! Orders are being freshly packed and dispatched in sequence.",
+    tag: "Festival Surge",
+    deliveryText: "Same Day Delivery (Priority Dispatch)",
+    notice: "Festival demand surge! Orders are being freshly packed and dispatched in sequence today.",
   },
   {
     id: "backlog",
-    label: "⏱️ Minor Delay",
-    tag: "90–120 mins",
-    deliveryText: "Delivery in 90–120 mins",
-    notice: "Slight order backlog. Estimated delivery within 90–120 minutes.",
+    label: "⏱️ Order Backlog",
+    tag: "Evening Slot",
+    deliveryText: "Same Day Delivery (Evening Slot)",
+    notice: "High order volume in progress. Same day deliveries are proceeding in order of receipt.",
   },
 ];
 
@@ -153,10 +153,10 @@ function StoreHours() {
   const [manualOverride, setManualOverride] = useState("auto");
   const [closedMessage, setClosedMessage] = useState("");
   const [isPeakHours, setIsPeakHours] = useState(false);
-  const [peakDeliveryText, setPeakDeliveryText] = useState("Delivery in 2–3 hours");
-  const [normalDeliveryText, setNormalDeliveryText] = useState("Delivery in 60–90 mins");
+  const [peakDeliveryText, setPeakDeliveryText] = useState("Same Day Delivery (High Demand)");
+  const [normalDeliveryText, setNormalDeliveryText] = useState("Same Day Local Delivery");
   const [peakNoticeMessage, setPeakNoticeMessage] = useState(
-    "High order volume in progress. Deliveries may take 2–3 hours today."
+    "High order volume in progress. Deliveries may arrive by late evening today."
   );
 
   const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
@@ -182,12 +182,12 @@ function StoreHours() {
         setManualOverride(data.manual_override || "auto");
         setClosedMessage(data.closed_message || data.notice_message || "");
         setIsPeakHours(Boolean(data.is_peak_hours));
-        setPeakDeliveryText(data.peak_delivery_text || "Delivery in 2–3 hours");
-        setNormalDeliveryText(data.normal_delivery_text || "Delivery in 60–90 mins");
+        setPeakDeliveryText(data.peak_delivery_text || "Same Day Delivery (High Demand)");
+        setNormalDeliveryText(data.normal_delivery_text || "Same Day Local Delivery");
         setPeakNoticeMessage(
           data.peak_notice_message ||
             data.peak_notice ||
-            "High order volume in progress. Deliveries may take 2–3 hours today."
+            "High order volume in progress. Deliveries may arrive by late evening today."
         );
 
         if (data.schedule) {
@@ -287,8 +287,8 @@ function StoreHours() {
         setIsPeakHours(Boolean(res.is_peak_hours));
         showToast(
           res.is_peak_hours
-            ? "⚡ Peak Hours Mode ACTIVATED! Customers now see extended delivery time."
-            : "✅ Peak Hours Mode DEACTIVATED. Standard 60–90 min delivery restored."
+            ? "⚡ Peak Hours Mode ACTIVATED! Customers now see extended delivery notice."
+            : "✅ Peak Hours Mode DEACTIVATED. Standard Same Day Local Delivery restored."
         );
       }
     } catch (err) {
@@ -634,7 +634,7 @@ function StoreHours() {
                       : "bg-emerald-50 text-emerald-800 border border-emerald-200"
                   }`}
                 >
-                  {isPeakHours ? "⚡ Rush Mode ACTIVE (2–3h ETA)" : "Normal Speed (60–90m ETA)"}
+                  {isPeakHours ? "⚡ Rush Mode ACTIVE" : "Normal Speed (Same Day Local Delivery)"}
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-gray-500">
@@ -732,7 +732,7 @@ function StoreHours() {
                   type="text"
                   value={normalDeliveryText}
                   onChange={(e) => setNormalDeliveryText(e.target.value)}
-                  placeholder="Delivery in 60–90 mins"
+                  placeholder="Same Day Local Delivery"
                   className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-900 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
               </div>
