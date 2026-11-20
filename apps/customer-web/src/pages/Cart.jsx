@@ -608,7 +608,7 @@ function Cart() {
     }
   };
 
-  const MIN_ORDER_VALUE = 500;
+  const MIN_ORDER_VALUE = 1; // Temporarily 1 for live testing (normally 500)
 
   const [stockCheckMap, setStockCheckMap] = useState({});
   const [stockChecking, setStockChecking] = useState(false);
@@ -1112,6 +1112,7 @@ function Cart() {
             standaloneBar={true}
             hasOutOfStock={hasOutOfStockItems}
             stockChecking={stockChecking}
+            minOrderValue={MIN_ORDER_VALUE}
             onStoreClosed={(closedStatus) => {
               setStoreHours((prev) => ({ ...(prev || {}), ...closedStatus }));
               getStoreHours().then((data) => { if (data) setStoreHours(data); }).catch(() => {});

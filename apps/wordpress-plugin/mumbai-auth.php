@@ -4035,12 +4035,14 @@ add_action('woocommerce_store_api_checkout_update_order_from_request', function 
         $items_subtotal += (float) $item->get_subtotal();
     }
 
-    if ($items_subtotal < 500) {
-        $shortfall = 500 - $items_subtotal;
+    $min_order_threshold = (float) get_option('mumbai_minimum_order_value', 1);
+    if ($items_subtotal < $min_order_threshold) {
+        $shortfall = $min_order_threshold - $items_subtotal;
         $shortfall_formatted = (floor($shortfall) == $shortfall) ? number_format($shortfall, 0) : number_format($shortfall, 2);
+        $min_formatted = (floor($min_order_threshold) == $min_order_threshold) ? number_format($min_order_threshold, 0) : number_format($min_order_threshold, 2);
         throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
             'woocommerce_rest_min_order_value',
-            sprintf('Add ₹%s more to reach the minimum order value of ₹500.', $shortfall_formatted),
+            sprintf('Add ₹%s more to reach the minimum order value of ₹%s.', $shortfall_formatted, $min_formatted),
             400
         );
     }
@@ -4083,11 +4085,13 @@ add_action('rest_api_init', function () {
 add_action('woocommerce_check_cart_items', function () {
     if (WC()->cart) {
         $subtotal = (float) WC()->cart->get_subtotal();
-        if ($subtotal < 500) {
-            $shortfall = 500 - $subtotal;
+        $min_order_threshold = (float) get_option('mumbai_minimum_order_value', 1);
+        if ($subtotal < $min_order_threshold) {
+            $shortfall = $min_order_threshold - $subtotal;
             $shortfall_formatted = (floor($shortfall) == $shortfall) ? number_format($shortfall, 0) : number_format($shortfall, 2);
+            $min_formatted = (floor($min_order_threshold) == $min_order_threshold) ? number_format($min_order_threshold, 0) : number_format($min_order_threshold, 2);
             wc_add_notice(
-                sprintf('Add ₹%s more to reach the minimum order value of ₹500.', $shortfall_formatted),
+                sprintf('Add ₹%s more to reach the minimum order value of ₹%s.', $shortfall_formatted, $min_formatted),
                 'error'
             );
         }

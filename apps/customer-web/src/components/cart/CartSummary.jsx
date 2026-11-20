@@ -7,7 +7,7 @@ function CartSummary({
   delivery,
   total,
   shortfall = 0,
-  minOrderValue = 500,
+  minOrderValue = 1,
   storeHours,
   onCheckout,
 }) {
@@ -32,12 +32,12 @@ function CartSummary({
         </div>
       )}
 
-      {/* Minimum Order Value Alert (Subtotal < ₹500) */}
+      {/* Minimum Order Value Alert (Subtotal < minOrderValue) */}
       {itemsTotal < minOrderValue && (
         <div className="minimum-order-notice rounded-[22px] border p-4.5 shadow-sm animate-in fade-in duration-200">
           <div className="flex items-start gap-3.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-black font-black text-xs shadow-xs">
-              ₹500
+              ₹{minOrderValue}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
@@ -49,10 +49,10 @@ function CartSummary({
                 </span>
               </div>
               <p className="minimum-order-copy text-xs font-semibold mt-1 leading-snug">
-                Add <span className="minimum-order-shortfall font-black underline decoration-2">₹{shortfall}</span> more to reach the minimum order value of ₹500.
+                Add <span className="minimum-order-shortfall font-black underline decoration-2">₹{shortfall}</span> more to reach the minimum order value of ₹{minOrderValue}.
               </p>
               <p className="minimum-order-footnote text-[11px] font-medium mt-1">
-                * Delivery charges do not count toward the ₹500 product minimum.
+                * Delivery charges do not count toward the ₹{minOrderValue} product minimum.
               </p>
               {/* Dynamic progress bar */}
               <div className="minimum-order-progress mt-2.5 h-2 w-full overflow-hidden rounded-full border">

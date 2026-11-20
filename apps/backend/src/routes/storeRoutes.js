@@ -11,6 +11,7 @@ import storeHoursService from "../services/storeHoursService.js";
 import { fetchAllProductCategories } from "../services/productService.js";
 import { validateDeliveryAddress } from "../controllers/addressController.js";
 import { publishOrderEvent } from "../services/orderNotificationService.js";
+import { MIN_ORDER_VALUE_INR } from "../utils/paymentCheckoutUtils.js";
 import api from "../config/woocommerce.js";
 
 const router = express.Router();
@@ -216,7 +217,6 @@ async function proxyStoreApi(req, res) {
               ) / 100
             : 0);
 
-      const MIN_ORDER_VALUE_INR = 500;
       if (itemsSubtotal < MIN_ORDER_VALUE_INR) {
         const shortfall = Math.max(0, MIN_ORDER_VALUE_INR - itemsSubtotal);
         return res.status(400).json({

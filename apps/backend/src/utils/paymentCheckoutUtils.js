@@ -11,7 +11,7 @@ import paymentIntentService, {
 } from "../services/paymentIntentService.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
-export const MIN_ORDER_VALUE_INR = 500;
+export const MIN_ORDER_VALUE_INR = Number(process.env.MIN_ORDER_VALUE_INR || 1); // Temporarily 1 for testing (normally 500)
 
 export const httpsAgent = new https.Agent({
   rejectUnauthorized: process.env.NODE_ENV === "production",

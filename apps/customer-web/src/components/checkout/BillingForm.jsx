@@ -53,6 +53,7 @@ function BillingForm({
   totalAmount,
   standaloneBar = false,
   hasOutOfStock = false,
+  minOrderValue = 1,
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -300,7 +301,7 @@ function BillingForm({
       return;
     }
 
-    if (itemsSubtotal < 500) {
+    if (itemsSubtotal < minOrderValue) {
       return;
     }
 
@@ -528,7 +529,7 @@ function BillingForm({
         errData?.code === "MIN_ORDER_VALUE"
       ) {
         setError(
-          errData?.message || "Minimum product order value of ₹500 is required."
+          errData?.message || `Minimum product order value of ₹${minOrderValue} is required.`
         );
       } else {
         setError(
@@ -541,12 +542,12 @@ function BillingForm({
     }
   };
 
-  const isBelowMin = itemsSubtotal < 500;
+  const isBelowMin = itemsSubtotal < minOrderValue;
   useEffect(() => {
     if (/minimum.*order value|^add ₹/i.test(error)) {
       if (isBelowMin) {
-        const currentShortfall = Math.max(0, 500 - itemsSubtotal);
-        setError(`Add ₹${currentShortfall} more to reach the minimum order value of ₹500.`);
+        const currentShortfall = Math.max(0, minOrderValue - itemsSubtotal);
+        setError(`Add ₹${currentShortfall} more to reach the minimum order value of ₹${minOrderValue}.`);
       } else {
         setError("");
       }
