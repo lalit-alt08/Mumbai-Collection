@@ -78,7 +78,7 @@ export const getCookieOptions = (req, role = "customer") => {
   return {
     httpOnly: true,
     secure: isHttps,
-    sameSite: isHttps ? "none" : "lax",
+    sameSite: "lax",
     maxAge: isStaffSession
       ? 12 * 60 * 60 * 1000
       : 30 * 24 * 60 * 60 * 1000,
@@ -95,7 +95,7 @@ export const getClearCookieOptions = (req) => {
   return {
     httpOnly: true,
     secure: isHttps,
-    sameSite: isHttps ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
   };
 };

@@ -141,6 +141,9 @@ function Login() {
                   <input
                     id="email"
                     type="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck="false"
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}

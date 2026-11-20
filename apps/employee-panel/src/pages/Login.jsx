@@ -129,6 +129,9 @@ function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="staff@mumbaicollection.in"
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
                 required
                 className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-sm text-white placeholder-slate-500 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
               />

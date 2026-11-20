@@ -23,7 +23,7 @@ const getProfileCookieOptions = (req) => {
   return {
     httpOnly: true,
     secure: isHttps,
-    sameSite: isHttps ? "none" : "lax",
+    sameSite: "lax",
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
   };
@@ -378,7 +378,7 @@ export const deleteAccount = async (req, res) => {
     const clearOptions = {
       httpOnly: true,
       secure: isHttps,
-      sameSite: isHttps ? "none" : "lax",
+      sameSite: "lax",
       path: "/",
     };
 
