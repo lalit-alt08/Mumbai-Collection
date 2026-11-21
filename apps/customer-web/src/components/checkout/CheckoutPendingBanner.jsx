@@ -108,7 +108,7 @@ export function CheckoutPendingBanner({
               </span>
             </div>
             <p className="mt-1 leading-relaxed text-[#64748B] text-[12px]">
-              {pendingStatusFeedback || (isPaymentUnpaid ? "No payment was received for this attempt. You can try paying again or cancel this checkout." : "If money was debited, please do not pay again. Check your payment status to continue.")}
+              {pendingStatusFeedback || (isPaymentUnpaid ? "No money was charged. You can try paying again or cancel this attempt." : "Confirming with your bank. If money was debited, please do not pay again.")}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {isPaymentUnpaid && onRetryPayment && (
@@ -138,7 +138,7 @@ export function CheckoutPendingBanner({
                   type="button"
                   onClick={handleCancelUnpaidCheckout}
                   disabled={cancellingPending || checkingPendingStatus}
-                  className="rounded-full border border-rose-300 bg-white px-3.5 py-1.5 font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
+                  className="pending-cancel-pill active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {cancellingPending ? "Ending attempt…" : "Cancel checkout"}
                 </button>

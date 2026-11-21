@@ -148,7 +148,7 @@ export function CheckoutBottomBar({
                     type="button"
                     onClick={onCancelUnpaidCheckout}
                     disabled={cancellingPending || checkingPendingStatus}
-                    className="inline-flex items-center justify-center rounded-full border border-rose-300 bg-white px-3 py-1 text-[11px] font-extrabold text-rose-700 hover:bg-rose-50 active:scale-95 shrink-0 cursor-pointer disabled:opacity-50 transition-all shadow-xs dark:bg-rose-950/60 dark:border-rose-800/80 dark:text-rose-200 dark:hover:bg-rose-900/60"
+                    className="pending-cancel-pill text-[11px] py-1 px-3 active:scale-95 shrink-0 cursor-pointer disabled:opacity-50"
                   >
                     {cancellingPending ? "Ending…" : "Cancel checkout"}
                   </button>

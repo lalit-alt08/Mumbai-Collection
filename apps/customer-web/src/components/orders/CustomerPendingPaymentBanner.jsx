@@ -18,7 +18,7 @@ export function CustomerPendingPaymentBanner({
   return (
     <div className="mb-6 rounded-[24px] border border-[#E2E8F0] bg-[#FFFFFF] p-5 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
+        <div className="flex items-start gap-3.5 flex-1 min-w-0">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0]">
             {checkingPending ? (
               <div
@@ -29,18 +29,18 @@ export function CustomerPendingPaymentBanner({
               <Clock size={22} className="text-[#22499F]" />
             )}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 role="status" aria-live="polite" className="text-sm font-extrabold text-[#1E293B]">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
+              <h3 role="status" aria-live="polite" className="text-sm font-extrabold text-[#1E293B] whitespace-nowrap">
                 {checkingPending
                   ? "Verifying payment"
                   : isSupport
-                  ? "Payment Needs Staff Review"
+                  ? "Payment Needs Review"
                   : isPaymentUnpaid
                   ? "No Payment Received"
                   : "Payment pending"}
               </h3>
-              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold border whitespace-nowrap ${
                 checkingPending
                   ? "bg-blue-50 text-[#22499F] border-[#22499F]/40"
                   : isSupport
@@ -49,21 +49,16 @@ export function CustomerPendingPaymentBanner({
                   ? "bg-amber-50 text-amber-800 border-amber-300"
                   : "bg-blue-50 text-[#22499F] border-blue-200"
               }`}>
-                {checkingPending ? "VERIFYING" : isSupport ? "NEEDS REVIEW" : isPaymentUnpaid ? "NOT COMPLETED" : "PENDING"}
+                {checkingPending ? "VERIFYING" : isSupport ? "NEEDS REVIEW" : isPaymentUnpaid ? "UNPAID" : "PENDING"}
               </span>
             </div>
             <p className="mt-1 text-xs text-[#64748B] leading-relaxed">
               {isSupport
-                ? "This payment requires staff confirmation. If money was debited, please do not pay again."
+                ? "Payment needs staff confirmation. If debited, please do not pay again."
                 : isPaymentUnpaid
-                ? "No payment was received for this attempt. You can return to your cart to try paying again, or end this checkout attempt."
-                : "If money was debited from your account, please do not pay again."}
+                ? (pendingFeedback || "No money was charged. You can try paying again or cancel this attempt.")
+                : (pendingFeedback || "Confirming with your bank. If money was debited, please do not pay again.")}
             </p>
-            {pendingFeedback && (
-              <p className="mt-1.5 text-xs font-semibold text-[#22499F]">
-                {pendingFeedback}
-              </p>
-            )}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
@@ -92,7 +87,7 @@ export function CustomerPendingPaymentBanner({
               type="button"
               onClick={() => onCancelPending(pendingPayment.razorpay_order_id)}
               disabled={cancellingPending || checkingPending}
-              className="rounded-full border border-rose-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
+              className="pending-cancel-pill active:scale-95 cursor-pointer disabled:opacity-50"
             >
               {cancellingPending ? "Ending attempt…" : "Cancel checkout"}
             </button>

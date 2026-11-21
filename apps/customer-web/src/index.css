@@ -42,6 +42,84 @@
 .pending-checkout-label { color: #465466; }
 .pending-checkout-cancel { color: #A32E3D; }
 .pending-checkout-cancel:hover { color: #7D1F2D; }
+
+/* Cancel checkout pill button */
+.pending-cancel-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  background-color: #FFF1F2;
+  border: 1px solid #FECDD3;
+  color: #BE123C;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pending-cancel-pill:hover:not(:disabled) {
+  background-color: #FFE4E6;
+  border-color: #FDA4AF;
+  color: #9F1239;
+}
+.pending-cancel-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Cart Item action pills */
+.cart-item-remove-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  background-color: #FFF1F2;
+  border: 1px solid #FECDD3;
+  color: #BE123C;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cart-item-remove-pill:hover:not(:disabled) {
+  background-color: #FFE4E6;
+  border-color: #FDA4AF;
+  color: #9F1239;
+}
+.cart-item-remove-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cart-item-change-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #B45309;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cart-item-change-pill:hover:not(:disabled) {
+  background-color: #FEF3C7;
+  border-color: #FCD34D;
+  color: #92400E;
+}
+.cart-item-change-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .checkout-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
 .auth-error-banner { background: #FEF2F2; border-color: #FCA5A5; color: #B91C1C; }
 .auth-field-error { color: #DC2626; }
@@ -83,6 +161,36 @@ html[data-store-theme="dark"] .minimum-order-progress { background: #292A2B; bor
 html[data-store-theme="dark"] .pending-checkout-label { color: #D1D5D8; }
 html[data-store-theme="dark"] .pending-checkout-cancel { color: #FFB2B7; }
 html[data-store-theme="dark"] .pending-checkout-cancel:hover { color: #FFD2D4; }
+html[data-store-theme="dark"] .pending-cancel-pill {
+  background-color: rgba(244, 63, 94, 0.14);
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #FDA4AF;
+}
+html[data-store-theme="dark"] .pending-cancel-pill:hover:not(:disabled) {
+  background-color: rgba(244, 63, 94, 0.24);
+  border-color: rgba(244, 63, 94, 0.55);
+  color: #FECDD3;
+}
+html[data-store-theme="dark"] .cart-item-remove-pill {
+  background-color: rgba(244, 63, 94, 0.14);
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #FDA4AF;
+}
+html[data-store-theme="dark"] .cart-item-remove-pill:hover:not(:disabled) {
+  background-color: rgba(244, 63, 94, 0.24);
+  border-color: rgba(244, 63, 94, 0.55);
+  color: #FECDD3;
+}
+html[data-store-theme="dark"] .cart-item-change-pill {
+  background-color: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #FCD34D;
+}
+html[data-store-theme="dark"] .cart-item-change-pill:hover:not(:disabled) {
+  background-color: rgba(245, 158, 11, 0.24);
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #FDE68A;
+}
 html[data-store-theme="dark"] .checkout-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .auth-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .auth-field-error { color: #FDA4AF; }

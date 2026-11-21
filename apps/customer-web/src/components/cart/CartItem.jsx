@@ -85,10 +85,8 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
                 type="button"
                 disabled={isUpdating}
                 onClick={() => onResolveStock(item, isFullyOutOfStock ? 0 : maxLimit)}
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-extrabold transition-all active:scale-95 disabled:opacity-50 cursor-pointer ${
-                  isFullyOutOfStock
-                    ? "border border-rose-300/80 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/60 dark:border-rose-800/80 dark:text-rose-200"
-                    : "border border-amber-300/80 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/60 dark:border-amber-800/80 dark:text-amber-200"
+                className={`active:scale-95 disabled:opacity-50 cursor-pointer ${
+                  isFullyOutOfStock ? "cart-item-remove-pill" : "cart-item-change-pill"
                 }`}
               >
                 {isFullyOutOfStock ? "Remove" : `Change to ${maxLimit}`}

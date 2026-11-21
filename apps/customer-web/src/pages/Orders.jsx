@@ -181,7 +181,7 @@ function Orders() {
         setPendingFeedback("Payment is processing with your bank. Please check again in a moment.");
       } else {
         setIsPaymentUnpaid(true);
-        setPendingFeedback("No payment received. If you did not complete payment on UPI, you can try paying again in Cart or end this attempt.");
+        setPendingFeedback("No money was charged. You can try paying again in Cart or end this attempt.");
       }
     } catch (_) {
       if (paymentIdentityRef.current === identity) setPendingFeedback("Could not check payment status with gateway right now. Please tap to retry.");
