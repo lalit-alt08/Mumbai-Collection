@@ -1,4 +1,4 @@
-import { Home, Building2, ChevronRight, Clock, MessageCircle } from "lucide-react";
+import { Home, Building2, ChevronRight, Clock } from "lucide-react";
 
 export function CheckoutBottomBar({
   loadingAddresses,
@@ -43,19 +43,6 @@ export function CheckoutBottomBar({
       <div className="mx-auto w-full max-w-[700px] px-3.5 sm:px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {/* Subtle Pull Indicator Pill */}
         <div className="mx-auto w-9 h-1 rounded-full bg-[#E2E8F0] mb-2 opacity-80" />
-
-        {/* WhatsApp Support: only above Delivering to Home when pending payment situation arrives */}
-        {hasActivePendingPayment && (
-          <a
-            href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="checkout-whatsapp-pill"
-          >
-            <MessageCircle size={13} strokeWidth={2.5} />
-            <span>WhatsApp Support (+91 87936 01567)</span>
-          </a>
-        )}
 
         {/* Row 1: Unified Address Capsule */}
         <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#FFFFFF] border border-[#E2E8F0]/80 px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
