@@ -31,6 +31,7 @@ export function usePendingPayment({
   const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
   const [pendingStatusFeedback, setPendingStatusFeedback] = useState("");
   const [cancelPermission, setCancelPermission] = useState(null);
+  const [isPaymentUnpaid, setIsPaymentUnpaid] = useState(false);
   const pollTimerRef = useRef(null);
   const statusRequestRef = useRef(null);
   const statusRequestSequenceRef = useRef(0);
@@ -147,10 +148,12 @@ export function usePendingPayment({
         }
 
         if (res?.processing) {
+          setIsPaymentUnpaid(false);
           setPendingStatusFeedback("Payment is processing with your bank. Please check again in a moment.");
         } else {
+          setIsPaymentUnpaid(true);
           setPendingStatusFeedback(
-            "No payment confirmed yet. If you did not complete payment on UPI, you can end this checkout attempt."
+            "No payment received. You can try paying again or cancel this checkout."
           );
         }
       } catch (err) {
@@ -275,10 +278,55 @@ export function usePendingPayment({
     }
   };
 
+  const handleRetryPayment = async (onRetryReady) => {
+    const requestUserId = user?.id || checkoutExpiredUserId;
+    if (!requestUserId || String(activeUserRef?.current) !== String(requestUserId)) return;
+    const stored = getPendingPayment(requestUserId);
+    if (!stored?.razorpay_order_id || cancellingPending || checkingPendingStatus) return;
+    const requestOrderId = stored.razorpay_order_id;
+    if (activeOrderRef?.current && activeOrderRef.current !== requestOrderId) return;
+    if (activeOrderRef) activeOrderRef.current = requestOrderId;
+    const requestSequence = ++cancelRequestSequenceRef.current;
+    const isCurrentAttempt = () =>
+      requestSequence === cancelRequestSequenceRef.current &&
+      String(activeUserRef?.current) === String(requestUserId) &&
+      activeOrderRef?.current === requestOrderId;
+
+    try {
+      setCancelPermission(null);
+      setCancellingPending(true);
+      setError("");
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      try {
+        await cancelPaymentOrder(requestOrderId);
+      } catch (_) {
+        // Safe to proceed if cancel timed out or was already expired
+      }
+      if (!isCurrentAttempt()) return;
+      clearPendingPayment(requestUserId);
+      clearCheckoutIdempotencyKey(requestUserId);
+      if (idempotencyKeyRef) idempotencyKeyRef.current = generateUUID();
+      setIsPersistentPending(false);
+      setIsPaymentUnpaid(false);
+      setPendingStatusFeedback("");
+      if (activeOrderRef) activeOrderRef.current = null;
+      if (typeof onRetryReady === "function") {
+        onRetryReady();
+      }
+    } catch (_) {
+      setError("Unable to restart checkout right now. Please tap to retry.");
+    } finally {
+      if (isCurrentAttempt()) {
+        setCancellingPending(false);
+      }
+    }
+  };
+
   // Check pending order status on mount, when tab becomes visible, and on network reconnect
   useEffect(() => {
     setCancelPermission(null);
     setCancellingPending(false);
+    setIsPaymentUnpaid(false);
     verifyPendingOrder(true);
 
     const handleVisibilityChange = () => {
@@ -311,8 +359,10 @@ export function usePendingPayment({
     cancellingPending,
     sessionExpiredPending,
     pendingStatusFeedback,
+    isPaymentUnpaid,
     canCancelPending: Boolean(!checkingPendingStatus && cancelPermission && String(user?.id) === cancelPermission.userId && getPendingPayment(user?.id)?.razorpay_order_id === cancelPermission.orderId),
     verifyPendingOrder,
+    handleRetryPayment,
     handleCancelUnpaidCheckout,
     pollTimerRef,
   };

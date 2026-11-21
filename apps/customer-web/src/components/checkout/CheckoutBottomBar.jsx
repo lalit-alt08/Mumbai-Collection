@@ -19,6 +19,7 @@ export function CheckoutBottomBar({
   checkingPendingStatus,
   pendingStatusFeedback,
   canCancelPending,
+  isPaymentUnpaid,
   onOpenAddressModal,
   onRetryAddresses,
   onCancelUnpaidCheckout,
@@ -131,11 +132,13 @@ export function CheckoutBottomBar({
                     <p role="status" aria-live="polite" className="font-bold text-[#1E293B] text-[12px] leading-tight break-words">
                       {checkingPendingStatus
                         ? "Verifying payment"
-                        : pendingStatusFeedback || "Payment pending"}
+                        : pendingStatusFeedback || (isPaymentUnpaid ? "No payment received" : "Payment pending")}
                     </p>
                     <p className="text-[10px] text-[#64748B] leading-tight mt-0.5 break-words">
                       {checkingPendingStatus
                         ? "Checking transaction status"
+                        : isPaymentUnpaid
+                        ? "Tap below to try paying again, or cancel checkout"
                         : "Check payment status to continue"}
                     </p>
                   </div>
@@ -231,6 +234,11 @@ export function CheckoutBottomBar({
                 <span>Sign in to check payment</span>
               ) : checkoutAction === "payment_status" ? (
                 <span>{checkingPendingStatus ? "Checking payment…" : "Check payment status"}</span>
+              ) : checkoutAction === "payment_retry" ? (
+                <>
+                  <span className="truncate">{cancellingPending ? "Starting checkout…" : "Try Paying Again"}</span>
+                  <ChevronRight size={17} strokeWidth={2.8} className="shrink-0" />
+                </>
               ) : checkoutAction === "retry_addresses" ? (
                 <span>Try again</span>
               ) : checkoutAction === "review_cart" ? (

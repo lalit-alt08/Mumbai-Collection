@@ -110,7 +110,9 @@ function BillingForm({
     sessionExpiredPending,
     pendingStatusFeedback,
     canCancelPending,
+    isPaymentUnpaid,
     verifyPendingOrder,
+    handleRetryPayment,
     handleCancelUnpaidCheckout,
     pollTimerRef,
   } = usePendingPayment({
@@ -582,6 +584,8 @@ function BillingForm({
     : hasActivePendingPayment
     ? requiresSignIn || sessionExpiredPending
       ? "payment_signin"
+      : isPaymentUnpaid
+      ? "payment_retry"
       : "payment_status"
     : unconfirmedQuote
     ? "confirm_quote"
@@ -620,6 +624,8 @@ function BillingForm({
       setUnconfirmedQuote(null);
       setError("");
       handlePlaceOrder();
+    } else if (checkoutAction === "payment_retry") {
+      handleRetryPayment(() => handlePlaceOrder());
     } else if (checkoutAction === "payment_status") {
       verifyPendingOrder(true);
     } else if (checkoutAction === "legacy_payment") {
@@ -669,6 +675,8 @@ function BillingForm({
         cancellingPending={cancellingPending}
         pendingStatusFeedback={pendingStatusFeedback}
         canCancelPending={canCancelPending}
+        isPaymentUnpaid={isPaymentUnpaid}
+        onRetryPayment={() => handleRetryPayment(() => handlePlaceOrder())}
         verifyPendingOrder={verifyPendingOrder}
         handleCancelUnpaidCheckout={handleCancelUnpaidCheckout}
         navigate={navigate}
@@ -788,6 +796,7 @@ function BillingForm({
         checkingPendingStatus={checkingPendingStatus}
         pendingStatusFeedback={pendingStatusFeedback}
         canCancelPending={canCancelPending}
+        isPaymentUnpaid={isPaymentUnpaid}
         onOpenAddressModal={() => setShowAddressModal(true)}
         onRetryAddresses={() => setAddressRetry((value) => value + 1)}
         onCancelUnpaidCheckout={handleCancelUnpaidCheckout}

@@ -1,4 +1,5 @@
 import { Clock } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export function CustomerPendingPaymentBanner({
   pendingPayment,
@@ -6,6 +7,7 @@ export function CustomerPendingPaymentBanner({
   checkingPending,
   cancellingPending,
   canCancelPending,
+  isPaymentUnpaid,
   onCheckPending,
   onCancelPending,
 }) {
@@ -34,6 +36,8 @@ export function CustomerPendingPaymentBanner({
                   ? "Verifying payment"
                   : isSupport
                   ? "Payment Needs Staff Review"
+                  : isPaymentUnpaid
+                  ? "No Payment Received"
                   : "Payment pending"}
               </h3>
               <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
@@ -41,14 +45,18 @@ export function CustomerPendingPaymentBanner({
                   ? "bg-blue-50 text-[#22499F] border-[#22499F]/40"
                   : isSupport
                   ? "bg-amber-50 text-amber-800 border-amber-300"
+                  : isPaymentUnpaid
+                  ? "bg-amber-50 text-amber-800 border-amber-300"
                   : "bg-blue-50 text-[#22499F] border-blue-200"
               }`}>
-                {checkingPending ? "VERIFYING" : isSupport ? "NEEDS REVIEW" : "PENDING"}
+                {checkingPending ? "VERIFYING" : isSupport ? "NEEDS REVIEW" : isPaymentUnpaid ? "NOT COMPLETED" : "PENDING"}
               </span>
             </div>
             <p className="mt-1 text-xs text-[#64748B] leading-relaxed">
               {isSupport
                 ? "This payment requires staff confirmation. If money was debited, please do not pay again."
+                : isPaymentUnpaid
+                ? "No payment was received for this attempt. You can return to your cart to try paying again, or end this checkout attempt."
                 : "If money was debited from your account, please do not pay again."}
             </p>
             {pendingFeedback && (
@@ -59,13 +67,25 @@ export function CustomerPendingPaymentBanner({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+          {isPaymentUnpaid && (
+            <Link
+              to="/cart"
+              className="rounded-xl bg-[#22499F] px-4 py-2 text-xs font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer"
+            >
+              Try Paying in Cart
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => onCheckPending(pendingPayment.razorpay_order_id)}
             disabled={checkingPending || cancellingPending}
-            className="rounded-xl bg-[#22499F] px-4 py-2 text-xs font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
+            className={`rounded-xl px-4 py-2 text-xs font-black shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 ${
+              isPaymentUnpaid
+                ? "border border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-slate-50"
+                : "bg-[#22499F] text-[#FFFFFF] hover:bg-[#1B3B82]"
+            }`}
           >
-            {checkingPending ? "Checking payment…" : "Check payment"}
+            {checkingPending ? "Checking payment…" : isPaymentUnpaid ? "Check Status Again" : "Check payment"}
           </button>
           {!isSupport && canCancelPending && onCancelPending && (
             <button

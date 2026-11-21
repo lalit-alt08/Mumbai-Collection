@@ -33,6 +33,7 @@ function Orders() {
   const [cancellingPending, setCancellingPending] = useState(false);
   const [pendingFeedback, setPendingFeedback] = useState("");
   const [cancelPermission, setCancelPermission] = useState(null);
+  const [isPaymentUnpaid, setIsPaymentUnpaid] = useState(false);
   const paymentIdentityRef = useRef(null);
   paymentIdentityRef.current = `${user?.id || ""}:${pendingPayment?.razorpay_order_id || ""}`;
 
@@ -127,6 +128,7 @@ function Orders() {
     setPendingFeedback("");
     setCheckingPending(false);
     setCancellingPending(false);
+    setIsPaymentUnpaid(false);
     const checkStoredPending = () => {
       const stored = getPendingPayment(user?.id);
       if (stored?.razorpay_order_id) {
@@ -175,9 +177,11 @@ function Orders() {
         return;
       }
       if (res?.processing) {
+        setIsPaymentUnpaid(false);
         setPendingFeedback("Payment is processing with your bank. Please check again in a moment.");
       } else {
-        setPendingFeedback("No payment confirmed yet. If you did not complete payment on UPI, you can end this attempt.");
+        setIsPaymentUnpaid(true);
+        setPendingFeedback("No payment received. If you did not complete payment on UPI, you can try paying again in Cart or end this attempt.");
       }
     } catch (_) {
       if (paymentIdentityRef.current === identity) setPendingFeedback("Could not check payment status with gateway right now. Please tap to retry.");
@@ -289,6 +293,7 @@ function Orders() {
           checkingPending={checkingPending}
           cancellingPending={cancellingPending}
           canCancelPending={!checkingPending && cancelPermission === paymentIdentityRef.current}
+          isPaymentUnpaid={isPaymentUnpaid}
           onCheckPending={handleCheckPending}
           onCancelPending={handleCancelPending}
         />

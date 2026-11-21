@@ -8,6 +8,8 @@ export function CheckoutPendingBanner({
   cancellingPending,
   pendingStatusFeedback,
   canCancelPending,
+  isPaymentUnpaid,
+  onRetryPayment,
   verifyPendingOrder,
   handleCancelUnpaidCheckout,
   navigate,
@@ -89,27 +91,47 @@ export function CheckoutPendingBanner({
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h4 className="font-extrabold text-[#1E293B] text-sm">
-                {checkingPendingStatus ? "Verifying payment" : "Payment pending"}
+                {checkingPendingStatus
+                  ? "Verifying payment"
+                  : isPaymentUnpaid
+                  ? "No Payment Received"
+                  : "Payment pending"}
               </h4>
               <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ${
                 checkingPendingStatus
                   ? "bg-blue-100 text-[#22499F]"
+                  : isPaymentUnpaid
+                  ? "bg-amber-100 text-amber-800 border border-amber-300"
                   : "bg-[#22499F]/10 text-[#22499F]"
               }`}>
-                {checkingPendingStatus ? "VERIFYING" : "PENDING"}
+                {checkingPendingStatus ? "VERIFYING" : isPaymentUnpaid ? "UNPAID" : "PENDING"}
               </span>
             </div>
             <p className="mt-1 leading-relaxed text-[#64748B] text-[12px]">
-              {pendingStatusFeedback || "If money was debited, please do not pay again. Check your payment status to continue."}
+              {pendingStatusFeedback || (isPaymentUnpaid ? "No payment was received for this attempt. You can try paying again or cancel this checkout." : "If money was debited, please do not pay again. Check your payment status to continue.")}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
+              {isPaymentUnpaid && onRetryPayment && (
+                <button
+                  type="button"
+                  onClick={onRetryPayment}
+                  disabled={checkingPendingStatus || cancellingPending}
+                  className="rounded-xl bg-[#22499F] px-4 py-2 font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {cancellingPending ? "Starting checkout…" : "Try Paying Again"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => verifyPendingOrder(true)}
                 disabled={checkingPendingStatus || cancellingPending}
-                className="rounded-xl bg-[#22499F] px-3.5 py-1.5 font-bold text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
+                className={`rounded-xl px-3.5 py-1.5 font-bold shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 ${
+                  isPaymentUnpaid
+                    ? "border border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-slate-50"
+                    : "bg-[#22499F] text-[#FFFFFF] hover:bg-[#1B3B82]"
+                }`}
               >
-                {checkingPendingStatus ? "Checking payment…" : "Check Payment Status"}
+                {checkingPendingStatus ? "Checking payment…" : isPaymentUnpaid ? "Check Status Again" : "Check Payment Status"}
               </button>
               {canCancelPending && <button
                 type="button"

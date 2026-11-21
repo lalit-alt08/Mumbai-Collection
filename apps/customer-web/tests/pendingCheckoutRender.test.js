@@ -18,6 +18,9 @@ test("pending checkout renders while checking and when idle", async () => {
     assert.doesNotMatch(idle, /Cancel checkout/);
     const cancellable = renderToStaticMarkup(React.createElement(CheckoutBottomBar, { ...props, canCancelPending: true }));
     assert.match(cancellable, /Cancel checkout/);
+    const retryable = renderToStaticMarkup(React.createElement(CheckoutBottomBar, { ...props, checkoutAction: "payment_retry", isPaymentUnpaid: true, canCancelPending: true }));
+    assert.match(retryable, /Try Paying Again/);
+    assert.match(retryable, /Cancel checkout/);
   } finally {
     await server.close();
   }
