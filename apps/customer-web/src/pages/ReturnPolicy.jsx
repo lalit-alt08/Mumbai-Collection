@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { triggerHaptic } from "../utils/haptics";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -15,6 +17,11 @@ import {
 
 function ReturnPolicy() {
   const navigate = useNavigate();
+  usePageCanonical("https://mumbaicollections.in/return-policy");
+
+  useEffect(() => {
+    document.title = "Return & Refund Policy | Mumbai Collection Vasai";
+  }, []);
 
   const handleBack = () => {
     if (window.history.length > 2) {

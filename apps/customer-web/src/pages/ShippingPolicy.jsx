@@ -1,9 +1,16 @@
+import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Truck, Clock, MapPin, CheckCircle2, ChevronLeft } from "lucide-react";
 import { triggerHaptic } from "../utils/haptics";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 function ShippingPolicy() {
   const navigate = useNavigate();
+  usePageCanonical("https://mumbaicollections.in/shipping-policy");
+
+  useEffect(() => {
+    document.title = "Shipping & Delivery Policy | Mumbai Collection Vasai";
+  }, []);
 
   const handleBack = () => {
     if (window.history.length > 2) {

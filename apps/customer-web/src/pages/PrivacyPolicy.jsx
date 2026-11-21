@@ -1,9 +1,16 @@
+import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ShieldCheck, Lock, Eye, FileText, Bell, PhoneCall, ChevronLeft } from "lucide-react";
 import { triggerHaptic } from "../utils/haptics";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 function PrivacyPolicy() {
   const navigate = useNavigate();
+  usePageCanonical("https://mumbaicollections.in/privacy-policy");
+
+  useEffect(() => {
+    document.title = "Privacy Policy | Mumbai Collection Vasai";
+  }, []);
 
   const handleBack = () => {
     if (window.history.length > 2) {

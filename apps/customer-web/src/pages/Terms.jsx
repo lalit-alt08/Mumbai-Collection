@@ -1,9 +1,16 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, FileText, Phone, MapPin } from "lucide-react";
 import { triggerHaptic } from "../utils/haptics";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 function Terms() {
   const navigate = useNavigate();
+  usePageCanonical("https://mumbaicollections.in/terms");
+
+  useEffect(() => {
+    document.title = "Terms & Conditions | Mumbai Collection Vasai";
+  }, []);
 
   const handleBack = () => {
     if (window.history.length > 2) {

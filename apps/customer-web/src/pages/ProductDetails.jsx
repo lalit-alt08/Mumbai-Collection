@@ -10,6 +10,7 @@ import ProductReviews from "../components/product/ProductReviews";
 import RelatedProducts from "../components/product/RelatedProducts";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 import { useNoIndex } from "../hooks/useNoIndex";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 const SESSION_SCROLL_PREFIX = "mc_product_scroll_";
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle expiration
@@ -147,8 +148,9 @@ function ProductDetails() {
 
   const isConfirmedNotFound = Boolean(!loading && !product && error?.type === "not_found");
   useNoIndex(isConfirmedNotFound);
+  usePageCanonical(product?.id ? `https://mumbaicollections.in/product/${product.id}` : null);
 
-  // Dynamic SEO Title, Meta Description & Canonical URL
+  // Dynamic SEO Title & Meta Description
   useEffect(() => {
     if (isConfirmedNotFound) {
       document.title = "Product Not Found | Mumbai Collection Vasai";
@@ -165,14 +167,6 @@ function ProductDetails() {
           : `Buy ${product.name} online at Mumbai Collection, Vasai. Best prices and fast delivery.`;
         metaDesc.setAttribute("content", cleanDesc);
       }
-
-      let canonical = document.querySelector('link[rel="canonical"]');
-      if (!canonical) {
-        canonical = document.createElement("link");
-        canonical.rel = "canonical";
-        document.head.appendChild(canonical);
-      }
-      canonical.href = `https://mumbaicollections.in/product/${product.id}`;
     }
     return () => {
       document.title = "Mumbai Collection Vasai | Toys, Games & Stationery Store";
@@ -182,10 +176,6 @@ function ProductDetails() {
           "content",
           "Shop toys, games, stationery, school supplies, and everyday essentials at Mumbai Collection in Vasai. Fast same-day delivery across Vasai-Virar."
         );
-      }
-      const canonical = document.querySelector('link[rel="canonical"]');
-      if (canonical) {
-        canonical.href = "https://mumbaicollections.in/";
       }
     };
   }, [product, isConfirmedNotFound]);

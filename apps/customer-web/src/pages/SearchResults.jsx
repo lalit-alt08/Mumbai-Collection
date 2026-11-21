@@ -3,11 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Search } from "lucide-react";
 import ProductCard from "../components/product/ProductCard";
 import { searchProducts } from "../services/productService";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 const RESULTS_PER_PAGE = 20;
 const searchMemoryCache = new Map();
 
 function SearchResults() {
+  useNoIndex();
   const [searchParams, setSearchParams] = useSearchParams();
   const query = (searchParams.get("q") || "").trim();
   const parsedPage = Number.parseInt(searchParams.get("page") || "1", 10);

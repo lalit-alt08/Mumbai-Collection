@@ -12,6 +12,7 @@ import API_URL from "../config/api.js";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import { useNoIndex } from "../hooks/useNoIndex";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 const PER_PAGE = 20;
 
@@ -40,6 +41,7 @@ function Category() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [categoryTitle, setCategoryTitle] = useState("");
+  const [categoryNotFoundError, setCategoryNotFoundError] = useState(false);
 
   const [filters, setFilters] = useState({ sort: "default", price_range: "all", in_stock: "0" });
   const { sort: sortBy, price_range: priceFilter, in_stock } = filters;
@@ -104,8 +106,16 @@ function Category() {
     );
   }, [allCategories, categoryId]);
 
-  const isConfirmedNotFound = Boolean(categoriesLoaded && allCategories.length > 0 && !matchedCategory);
+  // Genuine 404 signal: strictly driven by explicit backend 404 / CATEGORY_NOT_FOUND
+  const isConfirmedNotFound = Boolean(!loading && categoryNotFoundError);
   useNoIndex(isConfirmedNotFound);
+
+  // Canonical tag: points directly to the category's own canonical slug; cleaned up on unmount
+  const canonicalSlug = matchedCategory?.slug || (typeof categoryId === "string" && isNaN(Number(categoryId)) ? categoryId : null);
+  const canonicalUrl = !isConfirmedNotFound && canonicalSlug
+    ? `https://mumbaicollections.in/category/${canonicalSlug}`
+    : null;
+  usePageCanonical(canonicalUrl);
 
   // Determine current department, child subcategories, and active selection
   const currentCategoryInfo = useMemo(() => {
@@ -190,25 +200,7 @@ function Category() {
       ? `${activeSubcategoryTitle} • ${departmentName}`
       : departmentName;
     document.title = `${pageTitle} | Mumbai Collection Vasai`;
-
-    // Canonical link points directly to the visited category's own canonical slug
-    const targetSlug = matchedCategory?.slug || categoryId;
-    let canonical = document.querySelector('link[rel="canonical"]');
-    if (!canonical) {
-      canonical = document.createElement("link");
-      canonical.rel = "canonical";
-      document.head.appendChild(canonical);
-    }
-    canonical.href = `https://mumbaicollections.in/category/${targetSlug}`;
-
-    return () => {
-      document.title = "Mumbai Collection Vasai | Toys, Games & Stationery Store";
-      const metaCanonical = document.querySelector('link[rel="canonical"]');
-      if (metaCanonical) {
-        metaCanonical.href = "https://mumbaicollections.in/";
-      }
-    };
-  }, [activeSubcategoryTitle, departmentName, activeSubcategoryObj, categoryId, matchedCategory, isConfirmedNotFound]);
+  }, [activeSubcategoryTitle, departmentName, activeSubcategoryObj, isConfirmedNotFound]);
 
   // Lock body overflow so window scrolling doesn't push the category header or rail around
   useEffect(() => {
@@ -286,6 +278,7 @@ function Category() {
         setLoadError("");
         setLoadMoreError("");
         setCategoryTitle("");
+        setCategoryNotFoundError(false);
         setPage(1);
         const data = await getProductsByCategory(
           effectiveCategoryId,
@@ -334,12 +327,18 @@ function Category() {
         if (controller.signal.aborted || err.name === "CanceledError" || err.code === "ERR_CANCELED") return;
         if (isMounted && requestId === categoryRequestIdRef.current) {
           const lowerId = String(effectiveCategoryId || "").toLowerCase();
-          if (
+          const isExplicit404 =
             err.response?.status === 404 ||
-            err.response?.data?.code === "CATEGORY_NOT_FOUND" ||
-            lowerId === "trending" ||
-            lowerId === "imported"
-          ) {
+            err.response?.data?.code === "CATEGORY_NOT_FOUND";
+
+          if (isExplicit404 && lowerId !== "trending" && lowerId !== "imported") {
+            setCategoryNotFoundError(true);
+            setProducts([]);
+            setTotalCount(0);
+            setTotalPages(0);
+            setLoadError("");
+          } else if (lowerId === "trending" || lowerId === "imported") {
+            setCategoryNotFoundError(false);
             setProducts([]);
             setTotalCount(0);
             setTotalPages(0);
@@ -347,11 +346,11 @@ function Category() {
             setCategoryTitle(
               lowerId === "trending"
                 ? "Trending"
-                : lowerId === "imported"
-                ? "Imported"
-                : "Category Products"
+                : "Imported"
             );
           } else {
+            // Temporary upstream failures (500, 502, 503, network drop) preserve retry without noindex
+            setCategoryNotFoundError(false);
             setProducts([]);
             setLoadError("We couldn't load products for this category. Check your connection and try again.");
           }

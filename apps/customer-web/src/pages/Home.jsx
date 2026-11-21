@@ -10,6 +10,7 @@ import { getHomeShelves } from "../services/productService";
 import { AlertCircle, CheckCircle2, X, ChevronRight } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 // In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
 let cachedHomeData = {
@@ -74,15 +75,10 @@ function Home() {
     return () => window.removeEventListener("scroll", savePosition);
   }, [loading]);
 
+  usePageCanonical("https://mumbaicollections.in/");
+
   useEffect(() => {
     document.title = "Mumbai Collection Vasai | Toys, Games & Stationery Store";
-    let canonical = document.querySelector('link[rel="canonical"]');
-    if (!canonical) {
-      canonical = document.createElement("link");
-      canonical.rel = "canonical";
-      document.head.appendChild(canonical);
-    }
-    canonical.href = "https://mumbaicollections.in/";
   }, []);
 
   useEffect(() => {

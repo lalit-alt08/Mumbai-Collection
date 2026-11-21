@@ -5,6 +5,7 @@ import { getCategoryImageUrl } from "../utils/categoryImage.js";
 import { useCart } from "../context/CartContext";
 import { triggerHaptic } from "../utils/haptics";
 import { AlertCircle, ArrowLeft, ArrowRight, ChevronRight, ChevronLeft, ShoppingCart } from "lucide-react";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 
 const CATEGORY_PAGE_SIZE = 24;
 let cachedVisibleCategoryCount = CATEGORY_PAGE_SIZE;
@@ -31,6 +32,11 @@ function getSavedSessionScroll() {
 
 function Categories() {
   const navigate = useNavigate();
+  usePageCanonical("https://mumbaicollections.in/categories");
+
+  useEffect(() => {
+    document.title = "All Categories | Mumbai Collection Vasai";
+  }, []);
   const { cart } = useCart();
   const totalCartCount =
     cart?.items?.reduce(

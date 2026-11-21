@@ -23,9 +23,8 @@ export function useNoIndex(enabled = true) {
     const previousContent = metaTag.content;
     metaTag.content = "noindex, nofollow";
 
-    // Clean up canonical tags on confirmed 404 / noindex pages to avoid conflicting indexing signals
+    // Clean up any canonical tags on confirmed 404 / noindex pages to avoid conflicting indexing signals
     const existingCanonical = document.querySelector('link[rel="canonical"]');
-    const previousCanonical = existingCanonical ? existingCanonical.getAttribute("href") : null;
     if (existingCanonical) {
       existingCanonical.remove();
     }
@@ -36,12 +35,8 @@ export function useNoIndex(enabled = true) {
       } else if (metaTag) {
         metaTag.content = previousContent || "index, follow";
       }
-      if (previousCanonical) {
-        const restored = document.createElement("link");
-        restored.rel = "canonical";
-        restored.href = previousCanonical;
-        document.head.appendChild(restored);
-      }
+      // Note: We deliberately do NOT restore previous canonical tags on unmount.
+      // Each route owns its canonical lifecycle via usePageCanonical.
     };
   }, [enabled]);
 }

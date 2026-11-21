@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { triggerHaptic } from '../utils/haptics';
 import { useNavigate } from "react-router-dom";
+import { usePageCanonical } from "../hooks/usePageCanonical";
 import {
   Phone,
   MapPin,
@@ -13,6 +15,11 @@ import {
 
 function Contact() {
   const navigate = useNavigate();
+  usePageCanonical("https://mumbaicollections.in/contact");
+
+  useEffect(() => {
+    document.title = "Contact Us | Mumbai Collection Vasai";
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 pt-3 pb-28 sm:px-6 md:pt-6 md:pb-16">
