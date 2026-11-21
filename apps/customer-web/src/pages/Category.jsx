@@ -169,11 +169,25 @@ function Category() {
     const pageTitle = activeSubcategoryObj
       ? `${activeSubcategoryTitle} • ${departmentName}`
       : departmentName;
-    document.title = `${pageTitle} | Mumbai Collection`;
+    document.title = `${pageTitle} | Mumbai Collection Vasai`;
+
+    const targetSlug = currentCategoryInfo?.department?.slug || categoryId;
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.rel = "canonical";
+      document.head.appendChild(canonical);
+    }
+    canonical.href = `https://mumbaicollections.in/category/${targetSlug}`;
+
     return () => {
-      document.title = "Mumbai Collection | Toys & Stationery Store";
+      document.title = "Mumbai Collection Vasai | Toys, Games & Stationery Store";
+      const metaCanonical = document.querySelector('link[rel="canonical"]');
+      if (metaCanonical) {
+        metaCanonical.href = "https://mumbaicollections.in/";
+      }
     };
-  }, [activeSubcategoryTitle, departmentName, activeSubcategoryObj]);
+  }, [activeSubcategoryTitle, departmentName, activeSubcategoryObj, categoryId, currentCategoryInfo]);
 
   // Lock body overflow so window scrolling doesn't push the category header or rail around
   useEffect(() => {

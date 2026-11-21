@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-process.env.CUSTOMER_ORIGIN = "https://mumbaicollection.in";
+process.env.CUSTOMER_ORIGIN = "https://mumbaicollections.in";
 
 const { default: app } = await import("../src/app.js");
 const { _setSitemapCatalogProviderForTesting } = await import("../src/routes/storeRoutes.js");
@@ -36,7 +36,7 @@ test("SITEMAP: exclusion of drafts/private/hidden items, XML escaping, and robot
     assert.ok(fs.existsSync(robotsPath), "robots.txt exists");
     const robotsContent = fs.readFileSync(robotsPath, "utf8");
 
-    assert.match(robotsContent, /Sitemap:\s*https:\/\/mumbaicollection\.in\/sitemap\.xml/);
+    assert.match(robotsContent, /Sitemap:\s*https:\/\/mumbaicollections\.in\/sitemap\.xml/);
     assert.match(robotsContent, /Disallow:\s*\/checkout/);
     assert.match(robotsContent, /Disallow:\s*\/account/);
     assert.match(robotsContent, /Disallow:\s*\/cart/);
@@ -45,17 +45,18 @@ test("SITEMAP: exclusion of drafts/private/hidden items, XML escaping, and robot
 
   await t.test("Dynamically excludes drafts, private, and hidden products and escapes special XML characters", async () => {
     const mockProducts = [
-      { id: 101, status: "publish", catalog_visibility: "visible", date_modified_gmt: "2026-10-09T10:00:00" },
+      { id: 101, status: "publish", catalog_visibility: "visible", date_modified_gmt: "2026-10-09T10:00:00", categories: [{ id: 201 }, { id: 202 }] },
       { id: 102, status: "draft", catalog_visibility: "visible" },          // MUST BE EXCLUDED (draft)
       { id: 103, status: "private", catalog_visibility: "visible" },        // MUST BE EXCLUDED (private)
       { id: 104, status: "publish", catalog_visibility: "hidden" },         // MUST BE EXCLUDED (hidden visibility)
       { id: 105, status: "pending", catalog_visibility: "visible" },        // MUST BE EXCLUDED (pending)
-      { id: 106, status: "publish", catalog_visibility: "catalog", date_modified_gmt: "2026-10-10T12:00:00" }, // PUBLISHED
+      { id: 106, status: "publish", catalog_visibility: "catalog", date_modified_gmt: "2026-10-10T12:00:00", categories: [{ id: 201 }] }, // PUBLISHED
     ];
 
     const mockCategories = [
-      { id: 201, slug: "toys-and-games" },
-      { id: 202, slug: "stationery-&-gifts" }, // Contains & that MUST be escaped as &amp;
+      { id: 201, slug: "toys-and-games", count: 2 },
+      { id: 202, slug: "stationery-&-gifts", count: 1 }, // Contains & that MUST be escaped as &amp;
+      { id: 999, slug: "empty-category-with-no-products", count: 0 }, // MUST BE EXCLUDED (empty category)
     ];
 
     _setSitemapCatalogProviderForTesting(async () => ({
@@ -70,19 +71,20 @@ test("SITEMAP: exclusion of drafts/private/hidden items, XML escaping, and robot
     const xml = await res.text();
 
     // Verify exclusions
-    assert.match(xml, /<loc>https:\/\/mumbaicollection\.in\/product\/101<\/loc>/);
-    assert.match(xml, /<loc>https:\/\/mumbaicollection\.in\/product\/106<\/loc>/);
-    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollection\.in\/product\/102<\/loc>/); // draft excluded
-    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollection\.in\/product\/103<\/loc>/); // private excluded
-    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollection\.in\/product\/104<\/loc>/); // hidden excluded
-    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollection\.in\/product\/105<\/loc>/); // pending excluded
+    assert.match(xml, /<loc>https:\/\/mumbaicollections\.in\/product\/101<\/loc>/);
+    assert.match(xml, /<loc>https:\/\/mumbaicollections\.in\/product\/106<\/loc>/);
+    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollections\.in\/product\/102<\/loc>/); // draft excluded
+    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollections\.in\/product\/103<\/loc>/); // private excluded
+    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollections\.in\/product\/104<\/loc>/); // hidden excluded
+    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollections\.in\/product\/105<\/loc>/); // pending excluded
+    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollections\.in\/category\/empty-category-with-no-products<\/loc>/); // empty category excluded
 
     // Verify XML escaping
-    assert.match(xml, /<loc>https:\/\/mumbaicollection\.in\/category\/stationery-&amp;-gifts<\/loc>/);
-    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollection\.in\/category\/stationery-&-gifts<\/loc>/);
+    assert.match(xml, /<loc>https:\/\/mumbaicollections\.in\/category\/stationery-&amp;-gifts<\/loc>/);
+    assert.doesNotMatch(xml, /<loc>https:\/\/mumbaicollections\.in\/category\/stationery-&-gifts<\/loc>/);
 
     // Verify URL count
-    // 7 static pages + 2 categories + 2 valid products = 11 URLs
+    // 7 static pages + 2 populated categories + 2 valid products = 11 URLs
     const urlMatches = xml.match(/<url>/g) || [];
     assert.equal(urlMatches.length, 11);
 

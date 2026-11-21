@@ -545,7 +545,7 @@ const fetchAllPublishedProductsForSitemap = async () => {
       status: "publish",
       page,
       per_page: SITEMAP_PAGE_SIZE,
-      _fields: "id,status,catalog_visibility,date_modified_gmt,date_modified,date_created",
+      _fields: "id,status,catalog_visibility,date_modified_gmt,date_modified,date_created,categories",
     });
     if (!Array.isArray(response?.data)) {
       throw new Error("Invalid WooCommerce product sitemap response");
@@ -637,19 +637,44 @@ export const generateSitemapXml = async (req, res) => {
       rawCategories.filter((category) => category?.id).map((category) => [Number(category.id), category])
     );
     const populatedCategoryIds = new Set();
-    for (const category of rawCategories) {
-      if (!category?.id || !Number.isFinite(Number(category.count)) || Number(category.count) <= 0) continue;
-      let current = category;
-      const visited = new Set();
-      while (current?.id && !visited.has(Number(current.id))) {
-        const currentId = Number(current.id);
-        visited.add(currentId);
-        populatedCategoryIds.add(currentId);
-        const parentId = Number(current.parent) || 0;
-        if (parentId <= 0) break;
-        current = categoryById.get(parentId);
+
+    // 1. Authoritative: Identify populated categories directly from valid published products
+    for (const prod of validProducts) {
+      if (Array.isArray(prod.categories)) {
+        for (const cat of prod.categories) {
+          if (cat?.id) {
+            let currentId = Number(cat.id);
+            const visited = new Set();
+            while (currentId > 0 && !visited.has(currentId)) {
+              visited.add(currentId);
+              populatedCategoryIds.add(currentId);
+              const parentCat = categoryById.get(currentId);
+              const parentId = Number(parentCat?.parent) || 0;
+              if (parentId <= 0) break;
+              currentId = parentId;
+            }
+          }
+        }
       }
     }
+
+    // 2. Fallback: If product categories array is missing (e.g. simplified mock data), use category count
+    if (populatedCategoryIds.size === 0) {
+      for (const category of rawCategories) {
+        if (!category?.id || !Number.isFinite(Number(category.count)) || Number(category.count) <= 0) continue;
+        let current = category;
+        const visited = new Set();
+        while (current?.id && !visited.has(Number(current.id))) {
+          const currentId = Number(current.id);
+          visited.add(currentId);
+          populatedCategoryIds.add(currentId);
+          const parentId = Number(current.parent) || 0;
+          if (parentId <= 0) break;
+          current = categoryById.get(parentId);
+        }
+      }
+    }
+
     const hasCategoryCounts = rawCategories.some((category) => category?.count !== undefined && category?.count !== null);
     const validCategories = rawCategories.filter(
       (category) =>
@@ -657,7 +682,7 @@ export const generateSitemapXml = async (req, res) => {
         (category.slug || category.id) &&
         category.slug?.toLowerCase() !== "uncategorized" &&
         category.name?.toLowerCase() !== "uncategorized" &&
-        (!hasCategoryCounts || populatedCategoryIds.has(Number(category.id)))
+        populatedCategoryIds.has(Number(category.id))
     );
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;

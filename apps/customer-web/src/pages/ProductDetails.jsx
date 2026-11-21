@@ -144,10 +144,10 @@ function ProductDetails() {
     if (product?.id) recordRecentlyViewedProduct(product.id);
   }, [product?.id]);
 
-  // Dynamic SEO Title & Meta Description
+  // Dynamic SEO Title, Meta Description & Canonical URL
   useEffect(() => {
     if (product?.name) {
-      document.title = `${product.name} | Mumbai Collection`;
+      document.title = `${product.name} | Mumbai Collection Vasai`;
 
       const metaDesc = document.querySelector('meta[name="description"]');
       if (metaDesc) {
@@ -156,15 +156,27 @@ function ProductDetails() {
           : `Buy ${product.name} online at Mumbai Collection, Vasai. Best prices and fast delivery.`;
         metaDesc.setAttribute("content", cleanDesc);
       }
+
+      let canonical = document.querySelector('link[rel="canonical"]');
+      if (!canonical) {
+        canonical = document.createElement("link");
+        canonical.rel = "canonical";
+        document.head.appendChild(canonical);
+      }
+      canonical.href = `https://mumbaicollections.in/product/${product.id}`;
     }
     return () => {
-      document.title = "Mumbai Collection | Toys & Stationery Store";
+      document.title = "Mumbai Collection Vasai | Toys, Games & Stationery Store";
       const metaDesc = document.querySelector('meta[name="description"]');
       if (metaDesc) {
         metaDesc.setAttribute(
           "content",
-          "Shop toys, stationery, school supplies, and everyday essentials at Mumbai Collection in Vasai."
+          "Shop toys, games, stationery, school supplies, and everyday essentials at Mumbai Collection in Vasai. Fast same-day delivery across Vasai-Virar."
         );
+      }
+      const canonical = document.querySelector('link[rel="canonical"]');
+      if (canonical) {
+        canonical.href = "https://mumbaicollections.in/";
       }
     };
   }, [product]);
