@@ -136,6 +136,43 @@
 .checkout-pending-bar .checkout-pending-icon {
   color: #22499F;
 }
+
+/* Order Status & Scheduled Pills */
+.order-scheduled-pill {
+  background-color: #EEF2FF;
+  border: 1px solid #C7D2FE;
+  color: #4338CA;
+}
+.order-scheduled-pill .order-scheduled-moon {
+  color: #4F46E5;
+}
+.order-review-pill {
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #B45309;
+}
+.order-status-pending,
+.order-status-processing,
+.order-status-packed,
+.order-status-delivery {
+  background-color: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1D4ED8;
+}
+
+/* Pending Banner Status Pills */
+.status-pill-pending,
+.status-pill-verifying {
+  background-color: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1D4ED8;
+}
+.status-pill-unpaid,
+.status-pill-review {
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  color: #B45309;
+}
 .checkout-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
 .auth-error-banner { background: #FEF2F2; border-color: #FCA5A5; color: #B91C1C; }
 .auth-field-error { color: #DC2626; }
@@ -221,6 +258,40 @@ html[data-store-theme="dark"] .checkout-pending-bar .checkout-pending-desc {
 }
 html[data-store-theme="dark"] .checkout-pending-bar .checkout-pending-icon {
   color: #FF942F;
+}
+
+html[data-store-theme="dark"] .order-scheduled-pill {
+  background-color: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #C7D2FE;
+}
+html[data-store-theme="dark"] .order-scheduled-pill .order-scheduled-moon {
+  color: #818CF8;
+}
+html[data-store-theme="dark"] .order-review-pill {
+  background-color: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #FCD34D;
+}
+html[data-store-theme="dark"] .order-status-pending,
+html[data-store-theme="dark"] .order-status-processing,
+html[data-store-theme="dark"] .order-status-packed,
+html[data-store-theme="dark"] .order-status-delivery {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #93C5FD;
+}
+html[data-store-theme="dark"] .status-pill-pending,
+html[data-store-theme="dark"] .status-pill-verifying {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #93C5FD;
+}
+html[data-store-theme="dark"] .status-pill-unpaid,
+html[data-store-theme="dark"] .status-pill-review {
+  background-color: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #FCD34D;
 }
 html[data-store-theme="dark"] .checkout-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .auth-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }

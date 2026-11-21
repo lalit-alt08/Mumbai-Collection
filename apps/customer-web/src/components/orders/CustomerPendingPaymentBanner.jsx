@@ -42,12 +42,12 @@ export function CustomerPendingPaymentBanner({
               </h3>
               <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold border whitespace-nowrap ${
                 checkingPending
-                  ? "bg-blue-50 text-[#22499F] border-[#22499F]/40"
+                  ? "status-pill-verifying"
                   : isSupport
-                  ? "bg-amber-50 text-amber-800 border-amber-300"
+                  ? "status-pill-review"
                   : isPaymentUnpaid
-                  ? "bg-amber-50 text-amber-800 border-amber-300"
-                  : "bg-blue-50 text-[#22499F] border-blue-200"
+                  ? "status-pill-unpaid"
+                  : "status-pill-pending"
               }`}>
                 {checkingPending ? "VERIFYING" : isSupport ? "NEEDS REVIEW" : isPaymentUnpaid ? "UNPAID" : "PENDING"}
               </span>
