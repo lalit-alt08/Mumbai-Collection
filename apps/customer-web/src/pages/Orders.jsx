@@ -8,7 +8,7 @@ import { CustomerPendingPaymentBanner } from "../components/orders/CustomerPendi
 import { CustomerOrderCard } from "../components/orders/CustomerOrderCard.jsx";
 import { triggerHaptic } from "../utils/haptics";
 import { getMyOrders } from "../services/orderService";
-import { checkPaymentStatus } from "../services/paymentService";
+import { checkPaymentStatus, cancelPaymentOrder } from "../services/paymentService";
 import {
   getPendingPayment,
   clearPendingPayment,
@@ -30,7 +30,11 @@ function Orders() {
 
   const [pendingPayment, setPendingPayment] = useState(null);
   const [checkingPending, setCheckingPending] = useState(false);
+  const [cancellingPending, setCancellingPending] = useState(false);
   const [pendingFeedback, setPendingFeedback] = useState("");
+  const [cancelPermission, setCancelPermission] = useState(null);
+  const paymentIdentityRef = useRef(null);
+  paymentIdentityRef.current = `${user?.id || ""}:${pendingPayment?.razorpay_order_id || ""}`;
 
   const [page, setPage] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
@@ -119,9 +123,13 @@ function Orders() {
   }, [userEmail]);
 
   useEffect(() => {
+    setCancelPermission(null);
+    setPendingFeedback("");
+    setCheckingPending(false);
+    setCancellingPending(false);
     const checkStoredPending = () => {
       const stored = getPendingPayment(user?.id);
-      if (stored?.razorpay_order_id && Date.now() - (stored.timestamp || 0) < 30 * 60 * 1000) {
+      if (stored?.razorpay_order_id) {
         setPendingPayment(stored);
       } else {
         setPendingPayment(null);
@@ -137,16 +145,20 @@ function Orders() {
     const idToCheck = rzpOrderId || pendingPayment?.razorpay_order_id;
     if (!idToCheck) return;
 
+    const identity = `${user?.id || ""}:${idToCheck}`;
     try {
+      setCancelPermission(null);
       setCheckingPending(true);
       setPendingFeedback("");
       const res = await checkPaymentStatus(idToCheck);
+      if (paymentIdentityRef.current !== identity) return;
+      if (res?.can_cancel === true && !res?.support_required && !res?.terminal) setCancelPermission(identity);
       if (res?.success && res?.order_id) {
         clearPendingPayment(user?.id);
-        clearCheckoutIdempotencyKey();
+        clearCheckoutIdempotencyKey(user?.id);
         setPendingPayment(null);
         navigate(`/order-success/${res.order_id}`, {
-          state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
+          state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing", confirmedUserId: user.id },
         });
         return;
       }
@@ -155,18 +167,50 @@ function Orders() {
         setPendingFeedback(res.message || "This payment requires staff review. Please do not pay again; contact support with your checkout reference.");
         return;
       }
-      if (res?.refunded || res?.terminal) {
+      if (res?.refunded || res?.terminal || res?.cancelled) {
         clearPendingPayment(user?.id);
         setPendingPayment(null);
         setPendingFeedback(res.message || (res.refunded ? "Your payment was refunded." : "This payment attempt has ended."));
         fetchOrders(1, false);
         return;
       }
-      setPendingFeedback("Payment is still being confirmed by your bank. Please try checking again in a moment.");
+      if (res?.processing) {
+        setPendingFeedback("Payment is processing with your bank. Please check again in a moment.");
+      } else {
+        setPendingFeedback("No payment confirmed yet. If you did not complete payment on UPI, you can end this attempt.");
+      }
     } catch (_) {
-      setPendingFeedback("Unable to reach payment gateway right now. Please check again in a few moments.");
+      if (paymentIdentityRef.current === identity) setPendingFeedback("Could not check payment status with gateway right now. Please tap to retry.");
     } finally {
-      setCheckingPending(false);
+      if (paymentIdentityRef.current === identity) setCheckingPending(false);
+    }
+  };
+
+  const handleCancelPending = async (rzpOrderId) => {
+    const idToCancel = rzpOrderId || pendingPayment?.razorpay_order_id;
+    const identity = `${user?.id || ""}:${idToCancel}`;
+    if (!idToCancel || cancellingPending || checkingPending || cancelPermission !== identity) return;
+
+    try {
+      setCancellingPending(true);
+      setCancelPermission(null);
+      const res = await cancelPaymentOrder(idToCancel);
+      if (paymentIdentityRef.current !== identity) return;
+      if (res?.cancelled || res?.terminal) {
+        clearPendingPayment(user?.id);
+        clearCheckoutIdempotencyKey(user?.id);
+        setPendingPayment(null);
+        setPendingFeedback(res?.message || "Checkout attempt ended and reserved items released.");
+        fetchOrders(1, false);
+      } else if (res?.code === "PAYMENT_ALREADY_CAPTURED" || res?.code === "PAYMENT_PROCESSING") {
+        setPendingFeedback(res.message || "A payment is processing. Please check status before paying again.");
+      } else {
+        setPendingFeedback(res?.message || "Unable to end checkout attempt. Please try checking status.");
+      }
+    } catch (err) {
+      if (paymentIdentityRef.current === identity) setPendingFeedback(err.response?.data?.message || err.message || "Failed to end checkout attempt.");
+    } finally {
+      if (paymentIdentityRef.current === identity) setCancellingPending(false);
     }
   };
 
@@ -236,11 +280,17 @@ function Orders() {
         </div>
 
         {/* Payment-Pending Active Order Banner */}
+        {!pendingPayment && pendingFeedback && (
+          <p role="status" className="mb-4 rounded-xl bg-blue-50 p-4 text-sm text-[#1E293B]">{pendingFeedback}</p>
+        )}
         <CustomerPendingPaymentBanner
           pendingPayment={pendingPayment}
           pendingFeedback={pendingFeedback}
           checkingPending={checkingPending}
+          cancellingPending={cancellingPending}
+          canCancelPending={!checkingPending && cancelPermission === paymentIdentityRef.current}
           onCheckPending={handleCheckPending}
+          onCancelPending={handleCancelPending}
         />
 
         {/* Loading Skeletons */}

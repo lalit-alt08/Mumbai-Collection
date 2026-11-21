@@ -9,12 +9,13 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
     : price;
 
   const isUpdating = updatingKey === item.key;
+  const isHeldForCheckout = Boolean(item.isHeldForCheckout);
   const maxLimit = item.backordersAllowed
     ? 99
     : typeof item.availableStock === "number"
     ? item.availableStock
     : typeof item.quantity_limits?.maximum === "number" ? item.quantity_limits.maximum : 99;
-  const isFullyOutOfStock = !item.backordersAllowed && (
+  const isFullyOutOfStock = !item.backordersAllowed && !isHeldForCheckout && (
     maxLimit === 0 ||
     (typeof item.availableStock !== "number" && (
       item.stock_status === "outofstock" ||
@@ -22,9 +23,9 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
       Boolean(item.isOutOfStock)
     ))
   );
-  const isQuantityShort = !item.backordersAllowed && maxLimit > 0 && item.quantity > maxLimit;
-  const isOutOfStock = isFullyOutOfStock || isQuantityShort;
-  const isMaxReached = item.quantity >= maxLimit && maxLimit > 0;
+  const isQuantityShort = !item.backordersAllowed && !isHeldForCheckout && maxLimit > 0 && item.quantity > maxLimit;
+  const isOutOfStock = !isHeldForCheckout && (isFullyOutOfStock || isQuantityShort);
+  const isMaxReached = !isHeldForCheckout && item.quantity >= maxLimit && maxLimit > 0;
 
   return (
     <div
@@ -61,7 +62,11 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
           <h2 className="line-clamp-2 text-[14px] font-bold leading-snug text-[#1E293B]">
             {cleanProductTitle(item.name)}
           </h2>
-          {isFullyOutOfStock ? (
+          {isHeldForCheckout ? (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#22499F]/10 px-2 py-0.5 text-[10px] font-extrabold text-[#22499F] border border-[#22499F]/20">
+              Reserved for this checkout
+            </span>
+          ) : isFullyOutOfStock ? (
             <span className="cart-item-sold-out mt-1 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-extrabold">
               Sold out
             </span>

@@ -66,10 +66,10 @@ export function createRazorpayHandler({
       if (orderRes?.already_paid) {
         clearCheckoutIdempotencyKey(requestUserId);
         clearPendingPayment(requestUserId);
-        await refreshCart().catch(() => {});
+        refreshCart().catch(() => {});
         if (!isSameUser()) return;
         navigate(`/order-success/${orderRes.order_id}`, {
-          state: { paymentMethod: "Online Payment", status: orderRes.orderStatus || "Processing" },
+          state: { paymentMethod: "Online Payment", status: orderRes.orderStatus || "Processing", confirmedUserId: requestUserId },
         });
         isSubmittingRef.current = false;
         setLoading(false);
@@ -94,6 +94,11 @@ export function createRazorpayHandler({
           amount: orderRes.amount,
           cartFingerprint: computeCartFingerprint(cart),
           itemsFingerprint: computeCartItemsFingerprint(cart),
+          heldItems: (cart?.items || []).map((i) => ({
+            id: Number(i.id),
+            key: i.key,
+            quantity: Number(i.quantity || 1),
+          })),
           timestamp: Date.now(),
           support_required: true,
           message: safeMessage,
@@ -109,6 +114,11 @@ export function createRazorpayHandler({
         razorpay_order_id: requestOrderId,
         cartFingerprint: computeCartFingerprint(cart),
         itemsFingerprint: computeCartItemsFingerprint(cart),
+        heldItems: (cart?.items || []).map((i) => ({
+          id: Number(i.id),
+          key: i.key,
+          quantity: Number(i.quantity || 1),
+        })),
         timestamp: Date.now(),
       },
       requestUserId
@@ -116,6 +126,9 @@ export function createRazorpayHandler({
 
     activeOrderRef.current = requestOrderId;
     activeUserRef.current = requestUserId;
+
+    // Prefetch order confirmation page while shopper completes payment
+    import("../../pages/OrderSuccess.jsx").catch(() => {});
 
     const firstName = billingAddress?.first_name || user?.first_name || "";
     const lastName = billingAddress?.last_name || user?.last_name || "";
@@ -157,10 +170,10 @@ export function createRazorpayHandler({
                 clearPendingPayment(requestUserId);
                 clearCheckoutIdempotencyKey(requestUserId);
                 activeOrderRef.current = null;
-                await refreshCart().catch(() => {});
+                refreshCart().catch(() => {});
                 if (!isSameUser()) return;
                 navigate(`/order-success/${checkRes.order_id}`, {
-                  state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
+                  state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing", confirmedUserId: requestUserId },
                 });
                 return;
               }
@@ -250,10 +263,10 @@ export function createRazorpayHandler({
             clearCheckoutIdempotencyKey(requestUserId);
             clearPendingPayment(requestUserId);
             activeOrderRef.current = null;
-            await refreshCart().catch(() => {});
+            refreshCart().catch(() => {});
             if (!isSameUser()) return;
             navigate(`/order-success/${verifyRes.order_id}`, {
-              state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing" },
+              state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing", confirmedUserId: requestUserId },
             });
             return;
           }
@@ -319,10 +332,10 @@ export function createRazorpayHandler({
                 clearCheckoutIdempotencyKey(requestUserId);
                 clearPendingPayment(requestUserId);
                 activeOrderRef.current = null;
-                await refreshCart().catch(() => {});
+                refreshCart().catch(() => {});
                 if (!isSameUser()) return;
                 navigate(`/order-success/${checkRes.order_id}`, {
-                  state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing" },
+                  state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing", confirmedUserId: requestUserId },
                 });
                 return;
               }
@@ -352,7 +365,7 @@ export function createRazorpayHandler({
           if (!pollSucceeded && isCurrentAttempt()) {
             setIsPersistentPending(true);
             setError(
-              "Payment was received by the bank, but order confirmation is taking longer than usual. Please do not pay again — refresh this page shortly or check 'My Orders'."
+              "We couldn’t confirm your payment yet. If money was debited, please do not pay again."
             );
           }
         } finally {

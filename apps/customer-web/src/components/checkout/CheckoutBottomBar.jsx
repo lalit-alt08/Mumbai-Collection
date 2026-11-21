@@ -1,4 +1,4 @@
-import { Home, Building2, ChevronRight } from "lucide-react";
+import { Home, Building2, ChevronRight, Clock } from "lucide-react";
 
 export function CheckoutBottomBar({
   loadingAddresses,
@@ -16,6 +16,9 @@ export function CheckoutBottomBar({
   paymentStep,
   checkoutAction,
   cancellingPending,
+  checkingPendingStatus,
+  pendingStatusFeedback,
+  canCancelPending,
   onOpenAddressModal,
   onRetryAddresses,
   onCancelUnpaidCheckout,
@@ -113,18 +116,39 @@ export function CheckoutBottomBar({
         {/* Row 2: Main Action Button */}
         <div className="w-full">
           {hasActivePendingPayment && (
-            <div className="mb-2 flex items-center justify-between gap-2 px-1">
-              <span className="pending-checkout-label text-[11.5px] font-semibold truncate">
-                Unpaid checkout attempt in progress
-              </span>
-              <button
-                type="button"
-                onClick={onCancelUnpaidCheckout}
-                disabled={cancellingPending}
-                className="pending-checkout-cancel text-[11.5px] font-bold underline underline-offset-2 cursor-pointer disabled:opacity-50 shrink-0"
-              >
-                {cancellingPending ? "Cancelling..." : "Cancel unpaid checkout"}
-              </button>
+            <div className="mb-2.5 rounded-2xl border border-blue-200/80 bg-blue-50/70 p-2.5 text-xs text-[#1E293B] shadow-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {checkingPendingStatus ? (
+                    <div
+                      className="payment-status-spinner h-4 w-4 shrink-0 rounded-full border-2 border-[#22499F] border-t-transparent animate-spin"
+                      style={{ animationDuration: "900ms" }}
+                    />
+                  ) : (
+                    <Clock size={15} className="shrink-0 text-[#22499F]" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p role="status" aria-live="polite" className="font-bold text-[#1E293B] text-[12px] leading-tight break-words">
+                      {checkingPendingStatus
+                        ? "Verifying payment"
+                        : pendingStatusFeedback || "Payment pending"}
+                    </p>
+                    <p className="text-[10px] text-[#64748B] leading-tight mt-0.5 break-words">
+                      {checkingPendingStatus
+                        ? "Checking transaction status"
+                        : "Check payment status to continue"}
+                    </p>
+                  </div>
+                </div>
+                {canCancelPending && <button
+                  type="button"
+                  onClick={onCancelUnpaidCheckout}
+                  disabled={cancellingPending || checkingPendingStatus}
+                  className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 hover:text-rose-700 active:scale-95 shrink-0 cursor-pointer disabled:opacity-50 transition-all shadow-xs"
+                >
+                  {cancellingPending ? "Ending…" : "Cancel checkout"}
+                </button>}
+              </div>
             </div>
           )}
           {isAfterHours && (
@@ -206,7 +230,7 @@ export function CheckoutBottomBar({
               ) : checkoutAction === "payment_signin" ? (
                 <span>Sign in to check payment</span>
               ) : checkoutAction === "payment_status" ? (
-                <span>Check payment status</span>
+                <span>{checkingPendingStatus ? "Checking payment…" : "Check payment status"}</span>
               ) : checkoutAction === "retry_addresses" ? (
                 <span>Try again</span>
               ) : checkoutAction === "review_cart" ? (

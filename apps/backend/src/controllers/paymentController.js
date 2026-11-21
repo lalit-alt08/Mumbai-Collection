@@ -696,8 +696,11 @@ export const checkPaymentStatus = async (req, res) => {
       success: false,
       paid: false,
       terminal: false,
+      processing: Boolean(processing),
       can_cancel: !processing,
-      message: "Payment not completed or still processing.",
+      message: processing
+        ? "Payment is processing with your bank."
+        : "Payment not completed or still processing.",
     });
   } catch (error) {
     logError(req, error, "[Payment] Error in checkPaymentStatus");
@@ -827,10 +830,17 @@ export const cancelPaymentOrder = async (req, res) => {
     }
 
     const reservationId = intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id;
+    let stockReleased = false;
     if (reservationId) {
       try {
-        await (paymentIntentService.releaseCheckoutStock || releaseCheckoutStock)(reservationId);
-      } catch (_) {}
+        const releaseFn = paymentIntentService.releaseCheckoutStock || releaseCheckoutStock;
+        stockReleased = await releaseFn(reservationId);
+      } catch (relErr) {
+        logger.warn({ reservationId, err: relErr?.message }, "[Payment Cancel] Error invoking releaseCheckoutStock");
+        stockReleased = false;
+      }
+    } else {
+      stockReleased = true;
     }
 
     if (intent.customer_id && intent.cart_fingerprint) {
@@ -841,7 +851,10 @@ export const cancelPaymentOrder = async (req, res) => {
       success: true,
       cancelled: true,
       terminal: true,
-      message: "Checkout session cancelled and reserved stock released.",
+      stock_released: Boolean(stockReleased),
+      message: stockReleased
+        ? "Checkout session cancelled and reserved stock released."
+        : "Checkout session cancelled. Reserved items could not be released immediately and will unlock automatically shortly.",
     });
   } catch (err) {
     logError(req, err, "[Payment Cancel] Error cancelling payment intent");

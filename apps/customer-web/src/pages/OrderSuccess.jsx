@@ -38,7 +38,8 @@ function OrderSuccess() {
   const [isResolvingRzp, setIsResolvingRzp] = useState(Boolean(!id && !queryOrderId && rzpOrderId));
 
   const hasDirectCheckoutState = Boolean(
-    location.state?.paymentMethod || location.state?.status
+    user?.id && String(location.state?.confirmedUserId) === String(user.id) &&
+    (typeof performance === "undefined" || performance.getEntriesByType("navigation")[0]?.type !== "reload")
   );
   const [paymentMethodTitle, setPaymentMethodTitle] = useState(
     location.state?.paymentMethod || "Online Payment"
@@ -52,6 +53,7 @@ function OrderSuccess() {
   const [networkError, setNetworkError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [pollAttempt, setPollAttempt] = useState(0);
+  const [detailsFailed, setDetailsFailed] = useState(false);
 
   // Apply noindex, nofollow to keep order confirmation private from search engines
   useEffect(() => {
@@ -142,6 +144,7 @@ function OrderSuccess() {
     let pollTimeout = null;
     setNetworkError(false);
     setFetchError(false);
+    setDetailsFailed(false);
 
     const loadOrder = async (attempt = 1) => {
       try {
@@ -149,7 +152,8 @@ function OrderSuccess() {
         const data = await getOrderById(activeOrderId);
         if (!isMounted) return;
 
-        setOrder(data?.order || null);
+        if (!data?.order) throw new Error("Order details unavailable");
+        setOrder(data.order);
 
         if (data?.order?.payment_method_title) {
           setPaymentMethodTitle(data.order.payment_method_title);
@@ -161,6 +165,7 @@ function OrderSuccess() {
         if (!isMounted) return;
 
         if (hasDirectCheckoutState) {
+          setDetailsFailed(true);
           return;
         }
 
@@ -214,6 +219,10 @@ function OrderSuccess() {
     );
   }
 
+  if (!hasDirectCheckoutState && activeOrderId && !order && !networkError && !fetchError) {
+    return <main className="p-8 text-center" role="status">Loading order details</main>;
+  }
+
   if (networkError) {
     return (
       <main className="relative min-h-screen w-full overflow-hidden bg-[#F0F8E8] flex items-center justify-center px-4">
@@ -225,7 +234,7 @@ function OrderSuccess() {
             Checking Your Order Details...
           </h1>
           <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[#64748B]">
-            Your order #{activeOrderId || id} is safe. We are reconnecting with the store server to retrieve your confirmation details.
+            We are reconnecting with the store server to retrieve your order details.
           </p>
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
             <button
@@ -283,11 +292,13 @@ function OrderSuccess() {
   const isAfterHours = Boolean(location.state?.isAfterHours || isScheduledFulfillmentOrder(order) || scheduledDeliveryMeta);
   const needsDeliveryReview = isPaymentAwaitingDeliveryReview(order);
   const scheduledFulfillmentLabel = getScheduledFulfillmentLabel(order);
-  const deliveryEtaText = needsDeliveryReview
+  const deliveryEtaText = !order
+    ? "Fulfillment details loading…"
+    : needsDeliveryReview
     ? "To be confirmed by the store"
     : isAfterHours
       ? `${scheduledFulfillmentLabel} (Delivery follows)`
-    : "Same Day Local Delivery";
+    : "Delivery timing will be confirmed by the store";
 
   return (
     <div className="order-success-page min-h-[calc(100vh-2rem)] w-full bg-[#F0F8E8] text-[#1E293B] flex items-center justify-center px-4 py-8 sm:py-12">
@@ -348,6 +359,11 @@ function OrderSuccess() {
           )}
 
           {/* Order Summary Details Box */}
+          {detailsFailed && (
+            <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="mt-4 text-[#22499F] underline">
+              Retry delivery details
+            </button>
+          )}
           <div className="order-success-summary mt-6 rounded-2xl border border-white/10 bg-[#F0F8E8]/80 px-4 py-1 shadow-inner">
             <SummaryRow
               icon={<Package size={17} />}

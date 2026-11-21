@@ -27,6 +27,42 @@ test.after(() => {
   axios.defaults.adapter = originalAdapter;
 });
 
+test("confirmed checkout branches navigate without waiting for cart refresh", async () => {
+  const originalWindow = globalThis.window;
+  const originalTimeout = globalThis.setTimeout;
+  let options;
+  globalThis.window = { Razorpay: class { constructor(value) { options = value; } on() {} open() {} } };
+  globalThis.setTimeout = (callback) => originalTimeout(callback, 0);
+  try {
+    const { createRazorpayHandler } = await import("../src/components/checkout/useRazorpayCheckout.js");
+    for (const mode of ["already_paid", "dismiss", "poll"]) {
+      const restore = setupMockAdapter(async (config) => {
+        if (config.url?.includes("/create-order")) return { data: mode === "already_paid" ? { already_paid: true, order_id: 55 } : { razorpay_order_id: "order_test", key_id: "test", amount: 100, currency: "INR" } };
+        if (config.url?.includes("/verify")) throw new Error("gateway unavailable");
+        if (config.url?.includes("/check-status")) return { data: { success: true, order_id: 55 } };
+        throw new Error(`Unexpected request ${config.url}`);
+      });
+      const navigations = [];
+      const start = createRazorpayHandler({
+        user: { id: 55 }, cart: { items: [] }, finalTotal: 1, billingAddress: {}, shippingAddress: {},
+        idempotencyKeyRef: { current: "test" }, activeOrderRef: { current: null }, activeUserRef: { current: 55 },
+        isSubmittingRef: { current: true }, pollTimerRef: { current: null },
+        setLoading() {}, setPaymentStep() {}, setError() {}, setIsPersistentPending() {},
+        refreshCart: () => new Promise(() => {}), navigate: (url) => navigations.push(url),
+      });
+      await start();
+      if (mode === "dismiss") await options.modal.ondismiss();
+      if (mode === "poll") await options.handler({ razorpay_order_id: "order_test", razorpay_payment_id: "pay_test", razorpay_signature: "test" });
+      assert.deepEqual(navigations, ["/order-success/55"], mode);
+      restore();
+    }
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.setTimeout = originalTimeout;
+    currentMockHandler = null;
+  }
+});
+
 const setupMockAdapter = (handler) => {
   currentMockHandler = handler;
   return () => {

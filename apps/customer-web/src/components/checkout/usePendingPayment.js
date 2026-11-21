@@ -29,6 +29,8 @@ export function usePendingPayment({
   const [checkingPendingStatus, setCheckingPendingStatus] = useState(false);
   const [cancellingPending, setCancellingPending] = useState(false);
   const [sessionExpiredPending, setSessionExpiredPending] = useState(false);
+  const [pendingStatusFeedback, setPendingStatusFeedback] = useState("");
+  const [cancelPermission, setCancelPermission] = useState(null);
   const pollTimerRef = useRef(null);
   const statusRequestRef = useRef(null);
   const statusRequestSequenceRef = useRef(0);
@@ -84,21 +86,23 @@ export function usePendingPayment({
 
       // Query payment finalization state by Razorpay order ID FIRST
       try {
+        setCancelPermission(null);
         setCheckingPendingStatus(true);
         const res = await checkPaymentStatus(requestOrderId);
         if (!isCurrentAttempt()) return;
+        if (res?.can_cancel === true && !res?.support_required && !res?.terminal) {
+          setCancelPermission({ userId: String(requestUserId), orderId: requestOrderId });
+        }
 
         if (res?.success && res?.order_id) {
           if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
           if (!isCurrentAttempt()) return;
-          await refreshCart().catch(() => {});
-          // The payment is final for this user even if they switched accounts
-          // while the cart refresh was in flight. Only clear that user's record.
           clearPendingPayment(requestUserId);
           clearCheckoutIdempotencyKey(requestUserId);
+          refreshCart().catch(() => {});
           if (!isCurrentAttempt()) return;
           navigate(`/order-success/${res.order_id}`, {
-            state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
+            state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing", confirmedUserId: requestUserId },
             replace: true,
           });
           return;
@@ -132,14 +136,22 @@ export function usePendingPayment({
           retireCheckoutIdempotencyKey(requestUserId);
           if (!isCurrentAttempt()) return;
           if (idempotencyKeyRef) idempotencyKeyRef.current = generateUUID();
-          setError(
-            res.message ||
-              (res.refunded
-                ? "Your payment was refunded."
-                : "This payment attempt has ended. You can start a fresh checkout.")
-          );
+          const finalMsg = res.message ||
+            (res.refunded
+              ? "Your payment was refunded."
+              : "This payment attempt has ended. You can start a fresh checkout.");
+          setError(finalMsg);
+          setPendingStatusFeedback(finalMsg);
           setIsPersistentPending(false);
           return;
+        }
+
+        if (res?.processing) {
+          setPendingStatusFeedback("Payment is processing with your bank. Please check again in a moment.");
+        } else {
+          setPendingStatusFeedback(
+            "No payment confirmed yet. If you did not complete payment on UPI, you can end this checkout attempt."
+          );
         }
       } catch (err) {
         if (!isCurrentAttempt()) return;
@@ -150,9 +162,9 @@ export function usePendingPayment({
           handleSessionExpired?.({ checkout: true });
           return;
         }
-        setError(
-          "Could not verify payment status with gateway. Please tap 'Check Payment Status' to retry."
-        );
+        const errorMsg = "Could not verify payment status with gateway. Please tap to retry.";
+        setError(errorMsg);
+        setPendingStatusFeedback(errorMsg);
       } finally {
         if (requestSequence === statusRequestSequenceRef.current) {
           statusRequestRef.current = null;
@@ -188,7 +200,7 @@ export function usePendingPayment({
     const requestUserId = user?.id || checkoutExpiredUserId;
     if (!requestUserId || String(activeUserRef?.current) !== String(requestUserId)) return;
     const stored = getPendingPayment(requestUserId);
-    if (!stored?.razorpay_order_id || cancellingPending) return;
+    if (!stored?.razorpay_order_id || cancellingPending || checkingPendingStatus || cancelPermission?.userId !== String(requestUserId) || cancelPermission?.orderId !== stored.razorpay_order_id) return;
     const requestOrderId = stored.razorpay_order_id;
     if (activeOrderRef?.current && activeOrderRef.current !== requestOrderId) return;
     if (activeOrderRef) activeOrderRef.current = requestOrderId;
@@ -199,6 +211,7 @@ export function usePendingPayment({
       activeOrderRef?.current === requestOrderId;
 
     try {
+      setCancelPermission(null);
       setCancellingPending(true);
       setError("");
       const res = await cancelPaymentOrder(requestOrderId);
@@ -233,23 +246,28 @@ export function usePendingPayment({
         if (!isCurrentAttempt()) return;
         if (idempotencyKeyRef) idempotencyKeyRef.current = generateUUID();
         setIsPersistentPending(false);
+        setPendingStatusFeedback("");
         if (setUnconfirmedQuote) setUnconfirmedQuote(null);
-        setError("Checkout session cancelled. You can retry paying anytime.");
+        setError(res?.message || "Checkout attempt ended and reserved items released.");
       } else if (
         res?.status === 409 ||
         res?.code === "PAYMENT_ALREADY_CAPTURED" ||
         res?.code === "PAYMENT_PROCESSING"
       ) {
-        setError(res.message || "A payment is processing. Please check status before paying again.");
+        const busyMsg = res.message || "A payment is processing. Please check status before paying again.";
+        setError(busyMsg);
+        setPendingStatusFeedback(busyMsg);
         setIsPersistentPending(true);
       } else {
-        setError(res?.message || "Unable to confirm cancellation. Please retry.");
+        const failMsg = res?.message || "Unable to confirm cancellation. Please retry.";
+        setError(failMsg);
+        setPendingStatusFeedback(failMsg);
       }
     } catch (err) {
       if (!isCurrentAttempt()) return;
-      setError(
-        err.response?.data?.message || err.message || "Failed to cancel checkout session. Please retry."
-      );
+      const errMsg = err.response?.data?.message || err.message || "Failed to cancel checkout session. Please retry.";
+      setError(errMsg);
+      setPendingStatusFeedback(errMsg);
     } finally {
       if (requestSequence === cancelRequestSequenceRef.current) {
         setCancellingPending(false);
@@ -259,6 +277,7 @@ export function usePendingPayment({
 
   // Check pending order status on mount, when tab becomes visible, and on network reconnect
   useEffect(() => {
+    setCancelPermission(null);
     setCancellingPending(false);
     verifyPendingOrder(true);
 
@@ -291,6 +310,8 @@ export function usePendingPayment({
     checkingPendingStatus,
     cancellingPending,
     sessionExpiredPending,
+    pendingStatusFeedback,
+    canCancelPending: Boolean(!checkingPendingStatus && cancelPermission && String(user?.id) === cancelPermission.userId && getPendingPayment(user?.id)?.razorpay_order_id === cancelPermission.orderId),
     verifyPendingOrder,
     handleCancelUnpaidCheckout,
     pollTimerRef,

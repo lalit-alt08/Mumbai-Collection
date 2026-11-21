@@ -6,6 +6,8 @@ export function CheckoutPendingBanner({
   isPersistentPending,
   checkingPendingStatus,
   cancellingPending,
+  pendingStatusFeedback,
+  canCancelPending,
   verifyPendingOrder,
   handleCancelUnpaidCheckout,
   navigate,
@@ -70,42 +72,58 @@ export function CheckoutPendingBanner({
     );
   }
 
-  if (isPersistentPending) {
+  if (pendingPayment?.razorpay_order_id) {
     return (
-      <div className="rounded-[20px] border border-amber-800/60 bg-amber-950/40 p-4 text-xs text-amber-200 shadow-xs">
+      <div className="rounded-[20px] border border-[#22499F]/20 bg-[#FFFFFF] p-4 text-xs text-[#1E293B] shadow-xs mb-4">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-900/60 text-amber-300">
-            <Clock size={18} />
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#22499F]/10 text-[#22499F]">
+            {checkingPendingStatus ? (
+              <div
+                className="payment-status-spinner h-4 w-4 rounded-full border-2 border-[#22499F] border-t-transparent animate-spin"
+                style={{ animationDuration: "900ms" }}
+              />
+            ) : (
+              <Clock size={18} />
+            )}
           </div>
           <div className="flex-1">
-            <h4 className="font-extrabold text-amber-100 text-sm">
-              Payment Pending Confirmation
-            </h4>
-            <p className="mt-1 leading-relaxed text-amber-300/90 text-[12px]">
-              Your payment is currently being processed by your bank. If the amount was debited from your account, please do not pay again — your order will update as soon as the bank confirms.
+            <div className="flex items-center gap-2">
+              <h4 className="font-extrabold text-[#1E293B] text-sm">
+                {checkingPendingStatus ? "Verifying payment" : "Payment pending"}
+              </h4>
+              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ${
+                checkingPendingStatus
+                  ? "bg-blue-100 text-[#22499F]"
+                  : "bg-[#22499F]/10 text-[#22499F]"
+              }`}>
+                {checkingPendingStatus ? "VERIFYING" : "PENDING"}
+              </span>
+            </div>
+            <p className="mt-1 leading-relaxed text-[#64748B] text-[12px]">
+              {pendingStatusFeedback || "If money was debited, please do not pay again. Check your payment status to continue."}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => verifyPendingOrder(true)}
                 disabled={checkingPendingStatus || cancellingPending}
-                className="rounded-xl bg-[#22499F] px-3.5 py-1.5 font-bold text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] hover:text-[#FFFFFF] active:scale-95 cursor-pointer disabled:opacity-50"
+                className="rounded-xl bg-[#22499F] px-3.5 py-1.5 font-bold text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
               >
-                {checkingPendingStatus ? "Checking..." : "Check Payment Status"}
+                {checkingPendingStatus ? "Checking payment…" : "Check Payment Status"}
               </button>
-              <button
+              {canCancelPending && <button
                 type="button"
                 onClick={handleCancelUnpaidCheckout}
                 disabled={cancellingPending || checkingPendingStatus}
-                className="rounded-xl border border-rose-800/60 bg-rose-950/50 px-3.5 py-1.5 font-bold text-rose-300 hover:bg-rose-900/60 active:scale-95 cursor-pointer disabled:opacity-50"
+                className="rounded-xl border border-rose-300 bg-white px-3.5 py-1.5 font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
               >
-                {cancellingPending ? "Cancelling..." : "Cancel unpaid checkout"}
-              </button>
+                {cancellingPending ? "Ending attempt…" : "Cancel checkout"}
+              </button>}
               <a
                 href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-emerald-800/60 bg-emerald-950/50 px-3.5 py-1.5 font-bold text-emerald-400 hover:bg-emerald-900/60"
+                className="rounded-xl border border-emerald-300 bg-white px-3.5 py-1.5 font-bold text-emerald-700 hover:bg-emerald-50"
               >
                 WhatsApp Support (+91 87936 01567)
               </a>

@@ -303,6 +303,9 @@ body {
   .animate-spin {
     animation: spin 1s linear infinite !important;
   }
+  .payment-status-spinner {
+    animation: none !important;
+  }
 }
 
 /* Prevent accidental double-tap to zoom across all elements and tabs */

@@ -11,7 +11,7 @@ import CartCrossSells from "../components/cart/CartCrossSells";
 import SharedCartModal from "../components/cart/SharedCartModal";
 import BillingForm from "../components/checkout/BillingForm";
 import { checkPaymentStatus } from "../services/paymentService";
-import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey } from "../utils/checkoutIdempotency";
+import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey, getHeldQuantityForPendingCheckout } from "../utils/checkoutIdempotency";
 import { buildCartShareUrl, parseSharedCartItems, isCartShareTruncated, MAX_SHARED_CART_ITEMS } from "../utils/cartShareUtils";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
@@ -151,7 +151,7 @@ function Cart() {
             clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             navigate(`/order-success/${res.order_id}`, {
-              state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing" },
+              state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing", confirmedUserId: user.id },
               replace: true,
             });
           }
@@ -683,8 +683,16 @@ function Cart() {
     };
   }, [cart?.items, user?.id]);
 
+  const pendingCheckout = getPendingPayment(user?.id || checkoutExpiredUserId);
+  const activePendingPayment = pendingCheckout?.razorpay_order_id ? pendingCheckout : null;
+
   const outOfStockItems = (cart?.items || []).filter((item) => {
     const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
+    const heldQuantity = getHeldQuantityForPendingCheckout(item, activePendingPayment);
+    if (heldQuantity && Number(item.quantity) <= heldQuantity) return false;
+    if (heldQuantity && liveStock && !liveStock.backordersAllowed) {
+      return Number(item.quantity) > heldQuantity + (liveStock.availableStock ?? 0);
+    }
     if (liveStock && typeof liveStock.isOutOfStock === "boolean") {
       return liveStock.isOutOfStock || liveStock.isQuantityShort;
     }
@@ -700,9 +708,12 @@ function Cart() {
   const handleRemoveAllOutOfStock = async () => {
     if (outOfStockItems.length === 0) return;
     for (const item of outOfStockItems) {
+      const heldQuantity = getHeldQuantityForPendingCheckout(item, activePendingPayment);
       const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
       try {
-        if (liveStock?.maxStock > 0 && item.quantity > liveStock.maxStock) {
+        if (heldQuantity > 0) {
+          await updateCartItem(item.key, heldQuantity + (liveStock?.availableStock ?? 0));
+        } else if (liveStock?.maxStock > 0 && item.quantity > liveStock.maxStock) {
           await updateCartItem(item.key, liveStock.maxStock);
         } else {
           await removeCartItem(item.key);
@@ -1064,13 +1075,16 @@ function Cart() {
           <div className="space-y-4">
             {(cart?.items || []).map((item) => {
               const liveStock = stockCheckMap[item.key] || stockCheckMap[item.id];
-              const isItemOutOfStock =
-                liveStock && typeof liveStock.isOutOfStock === "boolean"
-                  ? liveStock.isOutOfStock
-                  : (item.quantity_limits?.maximum === 0 ||
-                     item.stock_status === "outofstock" ||
-                     item.is_in_stock === false ||
-                     Boolean(item.isOutOfStock));
+              const heldQuantity = getHeldQuantityForPendingCheckout(item, activePendingPayment);
+              const isHeldForCheckout = heldQuantity > 0 && !outOfStockItems.includes(item);
+              const isItemOutOfStock = isHeldForCheckout
+                ? false
+                : liveStock && typeof liveStock.isOutOfStock === "boolean"
+                ? liveStock.isOutOfStock
+                : (item.quantity_limits?.maximum === 0 ||
+                   item.stock_status === "outofstock" ||
+                   item.is_in_stock === false ||
+                   Boolean(item.isOutOfStock));
 
               return (
                 <CartItem
@@ -1078,7 +1092,8 @@ function Cart() {
                   item={{
                     ...item,
                     isOutOfStock: isItemOutOfStock,
-                    availableStock: liveStock?.availableStock,
+                    isHeldForCheckout,
+                    availableStock: typeof liveStock?.availableStock === "number" ? liveStock.availableStock + heldQuantity : liveStock?.availableStock,
                     backordersAllowed: liveStock?.backordersAllowed,
                   }}
                   updatingKey={updatingKey}

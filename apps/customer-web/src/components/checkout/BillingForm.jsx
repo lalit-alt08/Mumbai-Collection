@@ -108,6 +108,8 @@ function BillingForm({
     checkingPendingStatus,
     cancellingPending,
     sessionExpiredPending,
+    pendingStatusFeedback,
+    canCancelPending,
     verifyPendingOrder,
     handleCancelUnpaidCheckout,
     pollTimerRef,
@@ -665,6 +667,8 @@ function BillingForm({
         isPersistentPending={isPersistentPending}
         checkingPendingStatus={checkingPendingStatus}
         cancellingPending={cancellingPending}
+        pendingStatusFeedback={pendingStatusFeedback}
+        canCancelPending={canCancelPending}
         verifyPendingOrder={verifyPendingOrder}
         handleCancelUnpaidCheckout={handleCancelUnpaidCheckout}
         navigate={navigate}
@@ -781,6 +785,9 @@ function BillingForm({
         paymentStep={paymentStep}
         checkoutAction={checkoutAction}
         cancellingPending={cancellingPending}
+        checkingPendingStatus={checkingPendingStatus}
+        pendingStatusFeedback={pendingStatusFeedback}
+        canCancelPending={canCancelPending}
         onOpenAddressModal={() => setShowAddressModal(true)}
         onRetryAddresses={() => setAddressRetry((value) => value + 1)}
         onCancelUnpaidCheckout={handleCancelUnpaidCheckout}

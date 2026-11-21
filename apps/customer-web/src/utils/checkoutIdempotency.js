@@ -106,3 +106,33 @@ export function clearPendingPayment(userId) {
   safeStorage.removeItem(pendingKey(userId));
 }
 
+/**
+ * Determines whether a given cart item is part of the shopper's active, unconfirmed checkout hold.
+ * While an attempt is pending, held items should not be treated as out of stock or purged.
+ */
+export function getHeldQuantityForPendingCheckout(item, pendingPayment) {
+  if (!item || !pendingPayment || !pendingPayment.razorpay_order_id) return 0;
+  if (pendingPayment.terminal || pendingPayment.cancelled || pendingPayment.refunded) return 0;
+
+  const itemId = Number(item.id);
+  if (!Number.isSafeInteger(itemId) || itemId <= 0) return 0;
+
+  if (Array.isArray(pendingPayment.heldItems) && pendingPayment.heldItems.length > 0) {
+    const held = pendingPayment.heldItems.find((entry) => Number(entry.id) === itemId && (entry.key ? entry.key === item.key : !item.key));
+    return Math.max(0, Number(held?.quantity) || 0);
+  }
+
+  if (typeof pendingPayment.itemsFingerprint === "string") {
+    const variation = item.variation_id ?? (Array.isArray(item.variation) ? item.variation.map((v) => `${v.attribute}:${v.value}`).join(";") : "");
+    const prefix = `${itemId}:${variation}:`;
+    const entry = pendingPayment.itemsFingerprint.split("|").find((part) => part.startsWith(prefix));
+    return Math.max(0, Number(entry?.slice(prefix.length)) || 0);
+  }
+
+  return 0;
+}
+
+export function isItemHeldForPendingCheckout(item, pendingPayment) {
+  return getHeldQuantityForPendingCheckout(item, pendingPayment) > 0;
+}
+
