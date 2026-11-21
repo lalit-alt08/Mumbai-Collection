@@ -42,37 +42,43 @@ export function CustomerOrderCard({
       className="overflow-hidden rounded-[26px] bg-[#FFFFFF] shadow-[0_8px_30px_rgba(0,0,0,0.25)] border border-[#E2E8F0]/80 transition-all hover:border-[#22499F]/50"
     >
       {/* Order Card Header */}
-      <div className="flex items-start justify-between gap-2.5 sm:gap-3 border-b border-[#E2E8F0]/70 bg-[#F0F8E8] px-4 py-3 sm:px-6 sm:py-4">
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-          <div className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF] text-[#22499F] shadow-sm border border-[#E2E8F0]">
-            <Package size={18} />
-          </div>
-          <div className="min-w-0 space-y-0.5">
-            <span className="block text-sm sm:text-base font-extrabold text-[#1E293B] tracking-wide truncate">
-              Order #{order.order_number}
-            </span>
-            <div className="text-xs sm:text-sm text-[#475569] font-medium leading-tight truncate">
-              {formatDate(order.date_created)}
+      <div className="border-b border-[#E2E8F0]/70 bg-[#F0F8E8] px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex items-center justify-between gap-2.5 sm:gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF] text-[#22499F] shadow-sm border border-[#E2E8F0]">
+              <Package size={18} />
             </div>
+            <div className="min-w-0 space-y-0.5">
+              <span className="block text-sm sm:text-base font-extrabold text-[#1E293B] tracking-wide whitespace-nowrap">
+                Order #{order.order_number}
+              </span>
+              <div className="text-xs sm:text-sm text-[#475569] font-medium leading-tight">
+                {formatDate(order.date_created)}
+              </div>
+            </div>
+          </div>
+
+          <div className="shrink-0 text-right">
+            <OrderStatusBadge status={order.status} displayStatus={order.display_status} />
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-1.5 shrink-0 text-right">
-          <OrderStatusBadge status={order.status} displayStatus={order.display_status} />
-          {isPaymentAwaitingDeliveryReview(order) ? (
-            <span className="order-review-pill inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] sm:text-[10.5px] font-bold whitespace-nowrap shadow-xs">
-              <AlertCircle size={11} />
-              <span>Timing to be confirmed</span>
-            </span>
-          ) : (
-            isScheduledFulfillmentOrder(order) && (
-              <span className="order-scheduled-pill inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] sm:text-[10.5px] font-bold whitespace-nowrap shadow-xs">
-                <Moon size={11} className="order-scheduled-moon" />
+        {/* Scheduled or Delivery Review Sub-banner (rendered only when scheduled/review) */}
+        {(isPaymentAwaitingDeliveryReview(order) || isScheduledFulfillmentOrder(order)) && (
+          <div className="mt-2.5 flex items-center">
+            {isPaymentAwaitingDeliveryReview(order) ? (
+              <span className="order-review-pill inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold whitespace-nowrap shadow-xs">
+                <AlertCircle size={12} />
+                <span>Delivery timing to be confirmed</span>
+              </span>
+            ) : (
+              <span className="order-scheduled-pill inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold whitespace-nowrap shadow-xs">
+                <Moon size={12} className="order-scheduled-moon shrink-0" />
                 <span>Scheduled · {getScheduledFulfillmentLabel(order)}</span>
               </span>
-            )
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Items Preview */}

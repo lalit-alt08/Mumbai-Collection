@@ -305,8 +305,8 @@ html[data-store-theme="dark"] .store-theme-options button[aria-pressed="true"] {
 html[data-store-theme="dark"] .track-order-delivered-badge, html[data-store-theme="dark"] .track-order-delivered { background: #143223 !important; border-color: #059669 !important; color: #A7F3D0 !important; }
 html[data-store-theme="dark"] .track-order-delivered-badge svg, html[data-store-theme="dark"] .track-order-delivered svg { color: #34D399 !important; }
 html[data-store-theme="dark"] .track-order-delivered-badge span, html[data-store-theme="dark"] .track-order-delivered span { color: #A7F3D0 !important; }
-html[data-store-theme="dark"] .order-delivered-details-btn { background: #303A43 !important; border-color: #475569 !important; color: #FAF8F4 !important; }
-html[data-store-theme="dark"] .order-delivered-details-btn:hover { background: #3A4652 !important; border-color: #FF942F !important; color: #FFBF80 !important; }
+html[data-store-theme="dark"] .order-delivered-details-btn { background: #3A434C !important; border-color: #66717A !important; color: #FAF8F4 !important; }
+html[data-store-theme="dark"] .order-delivered-details-btn:hover { background: #46515B !important; border-color: #FF942F !important; color: #FFBF80 !important; }
 html[data-store-theme="dark"] .order-delivered-details-btn svg { color: #FFBF80 !important; }
 html[data-store-theme="dark"] .order-invoice-toggle-expanded { background: #FF942F; border-color: #FF942F; color: #1F272E; }
 html[data-store-theme="dark"] .store-payment-loading { background: #303A43; border-color: #C68042; color: #FAF8F4; box-shadow: 0 0 18px rgb(255 148 47 / 18%); }
