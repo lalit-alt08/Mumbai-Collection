@@ -96,4 +96,31 @@ test("SITEMAP: exclusion of drafts/private/hidden items, XML escaping, and robot
     console.log(`Total URLs in sitemap: ${urlMatches.length}`);
   });
 
+  await t.test("Regression check: stale category counts produce zero category entries when public catalog has no products", async () => {
+    // Empty products array, but categories have stale positive counts
+    const mockProducts = [];
+    const mockCategories = [
+      { id: 301, slug: "stale-ghost-category-1", count: 200 },
+      { id: 302, slug: "stale-ghost-category-2", count: 50 },
+    ];
+
+    serverCache.delete("seo:sitemap_xml");
+    _setSitemapCatalogProviderForTesting(async () => ({
+      products: mockProducts,
+      categories: mockCategories,
+    }));
+
+    const res = await fetch(`${baseUrl}/sitemap.xml`);
+    assert.equal(res.status, 200);
+    const xml = await res.text();
+
+    // Verify ghost categories are NOT in sitemap
+    assert.doesNotMatch(xml, /stale-ghost-category-1/);
+    assert.doesNotMatch(xml, /stale-ghost-category-2/);
+
+    // Verify only the 7 static core pages are emitted
+    const urlMatches = xml.match(/<url>/g) || [];
+    assert.equal(urlMatches.length, 7);
+  });
+
 });

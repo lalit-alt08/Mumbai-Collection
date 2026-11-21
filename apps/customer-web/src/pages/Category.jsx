@@ -11,6 +11,7 @@ import { safeStorage } from "../utils/safeStorage";
 import API_URL from "../config/api.js";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 const PER_PAGE = 20;
 
@@ -20,6 +21,7 @@ function Category() {
   const navigate = useNavigate();
 
   const [allCategories, setAllCategories] = useState(() => getCachedCategories() || []);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(() => Boolean(getCachedCategories()?.length));
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -84,17 +86,30 @@ function Category() {
           return;
         }
         setCategoryTreeError("Subcategories could not be loaded. Retry to see the full category menu.");
+      })
+      .finally(() => {
+        if (isMounted) setCategoriesLoaded(true);
       });
     return () => {
       isMounted = false;
     };
   }, [categoryRetryCount]);
 
+  // Match category directly against slug or numeric ID
+  const matchedCategory = useMemo(() => {
+    return (
+      allCategories.find(
+        (c) => String(c.id) === String(categoryId) || c.slug?.toLowerCase() === String(categoryId).toLowerCase()
+      ) || null
+    );
+  }, [allCategories, categoryId]);
+
+  const isConfirmedNotFound = Boolean(categoriesLoaded && allCategories.length > 0 && !matchedCategory);
+  useNoIndex(isConfirmedNotFound);
+
   // Determine current department, child subcategories, and active selection
   const currentCategoryInfo = useMemo(() => {
-    const matched = allCategories.find(
-      (c) => String(c.id) === String(categoryId) || c.slug?.toLowerCase() === String(categoryId).toLowerCase()
-    );
+    const matched = matchedCategory;
 
     if (!matched) {
       return {
@@ -166,12 +181,18 @@ function Category() {
     : departmentName;
 
   useEffect(() => {
+    if (isConfirmedNotFound) {
+      document.title = "Category Not Found | Mumbai Collection Vasai";
+      return;
+    }
+
     const pageTitle = activeSubcategoryObj
       ? `${activeSubcategoryTitle} • ${departmentName}`
       : departmentName;
     document.title = `${pageTitle} | Mumbai Collection Vasai`;
 
-    const targetSlug = currentCategoryInfo?.department?.slug || categoryId;
+    // Canonical link points directly to the visited category's own canonical slug
+    const targetSlug = matchedCategory?.slug || categoryId;
     let canonical = document.querySelector('link[rel="canonical"]');
     if (!canonical) {
       canonical = document.createElement("link");
@@ -187,7 +208,7 @@ function Category() {
         metaCanonical.href = "https://mumbaicollections.in/";
       }
     };
-  }, [activeSubcategoryTitle, departmentName, activeSubcategoryObj, categoryId, currentCategoryInfo]);
+  }, [activeSubcategoryTitle, departmentName, activeSubcategoryObj, categoryId, matchedCategory, isConfirmedNotFound]);
 
   // Lock body overflow so window scrolling doesn't push the category header or rail around
   useEffect(() => {
@@ -620,6 +641,36 @@ function Category() {
       )}
     </>
   );
+
+  if (isConfirmedNotFound) {
+    return (
+      <div className="flex min-h-[70vh] flex-col items-center justify-center bg-[#F0F8E8] px-4 text-center">
+        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-3xl bg-[#FFFFFF] text-[#22499F] border border-[#E2E8F0] shadow-lg">
+          <span className="text-4xl">📁</span>
+        </div>
+        <h1 className="text-3xl font-extrabold text-[#1E293B] md:text-4xl">
+          Category Not Found
+        </h1>
+        <p className="mt-2 max-w-md text-sm text-[#64748B]">
+          The category you are looking for does not exist or has been removed.
+        </p>
+        <div className="mt-8 flex items-center gap-3">
+          <Link
+            to="/categories"
+            className="inline-flex items-center gap-2 rounded-full bg-[#22499F] px-8 py-3.5 text-sm font-black text-[#FFFFFF] shadow-lg transition hover:bg-[#1B3B82] active:scale-95"
+          >
+            Explore Categories
+          </Link>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-6 py-3.5 text-sm font-bold text-[#1E293B] shadow transition hover:bg-slate-50 active:scale-95"
+          >
+            <Home size={18} /> Home
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100dvh-var(--safe-area-top,env(safe-area-inset-top,0px)))] max-h-[calc(100dvh-var(--safe-area-top,env(safe-area-inset-top,0px)))] bg-[#F0F8E8] text-[#1E293B] overflow-hidden">

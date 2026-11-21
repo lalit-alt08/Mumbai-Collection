@@ -9,6 +9,7 @@ import ProductDescription from "../components/product/ProductDescription";
 import ProductReviews from "../components/product/ProductReviews";
 import RelatedProducts from "../components/product/RelatedProducts";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
+import { useNoIndex } from "../hooks/useNoIndex";
 
 const SESSION_SCROLL_PREFIX = "mc_product_scroll_";
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle expiration
@@ -144,8 +145,16 @@ function ProductDetails() {
     if (product?.id) recordRecentlyViewedProduct(product.id);
   }, [product?.id]);
 
+  const isConfirmedNotFound = Boolean(!loading && !product && error?.type === "not_found");
+  useNoIndex(isConfirmedNotFound);
+
   // Dynamic SEO Title, Meta Description & Canonical URL
   useEffect(() => {
+    if (isConfirmedNotFound) {
+      document.title = "Product Not Found | Mumbai Collection Vasai";
+      return;
+    }
+
     if (product?.name) {
       document.title = `${product.name} | Mumbai Collection Vasai`;
 
@@ -179,7 +188,7 @@ function ProductDetails() {
         canonical.href = "https://mumbaicollections.in/";
       }
     };
-  }, [product]);
+  }, [product, isConfirmedNotFound]);
 
   // Product JSON-LD Structured Data Schema for Search Engines
   useEffect(() => {

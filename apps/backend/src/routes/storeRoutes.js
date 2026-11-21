@@ -638,7 +638,7 @@ export const generateSitemapXml = async (req, res) => {
     );
     const populatedCategoryIds = new Set();
 
-    // 1. Authoritative: Identify populated categories directly from valid published products
+    // Authoritative: Identify populated categories directly from valid published products (prevents stale DB counts from adding empty categories)
     for (const prod of validProducts) {
       if (Array.isArray(prod.categories)) {
         for (const cat of prod.categories) {
@@ -658,24 +658,6 @@ export const generateSitemapXml = async (req, res) => {
       }
     }
 
-    // 2. Fallback: If product categories array is missing (e.g. simplified mock data), use category count
-    if (populatedCategoryIds.size === 0) {
-      for (const category of rawCategories) {
-        if (!category?.id || !Number.isFinite(Number(category.count)) || Number(category.count) <= 0) continue;
-        let current = category;
-        const visited = new Set();
-        while (current?.id && !visited.has(Number(current.id))) {
-          const currentId = Number(current.id);
-          visited.add(currentId);
-          populatedCategoryIds.add(currentId);
-          const parentId = Number(current.parent) || 0;
-          if (parentId <= 0) break;
-          current = categoryById.get(parentId);
-        }
-      }
-    }
-
-    const hasCategoryCounts = rawCategories.some((category) => category?.count !== undefined && category?.count !== null);
     const validCategories = rawCategories.filter(
       (category) =>
         category &&
