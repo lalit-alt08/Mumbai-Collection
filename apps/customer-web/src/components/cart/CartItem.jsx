@@ -62,28 +62,39 @@ function CartItem({ item, updatingKey, onDecrease, onIncrease, onResolveStock })
           <h2 className="line-clamp-2 text-[14px] font-bold leading-snug text-[#1E293B]">
             {cleanProductTitle(item.name)}
           </h2>
-          {isHeldForCheckout ? (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#22499F]/10 px-2 py-0.5 text-[10px] font-extrabold text-[#22499F] border border-[#22499F]/20">
-              Reserved for this checkout
-            </span>
-          ) : isFullyOutOfStock ? (
-            <span className="cart-item-sold-out mt-1 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-extrabold">
-              Sold out
-            </span>
-          ) : isQuantityShort ? (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-950/40 px-2 py-0.5 text-[10px] font-extrabold text-amber-300 border border-amber-800/60">
-              Only {maxLimit} left
-            </span>
-          ) : isMaxReached ? (
-            <span className="text-[10px] font-bold text-amber-400">
-              Max available stock reached
-            </span>
-          ) : null}
-          {isOutOfStock && (
-            <button type="button" disabled={isUpdating} onClick={() => onResolveStock(item, isFullyOutOfStock ? 0 : maxLimit)} className="ml-2 text-xs font-bold text-[#22499F] underline disabled:opacity-50">
-              {isFullyOutOfStock ? "Remove" : `Change to ${maxLimit}`}
-            </button>
-          )}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {isHeldForCheckout ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#22499F]/10 px-2.5 py-0.5 text-[10px] font-extrabold text-[#22499F] border border-[#22499F]/20">
+                Reserved for this checkout
+              </span>
+            ) : isFullyOutOfStock ? (
+              <span className="cart-item-sold-out inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-extrabold">
+                Sold out
+              </span>
+            ) : isQuantityShort ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-950/40 px-2.5 py-0.5 text-[10px] font-extrabold text-amber-300 border border-amber-800/60">
+                Only {maxLimit} left
+              </span>
+            ) : isMaxReached ? (
+              <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/20">
+                Max available stock reached
+              </span>
+            ) : null}
+            {isOutOfStock && (
+              <button
+                type="button"
+                disabled={isUpdating}
+                onClick={() => onResolveStock(item, isFullyOutOfStock ? 0 : maxLimit)}
+                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-extrabold transition-all active:scale-95 disabled:opacity-50 cursor-pointer ${
+                  isFullyOutOfStock
+                    ? "border border-rose-300/80 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/60 dark:border-rose-800/80 dark:text-rose-200"
+                    : "border border-amber-300/80 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/60 dark:border-amber-800/80 dark:text-amber-200"
+                }`}
+              >
+                {isFullyOutOfStock ? "Remove" : `Change to ${maxLimit}`}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2">

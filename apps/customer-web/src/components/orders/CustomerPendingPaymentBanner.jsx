@@ -70,7 +70,7 @@ export function CustomerPendingPaymentBanner({
           {isPaymentUnpaid && (
             <Link
               to="/cart"
-              className="rounded-xl bg-[#22499F] px-4 py-2 text-xs font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer"
+              className="rounded-full bg-[#22499F] px-4 py-2 text-xs font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer"
             >
               Try Paying in Cart
             </Link>
@@ -79,7 +79,7 @@ export function CustomerPendingPaymentBanner({
             type="button"
             onClick={() => onCheckPending(pendingPayment.razorpay_order_id)}
             disabled={checkingPending || cancellingPending}
-            className={`rounded-xl px-4 py-2 text-xs font-black shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 ${
+            className={`rounded-full px-4 py-2 text-xs font-black shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 ${
               isPaymentUnpaid
                 ? "border border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-slate-50"
                 : "bg-[#22499F] text-[#FFFFFF] hover:bg-[#1B3B82]"
@@ -92,7 +92,7 @@ export function CustomerPendingPaymentBanner({
               type="button"
               onClick={() => onCancelPending(pendingPayment.razorpay_order_id)}
               disabled={cancellingPending || checkingPending}
-              className="rounded-xl border border-rose-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
+              className="rounded-full border border-rose-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
             >
               {cancellingPending ? "Ending attempt…" : "Cancel checkout"}
             </button>
@@ -101,7 +101,7 @@ export function CustomerPendingPaymentBanner({
             href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-2 text-xs font-bold text-[#1E293B] hover:bg-[#F1F5F9]"
+            className="rounded-full border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-2 text-xs font-bold text-[#1E293B] hover:bg-[#F1F5F9]"
           >
             Help (+91 87936 01567)
           </a>

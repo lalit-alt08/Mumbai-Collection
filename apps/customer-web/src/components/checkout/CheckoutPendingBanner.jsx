@@ -116,7 +116,7 @@ export function CheckoutPendingBanner({
                   type="button"
                   onClick={onRetryPayment}
                   disabled={checkingPendingStatus || cancellingPending}
-                  className="rounded-xl bg-[#22499F] px-4 py-2 font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
+                  className="rounded-full bg-[#22499F] px-4 py-2 font-black text-[#FFFFFF] shadow-xs hover:bg-[#1B3B82] active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {cancellingPending ? "Starting checkout…" : "Try Paying Again"}
                 </button>
@@ -125,7 +125,7 @@ export function CheckoutPendingBanner({
                 type="button"
                 onClick={() => verifyPendingOrder(true)}
                 disabled={checkingPendingStatus || cancellingPending}
-                className={`rounded-xl px-3.5 py-1.5 font-bold shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 ${
+                className={`rounded-full px-3.5 py-1.5 font-bold shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 ${
                   isPaymentUnpaid
                     ? "border border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-slate-50"
                     : "bg-[#22499F] text-[#FFFFFF] hover:bg-[#1B3B82]"
@@ -133,19 +133,21 @@ export function CheckoutPendingBanner({
               >
                 {checkingPendingStatus ? "Checking payment…" : isPaymentUnpaid ? "Check Status Again" : "Check Payment Status"}
               </button>
-              {canCancelPending && <button
-                type="button"
-                onClick={handleCancelUnpaidCheckout}
-                disabled={cancellingPending || checkingPendingStatus}
-                className="rounded-xl border border-rose-300 bg-white px-3.5 py-1.5 font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
-              >
-                {cancellingPending ? "Ending attempt…" : "Cancel checkout"}
-              </button>}
+              {canCancelPending && (
+                <button
+                  type="button"
+                  onClick={handleCancelUnpaidCheckout}
+                  disabled={cancellingPending || checkingPendingStatus}
+                  className="rounded-full border border-rose-300 bg-white px-3.5 py-1.5 font-bold text-rose-700 hover:bg-rose-50 active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {cancellingPending ? "Ending attempt…" : "Cancel checkout"}
+                </button>
+              )}
               <a
                 href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-emerald-300 bg-white px-3.5 py-1.5 font-bold text-emerald-700 hover:bg-emerald-50"
+                className="rounded-full border border-emerald-300 bg-white px-3.5 py-1.5 font-bold text-emerald-700 hover:bg-emerald-50"
               >
                 WhatsApp Support (+91 87936 01567)
               </a>
