@@ -120,6 +120,53 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Checkout WhatsApp Support Pill */
+.checkout-whatsapp-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 14px;
+  margin-bottom: 8px;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  background-color: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  color: #166534;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.checkout-whatsapp-pill:hover {
+  background-color: #DCFCE7;
+  border-color: #86EFAC;
+  color: #14532D;
+}
+.checkout-whatsapp-pill svg {
+  color: #16A34A;
+  flex-shrink: 0;
+}
+
+/* Checkout Pending Bar (Bottom Sheet) */
+.checkout-pending-bar {
+  background-color: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E293B;
+}
+.checkout-pending-bar .checkout-pending-title {
+  color: #1E293B;
+}
+.checkout-pending-bar .checkout-pending-desc {
+  color: #64748B;
+}
+.checkout-pending-bar .checkout-pending-icon {
+  color: #22499F;
+}
 .checkout-error-banner { background: #FFF4F3; border-color: #D98A94; color: #65232D; }
 .auth-error-banner { background: #FEF2F2; border-color: #FCA5A5; color: #B91C1C; }
 .auth-field-error { color: #DC2626; }
@@ -190,6 +237,35 @@ html[data-store-theme="dark"] .cart-item-change-pill:hover:not(:disabled) {
   background-color: rgba(245, 158, 11, 0.24);
   border-color: rgba(245, 158, 11, 0.55);
   color: #FDE68A;
+}
+
+html[data-store-theme="dark"] .checkout-whatsapp-pill {
+  background-color: #142E1F;
+  border-color: #26593B;
+  color: #86EFAC;
+}
+html[data-store-theme="dark"] .checkout-whatsapp-pill:hover {
+  background-color: #1A3D2A;
+  border-color: #34D399;
+  color: #BBF7D0;
+}
+html[data-store-theme="dark"] .checkout-whatsapp-pill svg {
+  color: #22C55E;
+}
+
+html[data-store-theme="dark"] .checkout-pending-bar {
+  background-color: #26313C;
+  border-color: #475569;
+  color: #FAF8F4;
+}
+html[data-store-theme="dark"] .checkout-pending-bar .checkout-pending-title {
+  color: #FAF8F4;
+}
+html[data-store-theme="dark"] .checkout-pending-bar .checkout-pending-desc {
+  color: #94A3B8;
+}
+html[data-store-theme="dark"] .checkout-pending-bar .checkout-pending-icon {
+  color: #FF942F;
 }
 html[data-store-theme="dark"] .checkout-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }
 html[data-store-theme="dark"] .auth-error-banner { background: #3C2D32; border-color: #A05A66; color: #FFD2D4; }

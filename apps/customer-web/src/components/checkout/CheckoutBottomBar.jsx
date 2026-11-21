@@ -1,4 +1,4 @@
-import { Home, Building2, ChevronRight, Clock } from "lucide-react";
+import { Home, Building2, ChevronRight, Clock, MessageCircle } from "lucide-react";
 
 export function CheckoutBottomBar({
   loadingAddresses,
@@ -43,6 +43,19 @@ export function CheckoutBottomBar({
       <div className="mx-auto w-full max-w-[700px] px-3.5 sm:px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {/* Subtle Pull Indicator Pill */}
         <div className="mx-auto w-9 h-1 rounded-full bg-[#E2E8F0] mb-2 opacity-80" />
+
+        {/* WhatsApp Support: only above Delivering to Home when pending payment situation arrives */}
+        {hasActivePendingPayment && (
+          <a
+            href="https://wa.me/918793601567?text=Hi%2C%20I%20have%20a%20question%20about%20my%20pending%20payment%20on%20Mumbai%20Collection"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="checkout-whatsapp-pill"
+          >
+            <MessageCircle size={13} strokeWidth={2.5} />
+            <span>WhatsApp Support (+91 87936 01567)</span>
+          </a>
+        )}
 
         {/* Row 1: Unified Address Capsule */}
         <div className="flex items-center justify-between gap-2.5 rounded-2xl bg-[#FFFFFF] border border-[#E2E8F0]/80 px-2.5 py-2 sm:py-2.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
@@ -117,7 +130,7 @@ export function CheckoutBottomBar({
         {/* Row 2: Main Action Button */}
         <div className="w-full">
           {hasActivePendingPayment && (
-            <div className="mb-2.5 rounded-2xl border border-blue-200/80 bg-blue-50/70 p-2.5 text-xs text-[#1E293B] shadow-xs">
+            <div className="checkout-pending-bar mb-2.5 rounded-2xl p-2.5 text-xs shadow-xs">
               <div className="flex flex-wrap items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   {checkingPendingStatus ? (
@@ -126,19 +139,21 @@ export function CheckoutBottomBar({
                       style={{ animationDuration: "900ms" }}
                     />
                   ) : (
-                    <Clock size={15} className="shrink-0 text-[#22499F]" />
+                    <Clock size={15} className="checkout-pending-icon shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
-                    <p role="status" aria-live="polite" className="font-bold text-[#1E293B] text-[12px] leading-tight break-words">
+                    <p role="status" aria-live="polite" className="checkout-pending-title font-bold text-[12px] leading-tight break-words">
                       {checkingPendingStatus
                         ? "Verifying payment"
-                        : pendingStatusFeedback || (isPaymentUnpaid ? "No payment received" : "Payment pending")}
+                        : isPaymentUnpaid
+                        ? "No payment received"
+                        : "Payment pending"}
                     </p>
-                    <p className="text-[10px] text-[#64748B] leading-tight mt-0.5 break-words">
+                    <p className="checkout-pending-desc text-[10px] leading-tight mt-0.5 break-words">
                       {checkingPendingStatus
                         ? "Checking transaction status"
                         : isPaymentUnpaid
-                        ? "Tap below to try paying again, or cancel checkout"
+                        ? "Try paying again below, or cancel checkout"
                         : "Check payment status to continue"}
                     </p>
                   </div>
