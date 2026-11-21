@@ -20,4 +20,3 @@ Disallow: /api/payments/
 Disallow: /api/addresses/
 
 Sitemap: https://mumbaicollections.in/sitemap.xml
-Sitemap: https://mumbaicollections.in/api/store/sitemap.xml
