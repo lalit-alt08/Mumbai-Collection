@@ -364,29 +364,6 @@ function ForgotPassword() {
               <p className="mt-2 text-[15px] leading-relaxed text-[#64748B] md:text-[16px]">
                 Enter your email address. If an email &amp; password account exists, we&apos;ll send a 6-digit verification code.
               </p>
-              <div className="mt-3 rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] px-3.5 py-3 text-xs leading-relaxed text-[#475569] space-y-2">
-                <p>
-                  <strong>Signed up with Google?</strong> Google accounts do not use a separate store password and will not receive a reset email here. Sign in with Google or manage your password on your official Google Account page.
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => navigate("/login")}
-                    className="font-bold text-[#22499F] hover:underline cursor-pointer"
-                  >
-                    Continue with Google
-                  </button>
-                  <span className="text-[#CBD5E1]" aria-hidden="true">•</span>
-                  <a
-                    href="https://myaccount.google.com/security"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-bold text-[#22499F] hover:underline"
-                  >
-                    Open Google Account Security
-                  </a>
-                </div>
-              </div>
             </div>
 
             <form onSubmit={handleEmailSubmit} className="flex flex-col gap-5">
