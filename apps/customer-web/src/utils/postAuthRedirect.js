@@ -307,7 +307,6 @@ export async function executeCartProfileRetry({
       if (typeof onIncomplete === "function") onIncomplete();
       if (typeof navigate === "function") {
         navigate("/profile-setup", {
-          replace: true,
           state: {
             from: "/cart",
             first_name: user?.first_name || "",

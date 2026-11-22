@@ -672,10 +672,14 @@ function ProfileSetup() {
 
       // 5. Navigate immediately to safe destination or home
       const safeReturn = getSafeInternalPath(location.state?.from, "/");
-      navigate(safeReturn, {
-        replace: true,
-        state: { message: "Account setup completed successfully" },
-      });
+      if (safeReturn === "/cart" && window.history.state && window.history.state.idx > 0) {
+        navigate(-1);
+      } else {
+        navigate(safeReturn, {
+          replace: true,
+          state: { message: "Account setup completed successfully" },
+        });
+      }
     } catch (error) {
       if (error.response?.status === 401) {
         if (handleSessionExpired) {
@@ -755,12 +759,10 @@ function ProfileSetup() {
 
   const handleExitSetup = () => {
     triggerHaptic("light");
-    if (location.state?.from) {
-      navigate(getSafeInternalPath(location.state.from, "/"), { replace: true });
-    } else if (window.history.state && window.history.state.idx > 0) {
+    if (window.history.state && window.history.state.idx > 0) {
       navigate(-1);
     } else {
-      navigate("/", { replace: true });
+      navigate(getSafeInternalPath(location.state?.from, "/"), { replace: true });
     }
   };
 

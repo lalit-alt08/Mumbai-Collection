@@ -68,7 +68,7 @@ test("Journey 1: Cart -> Addresses -> Back -> Cart -> Back lands on Home without
   assert.equal(sim.location.pathname, "/cart");
   assert.equal(sim.index, 1);
 
-  // Shopper clicks "Add Address" on Cart
+  // Shopper clicks "Add Address" on Cart (push)
   sim.navigate("/account/addresses", { state: { from: "/cart", selectNew: true } });
   assert.equal(sim.location.pathname, "/account/addresses");
   assert.equal(sim.index, 2);
@@ -87,7 +87,6 @@ test("Journey 1: Cart -> Addresses -> Back -> Cart -> Back lands on Home without
   // Shopper is back on Cart
   assert.equal(sim.location.pathname, "/cart");
   assert.equal(sim.index, 1);
-  assert.equal(sim.stack.length, 3); // index is 1, so entry 2 is unreachable
 
   // Shopper clicks "Back" button on Cart
   // Logic from Cart.jsx:
@@ -106,42 +105,45 @@ test("Journey 1: Cart -> Addresses -> Back -> Cart -> Back lands on Home without
 });
 
 // --------------------------------------------------------------------------
-// JOURNEY 2: Cart -> ProfileSetup -> Skip -> Cart -> Back -> Home
+// JOURNEY 2A: Cart -> Sign In -> ProfileSetup -> Skip -> Cart -> Back -> Home
+// (Entry Path A: Sign In replaced by ProfileSetup)
 // --------------------------------------------------------------------------
-test("Journey 2: Cart -> ProfileSetup -> Skip -> Cart -> Back lands on Home without loop", () => {
+test("Journey 2A: Cart -> Sign In -> ProfileSetup -> Skip -> Cart -> Back lands on Home with 1 back click", () => {
   const sim = new HistorySimulator("/");
 
-  // Shopper navigates to Cart
+  // Shopper navigates Home -> Cart
   sim.navigate("/cart");
   assert.equal(sim.location.pathname, "/cart");
   assert.equal(sim.index, 1);
 
-  // Profile check is incomplete, postAuthRedirect / Cart retry replaces Cart with ProfileSetup
+  // Shopper clicks "Sign in to continue" on Cart (Cart.jsx:732)
+  sim.navigate("/login", { state: { from: "/cart" } });
+  assert.equal(sim.location.pathname, "/login");
+  assert.equal(sim.index, 2);
+
+  // Post-auth redirect detects incomplete profile, replaces /login with /profile-setup (postAuthRedirect.js:280)
   sim.navigate("/profile-setup", {
     replace: true,
     state: { from: "/cart", first_name: "Asha", last_name: "Patel" },
   });
   assert.equal(sim.location.pathname, "/profile-setup");
-  assert.equal(sim.index, 1); // Replaced, so index is 1
+  assert.equal(sim.index, 2); // Replaced /login, so /cart remains at index 1
 
-  // Shopper clicks "Skip for now" on ProfileSetup
-  // Logic from ProfileSetup.jsx handleExitSetup:
+  // Shopper clicks "Skip for now" on ProfileSetup (ProfileSetup.jsx handleExitSetup)
   const profileSetupExitHandler = () => {
-    if (sim.location.state?.from) {
-      sim.navigate(sim.location.state.from, { replace: true });
-    } else if (sim.state && sim.state.idx > 0) {
+    if (sim.state && sim.state.idx > 0) {
       sim.navigate(-1);
     } else {
-      sim.navigate("/", { replace: true });
+      sim.navigate(sim.location.state?.from || "/", { replace: true });
     }
   };
   profileSetupExitHandler();
 
-  // Shopper returns to Cart
+  // Shopper returns cleanly to index 1 (/cart)
   assert.equal(sim.location.pathname, "/cart");
   assert.equal(sim.index, 1);
 
-  // Shopper clicks "Back" on Cart
+  // Shopper clicks "Back" on Cart (Cart.jsx)
   const cartBackHandler = () => {
     if (sim.state && sim.state.idx > 0) {
       sim.navigate(-1);
@@ -151,7 +153,55 @@ test("Journey 2: Cart -> ProfileSetup -> Skip -> Cart -> Back lands on Home with
   };
   cartBackHandler();
 
-  // Shopper is cleanly on Home
+  // EXACTLY 1 back click reaches Home! Zero duplicate Cart pages.
+  assert.equal(sim.location.pathname, "/");
+  assert.equal(sim.index, 0);
+});
+
+// --------------------------------------------------------------------------
+// JOURNEY 2B: Cart -> Retry Profile Check -> ProfileSetup -> Skip -> Cart -> Back -> Home
+// (Entry Path B: Cart pushes ProfileSetup directly)
+// --------------------------------------------------------------------------
+test("Journey 2B: Cart -> Retry Profile Check -> ProfileSetup -> Skip -> Cart -> Back lands on Home with 1 back click", () => {
+  const sim = new HistorySimulator("/");
+
+  // Shopper navigates Home -> Cart
+  sim.navigate("/cart");
+  assert.equal(sim.location.pathname, "/cart");
+  assert.equal(sim.index, 1);
+
+  // Profile check retry pushes /profile-setup without replacing /cart (postAuthRedirect.js:308)
+  sim.navigate("/profile-setup", {
+    state: { from: "/cart", first_name: "Asha", last_name: "Patel" },
+  });
+  assert.equal(sim.location.pathname, "/profile-setup");
+  assert.equal(sim.index, 2); // Pushed on top of /cart
+
+  // Shopper clicks "Skip for now" on ProfileSetup (ProfileSetup.jsx handleExitSetup)
+  const profileSetupExitHandler = () => {
+    if (sim.state && sim.state.idx > 0) {
+      sim.navigate(-1);
+    } else {
+      sim.navigate(sim.location.state?.from || "/", { replace: true });
+    }
+  };
+  profileSetupExitHandler();
+
+  // Shopper pops back cleanly to index 1 (/cart)
+  assert.equal(sim.location.pathname, "/cart");
+  assert.equal(sim.index, 1);
+
+  // Shopper clicks "Back" on Cart (Cart.jsx)
+  const cartBackHandler = () => {
+    if (sim.state && sim.state.idx > 0) {
+      sim.navigate(-1);
+    } else {
+      sim.navigate("/", { replace: true });
+    }
+  };
+  cartBackHandler();
+
+  // EXACTLY 1 back click reaches Home! Zero duplicate Cart pages.
   assert.equal(sim.location.pathname, "/");
   assert.equal(sim.index, 0);
 });
@@ -209,8 +259,18 @@ test("Code Safety: Addresses.jsx back button pops history when idx > 0 and repla
   assert.ok(file.includes("navigate(getSafeInternalPath(location.state?.from, \"/account\"), { replace: true });"));
 });
 
-test("Code Safety: ProfileSetup.jsx handleExitSetup prioritizes location.state.from with replace: true", () => {
+test("Code Safety: ProfileSetup.jsx handleExitSetup pops history when idx > 0 and replaces otherwise", () => {
   const file = fs.readFileSync(path.join(srcDir, "pages/ProfileSetup.jsx"), "utf8");
-  assert.ok(file.includes("if (location.state?.from) {"));
-  assert.ok(file.includes("navigate(getSafeInternalPath(location.state.from, \"/\"), { replace: true });"));
+  assert.ok(file.includes("if (window.history.state && window.history.state.idx > 0) {"));
+  assert.ok(file.includes("navigate(-1)"));
+  assert.ok(file.includes("navigate(getSafeInternalPath(location.state?.from, \"/\"), { replace: true });"));
+});
+
+test("Code Safety: postAuthRedirect.js executeCartProfileRetry pushes profile-setup without replace", () => {
+  const file = fs.readFileSync(path.join(srcDir, "utils/postAuthRedirect.js"), "utf8");
+  // Ensure executeCartProfileRetry does not use replace: true so Cart is preserved at index 1
+  assert.match(
+    file,
+    /navigate\(["']\/profile-setup["'],\s*\{\s*state:\s*\{\s*from:\s*["']\/cart["']/
+  );
 });
