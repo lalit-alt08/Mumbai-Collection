@@ -755,10 +755,12 @@ function ProfileSetup() {
 
   const handleExitSetup = () => {
     triggerHaptic("light");
-    if (window.history.state && window.history.state.idx > 0) {
+    if (location.state?.from) {
+      navigate(getSafeInternalPath(location.state.from, "/"), { replace: true });
+    } else if (window.history.state && window.history.state.idx > 0) {
       navigate(-1);
     } else {
-      navigate(getSafeInternalPath(location.state?.from, "/"), { replace: true });
+      navigate("/", { replace: true });
     }
   };
 
