@@ -1,45 +1,82 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ArrowUp } from "lucide-react";
 import { triggerHaptic } from "../../utils/haptics";
 
 /**
- * Floating "Back to top" capsule pill component matching reference UI.
- * Floats near the top center below the sticky header when user scrolls down.
+ * Floating "Back to top" capsule pill component.
+ * - Hides while actively scrolling to avoid visual clutter and accidental taps.
+ * - Fades in smoothly after user pauses scrolling (400ms debounce) past threshold.
+ * - Locked in place via CSS fixed positioning to prevent iPhone elastic overscroll stretching.
+ * - Automatically hidden when any modal or dialog is open.
  */
 export default function BackToTopButton({ threshold = 250 }) {
   const [visible, setVisible] = useState(false);
-  const [headerBottom, setHeaderBottom] = useState(160);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const scrollTimeoutRef = useRef(null);
 
+  // 1. Hide when modal/dialog is open
   useEffect(() => {
-    let ticking = false;
-    let frameId;
-    const header = document.getElementById("storefront-header");
-    const updateHeaderPosition = () => {
-      if (header) setHeaderBottom(Math.max(0, header.getBoundingClientRect().bottom));
+    const checkModal = () => {
+      const hasOpenModal =
+        document.body.dataset.modalOpen === "true" ||
+        !!document.querySelector('[role="dialog"], [aria-modal="true"], [data-modal="true"]');
+      setIsModalOpen(hasOpenModal);
     };
 
-    const handleScroll = () => {
-      if (!ticking) {
-        frameId = window.requestAnimationFrame(() => {
-          setVisible(window.scrollY > threshold);
-          updateHeaderPosition();
-          ticking = false;
-        });
-        ticking = true;
+    checkModal();
+
+    const handleModalEvent = (e) => {
+      if (typeof e.detail?.open === "boolean") {
+        setIsModalOpen(e.detail.open);
+      } else {
+        checkModal();
       }
     };
 
+    window.addEventListener("mc-modal-state", handleModalEvent);
+
+    const observer = new MutationObserver(() => {
+      checkModal();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["role", "aria-modal", "data-modal", "data-modal-open"],
+    });
+
+    return () => {
+      window.removeEventListener("mc-modal-state", handleModalEvent);
+      observer.disconnect();
+    };
+  }, []);
+
+  // 2. Hide while scrolling; reveal 400ms after scrolling stops
+  useEffect(() => {
+    const handleScroll = () => {
+      // Immediately hide while active scrolling is happening
+      setVisible(false);
+
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+
+      // 400ms after user pauses scrolling, show if past threshold
+      scrollTimeoutRef.current = setTimeout(() => {
+        if (window.scrollY > threshold) {
+          setVisible(true);
+        }
+      }, 400);
+    };
+
     window.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("resize", updateHeaderPosition);
-    const observer = header && typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateHeaderPosition) : null;
-    if (observer) observer.observe(header);
-    handleScroll();
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", updateHeaderPosition);
-      observer?.disconnect();
-      if (frameId) window.cancelAnimationFrame(frameId);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
     };
   }, [threshold]);
 
@@ -51,12 +88,18 @@ export default function BackToTopButton({ threshold = 250 }) {
     });
   };
 
-  if (!visible) return null;
+  const isShown = visible && !isModalOpen;
 
   return (
     <div
-      className="fixed left-1/2 -translate-x-1/2 z-50 pointer-events-auto transition-opacity duration-300 ease-out animate-[fadeInDown_0.2s_ease-out]"
-      style={{ top: `${headerBottom + 8}px` }}
+      className={`fixed left-1/2 -translate-x-1/2 z-40 transition-all duration-300 ease-out ${
+        isShown
+          ? "opacity-100 translate-y-0 pointer-events-auto"
+          : "opacity-0 -translate-y-2 pointer-events-none"
+      }`}
+      style={{
+        top: "calc(max(8px, env(safe-area-inset-top, 0px)) + 54px)",
+      }}
     >
       <button
         type="button"

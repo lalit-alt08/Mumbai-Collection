@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { triggerHaptic } from "../../utils/haptics";
 import HapticTapTarget from "../common/HapticTapTarget";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import CategoryIconBar from "../home/CategoryIconBar";
 import { getCachedCategories, getCategoriesSWR } from "../../services/productService";
 import { useStorefrontTheme } from "../../utils/storefrontTheme.js";
@@ -27,6 +27,81 @@ function Header() {
   const isSearchPage = location.pathname.startsWith("/search");
 
   const [categories, setCategories] = useState(() => getCachedCategories() || []);
+  const [isSearchVisible, setIsSearchVisible] = useState(true);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const lastScrollYRef = useRef(0);
+  const tickingRef = useRef(false);
+
+  // Focus detection: never hide search bar when input is focused or user is typing
+  useEffect(() => {
+    const handleFocusIn = (e) => {
+      const target = e.target;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.getAttribute("role") === "searchbox" ||
+          target.closest?.("#storefront-header"))
+      ) {
+        setIsInputFocused(true);
+        setIsSearchVisible(true);
+      }
+    };
+    const handleFocusOut = () => {
+      setIsInputFocused(false);
+    };
+
+    document.addEventListener("focusin", handleFocusIn);
+    document.addEventListener("focusout", handleFocusOut);
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn);
+      document.removeEventListener("focusout", handleFocusOut);
+    };
+  }, []);
+
+  // Scroll listener for Homepage: smoothly hide search on deliberate scroll down, reveal on scroll up
+  useEffect(() => {
+    if (!isHomePage) {
+      setIsSearchVisible(true);
+      return;
+    }
+
+    lastScrollYRef.current = window.scrollY;
+
+    const handleScroll = () => {
+      if (isInputFocused) {
+        setIsSearchVisible(true);
+        return;
+      }
+
+      if (!tickingRef.current) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          const prevScrollY = lastScrollYRef.current;
+          const delta = currentScrollY - prevScrollY;
+
+          // Always show when near top of the homepage
+          if (currentScrollY <= 50) {
+            setIsSearchVisible(true);
+          } else if (delta > 8 && currentScrollY > 70) {
+            // Scrolling down -> smoothly collapse/hide search
+            setIsSearchVisible(false);
+          } else if (delta < -12) {
+            // Scrolling up by deliberate amount (> 12px) -> smoothly reveal search
+            setIsSearchVisible(true);
+          }
+
+          lastScrollYRef.current = Math.max(0, currentScrollY);
+          tickingRef.current = false;
+        });
+        tickingRef.current = true;
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [isHomePage, isInputFocused]);
 
   useEffect(() => {
     if (isHomePage) {
@@ -51,84 +126,103 @@ function Header() {
     return null;
   }
 
+  const showSearchRow = !isHomePage || isSearchVisible || isInputFocused;
+
   return (
     <header
       id="storefront-header"
-      className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 pb-2 sm:px-4 sm:pt-5 sm:pb-2.5 md:px-8 md:pt-6 md:pb-3 transition-[top,padding,box-shadow] duration-200`}
+      className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 sm:px-4 md:px-8 transition-[top,padding,box-shadow] duration-300 ${
+        showSearchRow ? "pb-2 sm:pt-5 sm:pb-2.5 md:pt-6 md:pb-3" : "pb-1 sm:pb-1.5"
+      }`}
       style={{
         paddingTop: "max(8px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 4px))",
       }}
     >
       <div className="relative mx-auto max-w-7xl">
-        {/* ================= CENTERED BRAND LOGO ABOVE SEARCH BAR ================= */}
-        {!isSearchPage && !isRecentlyViewedPage && (
-          <div className="mb-2 sm:mb-2.5 flex items-center justify-center">
-            <Link
-              to="/"
-              onClick={() => triggerHaptic("light")}
-              aria-label="Mumbai Collection Home"
-              className="inline-flex max-w-[82%] items-center justify-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22499F]/50 rounded-lg"
-            >
-              <img
-                src={theme === "dark" ? "/logo-dark.png" : "/logo-light.png"}
-                alt="Mumbai Collection"
-                width={912}
-                height={182}
-                fetchPriority="high"
-                decoding="async"
-                className="h-11 sm:h-12 md:h-14 w-auto max-w-full object-contain select-none"
-              />
-            </Link>
-          </div>
-        )}
-
-        {/* ================= SEARCH BAR & CONTROLS ROW ================= */}
-        <div className={`relative flex items-center gap-2.5 sm:gap-3 md:gap-3.5 lg:gap-4 ${isRecentlyViewedPage ? "justify-end" : ""}`}>
-          {/* ================= CIRCULAR BACK BUTTON (Search page) ================= */}
-          {isSearchPage && (
-            <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic("light");
-                  if (window.history.state && window.history.state.idx > 0) {
-                    navigate(-1);
-                  } else {
-                    navigate("/");
-                  }
-                }}
-                aria-label="Back"
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#1E293B] shadow-xs transition-all hover:bg-[#F0F8E8] hover:text-[#22499F] hover:border-[#22499F]/70 active:scale-95 cursor-pointer`}
+        {/* ================= COLLAPSIBLE TOP AREA (LOGO + SEARCH ROW) ================= */}
+        <div
+          className={`transition-all duration-300 ease-in-out ${
+            isHomePage
+              ? showSearchRow
+                ? "max-h-[160px] opacity-100 translate-y-0"
+                : "max-h-0 opacity-0 -translate-y-2 pointer-events-none overflow-hidden"
+              : ""
+          }`}
+        >
+          {/* ================= CENTERED BRAND LOGO ABOVE SEARCH BAR ================= */}
+          {!isSearchPage && !isRecentlyViewedPage && (
+            <div className="mb-2 sm:mb-2.5 flex items-center justify-center">
+              <Link
+                to="/"
+                onClick={() => triggerHaptic("light")}
+                aria-label="Mumbai Collection Home"
+                className="inline-flex max-w-[82%] items-center justify-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#22499F]/50 rounded-lg"
               >
-                <ArrowLeft size={20} strokeWidth={2.2} />
-              </button>
-            </HapticTapTarget>
-          )}
-
-          {!isRecentlyViewedPage && (
-            <div className="flex-1 min-w-0">
-              <SearchBar />
+                <img
+                  src={theme === "dark" ? "/logo-dark.png" : "/logo-light.png"}
+                  alt="Mumbai Collection"
+                  width={912}
+                  height={182}
+                  fetchPriority="high"
+                  decoding="async"
+                  className="h-11 sm:h-12 md:h-14 w-auto max-w-full object-contain select-none"
+                />
+              </Link>
             </div>
           )}
 
-          {/* ================= USER PROFILE — SEPARATE CIRCULAR BUTTON OUTSIDE SEARCHBOX ================= */}
-          {!isRecentlyViewedPage && (
-            <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
-              <Link
-                to={user ? "/account" : "/login"}
-                onClick={() => triggerHaptic("light")}
-                aria-label={user ? "Profile" : "Sign In"}
-                className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#22499F] shadow-xs transition-all hover:bg-[#F0F8E8] hover:border-[#22499F]/70 active:scale-95 cursor-pointer`}
-              >
-                <User size={20} strokeWidth={2.2} />
-              </Link>
-            </HapticTapTarget>
-          )}
+          {/* ================= SEARCH BAR & CONTROLS ROW ================= */}
+          <div
+            className={`relative flex items-center gap-2.5 sm:gap-3 md:gap-3.5 lg:gap-4 ${
+              isRecentlyViewedPage ? "justify-end" : ""
+            }`}
+          >
+            {/* ================= CIRCULAR BACK BUTTON (Search page) ================= */}
+            {isSearchPage && (
+              <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic("light");
+                    if (window.history.state && window.history.state.idx > 0) {
+                      navigate(-1);
+                    } else {
+                      navigate("/");
+                    }
+                  }}
+                  aria-label="Back"
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#1E293B] shadow-xs transition-all hover:bg-[#F0F8E8] hover:text-[#22499F] hover:border-[#22499F]/70 active:scale-95 cursor-pointer`}
+                >
+                  <ArrowLeft size={20} strokeWidth={2.2} />
+                </button>
+              </HapticTapTarget>
+            )}
+
+            {!isRecentlyViewedPage && (
+              <div className="flex-1 min-w-0">
+                <SearchBar />
+              </div>
+            )}
+
+            {/* ================= USER PROFILE — SEPARATE CIRCULAR BUTTON OUTSIDE SEARCHBOX ================= */}
+            {!isRecentlyViewedPage && (
+              <HapticTapTarget className="h-11 w-11 shrink-0" radius="9999px">
+                <Link
+                  to={user ? "/account" : "/login"}
+                  onClick={() => triggerHaptic("light")}
+                  aria-label={user ? "Profile" : "Sign In"}
+                  className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${surfaceClasses} text-[#22499F] shadow-xs transition-all hover:bg-[#F0F8E8] hover:border-[#22499F]/70 active:scale-95 cursor-pointer`}
+                >
+                  <User size={20} strokeWidth={2.2} />
+                </Link>
+              </HapticTapTarget>
+            )}
+          </div>
         </div>
 
         {/* ================= CATEGORY BAR UNDER SEARCH ON HOMEPAGE (Always visible & sticks on scroll) ================= */}
         {isHomePage && (
-          <div className="mt-1.5 pt-0.5">
+          <div className="mt-1 pt-0.5">
             <CategoryIconBar categories={categories} />
           </div>
         )}
