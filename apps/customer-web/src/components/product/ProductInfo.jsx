@@ -361,12 +361,12 @@ function ProductInfo({ product }) {
 
             {/* Buy Now Button (Always shown on mobile, and alongside Add to Cart on desktop when in stock) */}
             {!isOutOfStock ? (
-              <HapticTapTarget radius="11px">
+              <HapticTapTarget radius="9999px">
                 <button
                   type="button"
                   onClick={handleBuyNow}
                   disabled={loading}
-                  className="product-buy-now flex h-[40px] sm:h-[42px] min-w-[108px] items-center justify-center gap-1.5 rounded-[11px] bg-[#22499F] px-3 sm:px-4 text-[13px] sm:text-[14px] font-black text-[#FFFFFF] whitespace-nowrap shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                  className="product-buy-now flex h-[40px] sm:h-[42px] min-w-[108px] items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 sm:px-5 text-[13px] sm:text-[14px] font-black text-[#FFFFFF] whitespace-nowrap shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
                   <Zap size={14} className="fill-current shrink-0" />
                   <span>Buy Now</span>
@@ -376,7 +376,7 @@ function ProductInfo({ product }) {
               <button
                 type="button"
                 disabled
-                className="store-out-of-stock lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-[11px] px-4 text-[13px] font-bold cursor-not-allowed select-none"
+                className="store-out-of-stock lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-full px-4 text-[13px] font-bold cursor-not-allowed select-none"
               >
                 Out of Stock
               </button>

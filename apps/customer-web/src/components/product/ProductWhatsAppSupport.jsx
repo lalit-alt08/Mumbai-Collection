@@ -39,7 +39,7 @@ function ProductWhatsAppSupport({ product }) {
           href={whatsappUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="product-whatsapp-btn inline-flex h-12 w-full shrink-0 items-center justify-center gap-2.5 rounded-xl bg-[#1F9D55] px-6 py-3 text-[14px] font-extrabold text-[#FFFFFF] shadow-[0_4px_12px_rgba(31,157,85,0.28)] transition-all duration-200 hover:bg-[#167B3B] hover:shadow-[0_6px_16px_rgba(22,123,59,0.35)] active:scale-[0.98] cursor-pointer sm:w-auto sm:rounded-full sm:text-[15px]"
+          className="product-whatsapp-btn inline-flex h-12 w-full shrink-0 items-center justify-center gap-2.5 rounded-full bg-[#1F9D55] px-6 py-3 text-[14px] font-extrabold text-[#FFFFFF] shadow-[0_4px_12px_rgba(31,157,85,0.28)] transition-all duration-200 hover:bg-[#167B3B] hover:shadow-[0_6px_16px_rgba(22,123,59,0.35)] active:scale-[0.98] cursor-pointer sm:w-auto sm:text-[15px]"
         >
           <WhatsAppIcon className="h-5 w-5 shrink-0" />
           <span>Chat on WhatsApp</span>
