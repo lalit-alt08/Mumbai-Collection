@@ -133,11 +133,11 @@ function FloatingCartBar() {
   const firstItemAlt = hasItems ? cart.items[0]?.name || "Cart item" : "Cart item";
 
   // Responsive bottom positioning:
-  // On product pages below 'lg' (1024px), the fixed bottom purchase bar is visible at bottom-0 (~76px + safe-area).
-  // On other pages below 'lg' (1024px), the BottomNav is visible at bottom-0 (~60px + safe-area).
-  // Align breakpoint with BottomNav (lg:hidden): FloatingCartBar floats above BottomNav on phone & tablet (<1024px), and at bottom-8 on desktop (>=1024px).
+  // On product pages below 'lg' (1024px), the View Cart action is merged directly into the sticky bottom bar.
+  // FloatingCartBar is hidden on mobile product pages to prevent double-stacking, and visible at lg:bottom-8 on desktop.
+  // On other pages below 'lg' (1024px), it floats above BottomNav on phone & tablet (<1024px), and at bottom-8 on desktop (>=1024px).
   const bottomPositionClass = isProductPage
-    ? "bottom-[calc(84px+env(safe-area-inset-bottom,0px))] lg:bottom-8"
+    ? "hidden lg:flex lg:bottom-8"
     : "bottom-[calc(76px+env(safe-area-inset-bottom,0px))] lg:bottom-8";
 
   // Translate transformation based on scroll state:

@@ -5,7 +5,7 @@ import {
   removeCartItem,
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
-import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert, Zap } from "lucide-react";
+import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 import { triggerHaptic } from "../../utils/haptics";
@@ -30,9 +30,17 @@ function ProductInfo({ product }) {
     setStockOverride(null);
   }, [product?.id, product?.manage_stock, product?.stock_quantity, product?.stock_status]);
 
-  const cartItem = cart?.items?.find(
+  const cartItems = cart?.items || [];
+  const totalCartItems = cartItems.reduce(
+    (total, item) => total + (Number(item.quantity) || 0),
+    0
+  );
+  const hasAnyCartItems = totalCartItems > 0;
+
+  const cartItem = cartItems.find(
     (item) => Number(item.id) === Number(product.id)
   );
+  const isThisProductInCart = Boolean(cartItem && cartItem.quantity > 0);
 
   const stockProduct = stockOverride?.id === product.id
     ? { ...product, ...stockOverride }
@@ -89,57 +97,6 @@ function ProductInfo({ product }) {
           setCartError(getCartFailureMessage(error));
         } else {
           setCartError("");
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBuyNow = async () => {
-    if (isOutOfStock || loading) return;
-    if (product?.type === "variable") {
-      setCartError("This item has options that must be selected before purchasing.");
-      return;
-    }
-    setCartError("");
-    triggerHaptic("medium");
-
-    // If item is already in cart, proceed straight to cart/checkout
-    if (cartItem && cartItem.quantity > 0) {
-      navigate("/cart");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const updated = await addToWooCart(product.id);
-      if (updated) {
-        updateCart(updated);
-      }
-      navigate("/cart");
-    } catch (error) {
-      const stockInfo = parseCartStockError(error);
-      if (stockInfo.isStockError) {
-        const remaining = stockInfo.remaining ?? 0;
-        setStockOverride({
-          id: product.id,
-          manage_stock: true,
-          stock_quantity: remaining,
-          stock_status: remaining > 0 ? "instock" : "outofstock",
-          isAuthoritativeZero: remaining <= 0,
-        });
-        setCartError(getCartFailureMessage(error));
-      } else {
-        await refreshStock();
-        const freshCart = await refreshCart().catch(() => null);
-        const isInCart = freshCart?.items?.some(
-          (item) => Number(item.id) === Number(product.id)
-        );
-        if (isInCart) {
-          navigate("/cart");
-        } else {
-          setCartError(getCartFailureMessage(error));
         }
       }
     } finally {
@@ -291,10 +248,10 @@ function ProductInfo({ product }) {
             <p className="text-[12px] font-medium text-[#596B86]">Inclusive of all taxes</p>
           </div>
 
-          {/* Action Area: Desktop Add/Stepper + Buy Now Button */}
-          <div className="product-purchase-actions flex shrink-0 items-center gap-2.5 sm:gap-3">
+          {/* Action Area: Desktop Add/Stepper */}
+          <div className="product-purchase-actions hidden lg:flex shrink-0 items-center gap-2.5 sm:gap-3">
             {/* Desktop Add to Cart / Quantity Stepper */}
-            <div className="hidden lg:flex flex-col items-end">
+            <div className="flex flex-col items-end">
               {isOutOfStock ? (
                 cartItem ? (
                   <HapticTapTarget radius="12px">
@@ -358,29 +315,6 @@ function ProductInfo({ product }) {
                 </div>
               )}
             </div>
-
-            {/* Buy Now Button (Always shown on mobile, and alongside Add to Cart on desktop when in stock) */}
-            {!isOutOfStock ? (
-              <HapticTapTarget radius="9999px">
-                <button
-                  type="button"
-                  onClick={handleBuyNow}
-                  disabled={loading}
-                  className="product-buy-now flex h-[40px] sm:h-[42px] min-w-[108px] items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 sm:px-5 text-[13px] sm:text-[14px] font-black text-[#FFFFFF] whitespace-nowrap shadow-[0_4px_16px_rgba(66,214,232,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
-                >
-                  <Zap size={14} className="fill-current shrink-0" />
-                  <span>Buy Now</span>
-                </button>
-              </HapticTapTarget>
-            ) : (
-              <button
-                type="button"
-                disabled
-                className="store-out-of-stock lg:hidden flex h-[40px] sm:h-[42px] items-center justify-center rounded-full px-4 text-[13px] font-bold cursor-not-allowed select-none"
-              >
-                Out of Stock
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -405,87 +339,146 @@ function ProductInfo({ product }) {
 
       {/* Sticky Bottom Purchase Bar (Mobile & Split-Screen < lg) */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-[100] w-full rounded-t-[24px] sm:rounded-t-[28px] border-t border-[#E2E8F0] bg-[#F0F8E8]/95 backdrop-blur-md px-4 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-[100] w-full rounded-t-[24px] sm:rounded-t-[28px] border-t border-[#E2E8F0] bg-[#F0F8E8]/95 backdrop-blur-md px-4 pt-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.15)] lg:hidden"
         style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))", marginBottom: "0" }}
       >
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4">
-          <div className="flex flex-col flex-shrink-0 pl-2 sm:pl-3">
-            <span className="mb-0.5 text-[22px] font-black leading-none tracking-tight text-[#1E293B]">
-              ₹{product.price}
-            </span>
-            {isOutOfStock ? (
-              <span className="text-[10px] font-bold text-rose-400">Out of stock</span>
-            ) : isMaxReached ? (
-              <span className="text-[10px] font-bold text-amber-400">All in cart</span>
-            ) : remainingStock <= 5 ? (
-              <span className="text-[10px] font-bold leading-none text-orange-400">
-                ⚡ Only {remainingStock} left
+        {!hasAnyCartItems ? (
+          /* State 1: Cart is empty (0 items) -> ₹price · Add to cart */
+          <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3">
+            <div className="flex flex-col flex-shrink-0 pl-1">
+              <span className="text-[22px] font-black leading-none tracking-tight text-[#1E293B]">
+                ₹{product.price}
               </span>
-            ) : (
-              <span className="text-[10px] font-medium leading-none text-[#22499F]">
-                In stock
-              </span>
-            )}
-          </div>
-
-          <div className="flex w-[48%] min-w-[140px] max-w-[170px] sm:w-[40%] md:w-[35%] lg:w-[28%] justify-end gap-3">
-            {isOutOfStock ? (
-              cartItem ? (
-                <HapticTapTarget className="flex w-full" radius="9999px">
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateQuantity(0)}
-                    disabled={loading}
-                    className="flex h-[42px] w-full items-center justify-center gap-1.5 rounded-full border border-rose-800/50 bg-rose-950/40 text-[13px] font-bold text-rose-300 transition-all hover:bg-rose-900/50 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-xs"
-                  >
-                    Sold Out — Remove
-                  </button>
-                </HapticTapTarget>
+              {isOutOfStock ? (
+                <span className="text-[10px] font-bold text-rose-500 mt-0.5">Out of stock</span>
+              ) : isMaxReached ? (
+                <span className="text-[10px] font-bold text-amber-600 mt-0.5">All in cart</span>
+              ) : remainingStock <= 5 ? (
+                <span className="text-[10px] font-bold text-orange-500 mt-0.5">
+                  Only {remainingStock} left
+                </span>
               ) : (
+                <span className="text-[10px] font-semibold text-[#22499F] mt-0.5">
+                  In stock
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end">
+              {isOutOfStock ? (
                 <button
                   type="button"
                   disabled
-                    className="store-out-of-stock flex h-[42px] w-full items-center justify-center rounded-full text-[14px] font-bold cursor-not-allowed select-none"
+                  className="store-out-of-stock flex h-[44px] min-w-[140px] items-center justify-center rounded-full px-5 text-[14px] font-bold cursor-not-allowed select-none"
                 >
                   Out of Stock
                 </button>
-              )
-            ) : !cartItem ? (
-              <HapticTapTarget className="flex w-full" radius="9999px">
+              ) : (
+                <HapticTapTarget radius="9999px">
+                  <button
+                    type="button"
+                    onClick={handleAddToCart}
+                    disabled={loading}
+                    className="flex h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                  >
+                    Add to cart
+                  </button>
+                </HapticTapTarget>
+              )}
+            </div>
+          </div>
+        ) : !isThisProductInCart ? (
+          /* State 2: Cart has other products -> Add to cart · View cart */
+          <div className="mx-auto flex w-full max-w-lg items-center gap-3">
+            {isOutOfStock ? (
+              <button
+                type="button"
+                disabled
+                className="store-out-of-stock flex-1 flex h-[44px] items-center justify-center rounded-full text-[14px] font-bold cursor-not-allowed select-none"
+              >
+                Out of Stock
+              </button>
+            ) : (
+              <HapticTapTarget className="flex-1" radius="9999px">
                 <button
+                  type="button"
                   onClick={handleAddToCart}
                   disabled={loading}
-                  className="flex h-[42px] w-full items-center justify-center gap-2 rounded-full bg-[#22499F] text-[14px] font-black text-[#FFFFFF] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_16px_rgba(66,214,232,0.3)] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                  className="flex h-[44px] w-full items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
-                  Add to Cart
+                  Add to cart
+                </button>
+              </HapticTapTarget>
+            )}
+
+            <HapticTapTarget className="flex-1" radius="9999px">
+              <button
+                type="button"
+                onClick={() => navigate("/cart")}
+                className="flex h-[44px] w-full items-center justify-center gap-1.5 rounded-full border-2 border-[#22499F] bg-white px-4 text-[14px] font-extrabold text-[#22499F] shadow-xs transition-transform duration-100 ease-out hover:bg-[#F5F8FF] active:scale-[0.98] cursor-pointer"
+              >
+                View cart
+              </button>
+            </HapticTapTarget>
+          </div>
+        ) : (
+          /* State 3: This product is already in the cart -> − 1 + · View cart · 1 item */
+          <div className="mx-auto flex w-full max-w-lg items-center gap-3">
+            {isOutOfStock ? (
+              <HapticTapTarget className="flex-shrink-0" radius="9999px">
+                <button
+                  type="button"
+                  onClick={() => handleUpdateQuantity(0)}
+                  disabled={loading}
+                  className="flex h-[44px] items-center justify-center rounded-full border border-rose-300 bg-rose-50 px-4 text-[13px] font-bold text-rose-700 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                >
+                  Sold Out — Remove
                 </button>
               </HapticTapTarget>
             ) : (
-              <div className="flex h-[42px] w-full items-center justify-between rounded-full bg-[#22499F] px-1 text-[#FFFFFF] shadow-sm">
+              <div className="flex h-[44px] min-w-[124px] max-w-[136px] flex-shrink-0 items-center justify-between rounded-full border-2 border-[#22499F] bg-white px-1.5 text-[#22499F] shadow-xs">
                 <HapticTapTarget radius="9999px">
                   <button
+                    type="button"
                     disabled={loading}
-                    className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] cursor-pointer"
+                    aria-label="Decrease quantity"
+                    className="flex h-[32px] w-[32px] items-center justify-center rounded-full hover:bg-[#F5F8FF] active:scale-[0.92] text-[#22499F] transition-transform cursor-pointer disabled:opacity-50"
                     onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
                   >
-                    <Minus size={15} />
+                    <Minus size={16} />
                   </button>
                 </HapticTapTarget>
-                <span className="text-[15px] font-black">{cartItem.quantity}</span>
+                <span className="text-[15px] font-black text-[#17233A] px-1">
+                  {cartItem.quantity}
+                </span>
                 <HapticTapTarget radius="9999px">
                   <button
+                    type="button"
                     disabled={loading || isMaxReached}
+                    aria-label="Increase quantity"
                     title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                    className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-black/15 transition-transform duration-100 ease-out hover:bg-black/25 active:scale-[0.92] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex h-[32px] w-[32px] items-center justify-center rounded-full hover:bg-[#F5F8FF] active:scale-[0.92] text-[#22499F] transition-transform cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
                   >
-                    <Plus size={15} />
+                    <Plus size={16} />
                   </button>
                 </HapticTapTarget>
               </div>
             )}
+
+            <HapticTapTarget className="flex-1 min-w-0" radius="9999px">
+              <button
+                type="button"
+                onClick={() => navigate("/cart")}
+                className="flex h-[44px] w-full items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] cursor-pointer whitespace-nowrap"
+              >
+                <span>
+                  View cart · {totalCartItems} {totalCartItems === 1 ? "item" : "items"}
+                </span>
+              </button>
+            </HapticTapTarget>
           </div>
-        </div>
+        )}
       </div>
     </>
   );
