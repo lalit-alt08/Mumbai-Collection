@@ -182,7 +182,7 @@ test("Finding #1: deleteAccount rejects password reset_token and forwards only d
       okRes
     );
     assert.equal(okRes.statusCode, 200);
-    assert.deepEqual(capturedDeleteBody, { password: "", delete_token: "c".repeat(64) });
+    assert.deepEqual(capturedDeleteBody, { delete_token: "c".repeat(64) });
   } finally {
     axios.delete = origAxiosDelete;
   }
