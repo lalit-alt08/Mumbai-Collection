@@ -54,15 +54,10 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
     );
   });
 
-  await t.test("4. BackToTopButton avoids dynamic getBoundingClientRect jumps that stretch during overscroll", () => {
-    assert.strictEqual(
-      backToTopSource.includes("getBoundingClientRect"),
-      false,
-      "BackToTopButton must not calculate position dynamically from getBoundingClientRect to avoid overscroll bounce stretching"
-    );
+  await t.test("4. BackToTopButton positions cleanly below rested header bottom on idle", () => {
     assert.ok(
-      backToTopSource.includes("env(safe-area-inset-top"),
-      "BackToTopButton must use safe-area-inset-top CSS calculation"
+      backToTopSource.includes("headerBottom + 12"),
+      "BackToTopButton must calculate position cleanly 12px below rested header"
     );
   });
 
@@ -70,6 +65,21 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
     assert.ok(
       backToTopSource.includes("mc-modal-state"),
       "BackToTopButton must listen for modal state events to prevent overlapping dialogs"
+    );
+  });
+
+  await t.test("6. Header uses CSS Grid animation with overflow-hidden to prevent overlapping elements", () => {
+    assert.ok(
+      headerSource.includes("grid-rows-[1fr]"),
+      "Header must use grid-rows-[1fr] for expanded state"
+    );
+    assert.ok(
+      headerSource.includes("grid-rows-[0fr]"),
+      "Header must use grid-rows-[0fr] for collapsed state"
+    );
+    assert.ok(
+      headerSource.includes("overflow-hidden min-h-0"),
+      "Header must clip child contents with overflow-hidden min-h-0 to prevent layout overlap"
     );
   });
 });

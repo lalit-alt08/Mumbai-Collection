@@ -6,11 +6,12 @@ import { triggerHaptic } from "../../utils/haptics";
  * Floating "Back to top" capsule pill component.
  * - Hides while actively scrolling to avoid visual clutter and accidental taps.
  * - Fades in smoothly after user pauses scrolling (400ms debounce) past threshold.
- * - Locked in place via CSS fixed positioning to prevent iPhone elastic overscroll stretching.
+ * - Anchors 12px below the rested header so it is never cut off by the Category bar.
  * - Automatically hidden when any modal or dialog is open.
  */
 export default function BackToTopButton({ threshold = 250 }) {
   const [visible, setVisible] = useState(false);
+  const [buttonTop, setButtonTop] = useState(120);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const scrollTimeoutRef = useRef(null);
 
@@ -52,7 +53,7 @@ export default function BackToTopButton({ threshold = 250 }) {
     };
   }, []);
 
-  // 2. Hide while scrolling; reveal 400ms after scrolling stops
+  // 2. Hide while scrolling; reveal 400ms after scrolling stops, positioned cleanly below rested header
   useEffect(() => {
     const handleScroll = () => {
       // Immediately hide while active scrolling is happening
@@ -62,9 +63,14 @@ export default function BackToTopButton({ threshold = 250 }) {
         clearTimeout(scrollTimeoutRef.current);
       }
 
-      // 400ms after user pauses scrolling, show if past threshold
+      // 400ms after user pauses scrolling, calculate rested header bottom and show if past threshold
       scrollTimeoutRef.current = setTimeout(() => {
         if (window.scrollY > threshold) {
+          const header = document.getElementById("storefront-header");
+          const headerBottom = header
+            ? Math.round(header.getBoundingClientRect().bottom)
+            : 80;
+          setButtonTop(headerBottom + 12);
           setVisible(true);
         }
       }, 400);
@@ -98,7 +104,7 @@ export default function BackToTopButton({ threshold = 250 }) {
           : "opacity-0 -translate-y-2 pointer-events-none"
       }`}
       style={{
-        top: "calc(max(8px, env(safe-area-inset-top, 0px)) + 54px)",
+        top: `${buttonTop}px`,
       }}
     >
       <button
