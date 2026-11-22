@@ -3,7 +3,12 @@ import API_URL from "../config/api.js";
 import { getSafeInternalPath } from "./navigation.js";
 
 const isCartPath = (path) =>
-  path === "/cart" || path.startsWith("/cart?") || path.startsWith("/cart#");
+  path === "/cart" ||
+  path.startsWith("/cart?") ||
+  path.startsWith("/cart#") ||
+  path === "/checkout" ||
+  path.startsWith("/checkout?") ||
+  path.startsWith("/checkout#");
 
 export async function fetchProfileCompletion() {
   const response = await axios.get(`${API_URL}/profile/complete`, {
@@ -32,6 +37,7 @@ export async function resolvePostAuthDestination({
   user = null,
   firstName = "",
   lastName = "",
+  isNewUser = false,
   checkAuthenticatedCart = null,
   checkProfileComplete = fetchProfileCompletion,
   isAttemptActive = () => true,
@@ -39,6 +45,73 @@ export async function resolvePostAuthDestination({
   const safeReturn = getSafeInternalPath(from, "/");
   const cartOrigin = isCartPath(safeReturn);
   let effectiveHasCartItems = Boolean(hasCartItems);
+
+  // When a brand new user registers or signs up via Google SSO:
+  // ONLY prompt for delivery address (/profile-setup) if they signed up from the cart or checkout.
+  // Otherwise, redirect them to Home with an "Account created successfully!" confirmation message.
+  if (isNewUser) {
+    if (cartOrigin) {
+      const cartDestination = safeReturn;
+      try {
+        const status = await checkProfileComplete();
+        if (!isAttemptActive()) {
+          return { status: "cancelled" };
+        }
+
+        if (status && typeof status === "object" && status.complete === false) {
+          return {
+            status: "incomplete",
+            pathname: "/profile-setup",
+            state: {
+              from: cartDestination,
+              first_name: firstName || user?.first_name || "",
+              last_name: lastName || user?.last_name || "",
+            },
+          };
+        }
+
+        if (status && typeof status === "object" && status.complete === true) {
+          return { status: "complete", pathname: cartDestination };
+        }
+
+        return {
+          status: "unavailable",
+          pathname: cartDestination,
+          state: { profileCheckUnavailable: true },
+        };
+      } catch (err) {
+        if (!isAttemptActive()) {
+          return { status: "cancelled" };
+        }
+
+        if (err?.response?.status === 401) {
+          return {
+            status: "unauthorized",
+            pathname: "/login",
+            state: {
+              from: cartDestination,
+              message: "Your session expired. Please sign in again to continue.",
+            },
+          };
+        }
+
+        return {
+          status: "unavailable",
+          pathname: cartDestination,
+          state: { profileCheckUnavailable: true },
+        };
+      }
+    }
+
+    return {
+      status: "default",
+      pathname: "/",
+      state: {
+        accountCreated: true,
+        message: "Account created successfully!",
+      },
+    };
+  }
 
   // If the customer signed in from Header/Home (no explicit protected destination)
   // with an empty guest cart, wait for the authenticated account cart to confirm
@@ -166,6 +239,7 @@ export async function executePostAuthNavigation({
   user = null,
   firstName = "",
   lastName = "",
+  isNewUser = false,
   waitForAuthenticatedCart = null,
   checkProfileComplete = fetchProfileCompletion,
   isAttemptActive = () => true,
@@ -179,6 +253,7 @@ export async function executePostAuthNavigation({
     user,
     firstName,
     lastName,
+    isNewUser,
     checkAuthenticatedCart:
       user?.id && typeof waitForAuthenticatedCart === "function"
         ? () => waitForAuthenticatedCart(user.id)

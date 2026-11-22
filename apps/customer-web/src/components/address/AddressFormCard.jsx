@@ -88,10 +88,10 @@ export function AddressFormCard({
                 }}
                 className={`flex h-11 items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                   form.type === "home"
-                    ? "bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#22499F]/30"
+                    ? "address-type-btn-active bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#22499F]/30"
                     : fieldErrors.type
                     ? "border border-rose-400/40 text-rose-300 hover:bg-rose-950/20"
-                    : "text-[#64748B] hover:text-white hover:bg-white/5 border border-transparent"
+                    : "address-type-btn-inactive text-[#64748B] hover:text-white hover:bg-white/5 border border-transparent"
                 }`}
               >
                 <Home size={17} strokeWidth={2.2} />
@@ -125,10 +125,10 @@ export function AddressFormCard({
                 }}
                 className={`flex h-11 items-center justify-center gap-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                   form.type === "office"
-                    ? "bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#22499F]/30"
+                    ? "address-type-btn-active bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#22499F]/30"
                     : fieldErrors.type
                     ? "border border-rose-400/40 text-rose-300 hover:bg-rose-950/20"
-                    : "text-[#64748B] hover:text-white hover:bg-white/5 border border-transparent"
+                    : "address-type-btn-inactive text-[#64748B] hover:text-white hover:bg-white/5 border border-transparent"
                 }`}
               >
                 <Building2 size={17} strokeWidth={2.2} />
@@ -319,10 +319,10 @@ export function AddressFormCard({
                   }}
                   className={`flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl border px-3 py-3 text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer active:scale-95 ${
                     isSelected
-                      ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-[0_2px_10px_rgba(66,214,232,0.2)] ring-1 ring-[#22499F]/40"
+                      ? "address-region-btn-active border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-[0_2px_10px_rgba(66,214,232,0.2)] ring-1 ring-[#22499F]/40"
                       : fieldErrors.city
                       ? "border-rose-400/50 bg-rose-950/30 text-rose-300"
-                      : "border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#64748B] hover:border-[#22499F]/40 hover:text-white hover:bg-white/5"
+                      : "address-region-btn-inactive border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#64748B] hover:border-[#22499F]/40 hover:text-white hover:bg-white/5"
                   }`}
                 >
                   <MapPin size={15} className={isSelected ? "text-[#22499F]" : fieldErrors.city ? "text-rose-400" : "text-[#64748B]"} />

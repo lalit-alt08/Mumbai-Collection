@@ -30,7 +30,7 @@ export function AddressItemCard({
                 {isHome ? "Home" : "Office"}
               </h2>
 
-              <span className="rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-2.5 py-1 text-[10px] font-bold text-[#22499F]">
+              <span className="address-saved-pill rounded-full bg-[#FFFFFF] border border-[#E2E8F0] px-2.5 py-1 text-[10px] font-bold text-[#22499F]">
                 SAVED
               </span>
             </div>
@@ -46,7 +46,7 @@ export function AddressItemCard({
           <button
             type="button"
             onClick={() => onEdit(address)}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] transition hover:border-[#22499F] hover:text-[#22499F] cursor-pointer"
+            className="address-action-edit flex h-10 w-10 items-center justify-center rounded-xl border border-[#E2E8F0] bg-[#F0F8E8] text-[#64748B] transition hover:border-[#22499F] hover:text-[#22499F] cursor-pointer"
             title="Edit address"
           >
             <Pencil size={16} />
@@ -55,7 +55,7 @@ export function AddressItemCard({
           <button
             type="button"
             onClick={() => onDelete(address)}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-rose-900/60 bg-[#F0F8E8] text-rose-400 transition hover:bg-rose-600 hover:border-rose-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+            className="address-action-delete flex h-10 w-10 items-center justify-center rounded-xl border border-rose-900/60 bg-[#F0F8E8] text-rose-400 transition hover:bg-rose-600 hover:border-rose-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             title="Delete address"
           >
             <Trash2 size={16} />

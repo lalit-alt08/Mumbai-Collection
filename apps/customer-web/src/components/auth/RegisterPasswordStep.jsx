@@ -68,19 +68,19 @@ export function RegisterPasswordStep({
           id="password-help"
           className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#E2E8F0]/80 bg-[#FFFFFF] p-3 text-[12px] text-[#475569]"
         >
-          <span className={`flex items-center gap-1.5 ${checks.length ? "text-emerald-600 font-semibold" : ""}`}>
+          <span className={`flex items-center gap-1.5 ${checks.length ? "password-rule-passed text-emerald-600 font-semibold" : ""}`}>
             <Check size={13} className={checks.length ? "opacity-100" : "opacity-35"} /> 8+ characters
           </span>
-          <span className={`flex items-center gap-1.5 ${checks.uppercase ? "text-emerald-600 font-semibold" : ""}`}>
+          <span className={`flex items-center gap-1.5 ${checks.uppercase ? "password-rule-passed text-emerald-600 font-semibold" : ""}`}>
             <Check size={13} className={checks.uppercase ? "opacity-100" : "opacity-35"} /> Uppercase (A-Z)
           </span>
-          <span className={`flex items-center gap-1.5 ${checks.lowercase ? "text-emerald-600 font-semibold" : ""}`}>
+          <span className={`flex items-center gap-1.5 ${checks.lowercase ? "password-rule-passed text-emerald-600 font-semibold" : ""}`}>
             <Check size={13} className={checks.lowercase ? "opacity-100" : "opacity-35"} /> Lowercase (a-z)
           </span>
-          <span className={`flex items-center gap-1.5 ${checks.number ? "text-emerald-600 font-semibold" : ""}`}>
+          <span className={`flex items-center gap-1.5 ${checks.number ? "password-rule-passed text-emerald-600 font-semibold" : ""}`}>
             <Check size={13} className={checks.number ? "opacity-100" : "opacity-35"} /> Number (0-9)
           </span>
-          <span className={`col-span-2 flex items-center gap-1.5 ${checks.special ? "text-emerald-600 font-semibold" : ""}`}>
+          <span className={`col-span-2 flex items-center gap-1.5 ${checks.special ? "password-rule-passed text-emerald-600 font-semibold" : ""}`}>
             <Check size={13} className={checks.special ? "opacity-100" : "opacity-35"} /> Special symbol (!@#$%^&*)
           </span>
         </div>

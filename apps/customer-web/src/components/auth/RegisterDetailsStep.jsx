@@ -165,7 +165,7 @@ export function RegisterDetailsStep({
       {/* Divider */}
       <div className="relative my-5 sm:my-6 flex items-center justify-center">
         <div className="w-full border-t border-[#E2E8F0]/80" />
-        <span className="absolute bg-[#F0F8E8] md:bg-[#FFFFFF] px-3 text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+        <span className="absolute bg-[#FFFFFF] px-3 text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
           or sign up with Google
         </span>
       </div>

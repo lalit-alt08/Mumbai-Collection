@@ -112,6 +112,7 @@ export default function GoogleAuthButton({ mode = "signup", onError, disabled = 
         from: location.state?.from,
         hasCartItems,
         user: confirmedUser,
+        isNewUser: Boolean(res?.is_new_user),
         waitForAuthenticatedCart: res?.is_new_user ? null : waitForAuthenticatedCart,
         isAttemptActive: () =>
           isMountedRef.current &&

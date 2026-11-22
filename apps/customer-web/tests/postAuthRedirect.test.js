@@ -505,3 +505,101 @@ test("Register guards already-signed-in users and shows neutral Google/password 
   assert.match(googleSrc, /void reconcileSupersededAuth\(\)/);
   assert.match(googleSrc, /onBusyChangeRef\.current\?\.\(false\)/);
 });
+
+test("New user signing in via Google SSO or Register from outside cart routes directly to Home with success message", async () => {
+  const navigated = [];
+  const result = await executePostAuthNavigation({
+    from: undefined,
+    hasCartItems: false,
+    user: { id: 101, email: "newgoogle@example.com" },
+    isNewUser: true,
+    navigate: (path, opts) => navigated.push({ path, opts }),
+  });
+
+  assert.equal(result.status, "default");
+  assert.deepEqual(navigated, [
+    {
+      path: "/",
+      opts: {
+        replace: true,
+        state: {
+          accountCreated: true,
+          message: "Account created successfully!",
+        },
+      },
+    },
+  ]);
+});
+
+test("New user signing in via Google SSO from Cart routes to /profile-setup only when profile is incomplete", async () => {
+  // Case A: Incomplete profile -> /profile-setup
+  const incompleteNav = [];
+  const incompleteResult = await executePostAuthNavigation({
+    from: "/cart",
+    hasCartItems: true,
+    user: { id: 102, first_name: "Rohan", last_name: "Gupta" },
+    isNewUser: true,
+    checkProfileComplete: async () => ({ complete: false }),
+    navigate: (path, opts) => incompleteNav.push({ path, opts }),
+  });
+
+  assert.equal(incompleteResult.status, "incomplete");
+  assert.deepEqual(incompleteNav, [
+    {
+      path: "/profile-setup",
+      opts: {
+        replace: true,
+        state: {
+          from: "/cart",
+          first_name: "Rohan",
+          last_name: "Gupta",
+        },
+      },
+    },
+  ]);
+
+  // Case B: Complete profile -> /cart
+  const completeNav = [];
+  const completeResult = await executePostAuthNavigation({
+    from: "/cart",
+    hasCartItems: true,
+    user: { id: 102, first_name: "Rohan", last_name: "Gupta" },
+    isNewUser: true,
+    checkProfileComplete: async () => ({ complete: true }),
+    navigate: (path, opts) => completeNav.push({ path, opts }),
+  });
+
+  assert.equal(completeResult.status, "complete");
+  assert.deepEqual(completeNav, [
+    {
+      path: "/cart",
+      opts: {
+        replace: true,
+        state: undefined,
+      },
+    },
+  ]);
+});
+
+test("BottomNav hides mobile navigation bar on auth routes and MainLayout adjusts bottom padding", () => {
+  const bottomNavSrc = fs.readFileSync(path.join(customerWebSrc, "components/layout/BottomNav.jsx"), "utf8");
+  for (const authRoute of ["/login", "/register", "/forgot-password", "/reset-password", "/profile-setup"]) {
+    assert.ok(
+      bottomNavSrc.includes(`"${authRoute}"`),
+      `BottomNav hideOnPages must include ${authRoute}`
+    );
+  }
+
+  const mainLayoutSrc = fs.readFileSync(path.join(customerWebSrc, "layouts/MainLayout.jsx"), "utf8");
+  assert.match(mainLayoutSrc, /isAuthPage/);
+  assert.match(mainLayoutSrc, /pb-8/);
+});
+
+test("Dark mode styles exist for auth form cards, address pills, and active selectors", () => {
+  const cssSrc = fs.readFileSync(path.join(customerWebSrc, "index.css"), "utf8");
+  assert.match(cssSrc, /html\[data-store-theme="dark"\] \.auth-form-card/);
+  assert.match(cssSrc, /html\[data-store-theme="dark"\] \.address-type-btn-active/);
+  assert.match(cssSrc, /html\[data-store-theme="dark"\] \.address-region-btn-active/);
+  assert.match(cssSrc, /html\[data-store-theme="dark"\] \.address-saved-pill/);
+  assert.match(cssSrc, /html\[data-store-theme="dark"\] \.feedback-toast-success/);
+});

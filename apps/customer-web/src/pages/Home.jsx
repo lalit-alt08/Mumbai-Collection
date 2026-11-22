@@ -308,15 +308,15 @@ function Home() {
     <div className="space-y-5 sm:space-y-6 md:space-y-8">
       {/* Toast Feedback */}
       {flashMessage && (
-        <div className="flex items-center justify-between gap-3 rounded-xl bg-[#FFFFFF] border border-emerald-500 p-3 sm:p-3.5 text-xs sm:text-sm font-semibold text-emerald-300 shadow-xs animate-[slideUp_0.25s_ease-out]">
+        <div className="feedback-toast-success flex items-center justify-between gap-3 rounded-xl p-3 sm:p-3.5 text-xs sm:text-sm font-semibold shadow-xs animate-[slideUp_0.25s_ease-out]">
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+            <CheckCircle2 size={16} className="shrink-0 text-emerald-500" />
             <span>{flashMessage}</span>
           </div>
           <button
             type="button"
             onClick={() => setFlashMessage(null)}
-            className="p-1 text-[#64748B] hover:text-white transition cursor-pointer"
+            className="p-1 opacity-70 hover:opacity-100 transition cursor-pointer"
           >
             <X size={15} />
           </button>

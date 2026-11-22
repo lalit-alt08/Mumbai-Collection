@@ -310,6 +310,7 @@ function Register() {
         user: confirmedUser,
         firstName: cleanFirst,
         lastName: cleanLast,
+        isNewUser: true,
         // A brand-new registration has no returning saved account cart; only
         // redirect to /profile-setup if the user came from /cart or added items.
         waitForAuthenticatedCart: null,
@@ -459,7 +460,7 @@ function Register() {
 
   return (
     <div className="bg-[#F0F8E8] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">
-      <div className="mx-auto flex w-full max-w-md flex-col px-4 pt-2 pb-24 sm:px-6 sm:pb-28 md:max-w-[480px] md:rounded-[24px] md:bg-[#FFFFFF] md:border md:border-[#E2E8F0]/80 md:px-10 md:py-8 md:shadow-lg">
+      <div className="auth-form-card mx-auto flex w-full max-w-md flex-col rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] px-5 py-6 shadow-lg sm:p-8 md:max-w-[480px] md:rounded-[24px] md:px-10 md:py-8 md:shadow-lg">
         <div className="w-full">
           {step === "details" ? (
             <RegisterDetailsStep

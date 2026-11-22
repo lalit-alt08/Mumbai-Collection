@@ -149,7 +149,7 @@ function Login() {
   return (
     <div className="bg-[#F0F8E8] font-sans md:flex md:min-h-[calc(100vh-80px)] md:items-center md:justify-center md:py-8 lg:py-12">
       {/* Login Form Container */}
-      <div className="mx-auto my-auto flex w-full max-w-md flex-col px-5 pb-10 pt-4 md:max-w-[460px] md:rounded-[24px] md:bg-[#FFFFFF] md:border md:border-[#E2E8F0]/80 md:px-8 md:py-8 md:shadow-2xl">
+      <div className="auth-form-card mx-auto my-auto flex w-full max-w-md flex-col rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] px-5 py-6 shadow-lg sm:p-8 md:max-w-[460px] md:rounded-[24px] md:px-8 md:py-8 md:shadow-2xl">
         <div className="w-full">
           {/* Header */}
           <div className="mb-6 md:mb-5">
@@ -266,7 +266,7 @@ function Login() {
           {/* Divider */}
           <div className="relative my-5 md:my-4 flex items-center justify-center">
             <div className="w-full border-t border-[#E2E8F0]/80" />
-            <span className="absolute bg-[#F0F8E8] md:bg-[#FFFFFF] px-3 text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+            <span className="absolute bg-[#FFFFFF] px-3 text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
               or sign in with Google
             </span>
           </div>

@@ -178,6 +178,26 @@
 .auth-field-error { color: #DC2626; }
 .confirm-modal-danger-icon { background: #FEF2F2; border-color: #FCA5A5; color: #DC2626; }
 .order-status-cancelled { background: #FCE5E7; border-color: #D98A94; color: #852532; }
+.feedback-toast-success {
+  background-color: #ECFDF5;
+  border: 1px solid #10B981;
+  color: #065F46;
+}
+.feedback-toast-success svg {
+  color: #059669;
+}
+.auth-form-card {
+  background-color: #FFFFFF;
+  border-color: rgba(226, 232, 240, 0.8);
+}
+.address-saved-pill {
+  background-color: #FFFFFF;
+  border-color: #E2E8F0;
+  color: #22499F;
+}
+.password-rule-passed {
+  color: #059669;
+}
 .track-order-delivered-badge, .track-order-delivered { background: #ECFDF5; border-color: #A7F3D0; color: #047857; }
 .track-order-delivered-badge svg, .track-order-delivered svg { color: #059669; }
 .order-delivered-details-btn { background: #FFFFFF; border-color: rgba(34, 73, 159, 0.35); color: #22499F; }
@@ -315,6 +335,79 @@ html[data-store-theme="dark"] .account-delete { background: #3C2D32; border-colo
 html[data-store-theme="dark"] .account-delete-title { color: #FFB2B7; }
 html[data-store-theme="dark"] .account-delete-button { background: #49353B; border-color: #D0808A; color: #FFD2D4; }
 html[data-store-theme="dark"] .account-delete-button:hover { background: #A32E3D; color: #FFFFFF; }
+html[data-store-theme="dark"] .feedback-toast-success {
+  background-color: #173326 !important;
+  border-color: #059669 !important;
+  color: #A7F3D0 !important;
+}
+html[data-store-theme="dark"] .feedback-toast-success svg {
+  color: #34D399 !important;
+}
+html[data-store-theme="dark"] .auth-form-card {
+  background-color: #3A434C !important;
+  border-color: #66717A !important;
+}
+html[data-store-theme="dark"] .address-type-btn-active {
+  background-color: #FF942F !important;
+  color: #1F272E !important;
+  border-color: #FF942F !important;
+}
+html[data-store-theme="dark"] .address-type-btn-active svg {
+  color: #1F272E !important;
+}
+html[data-store-theme="dark"] .address-type-btn-inactive {
+  background-color: #1F272E !important;
+  border-color: #66717A !important;
+  color: #D1D5D8 !important;
+}
+html[data-store-theme="dark"] .address-type-btn-inactive:hover {
+  border-color: #FF942F !important;
+  color: #FAF8F4 !important;
+}
+html[data-store-theme="dark"] .address-region-btn-active {
+  background-color: #FF942F !important;
+  color: #1F272E !important;
+  border-color: #FF942F !important;
+}
+html[data-store-theme="dark"] .address-region-btn-active svg {
+  color: #1F272E !important;
+}
+html[data-store-theme="dark"] .address-region-btn-inactive {
+  background-color: #1F272E !important;
+  border-color: #66717A !important;
+  color: #D1D5D8 !important;
+}
+html[data-store-theme="dark"] .address-region-btn-inactive:hover {
+  border-color: #FF942F !important;
+  color: #FAF8F4 !important;
+}
+html[data-store-theme="dark"] .address-saved-pill {
+  background-color: #1F272E !important;
+  border-color: #C68042 !important;
+  color: #FFBF80 !important;
+}
+html[data-store-theme="dark"] .address-action-edit {
+  background-color: #1F272E !important;
+  border-color: #66717A !important;
+  color: #D1D5D8 !important;
+}
+html[data-store-theme="dark"] .address-action-edit:hover {
+  border-color: #FF942F !important;
+  color: #FFBF80 !important;
+}
+html[data-store-theme="dark"] .address-action-delete {
+  background-color: #1F272E !important;
+  border-color: #A05A66 !important;
+  color: #FFB2B7 !important;
+}
+html[data-store-theme="dark"] .address-action-delete:hover {
+  background-color: #A32E3D !important;
+  border-color: #8F2635 !important;
+  color: #FFFFFF !important;
+}
+html[data-store-theme="dark"] .password-rule-passed {
+  color: #34D399 !important;
+}
 
 html[data-store-theme="dark"] { color-scheme: dark; }
 html[data-store-theme="dark"], html[data-store-theme="dark"] body { background: #1F272E; color: #FAF8F4; }

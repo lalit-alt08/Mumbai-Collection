@@ -538,7 +538,7 @@ function Addresses() {
           <div
             className={`mb-6 flex items-center justify-between gap-3 rounded-2xl p-4 text-sm font-semibold animate-[slideUp_0.2s_ease-out] ${
               feedback.type === "success"
-                ? "bg-[#FFFFFF] text-emerald-300 border border-emerald-500"
+                ? "feedback-toast-success"
                 : "bg-rose-950/40 text-rose-300 border border-rose-900/60"
             }`}
           >

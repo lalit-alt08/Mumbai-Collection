@@ -28,6 +28,11 @@ function BottomNav() {
     "/return-policy",
     "/privacy-policy",
     "/shipping-policy",
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+    "/profile-setup",
   ];
 
   const isOrderTrackRoute = path.includes("/track");

@@ -144,8 +144,8 @@ export function ProfileAddressCard({
                 onClick={() => setAddressForm((prev) => ({ ...prev, type: "home" }))}
                 className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-[13.5px] font-bold transition-all cursor-pointer ${
                   addressForm.type === "home"
-                    ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
-                    : "border-[#E2E8F0] bg-[#F0F8E8] text-[#475569] hover:bg-[#FFFFFF]"
+                    ? "address-type-btn-active border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
+                    : "address-type-btn-inactive border-[#E2E8F0] bg-[#F0F8E8] text-[#475569] hover:bg-[#FFFFFF]"
                 }`}
               >
                 <Home size={16} />
@@ -157,8 +157,8 @@ export function ProfileAddressCard({
                 onClick={() => setAddressForm((prev) => ({ ...prev, type: "office" }))}
                 className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-[13.5px] font-bold transition-all cursor-pointer ${
                   addressForm.type === "office"
-                    ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
-                    : "border-[#E2E8F0] bg-[#F0F8E8] text-[#475569] hover:bg-[#FFFFFF]"
+                    ? "address-type-btn-active border-[#22499F] bg-[#FFFFFF] text-[#22499F] ring-2 ring-[#22499F]/20 font-extrabold"
+                    : "address-type-btn-inactive border-[#E2E8F0] bg-[#F0F8E8] text-[#475569] hover:bg-[#FFFFFF]"
                 }`}
               >
                 <Building2 size={16} />
@@ -242,10 +242,10 @@ export function ProfileAddressCard({
                     }}
                     className={`flex h-12 items-center justify-center gap-1.5 rounded-xl border px-3 text-[13.5px] font-bold transition-all cursor-pointer active:scale-98 ${
                       isSelected
-                        ? "border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-xs ring-2 ring-[#22499F]/20 font-extrabold"
+                        ? "address-region-btn-active border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-xs ring-2 ring-[#22499F]/20 font-extrabold"
                         : errors.city
                         ? "border-rose-500 bg-[#F0F8E8] text-[#475569]"
-                        : "border-[#E2E8F0] bg-[#F0F8E8] text-[#475569] hover:border-[#22499F]/40 hover:bg-[#FFFFFF]"
+                        : "address-region-btn-inactive border-[#E2E8F0] bg-[#F0F8E8] text-[#475569] hover:border-[#22499F]/40 hover:bg-[#FFFFFF]"
                     }`}
                   >
                     <MapPin size={15} className={isSelected ? "text-[#22499F] shrink-0" : errors.city ? "auth-field-error shrink-0" : "text-[#64748B] shrink-0"} />
