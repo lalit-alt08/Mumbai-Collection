@@ -3307,11 +3307,9 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
     $password = (string) $request->get_param('password');
     $delete_token = (string) $request->get_param('delete_token');
     $email_confirmed = false;
-    // Passwordless Google customers must confirm deletion with a dedicated
-    // single-use delete_account email proof bound to this authenticated user ID.
+    // Customers confirm deletion with a dedicated single-use delete_account email proof bound to this authenticated user ID.
     // Password-reset tokens are intentionally never accepted here.
-    if ($password === '' && $delete_token !== '' && get_user_meta($user_id, '_google_sub', true)
-        && !get_user_meta($user_id, '_mumbai_has_custom_password', true)) {
+    if ($delete_token !== '') {
             wp_cache_delete($user_id, 'user_meta');
             $hash = (string) get_user_meta($user_id, '_mumbai_delete_auth_token', true);
             $expires = (int) get_user_meta($user_id, '_mumbai_delete_auth_expires', true);
@@ -3322,7 +3320,7 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
             'password_required',
             $delete_token !== ''
                 ? 'This account deletion confirmation code is invalid or has expired. Please request a new code.'
-                : 'Your current password is required to delete your account.',
+                : 'A valid email confirmation code is required to delete your account.',
             ['status' => 400]
         );
     }
@@ -3330,7 +3328,7 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
     if (!$email_confirmed && !wp_check_password($password, $user->user_pass, $user_id)) {
         return new WP_Error(
             'invalid_password',
-            'The current password is incorrect.',
+            'The current password or confirmation code is incorrect.',
             ['status' => 403]
         );
     }
@@ -4300,9 +4298,6 @@ function mumbai_otp_store(WP_REST_Request $request) {
         $roles = (array) $user->roles;
         if (mumbai_is_privileged_account($user) || (!in_array('customer', $roles, true) && !in_array('subscriber', $roles, true))) {
             return new WP_Error('forbidden_deletion', 'Only customer accounts can be self-deleted.', ['status' => 403]);
-        }
-        if (!get_user_meta($user->ID, '_google_sub', true) || get_user_meta($user->ID, '_mumbai_has_custom_password', true)) {
-            return new WP_Error('password_required', 'Please enter your current password to delete your account.', ['status' => 400]);
         }
 
         $last_request = (int) get_user_meta($user->ID, '_mumbai_last_delete_otp_request', true);

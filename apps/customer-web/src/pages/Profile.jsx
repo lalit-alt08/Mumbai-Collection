@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import API_URL from "../config/api.js";
 import { isValidIndianPhone } from "../data/indianStates.js";
 import { useAuth } from "../context/AuthContext";
@@ -18,9 +18,6 @@ import {
   AlertTriangle,
   Trash2,
   Shield,
-  Lock,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import axios from "axios";
 import safeStorage, { safeSessionStorage } from "../utils/safeStorage.js";
@@ -28,6 +25,17 @@ import ConfirmModal from "../components/common/ConfirmModal.jsx";
 import { triggerHaptic } from '../utils/haptics';
 import { normalizePersonName, isValidPersonName } from "../utils/nameValidator.js";
 import { sendDeleteAccountOtp, verifyDeleteAccountOtp } from "../services/authService.js";
+
+const maskEmail = (email) => {
+  if (!email || typeof email !== "string" || !email.includes("@")) return "";
+  const [local, domain] = email.trim().split("@");
+  if (local.length <= 2) {
+    return `${local.charAt(0)}*@${domain}`;
+  }
+  const first = local.charAt(0);
+  const last = local.charAt(local.length - 1);
+  return `${first}${"*".repeat(Math.min(local.length - 2, 4))}${last}@${domain}`;
+};
 
 function Profile() {
   const navigate = useNavigate();
@@ -53,13 +61,12 @@ function Profile() {
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
-  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [deleteCode, setDeleteCode] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [deleteErrorType, setDeleteErrorType] = useState("");
   const [deleteCodeSent, setDeleteCodeSent] = useState(false);
   const [deleteCodeSending, setDeleteCodeSending] = useState(false);
   const [deleteResendSeconds, setDeleteResendSeconds] = useState(0);
-  const passwordlessGoogle = user?.is_google_user === true && user?.has_usable_password === false;
 
   useEffect(() => {
     if (deleteResendSeconds <= 0) return;
@@ -73,11 +80,12 @@ function Profile() {
     if (deleteCodeSending || isDeleting || deleteResendSeconds > 0) return;
     setDeleteCodeSending(true);
     setDeleteError("");
+    setDeleteErrorType("");
     try {
       await sendDeleteAccountOtp(user.email);
       setDeleteCodeSent(true);
       setDeleteResendSeconds(60);
-      setDeletePassword("");
+      setDeleteCode("");
     } catch (err) {
       setDeleteError(err.response?.data?.message || "Unable to send the confirmation code.");
     } finally {
@@ -535,8 +543,8 @@ function Profile() {
 
   const handleDeleteAccount = async () => {
     if (isDeleting) return;
-    if (!deletePassword) {
-      setDeleteError(passwordlessGoogle ? "Enter the email confirmation code." : "Enter your current password to confirm account deletion.");
+    if (!deleteCode || deleteCode.length !== 6) {
+      setDeleteError("Please enter the 6-digit confirmation code sent to your email.");
       return;
     }
 
@@ -548,17 +556,14 @@ function Profile() {
       setIsDeleting(true);
       setError("");
       setDeleteError("");
+      setDeleteErrorType("");
 
-      if (passwordlessGoogle) {
-        const proof = await verifyDeleteAccountOtp(user.email, deletePassword);
-        if (!isDeleteActive()) return;
-        await deleteAccount({ delete_token: proof.delete_token });
-      } else {
-        await deleteAccount(deletePassword);
-      }
+      const proof = await verifyDeleteAccountOtp(user.email, deleteCode);
+      if (!isDeleteActive()) return;
+      await deleteAccount({ delete_token: proof.delete_token });
       if (!isDeleteActive()) return;
       setShowDeleteModal(false);
-      setDeletePassword("");
+      setDeleteCode("");
 
       navigate("/", {
         replace: true,
@@ -569,8 +574,15 @@ function Profile() {
       });
     } catch (err) {
       if (!isDeleteActive()) return;
+      const data = err.response?.data;
+      const isOrdersBlocked =
+        data?.code === "active_orders_exist" ||
+        (data?.message && String(data.message).toLowerCase().includes("active or in-flight orders"));
+      if (isOrdersBlocked) {
+        setDeleteErrorType("active_orders");
+      }
       setDeleteError(
-        err.response?.data?.message ||
+        data?.message ||
           "Failed to delete account. Please try again or contact support."
       );
     } finally {
@@ -977,9 +989,9 @@ function Profile() {
         onClose={() => {
           if (!isDeleting) {
             setShowDeleteModal(false);
-            setDeletePassword("");
-            setShowDeletePassword(false);
+            setDeleteCode("");
             setDeleteError("");
+            setDeleteErrorType("");
             setDeleteCodeSent(false);
             setDeleteResendSeconds(0);
           }
@@ -995,104 +1007,93 @@ function Profile() {
             className="block text-left"
           >
             <p className="text-center text-[13.5px] sm:text-[14.5px] font-medium text-[#475569] leading-relaxed">
-              This permanently erases your profile, saved addresses, and favorites.{" "}
-              <span className="font-semibold text-[#1E293B]">
-                {passwordlessGoogle
-                  ? "Click Send Code to receive a 6-digit confirmation code on your account email."
-                  : "Enter your current password to continue."}
-              </span>
+              This permanently erases your profile, saved addresses, and favorites. To confirm it's you, a six-digit confirmation code will be sent to your registered email.
             </p>
-            <div className="mt-5">
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                <label
-                  htmlFor="delete-account-auth-input"
-                  className="text-[11.5px] sm:text-xs font-bold uppercase tracking-wider text-[#334155] whitespace-nowrap"
-                >
-                  {passwordlessGoogle ? "Email confirmation code" : "Current Password"}
-                </label>
-                {passwordlessGoogle && deleteCodeSent && (
-                  <span className="inline-flex shrink-0 items-center gap-1.5 text-[11.5px] sm:text-xs font-bold text-[#22499F] whitespace-nowrap">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#22499F] animate-pulse" />
-                    Code sent to email
+            <div className="mt-5 space-y-3">
+              {/* Row 1: Masked Email + Send Code Button */}
+              <div className="flex items-center justify-between gap-2.5 rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] p-2.5 sm:p-3 shadow-xs">
+                <div className="min-w-0 flex-1">
+                  <span className="block text-[10.5px] sm:text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+                    Registered Email
                   </span>
+                  <span className="block text-xs sm:text-sm font-extrabold text-[#1E293B] truncate mt-0.5">
+                    {maskEmail(user?.email || profile?.email || "")}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={deleteCodeSending || isDeleting || deleteResendSeconds > 0}
+                  onClick={sendDeleteCode}
+                  className="h-10 sm:h-11 shrink-0 flex items-center justify-center gap-1.5 rounded-xl border border-[#22499F]/40 bg-[#FFFFFF] px-3.5 sm:px-4 text-xs sm:text-[13px] font-black text-[#22499F] shadow-xs hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
+                >
+                  {deleteCodeSending ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin shrink-0" />
+                      <span>Sending...</span>
+                    </>
+                  ) : deleteResendSeconds > 0 ? (
+                    `Resend (${deleteResendSeconds}s)`
+                  ) : deleteCodeSent ? (
+                    "Resend Code"
+                  ) : (
+                    "Send Code"
+                  )}
+                </button>
+              </div>
+
+              {/* Row 2: 6-Digit Code Input */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="delete-account-code-input"
+                    className="text-[11.5px] sm:text-xs font-bold uppercase tracking-wider text-[#334155] whitespace-nowrap"
+                  >
+                    Email confirmation code
+                  </label>
+                  {deleteCodeSent && (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] sm:text-xs font-bold text-[#22499F] whitespace-nowrap">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#22499F] animate-pulse" />
+                      Code sent to email
+                    </span>
+                  )}
+                </div>
+                <input
+                  id="delete-account-code-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  placeholder="Enter 6-digit code"
+                  value={deleteCode}
+                  onChange={(event) => {
+                    setDeleteCode(event.target.value.replace(/\D/g, "").slice(0, 6));
+                    setDeleteError("");
+                    setDeleteErrorType("");
+                  }}
+                  autoComplete="one-time-code"
+                  disabled={isDeleting}
+                  className="h-12 sm:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-3.5 sm:px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-[13.5px] sm:placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
+                />
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="auth-error-banner mt-3 rounded-xl border p-2.5 text-left text-xs sm:text-[13px] font-semibold">
+                <p>{deleteError}</p>
+                {deleteErrorType === "active_orders" && (
+                  <Link
+                    to="/orders"
+                    onClick={() => setShowDeleteModal(false)}
+                    className="mt-1.5 inline-flex items-center gap-1 font-bold underline hover:opacity-80"
+                  >
+                    View active orders &rarr;
+                  </Link>
                 )}
               </div>
-              {passwordlessGoogle ? (
-                <div className="mt-2.5 flex w-full min-w-0 items-center gap-2 sm:gap-2.5">
-                  <input
-                    id="delete-account-auth-input"
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder="6-digit code"
-                    value={deletePassword}
-                    onChange={(event) => {
-                      setDeletePassword(event.target.value.replace(/\D/g, "").slice(0, 6));
-                      setDeleteError("");
-                    }}
-                    autoComplete="one-time-code"
-                    disabled={isDeleting}
-                    className="h-12 sm:h-[50px] min-w-0 w-full flex-1 rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] px-3.5 sm:px-4 text-base font-bold tracking-widest text-[#1E293B] placeholder:text-[13.5px] sm:placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
-                  />
-                  <button
-                    type="button"
-                    disabled={deleteCodeSending || isDeleting || deleteResendSeconds > 0}
-                    onClick={sendDeleteCode}
-                    className="h-12 sm:h-[50px] shrink-0 flex items-center justify-center gap-1.5 sm:gap-2 rounded-2xl border border-[#22499F]/40 bg-[#FFFFFF] px-3.5 sm:px-5 text-[12.5px] sm:text-sm font-black text-[#22499F] shadow-xs hover:bg-[#22499F] hover:text-[#FFFFFF] active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer whitespace-nowrap"
-                  >
-                    {deleteCodeSending ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin shrink-0" />
-                        <span>Sending...</span>
-                      </>
-                    ) : deleteResendSeconds > 0 ? (
-                      `Resend (${deleteResendSeconds}s)`
-                    ) : deleteCodeSent ? (
-                      "Resend Code"
-                    ) : (
-                      "Send Code"
-                    )}
-                  </button>
-                </div>
-              ) : (
-                <div className="relative mt-2.5 flex items-center">
-                  <div className="pointer-events-none absolute left-3.5 text-[#64748B]">
-                    <Lock size={17} strokeWidth={2} />
-                  </div>
-                  <input
-                    id="delete-account-auth-input"
-                    type={showDeletePassword ? "text" : "password"}
-                    placeholder="Enter your current password"
-                    value={deletePassword}
-                    onChange={(event) => {
-                      setDeletePassword(event.target.value);
-                      setDeleteError("");
-                    }}
-                    autoComplete="current-password"
-                    disabled={isDeleting}
-                    className="h-12 sm:h-[50px] w-full rounded-2xl border border-[#E2E8F0] bg-[#F0F8E8] pl-11 pr-12 text-[15px] font-medium text-[#1E293B] placeholder:text-sm placeholder:text-[#64748B] outline-none transition focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20 disabled:opacity-60"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowDeletePassword((prev) => !prev)}
-                    disabled={isDeleting}
-                    aria-label={showDeletePassword ? "Hide password" : "Show password"}
-                    className="absolute right-3.5 flex h-9 w-9 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:text-[#22499F] disabled:opacity-50 cursor-pointer"
-                  >
-                    {showDeletePassword ? <EyeOff size={19} /> : <Eye size={19} />}
-                  </button>
-                </div>
-              )}
-            </div>
-            {deleteError && (
-              <span role="alert" className="auth-field-error mt-2.5 block text-xs sm:text-[13px] font-semibold">
-                {deleteError}
-              </span>
             )}
           </form>
         }
-        confirmText="Yes, Delete Account"
+        confirmText="Permanently delete account"
         cancelText="Keep Account"
         isLoading={isDeleting}
         variant="danger"
