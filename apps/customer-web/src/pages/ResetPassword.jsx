@@ -99,7 +99,7 @@ function ResetPassword() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#F0F8E8] font-sans">
-      <div className="flex w-full flex-col px-6 pb-24 pt-8 md:w-[480px] md:rounded-[24px] md:bg-[#FFFFFF] md:border md:border-[#E2E8F0]/80 md:px-10 md:py-12 md:shadow-lg">
+      <div className="auth-form-card mx-auto flex w-full max-w-md flex-col rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] px-5 py-6 shadow-lg sm:p-8 md:max-w-[480px] md:rounded-[24px] md:px-10 md:py-12 md:shadow-lg">
 
         {/* Back */}
 
@@ -192,19 +192,19 @@ function ResetPassword() {
 
               {password.length > 0 && (
                 <div className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-[#E2E8F0]/60 bg-[#F0F8E8]/80 p-2.5 text-xs text-[#64748B]">
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.length ? "password-rule-passed text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.length ? "opacity-100" : "opacity-30"} /> 8+ characters
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.uppercase ? "password-rule-passed text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.uppercase ? "opacity-100" : "opacity-30"} /> Uppercase (A-Z)
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.lowercase ? "password-rule-passed text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.lowercase ? "opacity-100" : "opacity-30"} /> Lowercase (a-z)
                   </span>
-                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 ${passwordChecks.number ? "password-rule-passed text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.number ? "opacity-100" : "opacity-30"} /> Number (0-9)
                   </span>
-                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
+                  <span className={`flex items-center gap-1.5 col-span-2 ${passwordChecks.special ? "password-rule-passed text-emerald-600 font-semibold" : "text-[#64748B]"}`}>
                     <Check size={13} className={passwordChecks.special ? "opacity-100" : "opacity-30"} /> Special character (!@#$%^&*)
                   </span>
                 </div>

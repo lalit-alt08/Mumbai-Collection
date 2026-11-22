@@ -3,12 +3,7 @@ import API_URL from "../config/api.js";
 import { getSafeInternalPath } from "./navigation.js";
 
 const isCartPath = (path) =>
-  path === "/cart" ||
-  path.startsWith("/cart?") ||
-  path.startsWith("/cart#") ||
-  path === "/checkout" ||
-  path.startsWith("/checkout?") ||
-  path.startsWith("/checkout#");
+  Boolean(path && /^\/(cart|checkout)(\/|\?|#|$)/i.test(String(path).trim()));
 
 export async function fetchProfileCompletion() {
   const response = await axios.get(`${API_URL}/profile/complete`, {
@@ -105,7 +100,7 @@ export async function resolvePostAuthDestination({
 
     return {
       status: "default",
-      pathname: "/",
+      pathname: safeReturn,
       state: {
         accountCreated: true,
         message: "Account created successfully!",

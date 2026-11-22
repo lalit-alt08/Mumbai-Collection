@@ -141,6 +141,7 @@ export function ProfileAddressCard({
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
+                aria-pressed={addressForm.type === "home"}
                 onClick={() => setAddressForm((prev) => ({ ...prev, type: "home" }))}
                 className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-[13.5px] font-bold transition-all cursor-pointer ${
                   addressForm.type === "home"
@@ -154,6 +155,7 @@ export function ProfileAddressCard({
 
               <button
                 type="button"
+                aria-pressed={addressForm.type === "office"}
                 onClick={() => setAddressForm((prev) => ({ ...prev, type: "office" }))}
                 className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-[13.5px] font-bold transition-all cursor-pointer ${
                   addressForm.type === "office"
@@ -229,6 +231,7 @@ export function ProfileAddressCard({
                   <button
                     key={region}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => {
                       setAddressForm((prev) => ({ ...prev, city: region }));
                       if (errors.city) {

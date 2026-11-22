@@ -71,6 +71,7 @@ export function AddressFormCard({
             {isHomeAvailable ? (
               <button
                 type="button"
+                aria-pressed={form.type === "home"}
                 onClick={() => {
                   triggerHaptic("light");
                   setForm((prev) => ({
@@ -108,6 +109,7 @@ export function AddressFormCard({
             {isOfficeAvailable ? (
               <button
                 type="button"
+                aria-pressed={form.type === "office"}
                 onClick={() => {
                   triggerHaptic("light");
                   setForm((prev) => ({
@@ -302,6 +304,7 @@ export function AddressFormCard({
                 <button
                   key={region}
                   type="button"
+                  aria-pressed={isSelected}
                   onClick={() => {
                     triggerHaptic("light");
                     setForm((prev) => ({

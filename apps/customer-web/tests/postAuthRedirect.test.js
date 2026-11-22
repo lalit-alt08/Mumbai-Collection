@@ -531,6 +531,76 @@ test("New user signing in via Google SSO or Register from outside cart routes di
   ]);
 });
 
+test("New user signing in from explicit internal destination (e.g. /favorites or /orders) preserves destination with confirmation", async () => {
+  const navigated = [];
+  const result = await executePostAuthNavigation({
+    from: "/favorites",
+    hasCartItems: false,
+    user: { id: 103, email: "wishlist_user@example.com" },
+    isNewUser: true,
+    navigate: (path, opts) => navigated.push({ path, opts }),
+  });
+
+  assert.equal(result.status, "default");
+  assert.deepEqual(navigated, [
+    {
+      path: "/favorites",
+      opts: {
+        replace: true,
+        state: {
+          accountCreated: true,
+          message: "Account created successfully!",
+        },
+      },
+    },
+  ]);
+});
+
+test("Trailing slash on /cart/ or /checkout/ correctly identifies cart origin", async () => {
+  const navigated = [];
+  const result = await executePostAuthNavigation({
+    from: "/cart/",
+    hasCartItems: true,
+    user: { id: 104, first_name: "Anita", last_name: "Roy" },
+    isNewUser: true,
+    checkProfileComplete: async () => ({ complete: false }),
+    navigate: (path, opts) => navigated.push({ path, opts }),
+  });
+
+  assert.equal(result.status, "incomplete");
+  assert.deepEqual(navigated, [
+    {
+      path: "/profile-setup",
+      opts: {
+        replace: true,
+        state: {
+          from: "/cart/",
+          first_name: "Anita",
+          last_name: "Roy",
+        },
+      },
+    },
+  ]);
+});
+
+test("AddressFormCard and ProfileAddressCard expose aria-pressed to screen readers", () => {
+  const addressFormSrc = fs.readFileSync(path.join(customerWebSrc, "components/address/AddressFormCard.jsx"), "utf8");
+  assert.match(addressFormSrc, /aria-pressed=\{form\.type === "home"\}/);
+  assert.match(addressFormSrc, /aria-pressed=\{form\.type === "office"\}/);
+  assert.match(addressFormSrc, /aria-pressed=\{isSelected\}/);
+
+  const profileAddressSrc = fs.readFileSync(path.join(customerWebSrc, "components/profile/ProfileAddressCard.jsx"), "utf8");
+  assert.match(profileAddressSrc, /aria-pressed=\{addressForm\.type === "home"\}/);
+  assert.match(profileAddressSrc, /aria-pressed=\{addressForm\.type === "office"\}/);
+  assert.match(profileAddressSrc, /aria-pressed=\{isSelected\}/);
+});
+
+test("ResetPassword.jsx reuses auth-form-card and password-rule-passed styles", () => {
+  const resetSrc = fs.readFileSync(path.join(customerWebSrc, "pages/ResetPassword.jsx"), "utf8");
+  assert.match(resetSrc, /auth-form-card/);
+  assert.match(resetSrc, /password-rule-passed/);
+});
+
 test("New user signing in via Google SSO from Cart routes to /profile-setup only when profile is incomplete", async () => {
   // Case A: Incomplete profile -> /profile-setup
   const incompleteNav = [];
