@@ -76,6 +76,14 @@ function MainLayout() {
   ];
   const isAuthPage = authPages.some((p) => path.startsWith(p));
 
+  const authCardPages = [
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+  ];
+  const isAuthCardPage = authCardPages.some((p) => path.startsWith(p));
+
   const isHomePage = path === "/";
 
   return (
@@ -97,14 +105,21 @@ function MainLayout() {
               ? ""
               : path === "/"
                 ? "mx-auto max-w-7xl px-3.5 pt-2.5 sm:px-5 sm:pt-3.5 md:px-6 md:pt-5 lg:px-8"
+                : isAuthCardPage
+                  ? "mx-auto max-w-7xl px-4 sm:px-5 md:px-6 lg:px-8 flex flex-col flex-1 justify-center pb-8"
                 : isAuthPage
                   ? "mx-auto max-w-7xl px-4 py-6 sm:px-5 md:px-6 lg:px-8 pb-8"
                   : "mx-auto max-w-7xl px-4 py-6 sm:px-5 md:px-6 lg:px-8 pb-20 lg:pb-8"
         }`}
         style={
-          isHeaderHidden
+          isHeaderHidden && !isAuthCardPage
             ? { paddingTop: "var(--safe-area-top, env(safe-area-inset-top, 0px))" }
-            : undefined
+            : isAuthCardPage
+              ? {
+                  paddingTop: "max(1.5rem, var(--safe-area-top, env(safe-area-inset-top, 0px)))",
+                  paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))",
+                }
+              : undefined
         }
       >
         <Outlet />

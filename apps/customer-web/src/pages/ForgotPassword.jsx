@@ -304,8 +304,8 @@ function ForgotPassword() {
   };
 
   return (
-    <div className="bg-[#F0F8E8] font-sans md:flex md:min-h-[calc(100vh-140px)] md:items-center md:justify-center">
-      <div className="auth-form-card mx-auto flex w-full max-w-md flex-col rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] px-5 py-6 shadow-lg sm:p-8 md:max-w-[480px] md:rounded-[24px] md:px-10 md:py-12 md:shadow-lg">
+    <div className="flex w-full flex-1 flex-col items-center justify-center font-sans py-4 sm:py-8">
+      <div className="auth-form-card mx-auto my-auto flex w-full max-w-md flex-col rounded-2xl border border-[#E2E8F0]/80 bg-[#FFFFFF] px-5 py-6 shadow-lg sm:p-8 md:max-w-[480px] md:rounded-[24px] md:px-10 md:py-12 md:shadow-lg">
 
         {/* Back Button */}
         <button
