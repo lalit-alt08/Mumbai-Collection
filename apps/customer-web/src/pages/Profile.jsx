@@ -81,8 +81,9 @@ function Profile() {
     setDeleteCodeSending(true);
     setDeleteError("");
     setDeleteErrorType("");
+    const emailToSend = user?.email || profile?.email || "";
     try {
-      await sendDeleteAccountOtp(user.email);
+      await sendDeleteAccountOtp(emailToSend);
       setDeleteCodeSent(true);
       setDeleteResendSeconds(60);
       setDeleteCode("");
@@ -562,7 +563,8 @@ function Profile() {
       setDeleteError("");
       setDeleteErrorType("");
 
-      const proof = await verifyDeleteAccountOtp(user.email, deleteCode);
+      const emailToVerify = user?.email || profile?.email || "";
+      const proof = await verifyDeleteAccountOtp(emailToVerify, deleteCode);
       if (!isDeleteActive()) return;
       await deleteAccount({ delete_token: proof.delete_token });
       if (!isDeleteActive()) return;
