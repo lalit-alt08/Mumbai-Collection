@@ -18,7 +18,7 @@ import { schemas } from "../src/middlewares/requestValidation.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
-const wpPluginSource = fs.readFileSync(path.join(repoRoot, "mumbai-auth.php"), "utf8");
+const wpPluginSource = fs.readFileSync(path.join(repoRoot, "apps/wordpress-plugin/mumbai-auth.php"), "utf8");
 const profileRoutesSource = fs.readFileSync(
   path.join(repoRoot, "apps/backend/src/routes/profileRoutes.js"),
   "utf8"
@@ -148,6 +148,19 @@ test("Finding #1: deleteAccount rejects password reset_token and forwards only d
     rejectRes
   );
   assert.equal(rejectRes.statusCode, 400);
+
+  // Controller rejects password-only body with 400 when delete_token is missing
+  const rejectPwRes = makeRes();
+  await deleteAccount(
+    {
+      wpUserId: 77,
+      body: { password: "SecretPassword123!" },
+      cookies: {},
+      headers: {},
+    },
+    rejectPwRes
+  );
+  assert.equal(rejectPwRes.statusCode, 400);
 
   // Controller forwards delete_token to WordPress DELETE /profile
   const origAxiosDelete = axios.delete;

@@ -3304,32 +3304,23 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
         }
     }
 
-    $password = (string) $request->get_param('password');
     $delete_token = (string) $request->get_param('delete_token');
     $email_confirmed = false;
     // Customers confirm deletion with a dedicated single-use delete_account email proof bound to this authenticated user ID.
-    // Password-reset tokens are intentionally never accepted here.
+    // Password-only deletion and password-reset tokens are intentionally never accepted here.
     if ($delete_token !== '') {
-            wp_cache_delete($user_id, 'user_meta');
-            $hash = (string) get_user_meta($user_id, '_mumbai_delete_auth_token', true);
-            $expires = (int) get_user_meta($user_id, '_mumbai_delete_auth_expires', true);
-            $email_confirmed = $hash !== '' && time() <= $expires && hash_equals($hash, hash('sha256', $delete_token));
+        wp_cache_delete($user_id, 'user_meta');
+        $hash = (string) get_user_meta($user_id, '_mumbai_delete_auth_token', true);
+        $expires = (int) get_user_meta($user_id, '_mumbai_delete_auth_expires', true);
+        $email_confirmed = $hash !== '' && time() <= $expires && hash_equals($hash, hash('sha256', $delete_token));
     }
-    if ($password === '' && !$email_confirmed) {
+    if (!$email_confirmed) {
         return new WP_Error(
-            'password_required',
+            'invalid_token',
             $delete_token !== ''
                 ? 'This account deletion confirmation code is invalid or has expired. Please request a new code.'
                 : 'A valid email confirmation code is required to delete your account.',
             ['status' => 400]
-        );
-    }
-
-    if (!$email_confirmed && !wp_check_password($password, $user->user_pass, $user_id)) {
-        return new WP_Error(
-            'invalid_password',
-            'The current password or confirmation code is incorrect.',
-            ['status' => 403]
         );
     }
 

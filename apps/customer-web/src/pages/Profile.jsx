@@ -87,6 +87,10 @@ function Profile() {
       setDeleteResendSeconds(60);
       setDeleteCode("");
     } catch (err) {
+      const retryAfter = Number(err.response?.data?.retryAfter);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        setDeleteResendSeconds(Math.ceil(retryAfter));
+      }
       setDeleteError(err.response?.data?.message || "Unable to send the confirmation code.");
     } finally {
       setDeleteCodeSending(false);
@@ -992,8 +996,6 @@ function Profile() {
             setDeleteCode("");
             setDeleteError("");
             setDeleteErrorType("");
-            setDeleteCodeSent(false);
-            setDeleteResendSeconds(0);
           }
         }}
         onConfirm={handleDeleteAccount}

@@ -336,10 +336,10 @@ export const deleteAccount = async (req, res) => {
 
     const password = typeof req.body?.password === "string" ? req.body.password : "";
     const delete_token = typeof req.body?.delete_token === "string" ? req.body.delete_token : "";
-    if (!password && !delete_token) {
+    if (!delete_token || !/^[A-Za-z0-9]{64}$/.test(delete_token)) {
       return res.status(400).json({
         success: false,
-        message: "Your current password or account deletion confirmation code is required to delete your account.",
+        message: "A valid account deletion confirmation code is required to delete your account.",
       });
     }
 

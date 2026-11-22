@@ -62,4 +62,17 @@ test("Unified Account Deletion Flow Suite", async (t) => {
 
     assert.equal(isOrdersBlocked, true, "Must flag active order block so View active orders link is rendered");
   });
+
+  await t.test("4. 429 rate limit parses retryAfter and preserves countdown", () => {
+    let resendSeconds = 0;
+    const handleError = (err) => {
+      const retryAfter = Number(err.response?.data?.retryAfter);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        resendSeconds = Math.ceil(retryAfter);
+      }
+    };
+
+    handleError({ response: { status: 429, data: { retryAfter: 45, message: "Rate limit reached." } } });
+    assert.equal(resendSeconds, 45, "Should set countdown from retryAfter value");
+  });
 });
