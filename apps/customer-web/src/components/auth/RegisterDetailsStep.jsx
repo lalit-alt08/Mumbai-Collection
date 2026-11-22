@@ -135,7 +135,12 @@ export function RegisterDetailsStep({
               <p className="auth-field-error text-xs font-semibold">{emailError}</p>
               <button
                 type="button"
-                onClick={() => navigate("/login", { state: { from: location.state?.from, email: email.trim() } })}
+                onClick={() =>
+                  navigate("/login", {
+                    replace: true,
+                    state: { from: location.state?.from, email: email.trim() },
+                  })
+                }
                 className="text-xs font-bold text-[#22499F] hover:underline cursor-pointer"
               >
                 Sign in instead →
@@ -185,7 +190,12 @@ export function RegisterDetailsStep({
         Already have an account?
         <button
           type="button"
-          onClick={() => navigate("/login", { state: { from: location.state?.from, email: email.trim() } })}
+          onClick={() =>
+            navigate("/login", {
+              replace: true,
+              state: { from: location.state?.from, email: email.trim() },
+            })
+          }
           className="ml-1.5 font-bold text-[#22499F] transition-colors hover:text-[#22499F] cursor-pointer"
         >
           Sign In

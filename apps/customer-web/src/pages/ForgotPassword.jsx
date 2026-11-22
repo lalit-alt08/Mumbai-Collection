@@ -290,7 +290,13 @@ function ForgotPassword() {
       setConfirmPassword("");
 
       setTimeout(() => {
-        navigate("/login", { replace: true });
+        navigate("/login", {
+          replace: true,
+          state: {
+            from: location.state?.from,
+            message: "Password reset successful! Please sign in with your new password.",
+          },
+        });
       }, 1800);
     } catch (err) {
       const msg =
@@ -320,7 +326,10 @@ function ForgotPassword() {
               setError("");
               setFieldError("");
             } else {
-              navigate("/login");
+              navigate("/login", {
+                replace: true,
+                state: { from: location.state?.from },
+              });
             }
           }}
           className="mb-6 flex w-fit items-center gap-2 text-sm font-semibold text-[#64748B] transition hover:text-[#22499F] cursor-pointer"
@@ -435,7 +444,12 @@ function ForgotPassword() {
                   Didn&apos;t receive a code? If this account is linked to Google Sign-In, no store reset email is sent — use{" "}
                   <button
                     type="button"
-                    onClick={() => navigate("/login")}
+                    onClick={() =>
+                      navigate("/login", {
+                        replace: true,
+                        state: { from: location.state?.from },
+                      })
+                    }
                     className="font-bold text-[#22499F] hover:underline cursor-pointer"
                   >
                     Continue with Google

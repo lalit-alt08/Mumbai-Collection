@@ -236,7 +236,12 @@ function Login() {
               <div className="mt-2.5 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => navigate("/forgot-password")}
+                  onClick={() =>
+                    navigate("/forgot-password", {
+                      replace: true,
+                      state: { from: location.state?.from, email: email.trim() },
+                    })
+                  }
                   className="text-[13px] font-semibold text-[#22499F] hover:underline cursor-pointer"
                 >
                   Forgot password?
@@ -286,7 +291,12 @@ function Login() {
             Don't have an account?
             <button
               type="button"
-              onClick={() => navigate("/register", { state: { from: location.state?.from } })}
+              onClick={() =>
+                navigate("/register", {
+                  replace: true,
+                  state: { from: location.state?.from },
+                })
+              }
               className="ml-1.5 font-bold text-[#22499F] transition-colors hover:text-[#22499F] cursor-pointer"
             >
               Create one now

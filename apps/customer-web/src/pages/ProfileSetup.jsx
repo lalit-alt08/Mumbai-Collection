@@ -753,6 +753,15 @@ function ProfileSetup() {
   const hasHome = addresses.some((a) => a.type === "home");
   const hasOffice = addresses.some((a) => a.type === "office");
 
+  const handleExitSetup = () => {
+    triggerHaptic("light");
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate(getSafeInternalPath(location.state?.from, "/"), { replace: true });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F0F8E8] text-[#1E293B] px-4 pt-3 pb-28 sm:px-6 sm:pt-6 md:pb-16 font-sans">
       <div className="mx-auto max-w-xl space-y-4 sm:space-y-5">
@@ -760,7 +769,7 @@ function ProfileSetup() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
+            onClick={handleExitSetup}
             aria-label="Back to Home"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FFFFFF] text-[#1E293B] border border-[#E2E8F0] transition-all hover:border-[#22499F]/60 hover:bg-[#FFFFFF] hover:text-[#22499F] active:scale-95 cursor-pointer shadow-sm"
           >
@@ -776,7 +785,7 @@ function ProfileSetup() {
           </div>
           <button
             type="button"
-            onClick={() => navigate(getSafeInternalPath(location.state?.from, "/"))}
+            onClick={handleExitSetup}
             className="shrink-0 text-[13px] font-bold text-[#475569] hover:text-[#22499F] px-3 py-2 rounded-xl border border-[#E2E8F0] hover:border-[#22499F]/40 bg-[#FFFFFF] transition cursor-pointer"
           >
             Skip for now

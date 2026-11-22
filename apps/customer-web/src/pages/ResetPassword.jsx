@@ -83,7 +83,13 @@ function ResetPassword() {
 
       // Give the user a moment to see the success message
       setTimeout(() => {
-        navigate("/login");
+        navigate("/login", {
+          replace: true,
+          state: {
+            from: location.state?.from,
+            message: "Password reset successful! Please sign in with your new password.",
+          },
+        });
       }, 1800);
     } catch (err) {
       const message =
@@ -105,7 +111,12 @@ function ResetPassword() {
 
         <button
           type="button"
-          onClick={() => navigate("/login")}
+          onClick={() =>
+            navigate("/login", {
+              replace: true,
+              state: { from: location.state?.from },
+            })
+          }
           className="mb-8 flex w-fit items-center gap-2 text-sm font-semibold text-[#64748B] transition hover:text-[#22499F] cursor-pointer"
         >
           <ArrowLeft size={18} />
@@ -133,7 +144,12 @@ function ResetPassword() {
             </div>
             <button
               type="button"
-              onClick={() => navigate("/forgot-password")}
+              onClick={() =>
+                navigate("/forgot-password", {
+                  replace: true,
+                  state: { from: location.state?.from },
+                })
+              }
               className="flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[#22499F] text-[15px] font-bold text-[#FFFFFF] shadow-md transition-all hover:bg-[#1B3B82] active:scale-[0.98] cursor-pointer"
             >
               Reset with Email OTP

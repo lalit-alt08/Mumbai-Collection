@@ -340,10 +340,14 @@ function Addresses() {
 
         if (location.state?.from) {
           const safeTarget = getSafeInternalPath(location.state.from, "/cart");
-          navigate(safeTarget, {
-            replace: true,
-            state: { selectedAddressId: addrIdStr },
-          });
+          if (window.history.state && window.history.state.idx > 0) {
+            navigate(-1);
+          } else {
+            navigate(safeTarget, {
+              replace: true,
+              state: { selectedAddressId: addrIdStr },
+            });
+          }
           return;
         }
       } else {
@@ -366,10 +370,14 @@ function Addresses() {
 
         if (location.state?.from) {
           const safeTarget = getSafeInternalPath(location.state.from, "/cart");
-          navigate(safeTarget, {
-            replace: true,
-            state: { selectedAddressId: newAddressId },
-          });
+          if (window.history.state && window.history.state.idx > 0) {
+            navigate(-1);
+          } else {
+            navigate(safeTarget, {
+              replace: true,
+              state: { selectedAddressId: newAddressId },
+            });
+          }
           return;
         }
       }
@@ -477,12 +485,10 @@ function Addresses() {
           <button
             onClick={() => {
               triggerHaptic("light");
-              if (location.state?.from) {
-                navigate(getSafeInternalPath(location.state.from, "/account"));
-              } else if (window.history.state && window.history.state.idx > 0) {
+              if (window.history.state && window.history.state.idx > 0) {
                 navigate(-1);
               } else {
-                navigate("/account", { replace: true });
+                navigate(getSafeInternalPath(location.state?.from, "/account"), { replace: true });
               }
             }}
             aria-label="Back to Account"
