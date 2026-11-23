@@ -271,4 +271,214 @@ describe("Redis & In-Memory Hybrid Cache Architecture Test Suite", () => {
     assert.equal(authoritativeFetchCalled, true);
     assert.equal(afterRecovery.stock, 0);
   });
+
+  test("8. Replay Failure Fallthrough: Bypasses Redis when invalidation replay fails and queries authoritative source", async () => {
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+
+    let redisOnline = true;
+    let incrShouldFail = false;
+    let authoritativeFetchCount = 0;
+
+    const mockRedis = {
+      async get() {
+        // Redis holds stale stock: 5
+        return JSON.stringify({ id: 50, stock: 5 });
+      },
+      async pttl() { return 50000; },
+      async psetex() {},
+      async incr() {
+        if (incrShouldFail) {
+          throw new Error("Redis connection reset during invalidation write");
+        }
+        return 2;
+      },
+      async publish() { return 1; },
+    };
+
+    const cache = new MemoryCache({
+      subscriberProvider: () => null,
+      redisProvider: () => (redisOnline ? mockRedis : null),
+      redisConfiguredCheck: () => true,
+      redisActiveCheck: () => redisOnline,
+      generationReader: async () => ["1", "1"],
+    });
+
+    // 1. Stock update 5 -> 0 occurs during an outage
+    redisOnline = false;
+    cache.invalidatePrefix("products:50");
+
+    // 2. Redis reconnects, but invalidation replay write fails
+    redisOnline = true;
+    incrShouldFail = true;
+
+    // 3. Shopper requests product 50
+    const result = await cache.getOrFetch("products:50", async () => {
+      authoritativeFetchCount++;
+      return { id: 50, stock: 0 }; // Fresh stock from WooCommerce
+    });
+
+    // Authoritative source was queried; stale Redis stock (5) was bypassed
+    assert.equal(authoritativeFetchCount, 1);
+    assert.equal(result.stock, 0);
+
+    // Invalidation remains pending in queue
+    assert.equal(cache.failedInvalidations.size, 1);
+  });
+
+  test("9. In-Flight Replay Race: Shares single in-flight replay promise and does not clear queue prematurely", async () => {
+    const { EventEmitter } = await import("node:events");
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+
+    class MockSubscriber extends EventEmitter {
+      constructor() {
+        super();
+        this.status = "connecting";
+      }
+      async subscribe() {}
+    }
+
+    let redisOnline = true;
+    let nsGen = 1;
+    let incrInProgress = false;
+    let incrFinishPromise;
+    let resolveIncr;
+
+    const mockStore = new Map();
+    // Stale stock 5 stored under nsGen 1
+    mockStore.set("mumbai:cache:v3:g1:products:n1:products:50", JSON.stringify({ id: 50, stock: 5 }));
+
+    const mockSub = new MockSubscriber();
+    const mockRedis = {
+      async get(key) {
+        return mockStore.get(key) || null;
+      },
+      async pttl() { return 50000; },
+      async psetex(key, ttl, val) { mockStore.set(key, val); },
+      async incr() {
+        incrInProgress = true;
+        await incrFinishPromise;
+        nsGen++;
+        incrInProgress = false;
+        return nsGen;
+      },
+      async publish() { return 1; },
+    };
+
+    const cache = new MemoryCache({
+      subscriberProvider: () => mockSub,
+      redisProvider: () => (redisOnline ? mockRedis : null),
+      redisConfiguredCheck: () => true,
+      redisActiveCheck: () => redisOnline,
+      generationReader: async () => ["1", String(nsGen)],
+    });
+
+    // 1. Outage occurs, stock changed 5 -> 0
+    redisOnline = false;
+    cache.invalidatePrefix("products:50");
+    assert.equal(cache.failedInvalidations.size, 1);
+
+    // 2. Redis reconnects: subscriber emits ready, initiating reconnect handler & _flushFailedInvalidations
+    redisOnline = true;
+    incrFinishPromise = new Promise((resolve) => { resolveIncr = resolve; });
+
+    // Trigger reconnect handler in background
+    mockSub.emit("ready");
+
+    // Wait 10ms for subscriber to start _flushFailedInvalidations
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(incrInProgress, true);
+
+    // Verify queue was NOT cleared prematurely before incr finished
+    assert.equal(cache.failedInvalidations.size, 1);
+
+    // 3. Shopper 1 request arrives while flush is in-flight
+    const shopper1Promise = cache.getOrFetch("products:50", async () => {
+      return { id: 50, stock: 0 };
+    });
+
+    // Now let the incr finish
+    resolveIncr();
+
+    const shopper1Result = await shopper1Promise;
+    assert.equal(shopper1Result.stock, 0);
+
+    // 4. Shopper 2 arrives after replay completed
+    const shopper2Result = await cache.getOrFetch("products:50", async () => {
+      return { id: 50, stock: 0 };
+    });
+    assert.equal(shopper2Result.stock, 0);
+  });
+
+  test("10. Backend Process Restart During Outage: Persists failed invalidations to disk and reloads on startup", async () => {
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { existsSync, unlinkSync } = await import("node:fs");
+
+    const testSpool = join(tmpdir(), `spool-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+
+    try {
+      let redisOnline = false;
+      let nsGen = 1;
+
+      const mockRedis = {
+        async get() { return JSON.stringify({ id: 50, stock: 5 }); },
+        async pttl() { return 50000; },
+        async psetex() {},
+        async incr() { nsGen++; return nsGen; },
+        async publish() { return 1; },
+      };
+
+      // 1. Process 1 runs: Redis is offline, invalidation fires
+      const cache1 = new MemoryCache({
+        subscriberProvider: () => null,
+        redisProvider: () => (redisOnline ? mockRedis : null),
+        redisConfiguredCheck: () => true,
+        redisActiveCheck: () => redisOnline,
+        generationReader: async () => ["1", String(nsGen)],
+        persistencePath: testSpool,
+      });
+
+      cache1.invalidatePrefix("products:50");
+
+      // Verify spool file was written to disk
+      assert.equal(existsSync(testSpool), true);
+
+      // 2. Process 1 crashes / exits. Process 2 restarts fresh
+      const cache2 = new MemoryCache({
+        subscriberProvider: () => null,
+        redisProvider: () => (redisOnline ? mockRedis : null),
+        redisConfiguredCheck: () => true,
+        redisActiveCheck: () => redisOnline,
+        generationReader: async () => ["1", String(nsGen)],
+        persistencePath: testSpool,
+      });
+
+      // Verify Process 2 reloaded the pending invalidations from disk
+      assert.equal(cache2.failedInvalidations.size, 1);
+
+      // Shopper arrives while Redis is still offline
+      let authoritativeFetchCalled = false;
+      const result = await cache2.getOrFetch("products:50", async () => {
+        authoritativeFetchCalled = true;
+        return { id: 50, stock: 0 };
+      });
+
+      // Stale stock 5 was NOT served; authoritative fetch was called
+      assert.equal(authoritativeFetchCalled, true);
+      assert.equal(result.stock, 0);
+
+      // 3. Redis comes back online. Process 2 flushes the persisted queue
+      redisOnline = true;
+      await cache2._flushFailedInvalidations();
+
+      // Invalidation queue empty and spool file removed
+      assert.equal(cache2.failedInvalidations.size, 0);
+      assert.equal(existsSync(testSpool), false);
+    } finally {
+      if (existsSync(testSpool)) {
+        try { unlinkSync(testSpool); } catch (_) {}
+      }
+    }
+  });
 });

@@ -10,6 +10,18 @@
 import { getRedisClient, getRedisSubscriber, isRedisConfigured, isRedisActive } from "../config/redis.js";
 import { logger } from "./logger.js";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const defaultSpoolPath = () => {
+  try {
+    return process.env.CACHE_INVALIDATION_SPOOL_FILE ||
+      resolve(fileURLToPath(new URL("../../var/cache-invalidation-spool.json", import.meta.url)));
+  } catch {
+    return null;
+  }
+};
 
 const CHANNEL = "mumbai:cache:invalidate:v3";
 const GLOBAL_GEN_KEY = "mumbai:cache:global_gen:v3";
@@ -94,6 +106,7 @@ export class MemoryCache {
     redisConfiguredCheck = isRedisConfigured,
     redisActiveCheck = isRedisActive,
     generationReader = getRedisGenerations,
+    persistencePath = defaultSpoolPath(),
   } = {}) {
     this.defaultTtlMs = defaultTtlMs;
     this.maxSize = maxSize;
@@ -101,6 +114,7 @@ export class MemoryCache {
     this.redisConfiguredCheck = redisConfiguredCheck;
     this.redisActiveCheck = redisActiveCheck;
     this.generationReader = generationReader;
+    this.persistencePath = persistencePath;
     this.store = new Map();
     this.inFlight = new Map();
     this.source = randomUUID();
@@ -108,6 +122,9 @@ export class MemoryCache {
     this.pendingInvalidations = Promise.resolve();
     this.pendingInvalidationErrors = [];
     this.failedInvalidations = new Set();
+    this.inFlightFlush = null;
+
+    this._loadPersistedFailedInvalidations();
 
     const sub = subscriberProvider();
     if (sub) {
@@ -142,6 +159,60 @@ export class MemoryCache {
     }, 30000).unref();
   }
 
+  _persistFailedInvalidations() {
+    if (!this.persistencePath) return;
+    try {
+      if (this.failedInvalidations.size === 0) {
+        if (existsSync(this.persistencePath)) {
+          try {
+            unlinkSync(this.persistencePath);
+          } catch (_) {}
+        }
+      } else {
+        const dir = dirname(this.persistencePath);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true, mode: 0o700 });
+        }
+        const data = JSON.stringify(Array.from(this.failedInvalidations));
+        const tempPath = `${this.persistencePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+        writeFileSync(tempPath, data, "utf8");
+        renameSync(tempPath, this.persistencePath);
+      }
+    } catch (err) {
+      logger.debug({ err: err.message }, "Could not persist pending invalidations");
+    }
+  }
+
+  _loadPersistedFailedInvalidations() {
+    if (!this.persistencePath) return;
+    try {
+      if (existsSync(this.persistencePath)) {
+        const raw = readFileSync(this.persistencePath, "utf8");
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            this.failedInvalidations.add(item);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  _isKeyAffected(key) {
+    if (this.failedInvalidations.size === 0) return false;
+    const targetNs = getNamespace(key);
+    for (const item of this.failedInvalidations) {
+      try {
+        const { type, value } = JSON.parse(item);
+        if (type === "clear") return true;
+        if (type === "key" && key === value) return true;
+        if (type === "prefix" && key.startsWith(value)) return true;
+        if (getNamespace(value) === targetNs) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
   _invalidateLocal(type, value) {
     this.revision++;
     for (const key of new Set([...this.store.keys(), ...this.inFlight.keys()])) {
@@ -171,6 +242,7 @@ export class MemoryCache {
   }
 
   set(key, value, ttlMs = this.defaultTtlMs) {
+    if (this._isKeyAffected(key)) return;
     const capturedRevision = this.revision;
     this._putLocal(key, value, ttlMs);
     const redis = this.redisProvider();
@@ -205,7 +277,7 @@ export class MemoryCache {
   }
 
   async setFenced(key, value, ttlMs = this.defaultTtlMs, fence) {
-    if (!fence || fence.revision !== this.revision) {
+    if (!fence || fence.revision !== this.revision || this._isKeyAffected(key)) {
       return false;
     }
     const redis = this.redisProvider();
@@ -242,6 +314,25 @@ export class MemoryCache {
   }
 
   async getOrFetch(key, fetchFn, ttlMs = this.defaultTtlMs) {
+    if (this.inFlightFlush) {
+      await this.inFlightFlush.catch(() => {});
+    } else if (this.failedInvalidations.size > 0 && this.redisActiveCheck()) {
+      await this._flushFailedInvalidations().catch(() => {});
+    }
+
+    if (this._isKeyAffected(key)) {
+      if (this.inFlight.has(key)) return this.inFlight.get(key);
+      const promise = (async () => {
+        return await fetchFn();
+      })();
+      this.inFlight.set(key, promise);
+      try {
+        return await promise;
+      } finally {
+        if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
+      }
+    }
+
     const local = this.get(key);
     if (local !== null) return local;
 
@@ -254,8 +345,14 @@ export class MemoryCache {
     let capturedNs = null;
 
     const promise = (async () => {
-      if (this.failedInvalidations.size > 0 && this.redisActiveCheck()) {
+      if (this.inFlightFlush) {
+        await this.inFlightFlush.catch(() => {});
+      } else if (this.failedInvalidations.size > 0 && this.redisActiveCheck()) {
         await this._flushFailedInvalidations().catch(() => {});
+      }
+
+      if (this._isKeyAffected(key)) {
+        return await fetchFn();
       }
 
       if (redis) {
@@ -333,7 +430,7 @@ export class MemoryCache {
             logger.debug({ err: err.message }, "Cache generation recheck unavailable");
           }
         }
-        if (fetchRevision === this.revision && generationsStable) {
+        if (fetchRevision === this.revision && generationsStable && !this._isKeyAffected(key)) {
           this._putLocal(key, result, ttlMs);
           if (canWriteRedis && currentGlobal !== null && typeof redis.psetex === "function") {
             void redis.psetex(makeRedisKey(currentGlobal, ns, currentNs, key), ttlMs, JSON.stringify(result)).catch(() => {});
@@ -352,28 +449,41 @@ export class MemoryCache {
   }
 
   async _flushFailedInvalidations() {
+    if (this.inFlightFlush) {
+      return await this.inFlightFlush;
+    }
     if (this.failedInvalidations.size === 0) return;
     const redis = this.redisProvider();
     if (!redis || !this.redisActiveCheck()) return;
 
-    const queued = Array.from(this.failedInvalidations);
-    this.failedInvalidations.clear();
-
-    for (const item of queued) {
+    this.inFlightFlush = (async () => {
       try {
-        const { type, value } = JSON.parse(item);
-        if (type === "clear") {
-          await redis.incr(GLOBAL_GEN_KEY);
-        } else {
-          const ns = getNamespace(value);
-          await redis.incr(getNsGenKey(ns));
+        const queued = Array.from(this.failedInvalidations);
+        for (const item of queued) {
+          try {
+            const { type, value } = JSON.parse(item);
+            if (type === "clear") {
+              await redis.incr(GLOBAL_GEN_KEY);
+            } else {
+              const ns = getNamespace(value);
+              await redis.incr(getNsGenKey(ns));
+            }
+            if (typeof redis.publish === "function") {
+              await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
+            }
+            this.failedInvalidations.delete(item);
+            this._persistFailedInvalidations();
+          } catch (err) {
+            logger.warn({ err: err.message }, "Retry of shared cache invalidation failed; kept in pending queue");
+            break;
+          }
         }
-        await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
-      } catch (err) {
-        this.failedInvalidations.add(item);
-        logger.warn({ err: err.message }, "Retry of shared cache invalidation failed; re-queued");
+      } finally {
+        this.inFlightFlush = null;
       }
-    }
+    })();
+
+    return await this.inFlightFlush;
   }
 
   _invalidate(type, value = "", batch = null) {
@@ -392,6 +502,7 @@ export class MemoryCache {
     // Queue invalidation for replay on reconnect and record degradation.
     if (!redis || !this.redisActiveCheck()) {
       this.failedInvalidations.add(JSON.stringify({ type, value }));
+      this._persistFailedInvalidations();
       const degradedError = new Error("Redis is configured but unavailable; distributed cache invalidation degraded");
       degradedError.code = "REDIS_UNAVAILABLE";
       degradedError.degraded = true;
@@ -417,6 +528,7 @@ export class MemoryCache {
         await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
       } catch (err) {
         this.failedInvalidations.add(JSON.stringify({ type, value }));
+        this._persistFailedInvalidations();
         if (batch) {
           batch.errors.push(err);
         } else {
