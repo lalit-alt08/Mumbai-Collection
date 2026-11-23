@@ -73,6 +73,29 @@
               window.matchMedia("(display-mode: standalone)").matches);
           if (isStandalone) {
             document.documentElement.classList.add("is-standalone");
+
+            // Auto-refresh standalone PWA whenever a newer deployment exists on server
+            var checkPwaFreshness = function () {
+              fetch('/index.html?pwa_check=' + Date.now(), { cache: 'no-store' })
+                .then(function (res) { return res.text(); })
+                .then(function (html) {
+                  var currentScript = document.querySelector('script[src*="/assets/index-"]');
+                  if (currentScript && currentScript.src) {
+                    var filename = currentScript.src.split('/').pop();
+                    if (filename && html.indexOf(filename) === -1 && html.indexOf('/assets/index-') !== -1) {
+                      window.location.reload();
+                    }
+                  }
+                })
+                .catch(function () {});
+            };
+
+            setTimeout(checkPwaFreshness, 1000);
+            document.addEventListener('visibilitychange', function () {
+              if (document.visibilityState === 'visible') {
+                checkPwaFreshness();
+              }
+            });
           }
         } catch (e) {}
       })();
