@@ -111,12 +111,12 @@ export default function BackToTopButton({ threshold = 250 }) {
         type="button"
         onClick={scrollToTop}
         aria-label="Back to top"
-        className="group flex min-h-10 items-center gap-2 rounded-full bg-[#22499F] hover:bg-[#1B3B82] text-[#FFFFFF] px-4 py-2 shadow-lg border border-[#22499F] transition-all active:scale-95 cursor-pointer"
+        className="group flex h-8 items-center gap-1.5 rounded-full bg-[#22499F] hover:bg-[#1B3B82] text-[#FFFFFF] px-3 py-1 shadow-md border border-[#22499F]/80 transition-all active:scale-95 cursor-pointer"
       >
-        <span className="flex items-center justify-center h-5 w-5 rounded-full border border-current transition-colors">
-          <ArrowUp size={13} strokeWidth={3} />
+        <span className="flex items-center justify-center h-4 w-4 rounded-full border border-current transition-colors">
+          <ArrowUp size={11} strokeWidth={2.8} />
         </span>
-        <span className="text-xs font-bold tracking-tight whitespace-nowrap">
+        <span className="text-[11px] font-bold tracking-tight whitespace-nowrap">
           Back to top
         </span>
       </button>

@@ -14,21 +14,16 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
   const headerSource = fs.readFileSync(headerPath, "utf8");
   const backToTopSource = fs.readFileSync(backToTopPath, "utf8");
 
-  await t.test("1. Header implements smooth scroll collapse and intentional reveal thresholds", () => {
-    // Deliberate upward scroll threshold (< -12) to avoid jitter
+  await t.test("1. Header keeps search visible strictly at the top of the homepage and stays collapsed down-page", () => {
+    // Keep search visible near top (<= 60)
     assert.ok(
-      headerSource.includes("delta < -12"),
-      "Header must require a deliberate upward scroll (delta < -12) before showing search"
-    );
-    // Downward scroll threshold (> 8 and past top threshold > 70)
-    assert.ok(
-      headerSource.includes("delta > 8 && currentScrollY > 70"),
-      "Header must only collapse on clear downward scroll past top area"
-    );
-    // Keep search visible near top (<= 50)
-    assert.ok(
-      headerSource.includes("currentScrollY <= 50"),
+      headerSource.includes("currentScrollY <= 60"),
       "Header search must remain visible when near top of homepage"
+    );
+    // Stay cleanly collapsed while browsing down
+    assert.ok(
+      headerSource.includes("setIsSearchVisible(false)"),
+      "Header must collapse when scrolled down"
     );
   });
 
@@ -54,10 +49,18 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
     );
   });
 
-  await t.test("4. BackToTopButton positions cleanly below rested header bottom on idle", () => {
+  await t.test("4. BackToTopButton positions cleanly below rested header and uses compact, sleek pill dimensions", () => {
     assert.ok(
       backToTopSource.includes("headerBottom + 12"),
       "BackToTopButton must calculate position cleanly 12px below rested header"
+    );
+    assert.ok(
+      backToTopSource.includes("h-8"),
+      "BackToTopButton must use compact h-8 height for subtle appearance"
+    );
+    assert.ok(
+      backToTopSource.includes("text-[11px]"),
+      "BackToTopButton must use refined text-[11px] font size"
     );
   });
 

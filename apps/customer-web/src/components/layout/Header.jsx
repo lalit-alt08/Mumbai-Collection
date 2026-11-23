@@ -62,14 +62,12 @@ function Header() {
     };
   }, []);
 
-  // Scroll listener for Homepage: smoothly hide search on deliberate scroll down, reveal on scroll up
+  // Scroll listener for Homepage: search stays visible only when at the top of the page
   useEffect(() => {
     if (!isHomePage) {
       setIsSearchVisible(true);
       return;
     }
-
-    lastScrollYRef.current = window.scrollY;
 
     const handleScroll = () => {
       if (isInputFocused) {
@@ -80,18 +78,13 @@ function Header() {
       if (!tickingRef.current) {
         window.requestAnimationFrame(() => {
           const currentScrollY = window.scrollY;
-          const prevScrollY = lastScrollYRef.current;
-          const delta = currentScrollY - prevScrollY;
 
-          // Always show when near top of the homepage
-          if (currentScrollY <= 50) {
+          // Only show when reaching near the top of the homepage (<= 60px)
+          if (currentScrollY <= 60) {
             setIsSearchVisible(true);
-          } else if (delta > 8 && currentScrollY > 70) {
-            // Scrolling down -> smoothly collapse/hide search
+          } else {
+            // Scrolled down -> stay cleanly collapsed without jitter
             setIsSearchVisible(false);
-          } else if (delta < -12) {
-            // Scrolling up by deliberate amount (> 12px) -> smoothly reveal search
-            setIsSearchVisible(true);
           }
 
           lastScrollYRef.current = Math.max(0, currentScrollY);
