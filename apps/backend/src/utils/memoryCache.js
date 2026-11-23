@@ -110,19 +110,23 @@ export class MemoryCache {
 
     const sub = subscriberProvider();
     if (sub) {
+      // Register pub/sub invalidation message handler once to prevent stacked duplicate listeners on reconnect
+      sub.on("message", (channel, message) => {
+        if (channel !== CHANNEL) return;
+        try {
+          const { source, type, value } = JSON.parse(message);
+          if (source === this.source) return;
+          this._invalidateLocal(type, value);
+        } catch (err) {
+          logger.warn({ err: err.message }, "Error processing cache invalidation message");
+        }
+      });
+
       const subscribe = async () => {
         try {
           await sub.subscribe(CHANNEL);
-          sub.on("message", (channel, message) => {
-            if (channel !== CHANNEL) return;
-            try {
-              const { source, type, value } = JSON.parse(message);
-              if (source === this.source) return;
-              this._invalidateLocal(type, value);
-            } catch (err) {
-              logger.warn({ err: err.message }, "Error processing cache invalidation message");
-            }
-          });
+          // On reconnection, clear local in-memory cache to recover from any mutations missed while disconnected
+          this._invalidateLocal("clear");
         } catch (err) {
           logger.warn({ err: err.message }, "Cache subscription unavailable");
         }
@@ -253,9 +257,17 @@ export class MemoryCache {
           const [globalGen, nsGen] = await this.generationReader(redis, ns);
           capturedGlobal = globalGen;
           capturedNs = nsGen;
-          const cached = await redis.get(makeRedisKey(globalGen, ns, nsGen, key));
+          const redisKey = makeRedisKey(globalGen, ns, nsGen, key);
+          const [cached, remainingPttl] = await Promise.all([
+            redis.get(redisKey),
+            typeof redis.pttl === "function" ? redis.pttl(redisKey) : Promise.resolve(-1),
+          ]);
           if (cached !== null) {
             const parsed = JSON.parse(cached);
+            let localTtl = ttlMs;
+            if (typeof remainingPttl === "number" && remainingPttl > 0) {
+              localTtl = Math.min(ttlMs, remainingPttl);
+            }
             const [currentGlobal, currentNs] = await this.generationReader(redis, ns);
             // Redis generations can advance before this process receives Pub/Sub.
             // Recheck both the shared generations and local revision after every await
@@ -265,7 +277,7 @@ export class MemoryCache {
               currentGlobal === globalGen &&
               currentNs === nsGen
             ) {
-              this._putLocal(key, parsed, ttlMs);
+              this._putLocal(key, parsed, localTtl);
               return parsed;
             }
             capturedGlobal = currentGlobal;

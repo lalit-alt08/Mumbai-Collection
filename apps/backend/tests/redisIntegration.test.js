@@ -83,4 +83,81 @@ describe("Redis & In-Memory Hybrid Cache Architecture Test Suite", () => {
 
     serverCache.delete("other:key");
   });
+
+  test("4. Subscriber Reconnects: Does not duplicate message listeners and flushes local cache on reconnect", async () => {
+    const { EventEmitter } = await import("node:events");
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+
+    class MockSubscriber extends EventEmitter {
+      constructor() {
+        super();
+        this.status = "connecting";
+        this.subscribedChannels = [];
+      }
+      async subscribe(ch) {
+        this.subscribedChannels.push(ch);
+      }
+    }
+
+    const mockSub = new MockSubscriber();
+    const cache = new MemoryCache({
+      subscriberProvider: () => mockSub,
+      redisProvider: () => null,
+      redisConfiguredCheck: () => false,
+      redisActiveCheck: () => false,
+      generationReader: async () => ["0", "0"],
+    });
+
+    // Populate local cache
+    cache.set("item:1", { name: "Pen" }, 10000);
+    assert.ok(cache.get("item:1"));
+
+    // Simulate 3 reconnect cycles
+    mockSub.emit("ready");
+    mockSub.emit("ready");
+    mockSub.emit("ready");
+
+    // Wait for async subscription and clear promise to settle
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Verify message listener is attached exactly ONCE (preventing memory leak / duplicate calls)
+    assert.equal(mockSub.listenerCount("message"), 1);
+
+    // Verify local cache was cleared on reconnect to prevent serving data that changed while disconnected
+    assert.equal(cache.get("item:1"), null);
+  });
+
+  test("5. Accurate Local TTL: Caps in-memory TTL to Redis remaining PTTL", async () => {
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+
+    const mockRedis = {
+      async get() {
+        return JSON.stringify({ id: 42, stock: 5 });
+      },
+      async pttl() {
+        return 120; // Only 120ms remaining in Redis
+      },
+    };
+
+    const cache = new MemoryCache({
+      subscriberProvider: () => null,
+      redisProvider: () => mockRedis,
+      redisConfiguredCheck: () => true,
+      redisActiveCheck: () => true,
+      generationReader: async () => ["1", "1"],
+    });
+
+    // Caller requests full 60000ms TTL, but Redis only has 120ms left
+    const result = await cache.getOrFetch("products:42", async () => ({ id: 42, stock: 100 }), 60000);
+    assert.equal(result.stock, 5);
+
+    // Immediately available in local cache
+    assert.ok(cache.get("products:42"));
+
+    // Wait 150ms (after Redis TTL has elapsed)
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // Verify local cache correctly expired rather than living for 60s
+    assert.equal(cache.get("products:42"), null);
+  });
 });
