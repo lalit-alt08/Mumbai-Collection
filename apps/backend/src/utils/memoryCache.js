@@ -107,6 +107,7 @@ export class MemoryCache {
     redisActiveCheck = isRedisActive,
     generationReader = getRedisGenerations,
     persistencePath = defaultSpoolPath(),
+    fenceOnStart = false,
   } = {}) {
     this.defaultTtlMs = defaultTtlMs;
     this.maxSize = maxSize;
@@ -122,9 +123,13 @@ export class MemoryCache {
     this.pendingInvalidations = Promise.resolve();
     this.pendingInvalidationErrors = [];
     this.failedInvalidations = new Set();
+    this.invalidationVersions = new Map();
     this.inFlightFlush = null;
 
     this._loadPersistedFailedInvalidations();
+    // A fresh process cannot know whether a previous process lost an outage
+    // queue. Fence all shared entries before allowing this process to read them.
+    if (fenceOnStart && this.redisConfiguredCheck()) this._queueFailedInvalidation("clear", "");
 
     const sub = subscriberProvider();
     if (sub) {
@@ -164,9 +169,7 @@ export class MemoryCache {
     try {
       if (this.failedInvalidations.size === 0) {
         if (existsSync(this.persistencePath)) {
-          try {
-            unlinkSync(this.persistencePath);
-          } catch (_) {}
+          unlinkSync(this.persistencePath);
         }
       } else {
         const dir = dirname(this.persistencePath);
@@ -179,7 +182,7 @@ export class MemoryCache {
         renameSync(tempPath, this.persistencePath);
       }
     } catch (err) {
-      logger.debug({ err: err.message }, "Could not persist pending invalidations");
+      logger.error({ err: err.message }, "Could not persist pending invalidations; shared cache remains fenced");
     }
   }
 
@@ -189,13 +192,26 @@ export class MemoryCache {
       if (existsSync(this.persistencePath)) {
         const raw = readFileSync(this.persistencePath, "utf8");
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            this.failedInvalidations.add(item);
+        if (!Array.isArray(parsed)) throw new Error("Invalid cache invalidation spool format");
+        for (const item of parsed) {
+          const entry = JSON.parse(item);
+          if (!["clear", "key", "prefix"].includes(entry.type) || typeof entry.value !== "string") {
+            throw new Error("Invalid cache invalidation spool entry");
           }
+          this.failedInvalidations.add(item);
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      logger.error({ err: err.message }, "Could not read pending cache invalidations; shared cache will be globally fenced");
+      this.failedInvalidations.add(JSON.stringify({ type: "clear", value: "" }));
+    }
+  }
+
+  _queueFailedInvalidation(type, value) {
+    const item = JSON.stringify({ type, value });
+    this.failedInvalidations.add(item);
+    this.invalidationVersions.set(item, (this.invalidationVersions.get(item) || 0) + 1);
+    this._persistFailedInvalidations();
   }
 
   _isKeyAffected(key) {
@@ -232,6 +248,7 @@ export class MemoryCache {
   }
 
   get(key) {
+    if (this._isKeyAffected(key)) return null;
     const entry = this.store.get(key);
     if (!entry) return null;
     if (entry.expiresAt <= Date.now()) {
@@ -460,6 +477,7 @@ export class MemoryCache {
       try {
         const queued = Array.from(this.failedInvalidations);
         for (const item of queued) {
+          const version = this.invalidationVersions.get(item) || 0;
           try {
             const { type, value } = JSON.parse(item);
             if (type === "clear") {
@@ -471,7 +489,10 @@ export class MemoryCache {
             if (typeof redis.publish === "function") {
               await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
             }
-            this.failedInvalidations.delete(item);
+            if ((this.invalidationVersions.get(item) || 0) === version) {
+              this.failedInvalidations.delete(item);
+              this.invalidationVersions.delete(item);
+            }
             this._persistFailedInvalidations();
           } catch (err) {
             logger.warn({ err: err.message }, "Retry of shared cache invalidation failed; kept in pending queue");
@@ -501,8 +522,7 @@ export class MemoryCache {
     // 2. Redis is configured in environment, but disconnected or unavailable:
     // Queue invalidation for replay on reconnect and record degradation.
     if (!redis || !this.redisActiveCheck()) {
-      this.failedInvalidations.add(JSON.stringify({ type, value }));
-      this._persistFailedInvalidations();
+      this._queueFailedInvalidation(type, value);
       const degradedError = new Error("Redis is configured but unavailable; distributed cache invalidation degraded");
       degradedError.code = "REDIS_UNAVAILABLE";
       degradedError.degraded = true;
@@ -527,8 +547,7 @@ export class MemoryCache {
         }
         await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
       } catch (err) {
-        this.failedInvalidations.add(JSON.stringify({ type, value }));
-        this._persistFailedInvalidations();
+        this._queueFailedInvalidation(type, value);
         if (batch) {
           batch.errors.push(err);
         } else {
@@ -595,4 +614,4 @@ export class MemoryCache {
   }
 }
 
-export const serverCache = new MemoryCache({ defaultTtlMs: 60000, maxSize: 500 });
+export const serverCache = new MemoryCache({ defaultTtlMs: 60000, maxSize: 500, fenceOnStart: true });
