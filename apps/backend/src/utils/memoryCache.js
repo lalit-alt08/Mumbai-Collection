@@ -107,6 +107,7 @@ export class MemoryCache {
     this.revision = 0;
     this.pendingInvalidations = Promise.resolve();
     this.pendingInvalidationErrors = [];
+    this.failedInvalidations = new Set();
 
     const sub = subscriberProvider();
     if (sub) {
@@ -127,6 +128,7 @@ export class MemoryCache {
           await sub.subscribe(CHANNEL);
           // On reconnection, clear local in-memory cache to recover from any mutations missed while disconnected
           this._invalidateLocal("clear");
+          await this._flushFailedInvalidations();
         } catch (err) {
           logger.warn({ err: err.message }, "Cache subscription unavailable");
         }
@@ -252,36 +254,64 @@ export class MemoryCache {
     let capturedNs = null;
 
     const promise = (async () => {
+      if (this.failedInvalidations.size > 0 && this.redisActiveCheck()) {
+        await this._flushFailedInvalidations().catch(() => {});
+      }
+
       if (redis) {
         try {
           const [globalGen, nsGen] = await this.generationReader(redis, ns);
           capturedGlobal = globalGen;
           capturedNs = nsGen;
           const redisKey = makeRedisKey(globalGen, ns, nsGen, key);
+          const readStart = Date.now();
           const [cached, remainingPttl] = await Promise.all([
             redis.get(redisKey),
             typeof redis.pttl === "function" ? redis.pttl(redisKey) : Promise.resolve(-1),
           ]);
           if (cached !== null) {
-            const parsed = JSON.parse(cached);
+            let isStale = false;
             let localTtl = ttlMs;
-            if (typeof remainingPttl === "number" && remainingPttl > 0) {
-              localTtl = Math.min(ttlMs, remainingPttl);
+            if (typeof remainingPttl === "number") {
+              if (remainingPttl <= 0 && remainingPttl !== -1) {
+                isStale = true;
+              } else if (remainingPttl > 0) {
+                const elapsed = Date.now() - readStart;
+                const effectivePttl = remainingPttl - elapsed;
+                if (effectivePttl <= 0) {
+                  isStale = true;
+                } else {
+                  localTtl = Math.min(ttlMs, effectivePttl);
+                }
+              }
             }
-            const [currentGlobal, currentNs] = await this.generationReader(redis, ns);
-            // Redis generations can advance before this process receives Pub/Sub.
-            // Recheck both the shared generations and local revision after every await
-            // before restoring a Redis hit into RAM or returning it to the caller.
-            if (
-              revision === this.revision &&
-              currentGlobal === globalGen &&
-              currentNs === nsGen
-            ) {
-              this._putLocal(key, parsed, localTtl);
-              return parsed;
+
+            if (!isStale) {
+              const parsed = JSON.parse(cached);
+              const [currentGlobal, currentNs] = await this.generationReader(redis, ns);
+              const totalElapsed = Date.now() - readStart;
+              let finalLocalTtl = localTtl;
+              if (typeof remainingPttl === "number" && remainingPttl > 0) {
+                const remainingAfterGenCheck = remainingPttl - totalElapsed;
+                if (remainingAfterGenCheck <= 0) {
+                  isStale = true;
+                } else {
+                  finalLocalTtl = Math.min(ttlMs, remainingAfterGenCheck);
+                }
+              }
+
+              if (
+                !isStale &&
+                revision === this.revision &&
+                currentGlobal === globalGen &&
+                currentNs === nsGen
+              ) {
+                this._putLocal(key, parsed, finalLocalTtl);
+                return parsed;
+              }
+              capturedGlobal = currentGlobal;
+              capturedNs = currentNs;
             }
-            capturedGlobal = currentGlobal;
-            capturedNs = currentNs;
           }
         } catch (err) { logger.debug({ err: err.message }, "Cache read unavailable"); }
       }
@@ -305,7 +335,7 @@ export class MemoryCache {
         }
         if (fetchRevision === this.revision && generationsStable) {
           this._putLocal(key, result, ttlMs);
-          if (canWriteRedis && currentGlobal !== null) {
+          if (canWriteRedis && currentGlobal !== null && typeof redis.psetex === "function") {
             void redis.psetex(makeRedisKey(currentGlobal, ns, currentNs, key), ttlMs, JSON.stringify(result)).catch(() => {});
           }
         }
@@ -321,6 +351,31 @@ export class MemoryCache {
     return new InvalidationBatch(this);
   }
 
+  async _flushFailedInvalidations() {
+    if (this.failedInvalidations.size === 0) return;
+    const redis = this.redisProvider();
+    if (!redis || !this.redisActiveCheck()) return;
+
+    const queued = Array.from(this.failedInvalidations);
+    this.failedInvalidations.clear();
+
+    for (const item of queued) {
+      try {
+        const { type, value } = JSON.parse(item);
+        if (type === "clear") {
+          await redis.incr(GLOBAL_GEN_KEY);
+        } else {
+          const ns = getNamespace(value);
+          await redis.incr(getNsGenKey(ns));
+        }
+        await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
+      } catch (err) {
+        this.failedInvalidations.add(item);
+        logger.warn({ err: err.message }, "Retry of shared cache invalidation failed; re-queued");
+      }
+    }
+  }
+
   _invalidate(type, value = "", batch = null) {
     this._invalidateLocal(type, value);
 
@@ -334,8 +389,9 @@ export class MemoryCache {
     }
 
     // 2. Redis is configured in environment, but disconnected or unavailable:
-    // Record degradation so flushPendingInvalidations() reflects that cluster propagation failed.
+    // Queue invalidation for replay on reconnect and record degradation.
     if (!redis || !this.redisActiveCheck()) {
+      this.failedInvalidations.add(JSON.stringify({ type, value }));
       const degradedError = new Error("Redis is configured but unavailable; distributed cache invalidation degraded");
       degradedError.code = "REDIS_UNAVAILABLE";
       degradedError.degraded = true;
@@ -360,6 +416,7 @@ export class MemoryCache {
         }
         await redis.publish(CHANNEL, JSON.stringify({ source: this.source, type, value }));
       } catch (err) {
+        this.failedInvalidations.add(JSON.stringify({ type, value }));
         if (batch) {
           batch.errors.push(err);
         } else {

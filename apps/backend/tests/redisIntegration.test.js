@@ -160,4 +160,115 @@ describe("Redis & In-Memory Hybrid Cache Architecture Test Suite", () => {
     // Verify local cache correctly expired rather than living for 60s
     assert.equal(cache.get("products:42"), null);
   });
+
+  test("6. Expired / Zero PTTL or Late Invalidation Delay: Treats zero or elapsed PTTL as a cache miss", async () => {
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+
+    // Case A: PTTL returns -2 (key expired in Redis)
+    const mockRedisExpired = {
+      async get() { return JSON.stringify({ id: 10, stock: 5 }); },
+      async pttl() { return -2; },
+      async psetex() {},
+    };
+
+    let fetchCountA = 0;
+    const cacheA = new MemoryCache({
+      subscriberProvider: () => null,
+      redisProvider: () => mockRedisExpired,
+      redisConfiguredCheck: () => true,
+      redisActiveCheck: () => true,
+      generationReader: async () => ["1", "1"],
+    });
+
+    const resA = await cacheA.getOrFetch("products:10", async () => {
+      fetchCountA++;
+      return { id: 10, stock: 0 }; // Authoritative fresh stock
+    }, 60000);
+
+    // Stale Redis data with pttl -2 was NOT returned; fresh fetchFn executed
+    assert.equal(fetchCountA, 1);
+    assert.equal(resA.stock, 0);
+
+    // Case B: 15ms left in Redis, but generation check takes 25ms
+    const mockRedisLate = {
+      async get() { return JSON.stringify({ id: 20, stock: 99 }); },
+      async pttl() { return 15; },
+      async psetex() {},
+    };
+
+    let fetchCountB = 0;
+    const cacheB = new MemoryCache({
+      subscriberProvider: () => null,
+      redisProvider: () => mockRedisLate,
+      redisConfiguredCheck: () => true,
+      redisActiveCheck: () => true,
+      generationReader: async () => {
+        await new Promise((r) => setTimeout(r, 25)); // 25ms delay > 15ms remaining PTTL!
+        return ["1", "1"];
+      },
+    });
+
+    const resB = await cacheB.getOrFetch("products:20", async () => {
+      fetchCountB++;
+      return { id: 20, stock: 1 };
+    }, 60000);
+
+    // Expired during generation check -> treated as a miss, fresh fetch executed
+    assert.equal(fetchCountB, 1);
+    assert.equal(resB.stock, 1);
+  });
+
+  test("7. Outage Invalidation Replay: Queues invalidation when Redis is offline and replays on reconnect to prevent stale reads", async () => {
+    const { MemoryCache } = await import("../src/utils/memoryCache.js");
+
+    let redisOnline = false;
+    let nsGen = 1;
+    const mockStore = new Map();
+
+    const mockRedis = {
+      async get(key) { return mockStore.get(key) || null; },
+      async pttl() { return 50000; },
+      async psetex(key, ttl, val) { mockStore.set(key, val); },
+      async incr() { nsGen++; return nsGen; },
+      async publish() { return 1; },
+    };
+
+    const cache = new MemoryCache({
+      subscriberProvider: () => null,
+      redisProvider: () => (redisOnline ? mockRedis : null),
+      redisConfiguredCheck: () => true,
+      redisActiveCheck: () => redisOnline,
+      generationReader: async () => ["1", String(nsGen)],
+    });
+
+    // 1. Initial state: Redis is online, product 50 has stock = 5
+    redisOnline = true;
+    mockStore.set("1:catalog:1:products:50", JSON.stringify({ id: 50, stock: 5 }));
+
+    const initial = await cache.getOrFetch("products:50", async () => ({ id: 50, stock: 5 }));
+    assert.equal(initial.stock, 5);
+
+    // 2. Redis goes offline
+    redisOnline = false;
+
+    // 3. Stock update happens: 5 -> 0. Invalidation is fired while Redis is down
+    cache.invalidatePrefix("products:50");
+
+    // Local cache is immediately cleared
+    assert.equal(cache.get("products:50"), null);
+
+    // 4. Redis comes back online
+    redisOnline = true;
+
+    // 5. Customer views product 50. Queued invalidation replays, bumping nsGen before reading!
+    let authoritativeFetchCalled = false;
+    const afterRecovery = await cache.getOrFetch("products:50", async () => {
+      authoritativeFetchCalled = true;
+      return { id: 50, stock: 0 };
+    });
+
+    // Stale stock 5 was NOT served; generation bumped and fresh stock 0 was fetched
+    assert.equal(authoritativeFetchCalled, true);
+    assert.equal(afterRecovery.stock, 0);
+  });
 });
