@@ -778,4 +778,42 @@ html, body {
     pointer-events: none;
     cursor: default;
   }
+
+  /* Sticky Bottom Bar: Compact Cart Button with Notification Badge (Image 2 design) */
+  .product-cart-nav-btn {
+    background-color: #FFFFFF;
+    border-color: #C9D2DF;
+    color: #1E293B;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  }
+  .product-cart-nav-btn:hover {
+    background-color: #F8FAFC;
+    border-color: #BAC7D8;
+  }
+  .product-cart-nav-badge {
+    background-color: #E11D48;
+    color: #FFFFFF;
+    box-shadow: 0 2px 6px rgba(225, 29, 72, 0.35);
+  }
+
+  html[data-store-theme="dark"] .product-cart-nav-btn {
+    background-color: #3A434C !important;
+    border-color: #66717A !important;
+    color: #FAF8F4 !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+  }
+  html[data-store-theme="dark"] .product-cart-nav-btn:hover {
+    background-color: #454F5A !important;
+    border-color: #838F9A !important;
+  }
+  html[data-store-theme="dark"] .product-cart-nav-btn svg {
+    color: #FAF8F4 !important;
+  }
+  html[data-store-theme="dark"] .product-cart-nav-badge {
+    background-color: #E11D48 !important;
+    color: #FFFFFF !important;
+    --tw-ring-color: #3A434C !important;
+    ring-color: #3A434C !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+  }
 }

@@ -5,7 +5,7 @@ import {
   removeCartItem,
 } from "../../services/storeApi";
 import { useCart } from "../../context/CartContext";
-import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Star, Minus, Plus, Truck, PackageX, AlertTriangle, CheckCircle2, ShieldAlert, ShoppingCart } from "lucide-react";
 import { useEffect, useState } from "react";
 import ProductWhatsAppSupport from "./ProductWhatsAppSupport";
 import { triggerHaptic } from "../../utils/haptics";
@@ -388,38 +388,48 @@ function ProductInfo({ product }) {
             </div>
           </div>
         ) : !isThisProductInCart ? (
-          /* State 2: Cart has other products -> Add to cart · View cart */
+          /* State 2: Cart has other products -> [Cart Icon + Badge (Left)] [Add to cart (Right, Pill)] */
           <div className="mx-auto flex w-full max-w-lg items-center gap-3">
+            {/* Left: Cart Button with Count Badge (Image 2 design) */}
+            <HapticTapTarget className="flex-shrink-0" radius="16px">
+              <button
+                type="button"
+                onClick={() => navigate("/cart")}
+                aria-label={`View cart (${totalCartItems} ${totalCartItems === 1 ? "item" : "items"})`}
+                className="product-cart-nav-btn relative flex h-[46px] w-[58px] items-center justify-center rounded-2xl border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-xs transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+              >
+                <div className="relative flex items-center justify-center">
+                  <ShoppingCart size={22} className="text-[#1E293B]" strokeWidth={2.2} />
+                  <span
+                    className="product-cart-nav-badge absolute -top-2.5 -right-3 flex h-[19px] min-w-[19px] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[11px] font-black leading-none text-white ring-2 ring-white shadow-xs"
+                  >
+                    {totalCartItems > 99 ? "99+" : totalCartItems}
+                  </span>
+                </div>
+              </button>
+            </HapticTapTarget>
+
+            {/* Right: Add to cart button (pill shaped, theme matching) */}
             {isOutOfStock ? (
               <button
                 type="button"
                 disabled
-                className="store-out-of-stock flex-1 flex h-[44px] items-center justify-center rounded-full text-[14px] font-bold cursor-not-allowed select-none"
+                className="store-out-of-stock flex-1 flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
               >
                 Out of Stock
               </button>
             ) : (
-              <HapticTapTarget className="flex-1" radius="9999px">
+              <HapticTapTarget className="flex-1 min-w-0" radius="9999px">
                 <button
                   type="button"
                   onClick={handleAddToCart}
                   disabled={loading}
-                  className="flex h-[44px] w-full items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[15px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
                   Add to cart
                 </button>
               </HapticTapTarget>
             )}
-
-            <HapticTapTarget className="flex-1" radius="9999px">
-              <button
-                type="button"
-                onClick={() => navigate("/cart")}
-                className="flex h-[44px] w-full items-center justify-center gap-1.5 rounded-full border-2 border-[#22499F] bg-white px-4 text-[14px] font-extrabold text-[#22499F] shadow-xs transition-transform duration-100 ease-out hover:bg-[#F5F8FF] active:scale-[0.98] cursor-pointer"
-              >
-                View cart
-              </button>
-            </HapticTapTarget>
           </div>
         ) : (
           /* State 3: This product is already in the cart -> − 1 + · View cart · 1 item */

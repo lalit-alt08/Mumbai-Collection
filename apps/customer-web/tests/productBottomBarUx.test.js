@@ -57,7 +57,7 @@ test("Product Page Action UX — Clean Sticky Bottom Bar & No Buy Now", async (t
         return {
           state: 2,
           label: "Cart has other products",
-          actions: ["Add to cart", "View cart"],
+          actions: ["View cart", "Add to cart"],
         };
       }
       return {
@@ -75,10 +75,10 @@ test("Product Page Action UX — Clean Sticky Bottom Bar & No Buy Now", async (t
     assert.strictEqual(state1.state, 1);
     assert.deepStrictEqual(state1.actions, ["Price", "Add to cart"]);
 
-    // State 2: Cart has other products
+    // State 2: Cart has other products (Image 2 layout: Cart Icon on Left, Add to Cart on Right)
     const state2 = getBottomBarState({ items: [{ id: 99, quantity: 2 }] }, 42);
     assert.strictEqual(state2.state, 2);
-    assert.deepStrictEqual(state2.actions, ["Add to cart", "View cart"]);
+    assert.deepStrictEqual(state2.actions, ["View cart", "Add to cart"]);
 
     // State 3A: This product is in cart (single item)
     const state3A = getBottomBarState({ items: [{ id: 42, quantity: 1 }] }, 42);
