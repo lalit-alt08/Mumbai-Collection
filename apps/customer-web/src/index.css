@@ -816,4 +816,43 @@ html, body {
     ring-color: #3A434C !important;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
   }
+
+  /* Sticky Bottom Bar Stepper Capsule & Discs (Image 2 redesign) */
+  .product-stepper-capsule {
+    background-color: #EAF0FC;
+    border-color: #22499F;
+  }
+  .product-stepper-disc {
+    background-color: #FFFFFF;
+    color: #22499F;
+    border-color: rgba(34, 73, 159, 0.25);
+    box-shadow: 0 1px 3px rgba(34, 73, 159, 0.18);
+  }
+  .product-stepper-disc:hover:not(:disabled) {
+    background-color: #F5F8FF;
+    border-color: #22499F;
+  }
+  .product-stepper-qty {
+    color: #17233A;
+  }
+
+  /* Dark mode overrides for Stepper */
+  html[data-store-theme="dark"] .product-stepper-capsule {
+    background-color: #303A43 !important;
+    border-color: #66717A !important;
+  }
+  html[data-store-theme="dark"] .product-stepper-disc {
+    background-color: #404B56 !important;
+    border-color: #66717A !important;
+    color: #FAF8F4 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+  }
+  html[data-store-theme="dark"] .product-stepper-disc:hover:not(:disabled) {
+    background-color: #4E5B67 !important;
+    border-color: #FF942F !important;
+    color: #FFBF80 !important;
+  }
+  html[data-store-theme="dark"] .product-stepper-qty {
+    color: #FAF8F4 !important;
+  }
 }

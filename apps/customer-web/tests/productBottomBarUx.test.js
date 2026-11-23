@@ -101,8 +101,12 @@ test("Product Page Action UX — Clean Sticky Bottom Bar & No Buy Now", async (t
 
   await t.test("4. Outlined stepper styling is used in State 3 for quieter visual hierarchy", () => {
     assert.ok(
-      productInfoSource.includes("border-2 border-[#22499F] bg-white"),
+      productInfoSource.includes("border-2 border-[#22499F]"),
       "State 3 stepper should use outlined border styling rather than heavy solid fill"
+    );
+    assert.ok(
+      productInfoSource.includes("product-stepper-capsule"),
+      "State 3 stepper should use styled stepper capsule"
     );
   });
 });

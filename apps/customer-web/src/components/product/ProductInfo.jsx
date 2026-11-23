@@ -339,12 +339,12 @@ function ProductInfo({ product }) {
 
       {/* Sticky Bottom Purchase Bar (Mobile & Split-Screen < lg) */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-[100] w-full rounded-t-[24px] sm:rounded-t-[28px] border-t border-[#E2E8F0] bg-[#F0F8E8]/95 backdrop-blur-md px-4 pt-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.15)] lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-[100] w-full rounded-t-[24px] sm:rounded-t-[28px] border-t border-[#E2E8F0] bg-[#F0F8E8]/95 backdrop-blur-md px-5 sm:px-6 pt-3.5 shadow-[0_-8px_24px_rgba(0,0,0,0.15)] lg:hidden"
         style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))", marginBottom: "0" }}
       >
         {!hasAnyCartItems ? (
           /* State 1: Cart is empty (0 items) -> ₹price · Add to cart */
-          <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3">
+          <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
             <div className="flex flex-col flex-shrink-0 pl-1">
               <span className="text-[22px] font-black leading-none tracking-tight text-[#1E293B]">
                 ₹{product.price}
@@ -369,7 +369,7 @@ function ProductInfo({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="store-out-of-stock flex h-[44px] min-w-[140px] items-center justify-center rounded-full px-5 text-[14px] font-bold cursor-not-allowed select-none"
+                  className="store-out-of-stock flex h-[46px] min-w-[136px] items-center justify-center rounded-full px-5 text-[14px] font-bold cursor-not-allowed select-none"
                 >
                   Out of Stock
                 </button>
@@ -379,7 +379,7 @@ function ProductInfo({ product }) {
                     type="button"
                     onClick={handleAddToCart}
                     disabled={loading}
-                    className="flex h-[44px] min-w-[140px] items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                    className="flex h-[46px] min-w-[136px] items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                   >
                     Add to cart
                   </button>
@@ -389,19 +389,19 @@ function ProductInfo({ product }) {
           </div>
         ) : !isThisProductInCart ? (
           /* State 2: Cart has other products -> [Cart Icon + Badge (Left)] [Add to cart (Right, Pill)] */
-          <div className="mx-auto flex w-full max-w-lg items-center gap-3">
-            {/* Left: Cart Button with Count Badge (Image 2 design) */}
-            <HapticTapTarget className="flex-shrink-0" radius="16px">
+          <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
+            {/* Left: Cart Button with Count Badge (Image 2 design, shifted right with breathing room) */}
+            <HapticTapTarget className="shrink-0" radius="16px">
               <button
                 type="button"
                 onClick={() => navigate("/cart")}
                 aria-label={`View cart (${totalCartItems} ${totalCartItems === 1 ? "item" : "items"})`}
-                className="product-cart-nav-btn relative flex h-[46px] w-[58px] items-center justify-center rounded-2xl border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-xs transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                className="product-cart-nav-btn relative flex h-[46px] w-[56px] items-center justify-center rounded-2xl border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
               >
                 <div className="relative flex items-center justify-center">
-                  <ShoppingCart size={22} className="text-[#1E293B]" strokeWidth={2.2} />
+                  <ShoppingCart size={21} className="text-[#1E293B]" strokeWidth={2.2} />
                   <span
-                    className="product-cart-nav-badge absolute -top-2.5 -right-3 flex h-[19px] min-w-[19px] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[11px] font-black leading-none text-white ring-2 ring-white shadow-xs"
+                    className="product-cart-nav-badge absolute -top-2.5 -right-3 flex h-[19px] min-w-[19px] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[11px] font-black leading-none text-white ring-2 ring-white shadow-[0_2px_6px_rgba(225,29,72,0.35)]"
                   >
                     {totalCartItems > 99 ? "99+" : totalCartItems}
                   </span>
@@ -409,22 +409,22 @@ function ProductInfo({ product }) {
               </button>
             </HapticTapTarget>
 
-            {/* Right: Add to cart button (pill shaped, theme matching) */}
+            {/* Right: Add to cart button (pill shaped, slightly reduced length) */}
             {isOutOfStock ? (
               <button
                 type="button"
                 disabled
-                className="store-out-of-stock flex-1 flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
+                className="store-out-of-stock flex-1 max-w-[230px] flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
               >
                 Out of Stock
               </button>
             ) : (
-              <HapticTapTarget className="flex-1 min-w-0" radius="9999px">
+              <HapticTapTarget className="flex-1 max-w-[230px]" radius="9999px">
                 <button
                   type="button"
                   onClick={handleAddToCart}
                   disabled={loading}
-                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[15px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                  className="flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#22499F] px-5 text-[15px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                 >
                   Add to cart
                 </button>
@@ -432,33 +432,33 @@ function ProductInfo({ product }) {
             )}
           </div>
         ) : (
-          /* State 3: This product is already in the cart -> − 1 + · View cart · 1 item */
-          <div className="mx-auto flex w-full max-w-lg items-center gap-3">
+          /* State 3: This product is already in the cart -> [Stepper with circular button discs] [View cart (pill)] */
+          <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
             {isOutOfStock ? (
-              <HapticTapTarget className="flex-shrink-0" radius="9999px">
+              <HapticTapTarget className="shrink-0" radius="9999px">
                 <button
                   type="button"
                   onClick={() => handleUpdateQuantity(0)}
                   disabled={loading}
-                  className="flex h-[44px] items-center justify-center rounded-full border border-rose-300 bg-rose-50 px-4 text-[13px] font-bold text-rose-700 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                  className="flex h-[46px] items-center justify-center rounded-full border border-rose-300 bg-rose-50 px-4 text-[13px] font-bold text-rose-700 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
                 >
                   Sold Out — Remove
                 </button>
               </HapticTapTarget>
             ) : (
-              <div className="flex h-[44px] min-w-[124px] max-w-[136px] flex-shrink-0 items-center justify-between rounded-full border-2 border-[#22499F] bg-white px-1.5 text-[#22499F] shadow-xs">
+              <div className="product-stepper-capsule flex h-[46px] w-[128px] shrink-0 items-center justify-between rounded-full border-2 border-[#22499F] px-1.5 shadow-[0_2px_8px_rgba(34,73,159,0.1)]">
                 <HapticTapTarget radius="9999px">
                   <button
                     type="button"
                     disabled={loading}
                     aria-label="Decrease quantity"
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-full hover:bg-[#F5F8FF] active:scale-[0.92] text-[#22499F] transition-transform cursor-pointer disabled:opacity-50"
+                    className="product-stepper-disc flex h-[32px] w-[32px] items-center justify-center rounded-full transition-all cursor-pointer disabled:opacity-50 active:scale-[0.88]"
                     onClick={() => handleUpdateQuantity(cartItem.quantity - 1)}
                   >
-                    <Minus size={16} />
+                    <Minus size={15} strokeWidth={2.6} />
                   </button>
                 </HapticTapTarget>
-                <span className="text-[15px] font-black text-[#17233A] px-1">
+                <span className="product-stepper-qty text-[16px] font-black px-1 select-none">
                   {cartItem.quantity}
                 </span>
                 <HapticTapTarget radius="9999px">
@@ -467,20 +467,20 @@ function ProductInfo({ product }) {
                     disabled={loading || isMaxReached}
                     aria-label="Increase quantity"
                     title={isMaxReached ? `Only ${maxStock} items available in stock` : "Add one more"}
-                    className="flex h-[32px] w-[32px] items-center justify-center rounded-full hover:bg-[#F5F8FF] active:scale-[0.92] text-[#22499F] transition-transform cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="product-stepper-disc flex h-[32px] w-[32px] items-center justify-center rounded-full transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.88]"
                     onClick={() => handleUpdateQuantity(cartItem.quantity + 1)}
                   >
-                    <Plus size={16} />
+                    <Plus size={15} strokeWidth={2.6} />
                   </button>
                 </HapticTapTarget>
               </div>
             )}
 
-            <HapticTapTarget className="flex-1 min-w-0" radius="9999px">
+            <HapticTapTarget className="flex-1 max-w-[230px]" radius="9999px">
               <button
                 type="button"
                 onClick={() => navigate("/cart")}
-                className="flex h-[44px] w-full items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] cursor-pointer whitespace-nowrap"
+                className="flex h-[46px] w-full items-center justify-center gap-1.5 rounded-full bg-[#22499F] px-4 text-[14px] sm:text-[15px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] cursor-pointer whitespace-nowrap"
               >
                 <span>
                   View cart · {totalCartItems} {totalCartItems === 1 ? "item" : "items"}
