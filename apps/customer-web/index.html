@@ -80,21 +80,76 @@
           if (isStandalone) {
             document.documentElement.classList.add("is-standalone");
 
-            // Auto-refresh standalone PWA whenever a newer deployment exists on server
+            // Auto-refresh standalone PWA on safe browse routes whenever a newer deployment exists on server
+            var pendingPwaUpdate = false;
+            var SENSITIVE_PWA_ROUTES = [
+              "/checkout",
+              "/cart",
+              "/reset-password",
+              "/profile",
+              "/addresses",
+              "/orders",
+              "/login",
+              "/register",
+              "/forgot-password"
+            ];
+
+            var isSafeForPwaReload = function () {
+              var path = (window.location.pathname || "/").toLowerCase();
+              for (var i = 0; i < SENSITIVE_PWA_ROUTES.length; i++) {
+                if (path === SENSITIVE_PWA_ROUTES[i] || path.indexOf(SENSITIVE_PWA_ROUTES[i] + "/") === 0) {
+                  return false;
+                }
+              }
+              var active = document.activeElement;
+              if (active) {
+                var tag = active.tagName;
+                if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable) {
+                  return false;
+                }
+              }
+              if (document.querySelector('[role="dialog"], [aria-modal="true"]')) {
+                return false;
+              }
+              return true;
+            };
+
+            var applyPendingPwaReload = function () {
+              if (pendingPwaUpdate && isSafeForPwaReload()) {
+                window.location.reload();
+              }
+            };
+
             var checkPwaFreshness = function () {
+              if (pendingPwaUpdate) {
+                applyPendingPwaReload();
+                return;
+              }
               fetch('/index.html?pwa_check=' + Date.now(), { cache: 'no-store' })
-                .then(function (res) { return res.text(); })
+                .then(function (res) { return res.ok ? res.text() : ''; })
                 .then(function (html) {
+                  if (!html) return;
                   var currentScript = document.querySelector('script[src*="/assets/index-"]');
                   if (currentScript && currentScript.src) {
                     var filename = currentScript.src.split('/').pop();
                     if (filename && html.indexOf(filename) === -1 && html.indexOf('/assets/index-') !== -1) {
-                      window.location.reload();
+                      pendingPwaUpdate = true;
+                      applyPendingPwaReload();
                     }
                   }
                 })
                 .catch(function () {});
             };
+
+            var origPushState = window.history.pushState;
+            window.history.pushState = function () {
+              var result = origPushState.apply(this, arguments);
+              setTimeout(applyPendingPwaReload, 0);
+              return result;
+            };
+            window.addEventListener('popstate', function () {
+              setTimeout(applyPendingPwaReload, 0);
+            });
 
             setTimeout(checkPwaFreshness, 1000);
             document.addEventListener('visibilitychange', function () {

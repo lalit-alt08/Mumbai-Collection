@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { WifiOff, Wifi, RefreshCw } from "lucide-react";
+import API_URL from "../../config/api.js";
 
 function NetworkBanner() {
   const bannerRef = useRef(null);
@@ -63,16 +64,29 @@ function NetworkBanner() {
   }, []);
 
   const handleManualCheck = async () => {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const abortTimer = controller ? setTimeout(() => controller.abort(), 5000) : null;
     try {
       setChecking(true);
-      // Attempt a lightweight fetch check
-      await fetch("/favicon.ico", { method: "HEAD", cache: "no-store" });
+      const response = await fetch(`${API_URL}/store-hours?ping=${Date.now()}`, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller?.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      if (!data?.success) {
+        throw new Error("Store readiness check failed");
+      }
       setIsOnline(true);
       setShowReconnected(true);
       setTimeout(() => setShowReconnected(false), 3500);
     } catch {
       setIsOnline(false);
     } finally {
+      if (abortTimer) clearTimeout(abortTimer);
       setChecking(false);
     }
   };

@@ -83,6 +83,45 @@ export function getProductStock(product, cartItem = null) {
   return { maxStock, isOutOfStock, availableStock: backordersAllowed ? null : maxStock, backordersAllowed };
 }
 
+export function buildProductOfferSchema(product) {
+  if (!product || typeof product !== "object") return null;
+
+  const rawPrice =
+    product.price !== undefined && product.price !== null && product.price !== ""
+      ? product.price
+      : product.regular_price;
+
+  if (rawPrice === undefined || rawPrice === null || String(rawPrice).trim() === "") {
+    return null;
+  }
+
+  const parsedPrice = Number(rawPrice);
+  if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+    return null;
+  }
+
+  const { isOutOfStock, backordersAllowed } = getProductStock(product);
+  const unavailable = isOutOfStock || (!backordersAllowed && product.in_stock === false);
+
+  let availability = "https://schema.org/InStock";
+  if (unavailable) {
+    availability = "https://schema.org/OutOfStock";
+  } else if (backordersAllowed && product.stock_status === "onbackorder") {
+    availability = "https://schema.org/BackOrder";
+  }
+
+  return {
+    "@type": "Offer",
+    priceCurrency: "INR",
+    price: String(rawPrice).trim(),
+    availability,
+    seller: {
+      "@type": "Organization",
+      name: "Mumbai Collection",
+    },
+  };
+}
+
 export function getRemainingStock(product, quantityInCart = 0, cartItem = null) {
   const { maxStock, isOutOfStock } = getProductStock(product, cartItem);
   if (isOutOfStock) return 0;

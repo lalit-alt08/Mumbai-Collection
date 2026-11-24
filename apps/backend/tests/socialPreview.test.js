@@ -13,7 +13,16 @@ test("SOCIAL PREVIEW: security, crawler routing, escaping, and caching", async (
   let port;
   const testProductId = 99991;
 
+  const { default: api } = await import("../src/config/woocommerce.js");
+  const originalApiGet = api.get;
+
   t.before(async () => {
+    api.get = async (endpoint) => {
+      if (endpoint === `products/${testProductId}`) {
+        return { data: mockProduct };
+      }
+      return originalApiGet.call(api, endpoint);
+    };
     server = http.createServer(app);
     await new Promise((resolve) => server.listen(0, resolve));
     port = server.address().port;
@@ -21,6 +30,7 @@ test("SOCIAL PREVIEW: security, crawler routing, escaping, and caching", async (
   });
 
   t.after(async () => {
+    api.get = originalApiGet;
     serverCache.delete(`social_preview:${testProductId}`);
     await new Promise((resolve) => server.close(resolve));
   });
@@ -94,11 +104,32 @@ test("SOCIAL PREVIEW: security, crawler routing, escaping, and caching", async (
     });
 
     assert.equal(res.status, 200);
+    assert.equal(res.headers.get("vary"), "User-Agent");
     const html = await res.text();
 
     assert.match(html, /<meta property="og:title" content="&lt;script&gt;alert\(1\)&lt;\/script&gt; &quot;x&quot; &amp; y — ₹499">/);
     assert.match(html, /<meta property="og:image" content="https:\/\/mumbaicollection\.in\/wp-content\/uploads\/toy-car\.jpg">/);
     assert.match(html, /<meta property="og:url" content="https:\/\/mumbaicollection\.in\/product\/99991">/);
+  });
+
+  await t.test("Upstream outage during social preview returns 503 no-store instead of caching 404", async () => {
+    const api = (await import("../src/config/woocommerce.js")).default;
+    const origGet = api.get;
+    const outageId = 99992;
+    serverCache.delete(`social_preview:${outageId}`);
+    api.get = async () => {
+      throw new Error("Upstream WooCommerce timeout");
+    };
+    try {
+      const res = await fetch(`${baseUrl}/api/products/${outageId}/social-preview`, {
+        headers: { "User-Agent": "WhatsApp/2.23.20.76 i" },
+      });
+      assert.equal(res.status, 503);
+      assert.match(res.headers.get("cache-control") || "", /no-store/);
+    } finally {
+      api.get = origGet;
+      serverCache.delete(`social_preview:${outageId}`);
+    }
   });
 
 });

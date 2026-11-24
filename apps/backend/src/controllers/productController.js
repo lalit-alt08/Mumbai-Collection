@@ -767,11 +767,21 @@ export const getProductSocialPreview = async (req, res) => {
 </html>`;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Vary", "User-Agent");
     res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
     return res.send(html);
   } catch (error) {
     logError(req, error, "Social preview error");
-    return res.status(404).send("Product not found");
+    const isConfirmedNotFound =
+      error?.status === 404 ||
+      error?.statusCode === 404 ||
+      error?.response?.status === 404 ||
+      error?.code === "PRODUCT_NOT_FOUND";
+    if (isConfirmedNotFound) {
+      return res.status(404).send("Product not found");
+    }
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    return res.status(503).send("Product preview temporarily unavailable");
   }
 };
 

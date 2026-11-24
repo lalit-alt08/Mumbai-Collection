@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getProductById } from "../services/productService";
 import { recordRecentlyViewedProduct } from "../utils/recentlyViewedProducts.js";
+import { buildProductOfferSchema } from "../utils/productUtils.js";
 
 import ProductGallery from "../components/product/ProductGallery";
 import ProductInfo from "../components/product/ProductInfo";
@@ -193,6 +194,7 @@ function ProductDetails() {
       document.head.appendChild(script);
     }
 
+    const offer = buildProductOfferSchema(product);
     const schema = {
       "@context": "https://schema.org/",
       "@type": "Product",
@@ -202,19 +204,7 @@ function ProductDetails() {
         ? product.short_description.replace(/<[^>]+>/g, "").trim()
         : product.name,
       sku: product.sku || String(product.id),
-      offers: {
-        "@type": "Offer",
-        priceCurrency: "INR",
-        price: product.price || product.regular_price || "0",
-        availability:
-          product.in_stock !== false
-            ? "https://schema.org/InStock"
-            : "https://schema.org/OutOfStock",
-        seller: {
-          "@type": "Organization",
-          name: "Mumbai Collection",
-        },
-      },
+      ...(offer ? { offers: offer } : {}),
     };
     script.textContent = JSON.stringify(schema);
 
