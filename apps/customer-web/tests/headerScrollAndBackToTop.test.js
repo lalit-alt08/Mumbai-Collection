@@ -14,16 +14,14 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
   const headerSource = fs.readFileSync(headerPath, "utf8");
   const backToTopSource = fs.readFileSync(backToTopPath, "utf8");
 
-  await t.test("1. Header keeps search visible strictly at the top of the homepage and stays collapsed down-page", () => {
-    // Keep search visible near top (<= 60)
+  await t.test("1. Homepage keeps a stable layout height and pins categories using a measured sticky offset", () => {
     assert.ok(
-      headerSource.includes("currentScrollY <= 60"),
-      "Header search must remain visible when near top of homepage"
+      headerSource.includes("searchArea.getBoundingClientRect().height"),
+      "The sticky offset must follow the actual logo and search height"
     );
-    // Stay cleanly collapsed while browsing down
     assert.ok(
-      headerSource.includes("setIsSearchVisible(false)"),
-      "Header must collapse when scrolled down"
+      headerSource.includes("${searchAreaHeight}px)") && !headerSource.includes('window.addEventListener("scroll"'),
+      "Scrolling must not repeatedly resize the header across its own threshold"
     );
   });
 
@@ -33,8 +31,8 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
       "Header must track input focus state"
     );
     assert.ok(
-      headerSource.includes("setIsSearchVisible(true)"),
-      "Header must force search visibility when input receives focus"
+      headerSource.includes("isHomePage && !isInputFocused"),
+      "The negative sticky offset must be disabled while search is focused"
     );
   });
 
@@ -71,19 +69,14 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
     );
   });
 
-  await t.test("6. Header uses CSS Grid animation and allows autocomplete visibility when expanded while clipping when collapsed", () => {
+  await t.test("6. Header preserves autocomplete overflow and remeasures responsive search dimensions", () => {
     assert.ok(
-      headerSource.includes("grid-rows-[1fr]"),
-      "Header must use grid-rows-[1fr] for expanded state"
+      headerSource.includes("new ResizeObserver(measure)"),
+      "Header must account for resized logo and search content"
     );
     assert.ok(
-      headerSource.includes("grid-rows-[0fr]"),
-      "Header must use grid-rows-[0fr] for collapsed state"
-    );
-    assert.ok(
-      headerSource.includes("min-h-0") &&
-      headerSource.includes('showSearchRow ? "overflow-visible" : "overflow-hidden"'),
-      "Header must keep overflow-visible when search is open so autocomplete dropdown is visible, and overflow-hidden when collapsed"
+      headerSource.includes('className="min-h-0 overflow-visible"') && !headerSource.includes("grid-rows-[0fr]"),
+      "Search suggestions must remain visible without collapsing layout height"
     );
   });
 });

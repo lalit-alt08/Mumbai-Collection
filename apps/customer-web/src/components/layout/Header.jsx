@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { triggerHaptic } from "../../utils/haptics";
 import HapticTapTarget from "../common/HapticTapTarget";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import CategoryIconBar from "../home/CategoryIconBar";
 import { getCachedCategories, getCategoriesSWR } from "../../services/productService";
 import { useStorefrontTheme } from "../../utils/storefrontTheme.js";
@@ -27,10 +27,9 @@ function Header() {
   const isSearchPage = location.pathname.startsWith("/search");
 
   const [categories, setCategories] = useState(() => getCachedCategories() || []);
-  const [isSearchVisible, setIsSearchVisible] = useState(true);
   const [isInputFocused, setIsInputFocused] = useState(false);
-  const lastScrollYRef = useRef(0);
-  const tickingRef = useRef(false);
+  const searchAreaRef = useRef(null);
+  const [searchAreaHeight, setSearchAreaHeight] = useState(0);
 
   // Focus detection: keep search bar visible strictly when an input is actively focused
   useEffect(() => {
@@ -41,7 +40,6 @@ function Header() {
         (target.tagName === "INPUT" || target.getAttribute("role") === "searchbox")
       ) {
         setIsInputFocused(true);
-        setIsSearchVisible(true);
       }
     };
     const handleFocusOut = (e) => {
@@ -62,43 +60,23 @@ function Header() {
     };
   }, []);
 
-  // Scroll listener for Homepage: search stays visible only when at the top of the page
-  useEffect(() => {
-    if (!isHomePage) {
-      setIsSearchVisible(true);
-      return;
-    }
+  // Preserve the header's layout height while its search area scrolls above the
+  // viewport. Resizing the header at a scroll threshold can trigger browser
+  // scroll anchoring and repeatedly cross that same threshold on iOS.
+  useLayoutEffect(() => {
+    const searchArea = searchAreaRef.current;
+    if (!isHomePage || !searchArea) return;
 
-    const handleScroll = () => {
-      if (isInputFocused) {
-        setIsSearchVisible(true);
-        return;
-      }
-
-      if (!tickingRef.current) {
-        window.requestAnimationFrame(() => {
-          const currentScrollY = window.scrollY;
-
-          // Only show when reaching near the top of the homepage (<= 60px)
-          if (currentScrollY <= 60) {
-            setIsSearchVisible(true);
-          } else {
-            // Scrolled down -> stay cleanly collapsed without jitter
-            setIsSearchVisible(false);
-          }
-
-          lastScrollYRef.current = Math.max(0, currentScrollY);
-          tickingRef.current = false;
-        });
-        tickingRef.current = true;
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
+    const measure = () => setSearchAreaHeight(searchArea.getBoundingClientRect().height);
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(searchArea);
     return () => {
-      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
     };
-  }, [isHomePage, isInputFocused]);
+  }, [isHomePage]);
 
   useEffect(() => {
     if (isHomePage) {
@@ -123,30 +101,21 @@ function Header() {
     return null;
   }
 
-  const showSearchRow = !isHomePage || isSearchVisible || isInputFocused;
-
   return (
     <header
       id="storefront-header"
-      className={`sticky top-[var(--network-banner-height,0px)] z-50 w-full ${headerBgClass} px-3 sm:px-4 md:px-8 transition-[top,padding,box-shadow] duration-300 ${
-        showSearchRow ? "pb-2 sm:pt-5 sm:pb-2.5 md:pt-6 md:pb-3" : "pb-1 sm:pb-1.5"
-      }`}
+      className={`sticky z-50 w-full ${headerBgClass} px-3 sm:px-4 md:px-8 pb-2 sm:pb-2.5 md:pb-3`}
       style={{
+        top: isHomePage && !isInputFocused
+          ? `calc(var(--network-banner-height, 0px) - ${searchAreaHeight}px)`
+          : "var(--network-banner-height, 0px)",
         paddingTop: "max(8px, calc(var(--safe-area-top, env(safe-area-inset-top, 0px)) + 4px))",
       }}
     >
       <div className="relative mx-auto max-w-7xl">
-        {/* ================= COLLAPSIBLE TOP AREA (LOGO + SEARCH ROW VIA CSS GRID) ================= */}
-        <div
-          className={`grid relative z-20 transition-[grid-template-rows,opacity] duration-300 ease-in-out ${
-            isHomePage
-              ? showSearchRow
-                ? "grid-rows-[1fr] opacity-100"
-                : "grid-rows-[0fr] opacity-0 pointer-events-none overflow-hidden"
-              : "grid-rows-[1fr] opacity-100"
-          }`}
-        >
-          <div className={`min-h-0 ${showSearchRow ? "overflow-visible" : "overflow-hidden"}`}>
+        {/* Search keeps its layout space so scrolling cannot move its own threshold. */}
+        <div ref={searchAreaRef} className="grid relative z-20">
+          <div className="min-h-0 overflow-visible">
             {/* ================= CENTERED BRAND LOGO ABOVE SEARCH BAR ================= */}
             {!isSearchPage && !isRecentlyViewedPage && (
               <div className="mb-2 sm:mb-2.5 flex items-center justify-center">

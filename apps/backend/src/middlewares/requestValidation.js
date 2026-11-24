@@ -160,6 +160,11 @@ export const schemas = {
     department_id: positiveId.optional(),
     subcategory_id: positiveId.optional(),
   }).strict(),
+  employeeProductUpdate: z.object({
+    expected_stock_quantity: z.number().finite().nonnegative().nullable().optional(),
+    stock_quantity: z.union([integerString(), z.number().int().nonnegative()]).optional(),
+    stock_status: z.enum(["instock", "outofstock", "onbackorder"]).optional(),
+  }).strict(),
   categoryCreate: z.object({
     name: boundedString(200).min(1),
     image_id: z.union([z.literal(""), positiveId]).optional().nullable(),

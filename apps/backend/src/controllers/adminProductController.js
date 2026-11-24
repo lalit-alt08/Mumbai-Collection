@@ -448,6 +448,13 @@ export const updateProduct = async (req, res) => {
     const validationError = validateProductInput({ name, regular_price, sale_price, stock_quantity, stock_status });
     if (validationError) return res.status(400).json({ success: false, message: validationError });
 
+    if (req.user?.role !== "administrator" && (regular_price !== undefined || sale_price !== undefined || name !== undefined)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: Employees are authorized to adjust stock only.",
+      });
+    }
+
     const updatePayload = {};
     if (name !== undefined) updatePayload.name = name.trim();
     if (regular_price !== undefined) updatePayload.regular_price = String(regular_price);

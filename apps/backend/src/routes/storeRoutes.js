@@ -314,9 +314,14 @@ async function proxyStoreApi(req, res) {
         }
       }
 
-      // Publish real-time ORDER_CREATED event so employee panel sirens and push notifications trigger immediately
+      // Publish real-time ORDER_CREATED event ONLY for orders that do not require external payment (e.g. COD).
+      // For online prepaid orders (Razorpay), paymentFinalizeService publishes ORDER_CREATED once payment is confirmed.
+      const paymentMethod = response.data?.payment_method || response.data?.payment_result?.payment_method;
+      const needsPayment = response.data?.needs_payment !== false;
+      const isOnlinePrepaid = needsPayment || (paymentMethod && paymentMethod !== "cod");
+
       const createdOrderId = response.data?.id || response.data?.order_id;
-      if (createdOrderId) {
+      if (!isOnlinePrepaid && createdOrderId) {
         const rawTotal = response.data?.totals?.total_price ?? response.data?.total;
         const total = rawTotal !== undefined && rawTotal !== null
           ? (typeof rawTotal === "number" && rawTotal > 1000 ? (rawTotal / 100).toFixed(2) : String(rawTotal))
