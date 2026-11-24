@@ -396,10 +396,10 @@ function ProductInfo({ product }) {
                 type="button"
                 onClick={() => navigate("/cart")}
                 aria-label={`View cart (${totalCartItems} ${totalCartItems === 1 ? "item" : "items"})`}
-                className="product-cart-nav-btn relative flex h-[46px] w-[72px] items-center justify-center rounded-full border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                className="product-cart-nav-btn relative flex h-[46px] w-[88px] items-center justify-center rounded-full border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
               >
                 <div className="relative flex items-center justify-center">
-                  <ShoppingCart size={21} className="text-[#1E293B]" strokeWidth={2.2} />
+                  <ShoppingCart size={22} className="text-[#1E293B]" strokeWidth={2.2} />
                   <span
                     className="product-cart-nav-badge absolute -top-2.5 -right-2.5 flex h-[19px] min-w-[19px] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[11px] font-black leading-none text-white ring-2 ring-white shadow-[0_2px_6px_rgba(225,29,72,0.35)]"
                   >
@@ -414,12 +414,12 @@ function ProductInfo({ product }) {
               <button
                 type="button"
                 disabled
-                className="store-out-of-stock flex-1 max-w-[260px] flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
+                className="store-out-of-stock flex-1 max-w-[250px] flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
               >
                 Out of Stock
               </button>
             ) : (
-              <HapticTapTarget className="flex-1 max-w-[260px]" radius="9999px">
+              <HapticTapTarget className="flex-1 max-w-[250px]" radius="9999px">
                 <button
                   type="button"
                   onClick={handleAddToCart}
