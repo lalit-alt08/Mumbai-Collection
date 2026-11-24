@@ -17,7 +17,7 @@ function ResetPassword() {
   const [token] = useState(() => new URLSearchParams(window.location.search).get("token"));
 
   useEffect(() => {
-    window.history.replaceState({}, "", "/reset-password");
+    window.history.replaceState(window.history.state, "", "/reset-password");
   }, []);
 
   const [password, setPassword] = useState("");

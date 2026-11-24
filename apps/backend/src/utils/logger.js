@@ -18,7 +18,10 @@ export const getErrorMessage = (error) => {
   for (const key of ["RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET", "TELEGRAM_BOT_TOKEN", "MUMBAI_INTERNAL_API_KEY", "REDIS_PASSWORD"]) {
     if (process.env[key]) message = message.split(process.env[key]).join("[REDACTED]");
   }
-  return message.replace(/rediss?:\/\/[^\s]+/gi, "[REDACTED_REDIS_URL]").slice(0, 500);
+  return message
+    .replace(/rediss?:\/\/[^\s]+/gi, "[REDACTED_REDIS_URL]")
+    .replace(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, "[REDACTED_JWT]")
+    .slice(0, 500);
 };
 
 export const sanitizeError = (error) => ({

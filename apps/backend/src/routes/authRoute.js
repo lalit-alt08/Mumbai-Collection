@@ -15,6 +15,12 @@ import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+  res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
+  res.set("Pragma", "no-cache");
+  next();
+});
+
 router.post("/login", ipAuthLimiter, authLimiter, accountLoginThrottle, validateRequest({ body: schemas.login }), login);
 router.post("/register", ipAuthLimiter, authLimiter, validateRequest({ body: schemas.register }), register);
 router.post("/google-login", ipAuthLimiter, authLimiter, validateRequest({ body: schemas.googleLogin }), optionalAuth, googleLogin);

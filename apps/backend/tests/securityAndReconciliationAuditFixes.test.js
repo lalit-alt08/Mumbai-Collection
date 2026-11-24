@@ -14,6 +14,10 @@ const reconciliationServicePath = path.resolve(__dirname, "../src/services/recon
 const rateLimiterPath = path.resolve(__dirname, "../src/middlewares/rateLimiter.js");
 const storeRoutesPath = path.resolve(__dirname, "../src/routes/storeRoutes.js");
 const mumbaiAuthPath = path.resolve(__dirname, "../../wordpress-plugin/mumbai-auth.php");
+const serverJsPath = path.resolve(__dirname, "../src/server.js");
+const authRoutePath = path.resolve(__dirname, "../src/routes/authRoute.js");
+const loggerPath = path.resolve(__dirname, "../src/utils/logger.js");
+const resetPasswordPath = path.resolve(__dirname, "../../customer-web/src/pages/ResetPassword.jsx");
 
 test("Security & Payment Reconciliation Audit Fixes Suite", async (t) => {
   const wpInitSource = fs.readFileSync(wpInitPath, "utf8");
@@ -23,6 +27,10 @@ test("Security & Payment Reconciliation Audit Fixes Suite", async (t) => {
   const rateLimiterSource = fs.readFileSync(rateLimiterPath, "utf8");
   const storeRoutesSource = fs.readFileSync(storeRoutesPath, "utf8");
   const mumbaiAuthSource = fs.readFileSync(mumbaiAuthPath, "utf8");
+  const serverJsSource = fs.readFileSync(serverJsPath, "utf8");
+  const authRouteSource = fs.readFileSync(authRoutePath, "utf8");
+  const loggerSource = fs.readFileSync(loggerPath, "utf8");
+  const resetPasswordSource = fs.readFileSync(resetPasswordPath, "utf8");
 
   await t.test("1. wp-init.sh and docker-compose.yml fail-closed without seeding fallback dev keys in production", () => {
     assert.ok(
@@ -118,6 +126,72 @@ test("Security & Payment Reconciliation Audit Fixes Suite", async (t) => {
       mumbaiAuthSource.includes("/admin/ensure-core-categories") &&
       mumbaiAuthSource.includes("'permission_callback' => 'mumbai_internal_server_permission'"),
       "ensure-core-categories admin route must require internal server permission"
+    );
+  });
+
+  await t.test("9. MUMBAI_INTERNAL_API_KEY fallback removed and rejected in production startup", () => {
+    assert.ok(
+      !dockerComposeSource.includes("dev_internal_secret_change_me"),
+      "docker-compose.yml must not contain default fallback internal secret"
+    );
+    assert.ok(
+      serverJsSource.includes('process.env.MUMBAI_INTERNAL_API_KEY === "dev_internal_secret_change_me"'),
+      "server.js must reject default internal secret in production startup validation"
+    );
+  });
+
+  await t.test("10. mumbai-auth.php rejects dev internal key in production", () => {
+    assert.ok(
+      mumbaiAuthSource.includes("$valid_key === 'dev_internal_secret_change_me'"),
+      "mumbai_is_valid_internal_key must inspect dev fallback key"
+    );
+    assert.ok(
+      mumbaiAuthSource.includes("$env === 'production' || (!defined('WP_DEBUG') || !WP_DEBUG)"),
+      "mumbai_is_valid_internal_key must reject dev fallback in production or non-debug environments"
+    );
+  });
+
+  await t.test("11. Account deletion checks in-flight payment intents, fails closed if WC unavailable, and detaches orders post-deletion", () => {
+    assert.ok(
+      mumbaiAuthSource.includes("!function_exists('wc_get_orders')"),
+      "Account deletion must verify WooCommerce availability"
+    );
+    assert.ok(
+      mumbaiAuthSource.includes("mumbai_payment_intents") &&
+      mumbaiAuthSource.includes("status IN ('created', 'paid')"),
+      "Account deletion must check for in-flight payment intents"
+    );
+    // User deletion must happen before order detachment
+    const deleteUserIdx = mumbaiAuthSource.indexOf("wp_delete_user($user_id, $reassign_id);");
+    const orderDetachIdx = mumbaiAuthSource.indexOf("UPDATE {$orders_table} SET customer_id = 0");
+    assert.ok(deleteUserIdx !== -1 && orderDetachIdx !== -1, "Both deletion and dissociation must exist");
+    assert.ok(deleteUserIdx < orderDetachIdx, "User deletion must precede order dissociation to prevent partial detached state");
+  });
+
+  await t.test("12. Delete account OTP store uses user-scoped lock to prevent race conditions", () => {
+    assert.ok(
+      mumbaiAuthSource.includes("mumbai_del_otp_") &&
+      mumbaiAuthSource.includes("GET_LOCK") &&
+      mumbaiAuthSource.includes("RELEASE_LOCK"),
+      "mumbai_otp_store must acquire user lock before checking/setting delete OTP"
+    );
+  });
+
+  await t.test("13. authRoute.js enforces private, no-store Cache-Control header on auth endpoints", () => {
+    assert.ok(
+      authRouteSource.includes('res.set("Cache-Control", "private, no-store, no-cache, must-revalidate")'),
+      "authRoute.js must configure private, no-store Cache-Control header"
+    );
+  });
+
+  await t.test("14. logger.js redacts JWT tokens in error messages and ResetPassword.jsx preserves history state", () => {
+    assert.ok(
+      loggerSource.includes("[REDACTED_JWT]"),
+      "logger.js must redact JWT tokens matching regex"
+    );
+    assert.ok(
+      resetPasswordSource.includes("window.history.replaceState(window.history.state, \"\", \"/reset-password\")"),
+      "ResetPassword.jsx must preserve window.history.state"
     );
   });
 });

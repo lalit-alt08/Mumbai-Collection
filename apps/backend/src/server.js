@@ -31,8 +31,8 @@ if (process.env.NODE_ENV === "production") {
   if (!process.env.WOOCOMMERCE_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET.includes("mock")) {
     configErrors.push("WOOCOMMERCE_CONSUMER_SECRET is missing or set to a mock secret");
   }
-  if (!process.env.MUMBAI_INTERNAL_API_KEY) {
-    configErrors.push("MUMBAI_INTERNAL_API_KEY is missing");
+  if (!process.env.MUMBAI_INTERNAL_API_KEY || process.env.MUMBAI_INTERNAL_API_KEY === "dev_internal_secret_change_me") {
+    configErrors.push("MUMBAI_INTERNAL_API_KEY is missing or set to the insecure default key");
   }
   if (!process.env.ADMIN_ORIGIN || !process.env.EMPLOYEE_ORIGIN) {
     configErrors.push("ADMIN_ORIGIN or EMPLOYEE_ORIGIN is missing");

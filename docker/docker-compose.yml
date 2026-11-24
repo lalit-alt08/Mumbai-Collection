@@ -46,7 +46,7 @@ services:
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:-mumbai_dev_pass}
       WORDPRESS_DEBUG: "1"
       WORDPRESS_CONFIG_EXTRA: |
-        define('MUMBAI_INTERNAL_API_KEY', '${MUMBAI_INTERNAL_API_KEY:-dev_internal_secret_change_me}');
+        define('MUMBAI_INTERNAL_API_KEY', '${MUMBAI_INTERNAL_API_KEY:-}');
         define('MUMBAI_FRONTEND_URL', '${CUSTOMER_ORIGIN:-http://localhost:5173}');
     volumes:
       - wp_data:/var/www/html
@@ -112,7 +112,7 @@ services:
       WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY:-}
       WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-}
       SEED_DEV_WC_KEYS: ${SEED_DEV_WC_KEYS:-false}
-      MUMBAI_INTERNAL_API_KEY: ${MUMBAI_INTERNAL_API_KEY:-dev_internal_secret_change_me}
+      MUMBAI_INTERNAL_API_KEY: ${MUMBAI_INTERNAL_API_KEY:-}
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       CUSTOMER_ORIGIN: ${CUSTOMER_ORIGIN:-http://localhost:5173}
       ADMIN_ORIGIN: ${ADMIN_ORIGIN:-http://localhost:5174}

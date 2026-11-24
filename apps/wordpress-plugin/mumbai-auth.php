@@ -147,6 +147,12 @@ function mumbai_is_valid_internal_key($api_key)
     }
 
     foreach ($valid_keys as $valid_key) {
+        if ($valid_key === 'dev_internal_secret_change_me') {
+            $env = function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
+            if ($env === 'production' || (!defined('WP_DEBUG') || !WP_DEBUG)) {
+                continue;
+            }
+        }
         if (hash_equals($valid_key, $api_key)) {
             return true;
         }
@@ -3361,33 +3367,58 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
     }
 
     /*
-     * STEP 1: Guard against in-flight / active orders.
+     * STEP 1: Guard against in-flight / active orders and payments.
      * Reject account deletion if any order is active/in-flight (e.g. processing, packed, out-for-delivery)
-     * to prevent delivery failure and logistics breakdown.
+     * or if a payment intent is currently in progress.
      */
-    if (function_exists('wc_get_orders')) {
-        $active_statuses = [
-            'pending',
-            'processing',
-            'on-hold',
-            'packed',
-            'out-for-delivery',
-            'dispatched',
-            'in-transit',
-        ];
+    if (!function_exists('wc_get_orders')) {
+        mumbai_log("Blocked account deletion for user {$user_id}: WooCommerce is unavailable.");
+        return new WP_Error(
+            'service_unavailable',
+            'Order service is currently unavailable. Account deletion could not be safely verified.',
+            ['status' => 503]
+        );
+    }
 
-        $active_orders = wc_get_orders([
-            'customer_id' => $user_id,
-            'status'      => $active_statuses,
-            'limit'       => 1,
-            'return'      => 'ids',
-        ]);
+    $active_statuses = [
+        'pending',
+        'processing',
+        'on-hold',
+        'packed',
+        'out-for-delivery',
+        'dispatched',
+        'in-transit',
+    ];
 
-        if (!empty($active_orders)) {
-            mumbai_log("Blocked account deletion for user {$user_id}: active in-flight orders present.");
+    $active_orders = wc_get_orders([
+        'customer_id' => $user_id,
+        'status'      => $active_statuses,
+        'limit'       => 1,
+        'return'      => 'ids',
+    ]);
+
+    if (!empty($active_orders)) {
+        mumbai_log("Blocked account deletion for user {$user_id}: active in-flight orders present.");
+        return new WP_Error(
+            'active_orders_exist',
+            'Your account cannot be deleted while you have active or in-flight orders. Please wait until your orders are completed or cancelled.',
+            ['status' => 400]
+        );
+    }
+
+    global $wpdb;
+    $intents_table = $wpdb->prefix . 'mumbai_payment_intents';
+    $table_check = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $intents_table));
+    if ($table_check === $intents_table) {
+        $active_intents = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$intents_table} WHERE customer_id = %d AND status IN ('created', 'paid')",
+            $user_id
+        ));
+        if ($active_intents > 0) {
+            mumbai_log("Blocked account deletion for user {$user_id}: active payment intent present.");
             return new WP_Error(
                 'active_orders_exist',
-                'Your account cannot be deleted while you have active or in-flight orders. Please wait until your orders are completed or cancelled.',
+                'Your account cannot be deleted while a payment or order is being processed. Please wait until your order is completed.',
                 ['status' => 400]
             );
         }
@@ -3399,26 +3430,6 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
     if ($email_confirmed) {
         delete_user_meta($user_id, '_mumbai_delete_auth_token');
         delete_user_meta($user_id, '_mumbai_delete_auth_expires');
-    }
-
-    if (function_exists('wc_get_orders')) {
-        /*
-         * Disassociate historical/finalized orders from this customer ID
-         * (set customer_id to 0 / guest order) so the customer's profile is unlinked
-         * while statutory tax invoices & commercial records are preserved for legal compliance.
-         */
-        $all_customer_orders = wc_get_orders([
-            'customer_id' => $user_id,
-            'limit'       => -1,
-            'return'      => 'objects',
-        ]);
-
-        foreach ($all_customer_orders as $cust_order) {
-            if ($cust_order instanceof WC_Order) {
-                $cust_order->set_customer_id(0);
-                $cust_order->save();
-            }
-        }
     }
 
     /*
@@ -3450,10 +3461,8 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
 
     /*
      * STEP 5
-     * Permanently delete the WordPress user with content reassignment.
-     *
-     * Associated user metadata is removed with
-     * the WordPress user.
+     * Permanently delete the WordPress user with content reassignment FIRST.
+     * If user deletion fails, historical orders remain attached so customer history is not lost.
      */
     $deleted = wp_delete_user($user_id, $reassign_id);
 
@@ -3467,6 +3476,25 @@ function mumbai_delete_account_locked(WP_REST_Request $request)
             'Unable to delete account. Please try again.',
             ['status' => 500]
         );
+    }
+
+    /*
+     * STEP 6
+     * User deletion succeeded. Disassociate historical/finalized orders from this customer ID
+     * (set customer_id to 0 / guest order) so the customer's profile is unlinked
+     * while statutory tax invoices & commercial records are preserved for legal compliance.
+     * Uses direct SQL updates to avoid PHP memory exhaustion and max_execution_time timeouts.
+     */
+    $orders_table = $wpdb->prefix . 'wc_orders';
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $orders_table)) === $orders_table) {
+        $wpdb->query($wpdb->prepare("UPDATE {$orders_table} SET customer_id = 0 WHERE customer_id = %d", $user_id));
+    }
+    $wpdb->query($wpdb->prepare(
+        "UPDATE {$wpdb->postmeta} SET meta_value = '0' WHERE meta_key = '_customer_user' AND meta_value = %s",
+        (string) $user_id
+    ));
+    if (function_exists('wc_delete_shop_order_transients')) {
+        wc_delete_shop_order_transients();
     }
 
     /*
@@ -4291,15 +4319,27 @@ function mumbai_otp_store(WP_REST_Request $request) {
             return new WP_Error('forbidden_deletion', 'Only customer accounts can be self-deleted.', ['status' => 403]);
         }
 
-        $last_request = (int) get_user_meta($user->ID, '_mumbai_last_delete_otp_request', true);
-        if ($last_request && (time() - $last_request) < 60) {
-            return new WP_Error('rate_limit', 'Please wait 60 seconds before requesting a new deletion code.', ['status' => 429]);
+        global $wpdb;
+        $has_db_lock = !empty($wpdb) && method_exists($wpdb, 'get_var');
+        $lock_name = 'mumbai_del_otp_' . $user->ID;
+        if ($has_db_lock && !(int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lock_name))) {
+            return new WP_Error('otp_busy', 'Request in progress, please retry.', ['status' => 429]);
         }
+        try {
+            $last_request = (int) get_user_meta($user->ID, '_mumbai_last_delete_otp_request', true);
+            if ($last_request && (time() - $last_request) < 60) {
+                return new WP_Error('rate_limit', 'Please wait 60 seconds before requesting a new deletion code.', ['status' => 429]);
+            }
 
-        update_user_meta($user->ID, '_mumbai_last_delete_otp_request', time());
-        update_user_meta($user->ID, '_mumbai_delete_otp_hash', $otp_hash);
-        update_user_meta($user->ID, '_mumbai_delete_otp_expires', time() + 300);
-        update_user_meta($user->ID, '_mumbai_delete_otp_attempts', 0);
+            update_user_meta($user->ID, '_mumbai_last_delete_otp_request', time());
+            update_user_meta($user->ID, '_mumbai_delete_otp_hash', $otp_hash);
+            update_user_meta($user->ID, '_mumbai_delete_otp_expires', time() + 300);
+            update_user_meta($user->ID, '_mumbai_delete_otp_attempts', 0);
+        } finally {
+            if ($has_db_lock) {
+                $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
+            }
+        }
 
         return [
             'success'    => true,
