@@ -170,13 +170,13 @@ function ProductCard({ product }) {
         </div>
 
         {/* Pricing & Add to Cart Action Row */}
-        <div className="flex items-center justify-between gap-1 h-[36px] sm:h-[38px]">
-          <div className="flex items-baseline gap-1.5 min-w-0">
-            <span className="text-[16px] sm:text-[18px] font-extrabold text-[#1E293B]">
+        <div className="flex items-center justify-between gap-1.5 min-h-[36px] sm:min-h-[38px]">
+          <div className="flex flex-col justify-center sm:flex-row sm:items-baseline gap-0 sm:gap-1.5 min-w-0 leading-tight">
+            <span className="text-[15px] sm:text-[18px] font-extrabold text-[#1E293B] leading-tight tabular-nums">
               ₹{currentPrice}
             </span>
             {isOnSale && (
-              <span className="text-[11.5px] sm:text-xs text-[#64748B] line-through font-medium truncate">
+              <span className="text-[11px] sm:text-xs text-[#64748B] line-through font-medium leading-tight tabular-nums whitespace-nowrap">
                 ₹{regularPrice}
               </span>
             )}
@@ -335,7 +335,7 @@ function ProductCard({ product }) {
                     }}
                     disabled={updatingCart || isMaxReached || isOutOfStock}
                     title={isOutOfStock || isMaxReached ? "Out of stock" : `Only ${remainingStock} more available`}
-                    className="flex h-full w-6 sm:w-7 items-center justify-center rounded-r-full transition-colors hover:bg-[#1B3B82] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm font-black text-[#FFFFFF]"
+                    className="flex h-full w-7 sm:w-8 items-center justify-center rounded-r-full transition-colors hover:bg-[#1B3B82] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-sm font-black text-[#FFFFFF]"
                   >
                     +
                   </button>

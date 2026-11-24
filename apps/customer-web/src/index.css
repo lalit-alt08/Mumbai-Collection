@@ -855,4 +855,12 @@ html, body {
   html[data-store-theme="dark"] .product-stepper-qty {
     color: #FAF8F4 !important;
   }
+
+  /* Product Gallery Image Card: keep the card & image slider background pure white in dark mode so product photos blend seamlessly */
+  html[data-store-theme="dark"] .product-gallery-card,
+  html[data-store-theme="dark"] .product-gallery-slider,
+  html[data-store-theme="dark"] .product-gallery-slide {
+    background-color: #FFFFFF !important;
+    border-color: #E2E8F0 !important;
+  }
 }

@@ -176,7 +176,7 @@ function ProductGallery({ product }) {
   };
 
   return (
-    <div className="relative flex w-full flex-col bg-white pb-6 pt-0 lg:rounded-[24px] lg:pt-8 shadow-[0_8px_30px_rgba(0,0,0,0.03)] rounded-b-[32px] border border-gray-100/80">
+    <div className="product-gallery-card relative flex w-full flex-col bg-white pb-6 pt-0 lg:rounded-[24px] lg:pt-8 shadow-[0_8px_30px_rgba(0,0,0,0.03)] rounded-b-[32px] border border-gray-100/80">
       {/* Floating Action Icons */}
       <div
         className="absolute left-4 right-4 z-20 flex items-center justify-between lg:left-6 lg:right-6"
@@ -228,7 +228,7 @@ function ProductGallery({ product }) {
 
       {/* Main Image Slider with Real-Time Finger Drag & Swipe Gestures */}
       <div
-        className="relative mx-auto mt-14 aspect-square w-full max-w-[420px] overflow-hidden select-none touch-pan-y"
+        className="product-gallery-slider relative mx-auto mt-14 aspect-square w-full max-w-[420px] overflow-hidden select-none touch-pan-y"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -244,7 +244,7 @@ function ProductGallery({ product }) {
           {images.map((img, idx) => (
             <div
               key={img.id || idx}
-              className="flex h-full w-full shrink-0 items-center justify-center p-4"
+              className="product-gallery-slide flex h-full w-full shrink-0 items-center justify-center p-4"
             >
               <img
                 src={getFullImageUrl(img)}
