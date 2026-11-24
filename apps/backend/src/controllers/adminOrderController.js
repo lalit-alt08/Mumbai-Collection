@@ -82,7 +82,9 @@ export const getAdminOrders = async (req, res) => {
         status: effectiveStatus,
         date: o.date_created,
         items_count: o.line_items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0,
-        payment_method: o.payment_method_title || "Cash on Delivery",
+        payment_method:
+          o.payment_method_title ||
+          (String(o.payment_method || "").toLowerCase() === "cod" ? "Cash on Delivery" : "Online Payment"),
         is_unpaid: isOnlineOrderUnpaid(o),
         is_status_locked: isOrderStatusLocked(o),
       };

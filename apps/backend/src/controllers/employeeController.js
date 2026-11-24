@@ -724,6 +724,17 @@ export const acknowledgeEmployeeOrder = async (req, res) => {
       });
     }
 
+    if (isOnlineOrderUnpaid(order)) {
+      return res.status(400).json({
+        success: false,
+        message: `Order #${cleanId} is unpaid and not eligible for packing acknowledgment.`,
+      });
+    }
+
+    if (!isOrderNeedingPacking(order)) {
+      return res.json({ success: true, alreadyHandled: true, orderId: cleanId });
+    }
+
     const result = await acknowledgeOrderNotification({ orderId: cleanId, employeeId: req.user?.id });
     return res.json({ success: true, ...result });
   } catch (err) {

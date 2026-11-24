@@ -297,7 +297,10 @@ export function OrderDetailsModal({
             <div className="flex justify-between text-gray-600">
               <span>Payment Method:</span>
               <span className="font-bold text-gray-900 uppercase text-right">
-                {order.payment_method_title || order.payment_method || "COD"}
+                {order.payment_method_title ||
+                  (String(order.payment_method || "").toLowerCase() === "cod"
+                    ? "Cash on Delivery"
+                    : order.payment_method || "Online Payment")}
               </span>
             </div>
             <div className="border-t border-gray-200/60 my-1" />

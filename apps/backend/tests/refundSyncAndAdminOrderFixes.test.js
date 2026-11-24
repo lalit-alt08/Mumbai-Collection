@@ -13,6 +13,8 @@ process.env.RAZORPAY_WEBHOOK_SECRET = "mock_webhook_secret_789";
 const { default: api } = await import("../src/config/woocommerce.js");
 const { handleWebhook, reconcileOrder } = await import("../src/controllers/paymentController.js");
 const { getAdminOrders } = await import("../src/controllers/adminOrderController.js");
+const { acknowledgeEmployeeOrder } = await import("../src/controllers/employeeController.js");
+const { formatEmployeeOrderRecord } = await import("../src/utils/employeeOrderFormatter.js");
 const { getRazorpayInstance } = await import("../src/services/razorpayService.js");
 const { _setWpClientForTesting } = await import("../src/services/paymentIntentService.js");
 const { serverCache } = await import("../src/utils/memoryCache.js");
@@ -198,5 +200,69 @@ test("Refund Sync, Manual Reconcile Guard & Admin Status/Chart Fixes", async (t)
       "utf8"
     );
     assert.match(source, /toLocaleDateString\("en-IN",\s*\{[\s\S]*?timeZone:\s*"Asia\/Kolkata"/);
+  });
+
+  await t.test("5. Missing payment title defaults to Online Payment (never false Cash on Delivery)", () => {
+    const formatted = formatEmployeeOrderRecord(
+      {
+        id: 901,
+        status: "processing",
+        payment_method: "razorpay",
+        payment_method_title: "",
+        total: "250.00",
+        line_items: [],
+        meta_data: [],
+      },
+      new Set()
+    );
+    assert.equal(formatted.payment_method, "Online Payment");
+
+    const codFormatted = formatEmployeeOrderRecord(
+      {
+        id: 902,
+        status: "processing",
+        payment_method: "cod",
+        payment_method_title: "",
+        total: "250.00",
+        line_items: [],
+        meta_data: [],
+      },
+      new Set()
+    );
+    assert.equal(codFormatted.payment_method, "Cash on Delivery");
+  });
+
+  await t.test("6. acknowledgeEmployeeOrder rejects unpaid pending orders and returns alreadyHandled for packed orders", async () => {
+    api.get = async (endpoint) => {
+      if (endpoint === "orders/911") {
+        return {
+          data: { id: 911, status: "pending", payment_method: "razorpay", date_paid: null, transaction_id: "", meta_data: [] },
+        };
+      }
+      if (endpoint === "orders/912") {
+        return {
+          data: {
+            id: 912,
+            status: "processing",
+            payment_method: "razorpay",
+            date_paid: "2026-11-24T12:00:00",
+            transaction_id: "pay_912",
+            meta_data: [{ key: "_delivery_status", value: "packed" }],
+          },
+        };
+      }
+      return { data: null };
+    };
+
+    const resUnpaid = createRes();
+    await acknowledgeEmployeeOrder({ params: { id: "911" }, user: { id: 5 } }, resUnpaid);
+    assert.equal(resUnpaid.statusCode, 400);
+    assert.match(resUnpaid.body?.message || "", /unpaid/i);
+
+    const resPacked = createRes();
+    await acknowledgeEmployeeOrder({ params: { id: "912" }, user: { id: 5 } }, resPacked);
+    assert.equal(resPacked.statusCode, 200);
+    assert.equal(resPacked.body?.success, true);
+    assert.equal(resPacked.body?.alreadyHandled, true);
   });
 });

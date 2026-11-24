@@ -67,7 +67,9 @@ export const formatEmployeeOrderRecord = (o, ackSet) => {
       ? o.fee_lines.reduce((sum, f) => sum + (Number(f.total) || 0), 0).toFixed(2)
       : "0.00",
     customer_note: o.customer_note || "",
-    payment_method: o.payment_method_title || "Cash on Delivery",
+    payment_method:
+      o.payment_method_title ||
+      (String(o.payment_method || "").toLowerCase() === "cod" ? "Cash on Delivery" : "Online Payment"),
     customer_name: formatCustomerDisplayName(
       o.billing?.first_name,
       o.billing?.last_name,

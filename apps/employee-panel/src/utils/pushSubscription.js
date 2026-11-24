@@ -15,6 +15,21 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
+const getServiceWorkerRegistrationWithTimeout = async (timeoutMs = 1500) => {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
+  let timerId = null;
+  try {
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((resolve) => {
+        timerId = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timerId !== null) clearTimeout(timerId);
+  }
+};
+
 /**
  * Checks current push notification capability and subscription status.
  */
@@ -26,8 +41,8 @@ export const getPushSubscriptionState = async () => {
   const permission = "Notification" in window ? Notification.permission : "default";
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
+    const registration = await getServiceWorkerRegistrationWithTimeout();
+    const subscription = await registration?.pushManager?.getSubscription?.();
     return {
       supported: true,
       permission,
@@ -90,8 +105,8 @@ export const unsubscribeDevicePush = async () => {
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
+    const registration = await getServiceWorkerRegistrationWithTimeout();
+    const subscription = await registration?.pushManager?.getSubscription?.();
 
     if (subscription) {
       const endpoint = subscription.endpoint;
