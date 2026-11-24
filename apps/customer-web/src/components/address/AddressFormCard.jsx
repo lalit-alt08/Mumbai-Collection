@@ -49,8 +49,8 @@ export function AddressFormCard({
 
       {/* FORM ERROR */}
       {formError && (
-        <div className="mb-5 flex items-center gap-2 rounded-2xl border border-rose-900/60 bg-rose-950/40 p-3.5 text-xs sm:text-sm font-semibold text-rose-300">
-          <AlertCircle size={16} className="shrink-0 text-rose-400" />
+        <div className="mb-5 flex items-center gap-2 rounded-2xl address-error-banner p-3.5 text-xs sm:text-sm font-semibold">
+          <AlertCircle size={16} className="shrink-0" />
           <span>{formError}</span>
         </div>
       )}
@@ -62,8 +62,8 @@ export function AddressFormCard({
       >
         {/* ADDRESS TYPE SELECTOR (Segmented Pill Switch) */}
         <div>
-          <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.type ? "text-rose-400" : "text-[#64748B]"}`}>
-            Address Type <span className={fieldErrors.type ? "text-rose-400 font-black" : "text-[#22499F]"}>*</span>
+          <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.type ? "address-field-error-text" : "text-[#64748B]"}`}>
+            Address Type <span className={fieldErrors.type ? "address-field-error-text font-black" : "text-[#22499F]"}>*</span>
           </label>
 
           <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-[#F0F8E8]/90 border border-[#E2E8F0] shadow-inner">
@@ -91,7 +91,7 @@ export function AddressFormCard({
                   form.type === "home"
                     ? "address-type-btn-active bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#22499F]/30"
                     : fieldErrors.type
-                    ? "border border-rose-400/40 text-rose-300 hover:bg-rose-950/20"
+                    ? "address-type-btn-error"
                     : "address-type-btn-inactive text-[#64748B] hover:text-white hover:bg-white/5 border border-transparent"
                 }`}
               >
@@ -129,7 +129,7 @@ export function AddressFormCard({
                   form.type === "office"
                     ? "address-type-btn-active bg-[#FFFFFF] text-[#22499F] border border-[#22499F]/40 shadow-[0_2px_10px_rgba(0,0,0,0.3)] ring-1 ring-[#22499F]/30"
                     : fieldErrors.type
-                    ? "border border-rose-400/40 text-rose-300 hover:bg-rose-950/20"
+                    ? "address-type-btn-error"
                     : "address-type-btn-inactive text-[#64748B] hover:text-white hover:bg-white/5 border border-transparent"
                 }`}
               >
@@ -144,8 +144,8 @@ export function AddressFormCard({
             )}
           </div>
           {fieldErrors.type && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
-              <AlertCircle size={13} className="shrink-0 text-rose-400" />
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold address-field-error-text animate-in fade-in duration-150">
+              <AlertCircle size={13} className="shrink-0" />
               <span>{fieldErrors.type}</span>
             </p>
           )}
@@ -154,8 +154,8 @@ export function AddressFormCard({
         {/* FIRST NAME + LAST NAME (Side-by-side grid) */}
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <div>
-            <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.first_name ? "text-rose-400" : "text-[#64748B]"}`}>
-              First Name <span className={fieldErrors.first_name ? "text-rose-400 font-black" : "text-[#22499F]"}>*</span>
+            <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.first_name ? "address-field-error-text" : "text-[#64748B]"}`}>
+              First Name <span className={fieldErrors.first_name ? "address-field-error-text font-black" : "text-[#22499F]"}>*</span>
             </label>
 
             <input
@@ -166,21 +166,21 @@ export function AddressFormCard({
               placeholder="e.g. Rahul"
               className={`h-12 w-full rounded-xl border px-3.5 text-sm font-medium outline-none transition-all ${
                 fieldErrors.first_name
-                  ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                  ? "address-input-error focus:ring-2 focus:ring-rose-500/20"
                   : "border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#1E293B] placeholder:text-[#64748B] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
               }`}
             />
             {fieldErrors.first_name && (
-              <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
-                <AlertCircle size={13} className="shrink-0 text-rose-400" />
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold address-field-error-text animate-in fade-in duration-150">
+                <AlertCircle size={13} className="shrink-0" />
                 <span>{fieldErrors.first_name}</span>
               </p>
             )}
           </div>
 
           <div>
-            <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.last_name ? "text-rose-400" : "text-[#64748B]"}`}>
-              Last Name <span className={fieldErrors.last_name ? "text-rose-400 font-black" : "text-[#22499F]"}>*</span>
+            <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.last_name ? "address-field-error-text" : "text-[#64748B]"}`}>
+              Last Name <span className={fieldErrors.last_name ? "address-field-error-text font-black" : "text-[#22499F]"}>*</span>
             </label>
 
             <input
@@ -191,13 +191,13 @@ export function AddressFormCard({
               placeholder="e.g. Sharma"
               className={`h-12 w-full rounded-xl border px-3.5 text-sm font-medium outline-none transition-all ${
                 fieldErrors.last_name
-                  ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                  ? "address-input-error focus:ring-2 focus:ring-rose-500/20"
                   : "border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#1E293B] placeholder:text-[#64748B] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
               }`}
             />
             {fieldErrors.last_name && (
-              <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
-                <AlertCircle size={13} className="shrink-0 text-rose-400" />
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold address-field-error-text animate-in fade-in duration-150">
+                <AlertCircle size={13} className="shrink-0" />
                 <span>{fieldErrors.last_name}</span>
               </p>
             )}
@@ -206,8 +206,8 @@ export function AddressFormCard({
 
         {/* PHONE WITH COUNTRY CODE PILL */}
         <div>
-          <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.phone ? "text-rose-400" : "text-[#64748B]"}`}>
-            Mobile Number <span className={fieldErrors.phone ? "text-rose-400 font-black" : "text-[#22499F]"}>*</span>
+          <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.phone ? "address-field-error-text" : "text-[#64748B]"}`}>
+            Mobile Number <span className={fieldErrors.phone ? "address-field-error-text font-black" : "text-[#22499F]"}>*</span>
           </label>
 
           <div className="relative flex items-center">
@@ -225,14 +225,14 @@ export function AddressFormCard({
               placeholder="10-digit mobile number"
               className={`h-12 w-full rounded-xl border pl-18 pr-4 text-sm font-medium outline-none transition-all ${
                 fieldErrors.phone
-                  ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                  ? "address-input-error focus:ring-2 focus:ring-rose-500/20"
                   : "border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#1E293B] placeholder:text-[#64748B] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
               }`}
             />
           </div>
           {fieldErrors.phone && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
-              <AlertCircle size={13} className="shrink-0 text-rose-400" />
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold address-field-error-text animate-in fade-in duration-150">
+              <AlertCircle size={13} className="shrink-0" />
               <span>{fieldErrors.phone}</span>
             </p>
           )}
@@ -240,8 +240,8 @@ export function AddressFormCard({
 
         {/* ADDRESS LINE 1 */}
         <div>
-          <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.address_line1 ? "text-rose-400" : "text-[#64748B]"}`}>
-            Address Line 1 <span className={fieldErrors.address_line1 ? "text-rose-400 font-black" : "text-[#22499F]"}>*</span>
+          <label className={`mb-2 block text-xs font-bold uppercase tracking-wider ${fieldErrors.address_line1 ? "address-field-error-text" : "text-[#64748B]"}`}>
+            Address Line 1 <span className={fieldErrors.address_line1 ? "address-field-error-text font-black" : "text-[#22499F]"}>*</span>
           </label>
 
           <input
@@ -252,13 +252,13 @@ export function AddressFormCard({
             placeholder="Flat / House no., building, street"
             className={`h-12 w-full rounded-xl border px-3.5 text-sm font-medium outline-none transition-all ${
               fieldErrors.address_line1
-                ? "border-rose-500 bg-rose-950/30 text-rose-200 placeholder-rose-300 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20"
+                ? "address-input-error focus:ring-2 focus:ring-rose-500/20"
                 : "border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#1E293B] placeholder:text-[#64748B] focus:border-[#22499F] focus:ring-2 focus:ring-[#22499F]/20"
             }`}
           />
           {fieldErrors.address_line1 && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
-              <AlertCircle size={13} className="shrink-0 text-rose-400" />
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold address-field-error-text animate-in fade-in duration-150">
+              <AlertCircle size={13} className="shrink-0" />
               <span>{fieldErrors.address_line1}</span>
             </p>
           )}
@@ -286,8 +286,8 @@ export function AddressFormCard({
         {/* DELIVERY REGION (Balanced 2x2 Grid, No Cutoffs) */}
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <label className={`block text-xs font-bold uppercase tracking-wider ${fieldErrors.city ? "text-rose-400" : "text-[#64748B]"}`}>
-              Delivery Region / Area <span className={fieldErrors.city ? "text-rose-400 font-black" : "text-[#22499F]"}>*</span>
+            <label className={`block text-xs font-bold uppercase tracking-wider ${fieldErrors.city ? "address-field-error-text" : "text-[#64748B]"}`}>
+              Delivery Region / Area <span className={fieldErrors.city ? "address-field-error-text font-black" : "text-[#22499F]"}>*</span>
             </label>
             <span className="text-[11px] font-semibold text-[#22499F]">
               Local delivery zones
@@ -295,7 +295,7 @@ export function AddressFormCard({
           </div>
 
           <div className={`grid grid-cols-2 gap-2 sm:gap-2.5 ${
-            fieldErrors.city ? "p-1 rounded-2xl border border-dashed border-rose-400/50 bg-rose-950/20" : ""
+            fieldErrors.city ? "p-1 rounded-2xl border border-dashed address-region-grid-error" : ""
           }`}>
             {DELIVERY_REGIONS.map((region) => {
               const isSelected = form.city?.toLowerCase() === region.toLowerCase();
@@ -324,29 +324,29 @@ export function AddressFormCard({
                     isSelected
                       ? "address-region-btn-active border-[#22499F] bg-[#FFFFFF] text-[#22499F] shadow-[0_2px_10px_rgba(66,214,232,0.2)] ring-1 ring-[#22499F]/40"
                       : fieldErrors.city
-                      ? "border-rose-400/50 bg-rose-950/30 text-rose-300"
+                      ? "address-region-btn-error"
                       : "address-region-btn-inactive border-[#E2E8F0] bg-[#F0F8E8]/80 text-[#64748B] hover:border-[#22499F]/40 hover:text-white hover:bg-white/5"
                   }`}
                 >
-                  <MapPin size={15} className={isSelected ? "text-[#22499F]" : fieldErrors.city ? "text-rose-400" : "text-[#64748B]"} />
+                  <MapPin size={15} className={isSelected ? "text-[#22499F]" : fieldErrors.city ? "address-field-error-text" : "text-[#64748B]"} />
                   <span className="truncate">{region}</span>
                 </button>
               );
             })}
           </div>
           {fieldErrors.city && (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-400 animate-in fade-in duration-150">
-              <AlertCircle size={13} className="shrink-0 text-rose-400" />
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold address-field-error-text animate-in fade-in duration-150">
+              <AlertCircle size={13} className="shrink-0" />
               <span>{fieldErrors.city}</span>
             </p>
           )}
-          <p className="mt-2.5 text-xs font-medium text-[#64748B] leading-relaxed">
+          <p className="mt-2.5 text-center sm:text-left text-xs font-medium text-[#64748B] leading-relaxed">
             For delivery outside these 4 zones, please{" "}
             <Link
               to="/contact"
               target="_blank"
               rel="noopener noreferrer"
-              className="font-bold text-[#22499F] underline hover:text-[#1B3B82] transition-colors"
+              className="font-bold text-[#22499F] hover:text-[#1B3B82] transition-colors"
             >
               contact the store
             </Link>

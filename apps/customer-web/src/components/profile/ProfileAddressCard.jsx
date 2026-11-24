@@ -263,13 +263,13 @@ export function ProfileAddressCard({
                 <span>{errors.city}</span>
               </p>
             )}
-            <p className="mt-2.5 text-[12.5px] sm:text-[13px] text-[#475569] leading-relaxed">
+            <p className="mt-2.5 text-center sm:text-left text-[12.5px] sm:text-[13px] text-[#475569] leading-relaxed">
               For delivery outside these 4 zones, please{" "}
               <Link
                 to="/contact"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-bold text-[#22499F] underline hover:text-[#1B3B82] transition-colors"
+                className="font-bold text-[#22499F] hover:text-[#1B3B82] transition-colors"
               >
                 contact the store
               </Link>

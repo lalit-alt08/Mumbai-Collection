@@ -198,6 +198,16 @@
   border-color: #E2E8F0;
   color: #22499F;
 }
+.address-error-banner { background-color: #FFF4F3; border: 1px solid #FDA4AF; color: #9F1239; }
+.address-error-banner svg { color: #E11D48; }
+.address-input-error { border-color: #F43F5E !important; background-color: #FFF5F5 !important; color: #881337 !important; }
+.address-input-error::placeholder { color: #FB7185 !important; opacity: 0.8 !important; }
+.address-field-error-text { color: #E11D48; }
+.address-type-btn-error { border-color: #FDA4AF !important; background-color: #FFF5F5 !important; color: #BE123C !important; }
+.address-region-grid-error { border-color: #FDA4AF !important; background-color: rgba(255, 245, 245, 0.5) !important; }
+.address-region-btn-error { border-color: #FDA4AF !important; background-color: #FFF5F5 !important; color: #BE123C !important; }
+.address-action-delete { border-color: #FECDD3; background-color: #FFF1F2; color: #E11D48; }
+.address-action-delete:hover { border-color: #E11D48; background-color: #E11D48; color: #FFFFFF; }
 .password-rule-passed {
   color: #059669;
 }
@@ -398,6 +408,14 @@ html[data-store-theme="dark"] .address-action-edit:hover {
   border-color: #FF942F !important;
   color: #FFBF80 !important;
 }
+html[data-store-theme="dark"] .address-error-banner { background-color: #3C2D32 !important; border-color: #A05A66 !important; color: #FFD2D4 !important; }
+html[data-store-theme="dark"] .address-error-banner svg { color: #FDA4AF !important; }
+html[data-store-theme="dark"] .address-input-error { border-color: #FB7185 !important; background-color: rgba(60, 45, 50, 0.75) !important; color: #FFE4E6 !important; }
+html[data-store-theme="dark"] .address-input-error::placeholder { color: #FDA4AF !important; opacity: 0.65 !important; }
+html[data-store-theme="dark"] .address-field-error-text { color: #FDA4AF !important; }
+html[data-store-theme="dark"] .address-type-btn-error { border-color: #A05A66 !important; background-color: rgba(60, 45, 50, 0.6) !important; color: #FDA4AF !important; }
+html[data-store-theme="dark"] .address-region-grid-error { border-color: rgba(160, 90, 102, 0.5) !important; background-color: rgba(60, 45, 50, 0.25) !important; }
+html[data-store-theme="dark"] .address-region-btn-error { border-color: rgba(160, 90, 102, 0.6) !important; background-color: rgba(60, 45, 50, 0.5) !important; color: #FDA4AF !important; }
 html[data-store-theme="dark"] .address-action-delete {
   background-color: #1F272E !important;
   border-color: #A05A66 !important;

@@ -545,14 +545,14 @@ function Addresses() {
             className={`mb-6 flex items-center justify-between gap-3 rounded-2xl p-4 text-sm font-semibold animate-[slideUp_0.2s_ease-out] ${
               feedback.type === "success"
                 ? "feedback-toast-success"
-                : "bg-rose-950/40 text-rose-300 border border-rose-900/60"
+                : "address-error-banner"
             }`}
           >
             <div className="flex items-center gap-2.5">
               {feedback.type === "success" ? (
                 <CheckCircle2 size={18} className="shrink-0 text-emerald-400" />
               ) : (
-                <AlertCircle size={18} className="shrink-0 text-rose-400" />
+                <AlertCircle size={18} className="shrink-0" />
               )}
               <span>{feedback.message}</span>
             </div>
