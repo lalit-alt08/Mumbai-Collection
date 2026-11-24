@@ -390,18 +390,18 @@ function ProductInfo({ product }) {
         ) : !isThisProductInCart ? (
           /* State 2: Cart has other products -> [Cart Icon + Badge (Left)] [Add to cart (Right, Pill)] */
           <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
-            {/* Left: Cart Button with Count Badge (Image 2 design, shifted right with breathing room) */}
-            <HapticTapTarget className="shrink-0" radius="16px">
+            {/* Left: Cart Button with Count Badge (Pill shape) */}
+            <HapticTapTarget className="shrink-0" radius="9999px">
               <button
                 type="button"
                 onClick={() => navigate("/cart")}
                 aria-label={`View cart (${totalCartItems} ${totalCartItems === 1 ? "item" : "items"})`}
-                className="product-cart-nav-btn relative flex h-[46px] w-[56px] items-center justify-center rounded-2xl border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                className="product-cart-nav-btn relative flex h-[46px] w-[58px] items-center justify-center rounded-full border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
               >
                 <div className="relative flex items-center justify-center">
                   <ShoppingCart size={21} className="text-[#1E293B]" strokeWidth={2.2} />
                   <span
-                    className="product-cart-nav-badge absolute -top-2.5 -right-3 flex h-[19px] min-w-[19px] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[11px] font-black leading-none text-white ring-2 ring-white shadow-[0_2px_6px_rgba(225,29,72,0.35)]"
+                    className="product-cart-nav-badge absolute -top-2.5 -right-2.5 flex h-[19px] min-w-[19px] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[11px] font-black leading-none text-white ring-2 ring-white shadow-[0_2px_6px_rgba(225,29,72,0.35)]"
                   >
                     {totalCartItems > 99 ? "99+" : totalCartItems}
                   </span>
