@@ -10,13 +10,17 @@ import { logError, logger } from "../utils/logger.js";
 import storeHoursService from "../services/storeHoursService.js";
 import { fetchAllProductCategories } from "../services/productService.js";
 import { validateDeliveryAddress } from "../controllers/addressController.js";
-import { publishOrderEvent } from "../services/orderNotificationService.js";
 import { MIN_ORDER_VALUE_INR } from "../utils/paymentCheckoutUtils.js";
 import api from "../config/woocommerce.js";
 
 const router = express.Router();
 
 const WP_BASE_URL = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+
+let storeUpstreamAxios = axios;
+export const _setStoreUpstreamAxiosForTesting = (client) => {
+  storeUpstreamAxios = client || axios;
+};
 
 // Safe last-known store-hours fallback cache with maximum 5-minute TTL
 let lastKnownStoreStatus = null;
@@ -38,7 +42,7 @@ const ALLOWED_STORE_PATTERNS = [
  * Forwards requests to WooCommerce Store API v1 (/wp-json/wc/store/v1/)
  * and relays Store API Nonce, Cart-Token, and session cookies.
  */
-async function proxyStoreApi(req, res) {
+export async function proxyStoreApi(req, res) {
   const targetPath = req.path || "";
 
   // Guard against path traversal attacks (e.g. .. or backslashes)
@@ -78,7 +82,7 @@ async function proxyStoreApi(req, res) {
         return res.status(400).json({ success: false, code: "INVALID_CHECKOUT_TOTAL", message: "Please review your cart before continuing." });
       }
       try {
-        const capability = await axios.get(`${WP_BASE_URL}/wp-json/mumbai-auth/v1/checkout-total-capability`, { httpsAgent, timeout: 4000 });
+        const capability = await storeUpstreamAxios.get(`${WP_BASE_URL}/wp-json/mumbai-auth/v1/checkout-total-capability`, { httpsAgent, timeout: 4000 });
         if (capability.data?.version !== 1) throw new Error("Checkout total validation unavailable");
       } catch (_) {
         return res.status(503).json({ success: false, code: "CHECKOUT_TOTAL_UNAVAILABLE", message: "Checkout is temporarily unavailable. Please try again shortly." });
@@ -189,7 +193,7 @@ async function proxyStoreApi(req, res) {
         cartHeaders["Nonce"] = req.headers.nonce;
       }
 
-      const cartRes = await axios.get(`${WP_BASE_URL}/wp-json/wc/store/v1/cart`, {
+      const cartRes = await storeUpstreamAxios.get(`${WP_BASE_URL}/wp-json/wc/store/v1/cart`, {
         headers: cartHeaders,
         httpsAgent,
         timeout: 10000,
@@ -260,7 +264,7 @@ async function proxyStoreApi(req, res) {
     const isCheckoutRequest =
       req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout";
 
-    const response = await axios({
+    const response = await storeUpstreamAxios({
       method: req.method,
       url: targetUrl,
       params: req.query,
@@ -314,26 +318,9 @@ async function proxyStoreApi(req, res) {
         }
       }
 
-      // Publish real-time ORDER_CREATED event ONLY for orders that do not require external payment (e.g. COD).
-      // For online prepaid orders (Razorpay), paymentFinalizeService publishes ORDER_CREATED once payment is confirmed.
-      const paymentMethod = response.data?.payment_method || response.data?.payment_result?.payment_method;
-      const needsPayment = response.data?.needs_payment !== false;
-      const isOnlinePrepaid = needsPayment || (paymentMethod && paymentMethod !== "cod");
-
-      const createdOrderId = response.data?.id || response.data?.order_id;
-      if (!isOnlinePrepaid && createdOrderId) {
-        const rawTotal = response.data?.totals?.total_price ?? response.data?.total;
-        const total = rawTotal !== undefined && rawTotal !== null
-          ? (typeof rawTotal === "number" && rawTotal > 1000 ? (rawTotal / 100).toFixed(2) : String(rawTotal))
-          : null;
-        publishOrderEvent({
-          event: "ORDER_CREATED",
-          orderId: createdOrderId,
-          total,
-        }).catch((err) => {
-          logger.warn({ err: err?.message, orderId: createdOrderId }, "[Store] Failed to publish ORDER_CREATED event");
-        });
-      }
+      // NOTE: ORDER_CREATED notifications are intentionally NOT published here.
+      // COD is disabled at checkout; paymentFinalizeService publishes ORDER_CREATED
+      // only after Razorpay payment capture and WooCommerce order verification succeed.
     }
 
     // Live stock enrichment: WooCommerce Store API only reads cached session data on GET /cart.

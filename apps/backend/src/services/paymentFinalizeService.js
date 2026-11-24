@@ -16,7 +16,7 @@ import {
   isRefundFullySettled,
 } from "./razorpayService.js";
 import { alertStaffAnomaly } from "./alertService.js";
-import { publishOrderEvent } from "./orderNotificationService.js";
+import { ensureOrderCreatedNotification } from "./orderNotificationService.js";
 import { invalidateOrderDetailCache } from "./orderDetailCache.js";
 import {
   findOrderByRazorpayOrderId,
@@ -25,6 +25,25 @@ import {
   formatPaiseAsRupees,
   deleteActiveCartIntentId,
 } from "../utils/paymentCheckoutUtils.js";
+
+const notifyFulfillmentOrderCreated = async (order, { fallbackTotal = null, suppressPush = null } = {}) => {
+  if (!order?.id) return;
+  const orderStatus = String(order.status || "processing").toLowerCase();
+  if (orderStatus !== "processing") return;
+
+  const meta = Array.isArray(order.meta_data) ? order.meta_data : [];
+  const hasMetaFlag = (key) => meta.some((m) => m?.key === key && m?.value === "yes");
+  const shouldSuppressPush =
+    suppressPush ??
+    (hasMetaFlag("_order_placed_after_hours") || hasMetaFlag("_payment_captured_without_delivery_slot"));
+
+  await ensureOrderCreatedNotification({
+    orderId: order.id,
+    total: order.total ?? fallbackTotal ?? null,
+    status: orderStatus,
+    suppressPush: shouldSuppressPush,
+  });
+};
 
 /**
  * Unified Payment Finalization Logic (Browser & Webhook & Recovery)
@@ -115,6 +134,7 @@ export const finalizePaymentAndCreateOrder = async ({
     // Check if concurrent thread already created the order
     const existing = await findOrderByRazorpayOrderId(rzpOrderId);
     if (existing) {
+      await notifyFulfillmentOrderCreated(existing);
       return {
         success: true,
         order_id: existing.id,
@@ -138,6 +158,7 @@ export const finalizePaymentAndCreateOrder = async ({
         { wc_order_id: existingOrder.id, rzpOrderId, source },
         "[Payment Finalize] Order already created — returning idempotent success"
       );
+      await notifyFulfillmentOrderCreated(existingOrder);
       return {
         success: true,
         order_id: existingOrder.id,
@@ -155,6 +176,13 @@ export const finalizePaymentAndCreateOrder = async ({
         { wc_order_id: intent.wc_order_id, rzpOrderId, source },
         "[Payment Finalize] Intent already in order_created state — returning idempotent success"
       );
+      if (intent.status === "order_created" && intent.wc_order_id) {
+        await ensureOrderCreatedNotification({
+          orderId: Number(intent.wc_order_id),
+          total: intent.amount_in_paise ? formatPaiseAsRupees(intent.amount_in_paise) : null,
+          status: "processing",
+        });
+      }
       return {
         success: true,
         order_id: Number(intent.wc_order_id),
@@ -206,6 +234,12 @@ export const finalizePaymentAndCreateOrder = async ({
               ],
             });
             await invalidateOrderDetailCache(legacyOrder.id);
+            await notifyFulfillmentOrderCreated({
+              id: legacyOrder.id,
+              total: legacyOrder.total,
+              status: "processing",
+              meta_data: legacyOrder.meta_data,
+            });
             return {
               success: true,
               order_id: legacyOrder.id,
@@ -488,6 +522,7 @@ export const finalizePaymentAndCreateOrder = async ({
         wcOrderId: immediateExisting.id,
       });
       await releaseCheckoutStock(reservationId);
+      await notifyFulfillmentOrderCreated(immediateExisting);
       return {
         success: true,
         order_id: immediateExisting.id,
@@ -624,10 +659,7 @@ export const finalizePaymentAndCreateOrder = async ({
     await paymentIntentService.clearCustomerWcCart(intent.customer_id);
 
     // Publish real-time event for employee dashboard & durable background push outbox
-    await publishOrderEvent({
-      event: "ORDER_CREATED",
-      orderId: createdOrder.id,
-      total: createdOrder.total,
+    await notifyFulfillmentOrderCreated(createdOrder, {
       suppressPush: isAfterHours || capturedDuringEmergencyWithoutSlot,
     });
 

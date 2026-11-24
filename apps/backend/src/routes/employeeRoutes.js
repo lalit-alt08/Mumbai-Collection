@@ -294,15 +294,10 @@ router.put(
   updateCategory
 );
 
-const validateProductUpdateByRole = (req, res, next) => {
-  const schema = req.user?.role === "administrator" ? schemas.productUpdate : schemas.employeeProductUpdate;
-  return validateRequest({ params: schemas.idParam, body: schema })(req, res, next);
-};
-
 router.post(
   "/products",
   requireAuth("employee"),
-  requireRole(["administrator"]),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
   requireIdempotency,
   validateRequest({ body: schemas.productCreate }),
   createProduct
@@ -312,7 +307,7 @@ router.put(
   "/products/:id",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
-  validateProductUpdateByRole,
+  validateRequest({ params: schemas.idParam, body: schemas.productUpdate }),
   updateProduct
 );
 
@@ -320,14 +315,14 @@ router.patch(
   "/products/:id",
   requireAuth("employee"),
   requireRole(ALLOWED_EMPLOYEE_ROLES),
-  validateProductUpdateByRole,
+  validateRequest({ params: schemas.idParam, body: schemas.productUpdate }),
   updateProduct
 );
 
 router.delete(
   "/products/:id",
   requireAuth("employee"),
-  requireRole(["administrator"]),
+  requireRole(ALLOWED_EMPLOYEE_ROLES),
   validateRequest({ params: schemas.idParam }),
   deleteProduct
 );

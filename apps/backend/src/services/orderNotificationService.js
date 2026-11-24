@@ -1,5 +1,9 @@
 import EventEmitter from "events";
 import axios from "axios";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { httpsAgent } from "../config/httpAgent.js";
 import { getRedisClient, getRedisSubscriber, isRedisActive, isRedisSubscriberActive } from "../config/redis.js";
 import { logger } from "../utils/logger.js";
@@ -16,6 +20,16 @@ localBus.setMaxListeners(200);
 const employeeClients = new Set();
 const userClientCounts = new Map();
 const localAcknowledgedOrders = new Map();
+const localNotifiedOrders = new Set();
+const inFlightCreatedNotifications = new Map();
+
+const DEFAULT_NOTIFIED_LEDGER_FILE = resolve(
+  fileURLToPath(new URL("../../var/order_created_notified.json", import.meta.url))
+);
+let notifiedLedgerFile = DEFAULT_NOTIFIED_LEDGER_FILE;
+let ledgerWriteChain = Promise.resolve();
+const MAX_NOTIFIED_LEDGER_ENTRIES = 2000;
+const NOTIFIED_REDIS_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 export const _getLocalAcknowledgedOrders = () => localAcknowledgedOrders;
 
@@ -175,6 +189,132 @@ export const publishOrderEvent = async ({ event, orderId, status, total, employe
   }
 
   return buildResult(true);
+};
+
+const readNotifiedLedger = async () => {
+  try {
+    if (!existsSync(notifiedLedgerFile)) return [];
+    const raw = await readFile(notifiedLedgerFile, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(Number).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeNotifiedLedger = async (ids) => {
+  const bounded = ids.slice(-MAX_NOTIFIED_LEDGER_ENTRIES);
+  const dir = dirname(notifiedLedgerFile);
+  await mkdir(dir, { recursive: true });
+  const tmpPath = `${notifiedLedgerFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(bounded), "utf8");
+  await rename(tmpPath, notifiedLedgerFile);
+};
+
+const hasOrderCreatedNotification = async (orderId) => {
+  const cleanOrderId = Number(orderId);
+  if (!cleanOrderId) return false;
+  if (localNotifiedOrders.has(cleanOrderId)) return true;
+
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      const val = await redis.get(`mumbai:order:created_notified:${cleanOrderId}`);
+      if (val) {
+        localNotifiedOrders.add(cleanOrderId);
+        return true;
+      }
+    } catch (_) {}
+  }
+
+  const diskIds = await readNotifiedLedger();
+  if (diskIds.includes(cleanOrderId)) {
+    localNotifiedOrders.add(cleanOrderId);
+    return true;
+  }
+  return false;
+};
+
+const markOrderCreatedNotification = async (orderId) => {
+  const cleanOrderId = Number(orderId);
+  if (!cleanOrderId) return;
+  localNotifiedOrders.add(cleanOrderId);
+
+  const redis = getRedisClient();
+  if (redis && isRedisActive()) {
+    try {
+      await redis.set(`mumbai:order:created_notified:${cleanOrderId}`, "1", "EX", NOTIFIED_REDIS_TTL_SECONDS);
+    } catch (err) {
+      logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Failed writing notified marker to Redis");
+    }
+  }
+
+  ledgerWriteChain = ledgerWriteChain
+    .catch(() => {})
+    .then(async () => {
+      const existing = await readNotifiedLedger();
+      if (!existing.includes(cleanOrderId)) {
+        existing.push(cleanOrderId);
+        await writeNotifiedLedger(existing);
+      }
+    })
+    .catch((err) => {
+      logger.warn({ err: err?.message, orderId: cleanOrderId }, "[OrderNotification] Failed persisting notified ledger to disk");
+    });
+  await ledgerWriteChain;
+};
+
+/**
+ * Ensures an ORDER_CREATED notification is delivered exactly once per fulfillment-eligible
+ * WooCommerce order ID, closing crash windows between order creation and alert enqueue.
+ */
+export const ensureOrderCreatedNotification = async ({
+  orderId,
+  total = null,
+  status = "processing",
+  suppressPush = false,
+} = {}) => {
+  const cleanOrderId = Number(orderId);
+  if (!cleanOrderId || isNaN(cleanOrderId)) {
+    return { success: false, published: false, reason: "invalid_order_id" };
+  }
+
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus && normalizedStatus !== "processing") {
+    return { success: true, published: false, skipped: "ineligible_status" };
+  }
+
+  if (inFlightCreatedNotifications.has(cleanOrderId)) {
+    return inFlightCreatedNotifications.get(cleanOrderId);
+  }
+
+  const run = (async () => {
+    if (await isOrderAcknowledged(cleanOrderId)) {
+      return { success: true, published: false, alreadyAcknowledged: true };
+    }
+    if (await hasOrderCreatedNotification(cleanOrderId)) {
+      return { success: true, published: false, alreadyNotified: true };
+    }
+
+    const result = await publishOrderEvent({
+      event: "ORDER_CREATED",
+      orderId: cleanOrderId,
+      total,
+      suppressPush,
+    });
+
+    if (result && result.published && !result.degraded) {
+      await markOrderCreatedNotification(cleanOrderId);
+    }
+    return result;
+  })();
+
+  inFlightCreatedNotifications.set(cleanOrderId, run);
+  try {
+    return await run;
+  } finally {
+    inFlightCreatedNotifications.delete(cleanOrderId);
+  }
 };
 
 /**
@@ -475,10 +615,17 @@ export const closeEmployeeOrderStreams = () => {
   userClientCounts.clear();
 };
 
+export const _setOrderCreatedLedgerPathForTesting = (filePath) => {
+  notifiedLedgerFile = filePath || DEFAULT_NOTIFIED_LEDGER_FILE;
+  localNotifiedOrders.clear();
+};
+
 export const _resetNotificationServiceForTesting = () => {
   employeeClients.clear();
   userClientCounts.clear();
   localAcknowledgedOrders.clear();
+  localNotifiedOrders.clear();
+  inFlightCreatedNotifications.clear();
   isSubscriberInitialized = false;
   localBus.removeAllListeners("order_event");
   localBus.on("order_event", (payload) => {
