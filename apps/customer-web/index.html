@@ -11,8 +11,11 @@
     <meta name="theme-color" content="#F0F8E8" />
     <script>
       try {
-        var storeTheme = localStorage.getItem('mumbai_storefront_theme') === 'dark' ? 'dark' : 'light';
+        var storePref = localStorage.getItem('mumbai_storefront_theme');
+        var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var storeTheme = storePref === 'dark' ? 'dark' : (storePref === 'light' ? 'light' : (systemDark ? 'dark' : 'light'));
         document.documentElement.dataset.storeTheme = storeTheme;
+        document.documentElement.dataset.storeThemePreference = storePref || 'system';
         document.documentElement.style.colorScheme = storeTheme;
         document.querySelector('meta[name="theme-color"]').setAttribute('content', storeTheme === 'dark' ? '#1F272E' : '#F0F8E8');
       } catch (_) {}

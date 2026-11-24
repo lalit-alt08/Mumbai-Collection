@@ -23,10 +23,11 @@ import {
   RotateCcw,
   Sun,
   Moon,
+  Monitor,
 } from "lucide-react";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
-import { setStorefrontTheme, useStorefrontTheme } from "../utils/storefrontTheme.js";
+import { setStorefrontTheme, useStorefrontTheme, useStorefrontThemePreference } from "../utils/storefrontTheme.js";
 
 function Account() {
   useNoIndex();
@@ -34,6 +35,7 @@ function Account() {
   const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
   const theme = useStorefrontTheme();
+  const themePreference = useStorefrontThemePreference();
 
   // Instant synchronous hydration from scoped session cache
   const [profileState, setProfileState] = useState(() => {
@@ -278,17 +280,27 @@ function Account() {
           <section className="store-theme-picker" aria-labelledby="store-theme-title">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F0F8E8] text-[#22499F]">
-                {theme === "dark" ? <Moon size={15} /> : <Sun size={15} />}
+                {themePreference === "system" ? (
+                  <Monitor size={15} />
+                ) : theme === "dark" ? (
+                  <Moon size={15} />
+                ) : (
+                  <Sun size={15} />
+                )}
               </div>
               <div>
                 <h2 id="store-theme-title">Appearance</h2>
-                <p>Choose theme</p>
+                <p>
+                  {themePreference === "system"
+                    ? `System (${theme === "dark" ? "Dark" : "Light"})`
+                    : "Choose theme"}
+                </p>
               </div>
             </div>
             <div className="store-theme-options" role="group" aria-label="Store appearance">
               <button
                 type="button"
-                aria-pressed={theme === "light"}
+                aria-pressed={themePreference === "light"}
                 onClick={() => {
                   triggerHaptic("selection");
                   setStorefrontTheme("light");
@@ -298,13 +310,23 @@ function Account() {
               </button>
               <button
                 type="button"
-                aria-pressed={theme === "dark"}
+                aria-pressed={themePreference === "dark"}
                 onClick={() => {
                   triggerHaptic("selection");
                   setStorefrontTheme("dark");
                 }}
               >
                 Dark
+              </button>
+              <button
+                type="button"
+                aria-pressed={themePreference === "system"}
+                onClick={() => {
+                  triggerHaptic("selection");
+                  setStorefrontTheme("system");
+                }}
+              >
+                System
               </button>
             </div>
           </section>
