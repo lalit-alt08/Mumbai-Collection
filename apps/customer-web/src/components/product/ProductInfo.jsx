@@ -344,7 +344,7 @@ function ProductInfo({ product }) {
       >
         {!hasAnyCartItems ? (
           /* State 1: Cart is empty (0 items) -> ₹price · Add to cart */
-          <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
+          <div className="mx-auto flex w-full max-w-[420px] items-center justify-between gap-3 px-2 sm:px-3">
             <div className="flex flex-col flex-shrink-0 pl-1">
               <span className="text-[22px] font-black leading-none tracking-tight text-[#1E293B]">
                 ₹{product.price}
@@ -369,7 +369,7 @@ function ProductInfo({ product }) {
                 <button
                   type="button"
                   disabled
-                  className="store-out-of-stock flex h-[46px] min-w-[136px] items-center justify-center rounded-full px-5 text-[14px] font-bold cursor-not-allowed select-none"
+                  className="store-out-of-stock flex h-[46px] min-w-[140px] items-center justify-center rounded-full px-5 text-[14px] font-bold cursor-not-allowed select-none"
                 >
                   Out of Stock
                 </button>
@@ -379,7 +379,7 @@ function ProductInfo({ product }) {
                     type="button"
                     onClick={handleAddToCart}
                     disabled={loading}
-                    className="flex h-[46px] min-w-[136px] items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                    className="flex h-[46px] min-w-[140px] items-center justify-center gap-2 rounded-full bg-[#22499F] px-6 text-[14px] font-black text-[#FFFFFF] shadow-[0_4px_16px_rgba(34,73,159,0.3)] transition-transform duration-100 ease-out hover:bg-[#1B3B82] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
                   >
                     Add to cart
                   </button>
@@ -389,14 +389,14 @@ function ProductInfo({ product }) {
           </div>
         ) : !isThisProductInCart ? (
           /* State 2: Cart has other products -> [Cart Icon + Badge (Left)] [Add to cart (Right, Pill)] */
-          <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
-            {/* Left: Cart Button with Count Badge (Pill shape) */}
+          <div className="mx-auto flex w-full max-w-[420px] items-center justify-between gap-3 px-2 sm:px-3">
+            {/* Left: Cart Button with Count Badge (Pill shape, stretched) */}
             <HapticTapTarget className="shrink-0" radius="9999px">
               <button
                 type="button"
                 onClick={() => navigate("/cart")}
                 aria-label={`View cart (${totalCartItems} ${totalCartItems === 1 ? "item" : "items"})`}
-                className="product-cart-nav-btn relative flex h-[46px] w-[58px] items-center justify-center rounded-full border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
+                className="product-cart-nav-btn relative flex h-[46px] w-[72px] items-center justify-center rounded-full border-2 border-[#C9D2DF] bg-white text-[#1E293B] shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-100 ease-out hover:bg-[#F8FAFC] active:scale-[0.95] cursor-pointer focus-visible:ring-2 focus-visible:ring-[#22499F]"
               >
                 <div className="relative flex items-center justify-center">
                   <ShoppingCart size={21} className="text-[#1E293B]" strokeWidth={2.2} />
@@ -409,17 +409,17 @@ function ProductInfo({ product }) {
               </button>
             </HapticTapTarget>
 
-            {/* Right: Add to cart button (pill shaped, slightly reduced length) */}
+            {/* Right: Add to cart button (pill shaped, stretched) */}
             {isOutOfStock ? (
               <button
                 type="button"
                 disabled
-                className="store-out-of-stock flex-1 max-w-[230px] flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
+                className="store-out-of-stock flex-1 max-w-[260px] flex h-[46px] items-center justify-center rounded-full px-5 text-[15px] font-bold cursor-not-allowed select-none"
               >
                 Out of Stock
               </button>
             ) : (
-              <HapticTapTarget className="flex-1 max-w-[230px]" radius="9999px">
+              <HapticTapTarget className="flex-1 max-w-[260px]" radius="9999px">
                 <button
                   type="button"
                   onClick={handleAddToCart}
@@ -433,7 +433,7 @@ function ProductInfo({ product }) {
           </div>
         ) : (
           /* State 3: This product is already in the cart -> [Stepper with circular button discs] [View cart (pill)] */
-          <div className="mx-auto flex w-full max-w-[390px] items-center justify-between gap-3 px-2 sm:px-3">
+          <div className="mx-auto flex w-full max-w-[420px] items-center justify-between gap-3 px-2 sm:px-3">
             {isOutOfStock ? (
               <HapticTapTarget className="shrink-0" radius="9999px">
                 <button
@@ -476,7 +476,7 @@ function ProductInfo({ product }) {
               </div>
             )}
 
-            <HapticTapTarget className="flex-1 max-w-[230px]" radius="9999px">
+            <HapticTapTarget className="flex-1 max-w-[260px]" radius="9999px">
               <button
                 type="button"
                 onClick={() => navigate("/cart")}
