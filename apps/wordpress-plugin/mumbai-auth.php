@@ -564,7 +564,7 @@ add_action('rest_api_init', function () {
     register_rest_route('mumbai-auth/v1', '/admin/ensure-core-categories', [
         'methods'             => ['POST', 'GET'],
         'callback'            => 'mumbai_ensure_core_categories',
-        'permission_callback' => '__return_true',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
 
     // Live Inventory Stock Counts (Internal Node.js only)
@@ -5435,7 +5435,6 @@ function mumbai_ensure_core_categories() {
     }
     return rest_ensure_response(['success' => true, 'results' => $results]);
 }
-add_action('init', 'mumbai_ensure_core_categories', 25);
 
 /**
  * Purges seed test products (TEST-* and LOADTEST-*) created during development/benchmarking.
@@ -11012,18 +11011,25 @@ function mumbai_reserve_checkout_stock(WP_REST_Request $request) {
             } finally {
                 unset($GLOBALS['mumbai_skip_custom_reservation_filter']);
             }
-            $custom_held = (float) $wpdb->get_var($wpdb->prepare(
+            $custom_held_raw = $wpdb->get_var($wpdb->prepare(
                 "SELECT COALESCE(SUM(quantity), 0) FROM {$table} WHERE product_id = %d AND expires_at > UTC_TIMESTAMP() AND reservation_id != %s",
                 $product_id,
                 $reservation_id
             ));
+            if ($custom_held_raw === null || $wpdb->last_error) {
+                throw new RuntimeException('Could not verify existing stock reservations: ' . ($wpdb->last_error ?: 'database query error'));
+            }
+            $custom_held = (float) $custom_held_raw;
             if ((float) $stock - $wc_held - $custom_held < $quantity) {
                 throw new DomainException('Not enough inventory remains for this checkout.');
             }
         }
 
         // Replace this token's previous rows atomically (idempotent renewal).
-        $wpdb->delete($table, ['reservation_id' => $reservation_id], ['%s']);
+        $deleted = $wpdb->delete($table, ['reservation_id' => $reservation_id], ['%s']);
+        if ($deleted === false || $wpdb->last_error) {
+            throw new RuntimeException('Could not clear previous inventory reservations: ' . ($wpdb->last_error ?: 'delete failed'));
+        }
         foreach ($quantities as $product_id => $quantity) {
             $inserted = $wpdb->insert($table, [
                 'reservation_id' => $reservation_id,
@@ -11436,9 +11442,10 @@ function mumbai_webhook_events_orphans(WP_REST_Request $request) {
     if ($page <= 0) $page = 1;
     $offset = ($page - 1) * $limit;
 
-    $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE status = 'orphan'");
+    $where = "status = 'orphan' OR (status = 'stored' AND created_at < UTC_TIMESTAMP() - INTERVAL 5 MINUTE)";
+    $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE {$where}");
     $rows = $wpdb->get_results(
-        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, status, created_at FROM {$table} WHERE status = 'orphan' ORDER BY created_at DESC LIMIT %d OFFSET %d", $limit, $offset),
+        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, status, created_at FROM {$table} WHERE {$where} ORDER BY created_at DESC LIMIT %d OFFSET %d", $limit, $offset),
         ARRAY_A
     );
 

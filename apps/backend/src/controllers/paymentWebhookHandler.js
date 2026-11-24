@@ -215,6 +215,14 @@ export const handleWebhook = async (req, res) => {
                 logger.info({ rzpOrderId: refundRzpOrderId, wcOrderId }, "[Payment Webhook] WooCommerce order moved to refunded following full gateway refund");
               } catch (wcRefundErr) {
                 logger.error({ err: wcRefundErr.message, wcOrderId, rzpOrderId: refundRzpOrderId }, "[Payment Webhook] Failed to transition WooCommerce order to refunded");
+                await updatePaymentIntentStatus({
+                  rzpOrderId: refundRzpOrderId,
+                  fromStatus: intent.status,
+                  toStatus: "refund_pending",
+                  errorReason: `WooCommerce order ${wcOrderId} sync to refunded failed: ${wcRefundErr.message}`,
+                  incrementAttempts: true,
+                });
+                throw new Error(`WooCommerce order ${wcOrderId} sync to refunded failed; queued for reconciliation`);
               }
             }
 

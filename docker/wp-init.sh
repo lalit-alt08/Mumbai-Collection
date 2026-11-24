@@ -7,8 +7,9 @@ WP_TITLE="${WP_SITE_TITLE:-Mumbai Collection Local}"
 WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
 WP_ADMIN_PASSWORD="${WP_ADMIN_PASSWORD:-AdminDevPass123!}"
 WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@example.com}"
-WC_KEY="${WOOCOMMERCE_CONSUMER_KEY:-ck_dev_mumbai_local_key_000000000000000000}"
-WC_SECRET="${WOOCOMMERCE_CONSUMER_SECRET:-cs_dev_mumbai_local_secret_000000000000000}"
+WC_KEY="${WOOCOMMERCE_CONSUMER_KEY:-}"
+WC_SECRET="${WOOCOMMERCE_CONSUMER_SECRET:-}"
+SEED_DEV_WC_KEYS="${SEED_DEV_WC_KEYS:-false}"
 
 echo "[wp-init] Waiting for WordPress files and database connection..."
 attempts=0
@@ -51,11 +52,24 @@ fi
 echo "[wp-init] Activating Mumbai Collection Auth plugin..."
 wp plugin activate mumbai-auth --path="$WP_PATH" --allow-root >/dev/null 2>&1 || true
 
-echo "[wp-init] Ensuring local dev WooCommerce REST API key exists..."
+echo "[wp-init] Checking WooCommerce REST API key configuration..."
 wp eval '
   global $wpdb;
-  $ck = getenv("WOOCOMMERCE_CONSUMER_KEY") ?: "ck_dev_mumbai_local_key_000000000000000000";
-  $cs = getenv("WOOCOMMERCE_CONSUMER_SECRET") ?: "cs_dev_mumbai_local_secret_000000000000000";
+  $ck = getenv("WOOCOMMERCE_CONSUMER_KEY");
+  $cs = getenv("WOOCOMMERCE_CONSUMER_SECRET");
+  $seed_dev = getenv("SEED_DEV_WC_KEYS") === "true";
+  $env = getenv("NODE_ENV") ?: getenv("APP_ENV") ?: "development";
+
+  if (!$ck || !$cs) {
+    if ($env === "production" || !$seed_dev) {
+      echo "[wp-init] Dev key seeding disabled or in production. Skipping automatic key generation.\n";
+      exit(0);
+    }
+    // Only local development explicit opt-in
+    $ck = "ck_dev_mumbai_local_key_000000000000000000";
+    $cs = "cs_dev_mumbai_local_secret_000000000000000";
+  }
+
   $admin = get_user_by("login", getenv("WP_ADMIN_USER") ?: "admin");
   if (!$admin || !function_exists("wc_api_hash")) {
     fwrite(STDERR, "[wp-init] Skipping WC key seed (admin or wc_api_hash unavailable)\n");
@@ -65,17 +79,18 @@ wp eval '
   $hash = wc_api_hash($ck);
   $existing = $wpdb->get_var($wpdb->prepare("SELECT key_id FROM {$table} WHERE consumer_key = %s", $hash));
   if (!$existing) {
+    $is_dev_key = ($ck === "ck_dev_mumbai_local_key_000000000000000000");
     $wpdb->insert($table, [
       "user_id"         => $admin->ID,
-      "description"     => "Mumbai Docker Dev",
+      "description"     => $is_dev_key ? "Mumbai Docker Dev (Auto-seeded)" : "Mumbai Backend API Key",
       "permissions"     => "read_write",
       "consumer_key"    => $hash,
       "consumer_secret" => $cs,
       "truncated_key"   => substr($ck, -7),
     ]);
-    echo "[wp-init] Seeded dev WooCommerce REST API key.\n";
+    echo "[wp-init] Seeded WooCommerce REST API key (" . ($is_dev_key ? "dev fallback" : "configured key") . ").\n";
   } else {
-    echo "[wp-init] Dev WooCommerce REST API key already present.\n";
+    echo "[wp-init] WooCommerce REST API key already present.\n";
   }
 ' --path="$WP_PATH" --allow-root
 

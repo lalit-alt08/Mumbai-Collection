@@ -77,8 +77,9 @@ services:
       WP_ADMIN_USER: ${WP_ADMIN_USER:-admin}
       WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-AdminDevPass123!}
       WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:-admin@example.com}
-      WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY:-ck_dev_mumbai_local_key_000000000000000000}
-      WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-cs_dev_mumbai_local_secret_000000000000000}
+      WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY:-}
+      WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-}
+      SEED_DEV_WC_KEYS: ${SEED_DEV_WC_KEYS:-false}
     volumes:
       - wp_data:/var/www/html
       - ../apps/wordpress-plugin/mumbai-auth.php:/var/www/html/wp-content/plugins/mumbai-auth/mumbai-auth.php:ro
@@ -108,8 +109,9 @@ services:
       REDIS_URL: redis://redis:6379
       WORDPRESS_URL: http://wordpress
       WOOCOMMERCE_URL: http://wordpress
-      WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY:-ck_dev_mumbai_local_key_000000000000000000}
-      WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-cs_dev_mumbai_local_secret_000000000000000}
+      WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY:-}
+      WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-}
+      SEED_DEV_WC_KEYS: ${SEED_DEV_WC_KEYS:-false}
       MUMBAI_INTERNAL_API_KEY: ${MUMBAI_INTERNAL_API_KEY:-dev_internal_secret_change_me}
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       CUSTOMER_ORIGIN: ${CUSTOMER_ORIGIN:-http://localhost:5173}

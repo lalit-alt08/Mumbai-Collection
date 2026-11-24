@@ -344,12 +344,12 @@ async function proxyStoreApi(req, res) {
         response.data.items.map(async (item) => {
           try {
             const productId = item.id;
-            let prod = serverCache.get(`catalog:product:${productId}`);
+            let prod = serverCache.get(`stock:enrichment:product:${productId}`);
             if (!prod) {
               const prodRes = await api.get(`products/${productId}`);
               prod = prodRes?.data;
               if (prod) {
-                serverCache.set(`catalog:product:${productId}`, prod, 15000);
+                serverCache.set(`stock:enrichment:product:${productId}`, prod, 15000);
               }
             }
 

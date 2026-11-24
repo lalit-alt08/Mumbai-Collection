@@ -25,6 +25,7 @@ export const createRateLimiter = ({
   message = "Too many requests. Please try again later.",
   keyGenerator,
   maxStoreKeys = 10000,
+  name = "generic",
 } = {}) => {
   const requests = new Map();
 
@@ -46,7 +47,8 @@ export const createRateLimiter = ({
       }
     }
 
-    const key = (typeof keyGenerator === "function" ? keyGenerator(req) : null) || getClientIp(req);
+    const baseKey = (typeof keyGenerator === "function" ? keyGenerator(req) : null) || getClientIp(req);
+    const key = name ? `${name}:${baseKey}` : baseKey;
     const redis = getRedisClient();
 
     if (redis) {
@@ -277,12 +279,14 @@ export const uploadLimiter = createRateLimiter({
 });
 
 export const storeLimiter = createRateLimiter({
+  name: "store",
   windowMs: 60 * 1000,
   max: 120,
   message: "Too many store requests. Please slow down.",
 });
 
 export const catalogLimiter = createRateLimiter({
+  name: "catalog",
   windowMs: 60 * 1000,
   max: 300,
   message: "Too many catalog requests. Please slow down.",

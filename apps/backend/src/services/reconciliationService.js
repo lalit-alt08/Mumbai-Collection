@@ -9,6 +9,10 @@ import {
 } from "./razorpayService.js";
 import paymentIntentService from "./paymentIntentService.js";
 import { alertStaffAnomaly } from "./alertService.js";
+import api from "../config/woocommerce.js";
+import { invalidateOrderDetailCache } from "./orderDetailCache.js";
+import { publishOrderEvent } from "./orderNotificationService.js";
+import { serverCache } from "../utils/memoryCache.js";
 
 const RECONCILIATION_LOCK_ID = "cron_reconciler_worker";
 const MAX_RECOVERY_ATTEMPTS = 3;
@@ -154,6 +158,22 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
               const total = Number(payment.amount);
               if (!Number.isSafeInteger(total) || total <= 0) throw new Error('Gateway payment amount is invalid; refund requires review');
               if (payment.refund_status === 'full' || (total > 0 && Number(payment.amount_refunded || 0) >= total)) {
+                // Ensure existing WooCommerce order is moved to refunded before marking intent settled
+                const wcOrder = await paymentIntentService.findWcOrderByRazorpayOrderId(id);
+                if (wcOrder && wcOrder.status !== 'refunded') {
+                  await api.put(`orders/${wcOrder.id}`, {
+                    status: 'refunded',
+                    customer_note: 'Order cancelled and marked refunded following full payment refund confirmation.',
+                  });
+                  await api.post(`orders/${wcOrder.id}/notes`, {
+                    note: `[Reconciler] Full gateway refund verified. Order status synced to refunded.`,
+                    customer_note: false,
+                  });
+                  await invalidateOrderDetailCache(wcOrder.id);
+                  serverCache.invalidatePrefix('employee:overview');
+                  publishOrderEvent({ event: 'ORDER_STATUS_UPDATED', orderId: wcOrder.id, status: 'refunded' });
+                  logger.info({ rzpOrderId: id, wcOrderId: wcOrder.id }, '[Reconciler] WooCommerce order moved to refunded following gateway refund confirmation');
+                }
                 const updated = await paymentIntentService.updatePaymentIntentStatus({ rzpOrderId: id, fromStatus: intent.status, toStatus: 'refunded' });
                 if (!updated) throw new Error('Could not durably record confirmed refund settlement');
                 await paymentIntentService.releaseCheckoutStock(intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || id);
