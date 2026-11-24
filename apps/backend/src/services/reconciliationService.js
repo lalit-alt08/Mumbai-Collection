@@ -163,7 +163,7 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
                 if (wcOrder && wcOrder.status !== 'refunded') {
                   await api.put(`orders/${wcOrder.id}`, {
                     status: 'refunded',
-                    customer_note: 'Order cancelled and marked refunded following full payment refund confirmation.',
+                    meta_data: [{ key: '_delivery_status', value: 'refunded' }],
                   });
                   await api.post(`orders/${wcOrder.id}/notes`, {
                     note: `[Reconciler] Full gateway refund verified. Order status synced to refunded.`,

@@ -45,8 +45,11 @@ export const getAdminOrders = async (req, res) => {
     const totalPages = Number(response.headers["x-wp-totalpages"]) || Math.ceil(totalOrders / limit) || 1;
 
     const orders = rawOrders.map((o) => {
+      const coreStatus = String(o.status || "").toLowerCase();
       const deliveryMeta = o.meta_data?.find((m) => m.key === "_delivery_status");
-      const effectiveStatus = deliveryMeta?.value || o.status;
+      const effectiveStatus = ["refunded", "cancelled", "failed", "completed"].includes(coreStatus)
+        ? coreStatus
+        : deliveryMeta?.value || coreStatus;
 
       const customerName = formatCustomerDisplayName(o.billing?.first_name, o.billing?.last_name, o.billing?.email || "Guest Customer");
       const customerAddress = `${o.billing?.address_1 || ""}${

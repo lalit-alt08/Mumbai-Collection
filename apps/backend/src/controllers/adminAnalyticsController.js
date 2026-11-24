@@ -384,7 +384,12 @@ export const getAdminAnalytics = async (req, res) => {
           month: "2-digit",
           day: "2-digit",
         }).format(d);
-        const dayName = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+        const dayName = d.toLocaleDateString("en-IN", {
+          timeZone: "Asia/Kolkata",
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        });
         dailyRevenueMap.set(dateKey, { date: dateKey, day: dayName, sales: 0, orders: 0 });
       }
 

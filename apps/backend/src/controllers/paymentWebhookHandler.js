@@ -189,12 +189,20 @@ export const handleWebhook = async (req, res) => {
           if (!intent) throw new Error("Refund intent missing; requires staff review");
           const full = payment.refund_status === "full" || Number(payment.amount_refunded || 0) >= Number(payment.amount || Infinity);
           if (full) {
-            const updated = await updatePaymentIntentStatus({
-              rzpOrderId: refundRzpOrderId,
-              fromStatus: intent.status,
-              toStatus: "refunded",
-              refundId: refundEntity?.id,
-            });
+            // Stage 1: Persist refund_pending BEFORE WooCommerce write so any store sync failure
+            // stays visible to the automatic reconciliation loop rather than getting stranded as refunded.
+            let currentIntentStatus = intent.status;
+            if (currentIntentStatus !== "refunded" && currentIntentStatus !== "refund_pending") {
+              const staged = await updatePaymentIntentStatus({
+                rzpOrderId: refundRzpOrderId,
+                fromStatus: currentIntentStatus,
+                toStatus: "refund_pending",
+                refundId: refundEntity?.id,
+              });
+              if (staged) {
+                currentIntentStatus = "refund_pending";
+              }
+            }
             await releaseCheckoutStock(intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || refundRzpOrderId);
 
             // Locate and transition existing WooCommerce order to refunded status to prevent dispatch
@@ -203,7 +211,7 @@ export const handleWebhook = async (req, res) => {
               try {
                 await api.put(`orders/${wcOrderId}`, {
                   status: "refunded",
-                  customer_note: "Order cancelled and marked refunded following full payment refund at gateway.",
+                  meta_data: [{ key: "_delivery_status", value: "refunded" }],
                 });
                 await api.post(`orders/${wcOrderId}/notes`, {
                   note: `[Razorpay Webhook] Full gateway refund confirmed (${refundEntity?.id || "refunded"}). Order status moved to refunded.`,
@@ -217,8 +225,8 @@ export const handleWebhook = async (req, res) => {
                 logger.error({ err: wcRefundErr.message, wcOrderId, rzpOrderId: refundRzpOrderId }, "[Payment Webhook] Failed to transition WooCommerce order to refunded");
                 await updatePaymentIntentStatus({
                   rzpOrderId: refundRzpOrderId,
-                  fromStatus: intent.status,
                   toStatus: "refund_pending",
+                  refundId: refundEntity?.id,
                   errorReason: `WooCommerce order ${wcOrderId} sync to refunded failed: ${wcRefundErr.message}`,
                   incrementAttempts: true,
                 });
@@ -226,7 +234,13 @@ export const handleWebhook = async (req, res) => {
               }
             }
 
-            if (!updated && intent.status !== "refunded") {
+            const settled = currentIntentStatus === "refunded" ? true : await updatePaymentIntentStatus({
+              rzpOrderId: refundRzpOrderId,
+              fromStatus: currentIntentStatus,
+              toStatus: "refunded",
+              refundId: refundEntity?.id,
+            });
+            if (!settled && currentIntentStatus !== "refunded") {
               throw new Error("Could not transition payment intent to refunded");
             }
           } else {

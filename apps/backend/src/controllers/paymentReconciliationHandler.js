@@ -78,6 +78,16 @@ export const reconcileOrder = async (req, res) => {
     const expectedAmountPaise = totalToPaise(wcOrder.total);
 
     if (capturedPayment) {
+      if (Number(capturedPayment.amount_refunded || 0) > 0 || Boolean(capturedPayment.refund_status)) {
+        return res.status(409).json({
+          reconciled: false,
+          anomaly: "PAYMENT_REFUNDED",
+          message: "Captured payment has been partially or fully refunded on Razorpay. Review before releasing for fulfillment.",
+          amount_refunded_paise: Number(capturedPayment.amount_refunded || 0),
+          refund_status: capturedPayment.refund_status || null,
+        });
+      }
+
       // Currency and amount verification (matching payment verification flow)
       const isCurrencyValid = String(capturedPayment.currency || "").toUpperCase() === "INR";
       const isAmountValid = Number(capturedPayment.amount) === expectedAmountPaise;
