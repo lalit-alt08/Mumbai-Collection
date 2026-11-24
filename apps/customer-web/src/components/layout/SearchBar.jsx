@@ -422,7 +422,7 @@ function SearchBar() {
                       }}
                       onMouseEnter={() => setActiveIndex(index)}
                       className={`group flex cursor-pointer items-center justify-between px-4 py-3 transition-colors ${
-                        isSelected ? "bg-[#FFFFFF]" : "bg-[#FFFFFF] hover:bg-[#FFFFFF]"
+                        isSelected ? "bg-[#F0F8E8]/70" : "bg-[#FFFFFF] hover:bg-[#F0F8E8]/40"
                       }`}
                     >
                       <div className="flex flex-1 items-center gap-3 pr-2 min-w-0">
@@ -489,7 +489,7 @@ function SearchBar() {
               <button
                 type="button"
                 onClick={openFullResults}
-                className="w-full border-t border-[#E2E8F0] bg-[#FFFFFF] px-4 py-3 text-left text-[13px] sm:text-sm font-extrabold text-[#22499F] hover:bg-[#FFFFFF] transition-colors flex items-center justify-between cursor-pointer"
+                className="w-full border-t border-[#E2E8F0] bg-[#FFFFFF] px-4 py-3 text-left text-[13px] sm:text-sm font-extrabold text-[#22499F] hover:bg-[#F0F8E8]/40 transition-colors flex items-center justify-between cursor-pointer"
               >
                 <span>View all {totalResults} results for “{query.trim()}”</span>
                 <ChevronRight size={15} strokeWidth={2.5} className="shrink-0" />

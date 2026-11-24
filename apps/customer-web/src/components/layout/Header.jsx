@@ -138,15 +138,15 @@ function Header() {
       <div className="relative mx-auto max-w-7xl">
         {/* ================= COLLAPSIBLE TOP AREA (LOGO + SEARCH ROW VIA CSS GRID) ================= */}
         <div
-          className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${
+          className={`grid relative z-20 transition-[grid-template-rows,opacity] duration-300 ease-in-out ${
             isHomePage
               ? showSearchRow
                 ? "grid-rows-[1fr] opacity-100"
-                : "grid-rows-[0fr] opacity-0 pointer-events-none"
+                : "grid-rows-[0fr] opacity-0 pointer-events-none overflow-hidden"
               : "grid-rows-[1fr] opacity-100"
           }`}
         >
-          <div className="overflow-hidden min-h-0">
+          <div className={`min-h-0 ${showSearchRow ? "overflow-visible" : "overflow-hidden"}`}>
             {/* ================= CENTERED BRAND LOGO ABOVE SEARCH BAR ================= */}
             {!isSearchPage && !isRecentlyViewedPage && (
               <div className="mb-2 sm:mb-2.5 flex items-center justify-center">
@@ -221,7 +221,7 @@ function Header() {
 
         {/* ================= CATEGORY BAR UNDER SEARCH ON HOMEPAGE (Always visible & sticks on scroll) ================= */}
         {isHomePage && (
-          <div className="mt-1 pt-0.5">
+          <div className="mt-1 pt-0.5 relative z-10">
             <CategoryIconBar categories={categories} />
           </div>
         )}

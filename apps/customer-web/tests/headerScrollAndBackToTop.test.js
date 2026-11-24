@@ -71,7 +71,7 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
     );
   });
 
-  await t.test("6. Header uses CSS Grid animation with overflow-hidden to prevent overlapping elements", () => {
+  await t.test("6. Header uses CSS Grid animation and allows autocomplete visibility when expanded while clipping when collapsed", () => {
     assert.ok(
       headerSource.includes("grid-rows-[1fr]"),
       "Header must use grid-rows-[1fr] for expanded state"
@@ -81,8 +81,9 @@ test("Header Scroll Flow & Back-to-Top Reliability Suite", async (t) => {
       "Header must use grid-rows-[0fr] for collapsed state"
     );
     assert.ok(
-      headerSource.includes("overflow-hidden min-h-0"),
-      "Header must clip child contents with overflow-hidden min-h-0 to prevent layout overlap"
+      headerSource.includes("min-h-0") &&
+      headerSource.includes('showSearchRow ? "overflow-visible" : "overflow-hidden"'),
+      "Header must keep overflow-visible when search is open so autocomplete dropdown is visible, and overflow-hidden when collapsed"
     );
   });
 });
