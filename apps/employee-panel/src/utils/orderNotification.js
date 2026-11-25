@@ -150,13 +150,14 @@ const getVoiceBuffer = async (ctx) => {
 };
 
 /**
- * Accessor for the HTML5 audio element fallback using embedded data URI.
+ * Accessor for the HTML5 audio element fallback using embedded data URI (audio/mpeg).
  */
 const getCustomAudio = () => {
   if (typeof window === "undefined") return null;
   if (!customAudio) {
+    const mpegDataUri = ORDER_ALERT_DATA_URI.replace(/^data:audio\/mp3;/i, "data:audio/mpeg;");
     try {
-      customAudio = new Audio(ORDER_ALERT_DATA_URI);
+      customAudio = new Audio(mpegDataUri);
       customAudio.preload = "auto";
       customAudio.volume = 1.0;
     } catch (_) {
@@ -207,8 +208,8 @@ const stopCustomAudio = stopAlarmAudio;
  * Synthesizes a loud, crisp, urgent 2-tone alarm chime (880 Hz -> 1174 Hz)
  * purely via Web Audio API without requiring external audio assets.
  */
-export const playOrderAlertChime = () => {
-  if (isOrderAlarmQuietHours()) {
+export const playOrderAlertChime = ({ ignoreQuietHours = false } = {}) => {
+  if (!ignoreQuietHours && isOrderAlarmQuietHours()) {
     stopAlarmAudio();
     return;
   }
@@ -288,11 +289,51 @@ const playVoiceBuffer = (ctx) => {
 /**
  * Plays the custom voice audio message with triple-layer redundancy:
  * 1. In-memory Web Audio Buffer (instant, sample-accurate, zero network delay)
- * 2. Embedded Data-URI HTML5 Audio Element
+ * 2. Embedded Data-URI / public /order-alert.mp3 HTML5 Audio Element
  * 3. Web Audio Synthesized Chime Fallback
  */
-export const playOrderAlertSound = () => {
-  if (isOrderAlarmQuietHours()) {
+const playHtml5Fallback = async (token, { ignoreQuietHours = false } = {}) => {
+  const tryPlayElement = async (el) => {
+    if (!el) return false;
+    el.currentTime = 0;
+    el.volume = 1.0;
+    el.muted = false;
+    const playPromise = el.play();
+    if (playPromise !== undefined) {
+      await playPromise;
+    }
+    return true;
+  };
+
+  try {
+    const audio = getCustomAudio();
+    if (await tryPlayElement(audio)) {
+      if (token === currentPlaybackToken) isVoiceArmed = true;
+      return;
+    }
+  } catch (_) {}
+
+  // Retry directly from /order-alert.mp3 if data URI element was rejected
+  try {
+    if (typeof window !== "undefined") {
+      const fileAudio = new Audio("/order-alert.mp3");
+      fileAudio.volume = 1.0;
+      if (await tryPlayElement(fileAudio)) {
+        customAudio = fileAudio;
+        if (token === currentPlaybackToken) isVoiceArmed = true;
+        return;
+      }
+    }
+  } catch (_) {}
+
+  if (token === currentPlaybackToken) {
+    isVoiceArmed = false;
+    playOrderAlertChime({ ignoreQuietHours });
+  }
+};
+
+export const playOrderAlertSound = ({ ignoreQuietHours = false } = {}) => {
+  if (!ignoreQuietHours && isOrderAlarmQuietHours()) {
     stopAlarmAudio();
     return;
   }
@@ -309,47 +350,28 @@ export const playOrderAlertSound = () => {
     }
   }
 
-  // If buffer is still decoding, trigger decode and play upon completion
+  // Decode embedded voice buffer once before falling back to HTML5/chime (avoids double-playing)
   if (ctx && !voiceAudioBuffer) {
-    getVoiceBuffer(ctx).then((buf) => {
-      if (buf && token === currentPlaybackToken) {
-        playVoiceBuffer(ctx);
-      }
-    }).catch(() => {});
+    getVoiceBuffer(ctx)
+      .then((buf) => {
+        if (token !== currentPlaybackToken) return;
+        if (buf && playVoiceBuffer(ctx)) {
+          isVoiceArmed = true;
+          notifySubscribers();
+          return;
+        }
+        return playHtml5Fallback(token, { ignoreQuietHours });
+      })
+      .catch(() => {
+        if (token === currentPlaybackToken) {
+          return playHtml5Fallback(token, { ignoreQuietHours });
+        }
+      });
+    return;
   }
 
-  // Layer 2: Embedded Data-URI HTML5 Audio fallback
-  const audio = getCustomAudio();
-  if (audio) {
-    try {
-      audio.currentTime = 0;
-      audio.volume = 1.0;
-      audio.muted = false;
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            isVoiceArmed = true;
-          })
-          .catch((err) => {
-            if (token !== currentPlaybackToken) return;
-            // Voice blocked; fall back to Web Audio chime
-            isVoiceArmed = false;
-            playOrderAlertChime();
-          });
-        return;
-      }
-    } catch (_) {
-      if (token !== currentPlaybackToken) return;
-      playOrderAlertChime();
-      return;
-    }
-  }
-
-  // Layer 3: Web Audio synthesized chime fallback
-  if (token === currentPlaybackToken) {
-    playOrderAlertChime();
-  }
+  // Layer 2 & 3 fallback when AudioContext is unavailable
+  void playHtml5Fallback(token, { ignoreQuietHours });
 };
 
 /**
@@ -358,7 +380,6 @@ export const playOrderAlertSound = () => {
  * an audible confirmation sound so staff immediately knows sound is working.
  */
 export const armOrderAlarm = async ({ playTestSound = false } = {}) => {
-  const quietHours = isOrderAlarmQuietHours();
   let webAudioOk = false;
   let voiceOk = false;
   let voiceErr = null;
@@ -381,33 +402,34 @@ export const armOrderAlarm = async ({ playTestSound = false } = {}) => {
     console.warn("Web Audio priming failed:", err);
   }
 
-  // Also prime HTML5 Audio element
+  // Prime HTML5 Audio element silently so arming + test sound never overlap or collide
   const audio = getCustomAudio();
   if (audio) {
     try {
-      audio.volume = quietHours ? 0 : 1.0;
-      audio.muted = false;
+      audio.muted = true;
+      audio.volume = 0;
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         await playPromise;
-        if (!playTestSound || quietHours) {
-          audio.pause();
-          audio.currentTime = 0;
-        }
-        audio.volume = 1.0;
-        voiceOk = true;
-        isVoiceArmed = true;
       }
+      audio.pause();
+      audio.currentTime = 0;
+      audio.muted = false;
+      audio.volume = 1.0;
+      voiceOk = true;
+      isVoiceArmed = true;
     } catch (err) {
+      audio.muted = false;
+      audio.volume = 1.0;
       if (!voiceOk && err?.name !== "AbortError") {
         voiceErr = err?.message || String(err);
       }
     }
   }
 
-  // Play test sound out loud so staff gets immediate audible proof!
-  if (playTestSound && !quietHours) {
-    playOrderAlertSound();
+  // Manual enable/test gesture always plays the test sound out loud, even during overnight quiet hours
+  if (playTestSound) {
+    playOrderAlertSound({ ignoreQuietHours: true });
   }
 
   // Request notification permission during the same user interaction
@@ -446,7 +468,7 @@ export const armOrderAlarm = async ({ playTestSound = false } = {}) => {
 };
 
 /**
- * Direct function to test the order alert sound out loud.
+ * Direct function to test the order alert sound out loud (always bypasses overnight quiet hours).
  */
 export const testOrderAlertSound = async () => {
   const ctx = getAudioContext();
@@ -455,7 +477,7 @@ export const testOrderAlertSound = async () => {
       await ctx.resume();
     } catch (_) {}
   }
-  playOrderAlertSound();
+  playOrderAlertSound({ ignoreQuietHours: true });
 };
 
 /**
