@@ -70,3 +70,8 @@ test('woocommerce config uses Basic Auth for internal http://wordpress in produc
   assert.match(wooSource, /allowInternalHttpBasicAuth/);
   assert.match(wooSource, /queryStringAuth:\s*false/);
 });
+
+test('mediaRoutes only bypasses CDN cache on 206 partial responses so full 200 MP4s can cache at Cloudflare', () => {
+  const mediaSource = readFileSync(new URL('../src/routes/mediaRoutes.js', import.meta.url), 'utf8');
+  assert.match(mediaSource, /if\s*\(response\.status === 206\)/);
+});

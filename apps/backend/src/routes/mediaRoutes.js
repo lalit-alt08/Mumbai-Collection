@@ -195,10 +195,9 @@ router.use(async (req, res) => {
       res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
     }
 
-    // Video streams and 206 partial ranges MUST NOT be cached by intermediate edge CDNs (e.g. Vercel Edge).
-    // Vercel Edge caches 206 responses by URL without partitioning on the Range header,
-    // which traps browsers in an infinite loop receiving the initial 2-byte probe for all ranges.
-    if (ext === ".mp4" || response.status === 206) {
+    // Partial 206 byte-range responses MUST NOT be cached as whole objects by proxies/CDNs.
+    // Full 200 responses (including .mp4) are safe to cache so Cloudflare can serve 206 ranges from edge cache.
+    if (response.status === 206) {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
