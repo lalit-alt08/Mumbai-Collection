@@ -58,6 +58,7 @@ function Banners() {
     is_active: true,
   });
   const thinBannerRef = useRef(thinBanner);
+  const confirmedThinBannerRef = useRef(null);
   const thinBannerOperationRef = useRef(false);
   useEffect(() => {
     thinBannerRef.current = thinBanner;
@@ -115,14 +116,18 @@ function Banners() {
         setBanners(normalized);
       }
       if (res.thin_banner) {
-        setThinBanner({
+        const confirmed = {
           ...res.thin_banner,
           media_type: res.thin_banner.media_type === "video" ? "video" : "image",
           video_url: res.thin_banner.video_url || "",
           video_media_id: res.thin_banner.video_media_id || null,
-        });
+        };
+        confirmedThinBannerRef.current = confirmed;
+        thinBannerRef.current = confirmed;
+        setThinBanner(confirmed);
       }
     } catch (err) {
+      setBannerVersion(null);
       setError(err.response?.data?.message || err.message || "Failed to load homepage banners.");
     } finally {
       setLoading(false);
@@ -267,6 +272,7 @@ function Banners() {
         video_url: res.thin_banner.video_url || "",
         video_media_id: res.thin_banner.video_media_id || null,
       };
+      confirmedThinBannerRef.current = confirmed;
       thinBannerRef.current = confirmed;
       setThinBanner(confirmed);
       if (successMsg) {
@@ -278,9 +284,14 @@ function Banners() {
       const msg = isConflict
         ? (err.response?.data?.message || "Another staff member updated the banners. Reloading latest banners...")
         : (err.response?.data?.message || err.message || "Failed to update mobile thin banner.");
+      if (confirmedThinBannerRef.current) {
+        thinBannerRef.current = confirmedThinBannerRef.current;
+        setThinBanner(confirmedThinBannerRef.current);
+      }
       setError(msg);
-      showToast(msg, isConflict ? "error" : "error");
-      fetchBannerList(); // Roll back to server state on error or conflict
+      showToast(msg, "error");
+      await fetchBannerList(); // Roll back and resync version from server
+      setError(msg);
       return false;
     } finally {
       if (ownsLock) {

@@ -583,7 +583,10 @@ function Subcategories() {
           title={rootDepartments.length === 0 ? "Create a department first in Categories." : undefined}
           onClick={() => {
             setShowAddForm((prev) => !prev);
-            if (!showAddForm && rootDepartments.length > 0) {
+            const hasValidDraftParent = rootDepartments.some(
+              (department) => Number(department.id) === Number(parentId)
+            );
+            if (!showAddForm && rootDepartments.length > 0 && !hasValidDraftParent) {
               const selectedDepartment = rootDepartments.find(
                 (department) => Number(department.id) === Number(departmentFilter)
               );
