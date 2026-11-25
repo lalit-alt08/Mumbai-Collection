@@ -47,7 +47,7 @@ wp rewrite flush --hard --path="$WP_PATH" --allow-root
 
 if ! wp plugin is-installed woocommerce --path="$WP_PATH" --allow-root >/dev/null 2>&1; then
   echo "[wp-init] Installing and activating latest patched WooCommerce..."
-  wp plugin install woocommerce --version=10.4.3 --activate --path="$WP_PATH" --allow-root
+  wp plugin install woocommerce --version=10.3.8 --activate --path="$WP_PATH" --allow-root
 else
   echo "[wp-init] Ensuring WooCommerce is active..."
   wp plugin activate woocommerce --path="$WP_PATH" --allow-root >/dev/null 2>&1 || true
