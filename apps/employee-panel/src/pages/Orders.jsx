@@ -423,7 +423,7 @@ function Orders() {
   const handleMuteAllAlarms = async () => {
     const orderIds = [...alarmState.unacknowledgedOrders];
     if (orderIds.length === 0) return;
-    muteAllOrderAlarms();
+    muteAllOrderAlarms(orderIds);
     setAckError(null);
     const results = await Promise.allSettled(orderIds.map((id) => acknowledgeOrder(id)));
     const failedIds = [];

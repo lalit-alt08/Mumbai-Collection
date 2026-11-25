@@ -602,15 +602,24 @@ export const restoreOrderAlarms = (orderIds = []) => {
 };
 
 /**
- * Mutes all active order alarms and immediately stops audio/sirens.
+ * Mutes all active order alarms (or a captured snapshot of IDs) and stops audio when none remain.
  */
-export const muteAllOrderAlarms = () => {
-  unacknowledgedOrderIds.clear();
-  if (alarmIntervalId) {
-    clearInterval(alarmIntervalId);
-    alarmIntervalId = null;
+export const muteAllOrderAlarms = (orderIds = null) => {
+  if (Array.isArray(orderIds)) {
+    for (const id of orderIds) {
+      const cleanId = Number(id);
+      if (cleanId) unacknowledgedOrderIds.delete(cleanId);
+    }
+  } else {
+    unacknowledgedOrderIds.clear();
   }
-  stopAlarmAudio();
+  if (unacknowledgedOrderIds.size === 0) {
+    if (alarmIntervalId) {
+      clearInterval(alarmIntervalId);
+      alarmIntervalId = null;
+    }
+    stopAlarmAudio();
+  }
   notifySubscribers();
 };
 

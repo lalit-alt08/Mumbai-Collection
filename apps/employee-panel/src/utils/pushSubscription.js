@@ -69,7 +69,15 @@ export const registerPushNotificationService = async () => {
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await getServiceWorkerRegistrationWithTimeout(3000);
+    if (!registration) {
+      return {
+        supported: true,
+        subscribed: false,
+        reason: "service_worker_unavailable",
+        error: "Notification worker did not initialize. Please reload and try again.",
+      };
+    }
     let subscription = await registration.pushManager.getSubscription();
 
     if (!subscription) {
