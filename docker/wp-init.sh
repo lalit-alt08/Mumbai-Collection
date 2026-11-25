@@ -5,7 +5,7 @@ WP_PATH="/var/www/html"
 WP_URL="${WP_SITE_URL:-http://localhost:8085}"
 WP_TITLE="${WP_SITE_TITLE:-Mumbai Collection Local}"
 WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
-WP_ADMIN_PASSWORD="${WP_ADMIN_PASSWORD:-AdminDevPass123!}"
+WP_ADMIN_PASSWORD="${WP_ADMIN_PASSWORD:-}"
 WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@example.com}"
 WC_KEY="${WOOCOMMERCE_CONSUMER_KEY:-}"
 WC_SECRET="${WOOCOMMERCE_CONSUMER_SECRET:-}"
@@ -23,6 +23,10 @@ until [ -f "$WP_PATH/wp-config.php" ] && wp db query "SELECT 1;" --path="$WP_PAT
 done
 
 if ! wp core is-installed --path="$WP_PATH" --allow-root >/dev/null 2>&1; then
+  if [ -z "$WP_ADMIN_PASSWORD" ]; then
+    echo "[wp-init] ERROR: WP_ADMIN_PASSWORD must be explicitly set before installing WordPress." >&2
+    exit 1
+  fi
   echo "[wp-init] Installing WordPress core at $WP_URL..."
   wp core install \
     --path="$WP_PATH" \
@@ -42,8 +46,8 @@ wp rewrite structure '/%postname%/' --hard --path="$WP_PATH" --allow-root
 wp rewrite flush --hard --path="$WP_PATH" --allow-root
 
 if ! wp plugin is-installed woocommerce --path="$WP_PATH" --allow-root >/dev/null 2>&1; then
-  echo "[wp-init] Installing and activating WooCommerce 9.5.0..."
-  wp plugin install woocommerce --version=9.5.0 --activate --path="$WP_PATH" --allow-root
+  echo "[wp-init] Installing and activating latest patched WooCommerce..."
+  wp plugin install woocommerce --version=10.4.3 --activate --path="$WP_PATH" --allow-root
 else
   echo "[wp-init] Ensuring WooCommerce is active..."
   wp plugin activate woocommerce --path="$WP_PATH" --allow-root >/dev/null 2>&1 || true

@@ -133,6 +133,7 @@ router.use(async (req, res) => {
       httpAgent: mediaHttpAgent,
       responseType: isHead ? "text" : "stream",
       timeout: 15000,
+      maxRedirects: 0,
       signal: upstreamAbort.signal,
       validateStatus: (status) => status === 200 || status === 206 || status === 416,
     };

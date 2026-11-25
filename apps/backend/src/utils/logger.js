@@ -1,6 +1,11 @@
 import pino from "pino";
 
-const REDACT_KEYS = ["password", "otp", "token", "secret", "cookie", "authorization", "idempotency", "api_key", "apikey"];
+const REDACT_KEYS = ["password", "otp", "token", "secret", "cookie", "authorization", "idempotency", "apikey"];
+
+const isSensitiveKey = (key) => {
+  const normalized = String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return REDACT_KEYS.some((term) => normalized.includes(term));
+};
 
 export const sanitizeLogValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -9,7 +14,7 @@ export const sanitizeLogValue = (value) => {
   if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeLogValue);
   return Object.fromEntries(Object.entries(value).slice(0, 50).map(([key, child]) => [
     key,
-    REDACT_KEYS.some((term) => key.toLowerCase().includes(term)) ? "[REDACTED]" : sanitizeLogValue(child),
+    isSensitiveKey(key) ? "[REDACTED]" : sanitizeLogValue(child),
   ]));
 };
 
@@ -36,7 +41,17 @@ export const sanitizeError = (error) => ({
 export const logger = pino({
   level: process.env.LOG_LEVEL || "info",
   redact: {
-    paths: ["req.headers.cookie", "req.headers.authorization", "*.password", "*.otp", "*.token", "*.secret", "*.idempotencyKey"],
+    paths: [
+      "req.headers.cookie",
+      "req.headers.authorization",
+      'req.headers["api-key"]',
+      "*.password",
+      "*.otp",
+      "*.token",
+      "*.secret",
+      "*.idempotencyKey",
+      '*.headers["api-key"]',
+    ],
     censor: "[REDACTED]",
   },
 });

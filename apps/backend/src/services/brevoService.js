@@ -216,16 +216,13 @@ export const sendOtpEmail = async ({ toEmail, toName, otp, purpose = "reset_pass
 
   // 1. Development Mock Mode
   if (isMockEmailEnabled()) {
-    const maskedOtp = `${"*".repeat(Math.max(0, otp.length - 2))}${otp.slice(-2)}`;
-    const maskedSubject = subject.replace(otp, maskedOtp);
-    console.log(
-      `\n[MOCK EMAIL] Destination: ${cleanEmail}\n[MOCK EMAIL] Subject: ${maskedSubject}\n[MOCK EMAIL] OTP: ${maskedOtp}\n`
-    );
+    const messageId = `mock_email_${Date.now()}`;
+    console.log(`[MOCK EMAIL] Mock OTP email suppressed | purpose: ${purpose} | messageId: ${messageId}`);
 
     return {
       success: true,
       mock: true,
-      messageId: `mock_email_${Date.now()}`,
+      messageId,
     };
   }
 

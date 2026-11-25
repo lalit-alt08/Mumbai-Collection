@@ -21,8 +21,6 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -38,13 +36,13 @@ services:
       mysql:
         condition: service_healthy
     ports:
-      - "${WP_PORT:-8085}:80"
+      - "${WP_PORT:-127.0.0.1:8085}:80"
     environment:
       WORDPRESS_DB_HOST: mysql:3306
       WORDPRESS_DB_NAME: ${MYSQL_DATABASE:-mumbai_wp}
       WORDPRESS_DB_USER: ${MYSQL_USER:-mumbai}
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:-mumbai_dev_pass}
-      WORDPRESS_DEBUG: "1"
+      WORDPRESS_DEBUG: "${WORDPRESS_DEBUG:-0}"
       WORDPRESS_CONFIG_EXTRA: |
         define('MUMBAI_INTERNAL_API_KEY', '${MUMBAI_INTERNAL_API_KEY:-}');
         define('MUMBAI_FRONTEND_URL', '${CUSTOMER_ORIGIN:-http://localhost:5173}');
@@ -75,7 +73,7 @@ services:
       WP_SITE_URL: ${WP_SITE_URL:-http://localhost:8085}
       WP_SITE_TITLE: ${WP_SITE_TITLE:-Mumbai Collection Local}
       WP_ADMIN_USER: ${WP_ADMIN_USER:-admin}
-      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-AdminDevPass123!}
+      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-}
       WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:-admin@example.com}
       WOOCOMMERCE_CONSUMER_KEY: ${WOOCOMMERCE_CONSUMER_KEY:-}
       WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-}
@@ -91,7 +89,7 @@ services:
       context: ../apps/backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["node", "--watch-path=src", "src/server.js"]
+    command: ["node", "src/server.js"]
     depends_on:
       redis:
         condition: service_healthy
@@ -100,9 +98,9 @@ services:
       wordpress-init:
         condition: service_completed_successfully
     ports:
-      - "${BACKEND_PORT:-5000}:5000"
+      - "${BACKEND_PORT:-127.0.0.1:5000}:5000"
     environment:
-      NODE_ENV: development
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 5000
       HOST: 0.0.0.0
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -113,15 +111,19 @@ services:
       WOOCOMMERCE_CONSUMER_SECRET: ${WOOCOMMERCE_CONSUMER_SECRET:-}
       SEED_DEV_WC_KEYS: ${SEED_DEV_WC_KEYS:-false}
       MUMBAI_INTERNAL_API_KEY: ${MUMBAI_INTERNAL_API_KEY:-}
-      OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:operations@mumbaicollection.in}
+      TRUST_CLOUDFLARE_PROXY: ${TRUST_CLOUDFLARE_PROXY:-false}
       CUSTOMER_ORIGIN: ${CUSTOMER_ORIGIN:-http://localhost:5173}
       ADMIN_ORIGIN: ${ADMIN_ORIGIN:-http://localhost:5174}
       EMPLOYEE_ORIGIN: ${EMPLOYEE_ORIGIN:-http://localhost:5175}
       CLIENT_ORIGIN: ${CUSTOMER_ORIGIN:-http://localhost:5173}
       FRONTEND_URL: ${CUSTOMER_ORIGIN:-http://localhost:5173}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://mumbaicollections.in,https://www.mumbaicollections.in}
-      ALLOW_LOCAL_ORIGINS: "true"
-      MOCK_EMAIL: ${MOCK_EMAIL:-true}
+      ALLOW_LOCAL_ORIGINS: ${ALLOW_LOCAL_ORIGINS:-false}
+      MOCK_EMAIL: ${MOCK_EMAIL:-false}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       BREVO_EMAIL_SENDER_NAME: ${BREVO_EMAIL_SENDER_NAME:-Mumbai Collection}
       BREVO_EMAIL_SENDER_EMAIL: ${BREVO_EMAIL_SENDER_EMAIL:-noreply@mumbaicollection.in}
@@ -130,7 +132,7 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
-      ALLOW_TEST_PAYMENTS: ${ALLOW_TEST_PAYMENTS:-true}
+      ALLOW_TEST_PAYMENTS: ${ALLOW_TEST_PAYMENTS:-false}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}

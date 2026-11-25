@@ -227,7 +227,7 @@ app.use((err, req, res, next) => {
 
   res.status(status).json({
     success: false,
-    message: status === 500 && !isDev ? "An internal server error occurred." : err.message || "An unexpected error occurred.",
+    message: status >= 500 && !isDev ? "An internal server error occurred." : err.message || "An unexpected error occurred.",
     ...(isDev && { stack: err.stack }),
   });
 });
