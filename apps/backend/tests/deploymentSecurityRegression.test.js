@@ -63,3 +63,10 @@ test('docker-compose defaults to production mode, loopback bindings, and forward
   assert.match(compose, /127\.0\.0\.1:5000/);
   assert.match(compose, /127\.0\.0\.1:8085/);
 });
+
+test('woocommerce config uses Basic Auth for internal http://wordpress in production instead of broken OAuth', () => {
+  const wooSource = readFileSync(new URL('../src/config/woocommerce.js', import.meta.url), 'utf8');
+  assert.match(wooSource, /isInternalHttpOrigin/);
+  assert.match(wooSource, /allowInternalHttpBasicAuth/);
+  assert.match(wooSource, /queryStringAuth:\s*false/);
+});

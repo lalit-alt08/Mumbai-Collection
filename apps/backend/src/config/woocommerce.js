@@ -14,10 +14,23 @@ const woocommerceTimeoutMs =
     ? configuredTimeout
     : 15000;
 
+const isInternalHttpOrigin = (urlStr) => {
+  try {
+    const u = new URL(urlStr);
+    return (
+      u.protocol === "http:" &&
+      ["wordpress", "localhost", "127.0.0.1", "::1"].includes(u.hostname.toLowerCase())
+    );
+  } catch {
+    return false;
+  }
+};
+
 const isProduction = process.env.NODE_ENV === "production";
 const wooUrl = process.env.WOOCOMMERCE_URL || (isProduction ? "" : "https://mumbai-collection.local");
 const wooKey = process.env.WOOCOMMERCE_CONSUMER_KEY || (isProduction ? "" : "ck_mock");
 const wooSecret = process.env.WOOCOMMERCE_CONSUMER_SECRET || (isProduction ? "" : "cs_mock");
+const allowInternalHttpBasicAuth = isInternalHttpOrigin(wooUrl);
 
 if (isProduction) {
   if (!wooUrl || wooUrl.includes(".local") || !wooKey || wooKey.includes("mock") || !wooSecret || wooSecret.includes("mock")) {
@@ -32,7 +45,8 @@ const api = new WooCommerceRestApi({
   consumerKey: wooKey,
   consumerSecret: wooSecret,
   version: "wc/v3",
-  queryStringAuth: !isProduction && !wooUrl.startsWith("https"),
+  // Prefer Basic Auth over internal Docker HTTP (supported by mumbai-auth.php) instead of query-string secrets or OAuth 1.0a
+  queryStringAuth: false,
 
   axiosConfig: {
     httpsAgent,
@@ -59,7 +73,7 @@ api._request = function (method, endpoint, data, params = {}, extraConfig = {}) 
     responseType: "json",
     headers,
   };
-  if (this.isHttps || this.queryStringAuth) {
+  if (this.isHttps || this.queryStringAuth || allowInternalHttpBasicAuth) {
     if (this.queryStringAuth) {
       options.params = {
         consumer_key: this.consumerKey,
