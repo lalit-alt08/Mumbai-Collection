@@ -1,4 +1,5 @@
 import { loadRazorpayScript } from "../../utils/razorpayLoader.js";
+import { unlockSuccessSound } from "../../utils/successSound.js";
 import {
   createPaymentOrder,
   verifyPayment,
@@ -34,6 +35,7 @@ export function createRazorpayHandler({
   navigate,
 }) {
   return async function startPayment() {
+    unlockSuccessSound();
     const requestUserId = user?.id;
     const isSameUser = () => String(activeUserRef.current) === String(requestUserId);
 
