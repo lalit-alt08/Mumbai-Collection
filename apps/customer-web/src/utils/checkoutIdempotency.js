@@ -1,7 +1,9 @@
-import safeStorage from "./safeStorage.js";
+import safeStorage, { safeSessionStorage } from "./safeStorage.js";
 
 export const CHECKOUT_IDEMP_STORAGE_KEY = "mumbai_checkout_idemp";
 export const PENDING_PAYMENT_STORAGE_KEY = "mumbai_pending_payment";
+export const CHECKOUT_CELEBRATION_STORAGE_KEY = "mumbai_pending_checkout_celebration";
+const CHECKOUT_CELEBRATION_TTL_MS = 30 * 60 * 1000;
 
 export function computeCartItemsFingerprint(cart) {
   if (!cart) return "empty";
@@ -134,5 +136,100 @@ export function getHeldQuantityForPendingCheckout(item, pendingPayment) {
 
 export function isItemHeldForPendingCheckout(item, pendingPayment) {
   return getHeldQuantityForPendingCheckout(item, pendingPayment) > 0;
+}
+
+function readValidCelebrationEntry() {
+  const entry = safeSessionStorage.getJSON(CHECKOUT_CELEBRATION_STORAGE_KEY, null);
+  if (!entry || typeof entry !== "object") return null;
+  if (!entry.createdAt || Date.now() - Number(entry.createdAt) > CHECKOUT_CELEBRATION_TTL_MS) {
+    safeSessionStorage.removeItem(CHECKOUT_CELEBRATION_STORAGE_KEY);
+    return null;
+  }
+  return entry;
+}
+
+/**
+ * Records a session-scoped marker for an active or newly confirmed checkout so
+ * OrderSuccess plays its celebratory feedback once across both SPA redirects and
+ * server-confirmed 303 payment callbacks without relying on document reload state.
+ */
+export function markPendingCheckoutCelebration({
+  userId = null,
+  razorpayOrderId = null,
+  orderId = null,
+} = {}) {
+  const token = generateUUID();
+  safeSessionStorage.setJSON(CHECKOUT_CELEBRATION_STORAGE_KEY, {
+    userId: userId ? String(userId) : null,
+    razorpayOrderId: razorpayOrderId ? String(razorpayOrderId) : null,
+    orderId: orderId ? String(orderId) : null,
+    token,
+    createdAt: Date.now(),
+  });
+  return token;
+}
+
+export function clearPendingCheckoutCelebration() {
+  safeSessionStorage.removeItem(CHECKOUT_CELEBRATION_STORAGE_KEY);
+}
+
+export function consumePendingCheckoutCelebration() {
+  safeSessionStorage.removeItem(CHECKOUT_CELEBRATION_STORAGE_KEY);
+}
+
+export function hasMatchingDirectCheckoutCelebration({
+  userId = null,
+  orderId = null,
+  token = null,
+} = {}) {
+  const entry = readValidCelebrationEntry();
+  if (!entry) return false;
+  if (userId && entry.userId && String(entry.userId) !== String(userId)) {
+    return false;
+  }
+  if (!token || !entry.token || String(entry.token) !== String(token)) {
+    return false;
+  }
+  if (orderId && entry.orderId && String(entry.orderId) !== String(orderId)) {
+    return false;
+  }
+  return true;
+}
+
+export function matchesServerConfirmedCheckoutCelebration({
+  userId = null,
+  order = null,
+} = {}) {
+  const entry = readValidCelebrationEntry();
+  if (!entry || !order) return false;
+  if (userId && entry.userId && String(entry.userId) !== String(userId)) {
+    return false;
+  }
+  if (
+    entry.razorpayOrderId &&
+    order.razorpay_order_id &&
+    String(entry.razorpayOrderId) === String(order.razorpay_order_id)
+  ) {
+    return true;
+  }
+  if (entry.orderId && order.id && String(entry.orderId) === String(order.id)) {
+    return true;
+  }
+  return false;
+}
+
+export function buildOrderSuccessNavigationState({
+  userId,
+  orderId,
+  paymentMethod = "Online Payment",
+  status = "Processing",
+}) {
+  const confirmationToken = markPendingCheckoutCelebration({ userId, orderId });
+  return {
+    paymentMethod,
+    status,
+    confirmedUserId: userId,
+    confirmationToken,
+  };
 }
 

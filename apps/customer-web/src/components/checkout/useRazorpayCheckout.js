@@ -14,6 +14,9 @@ import {
   generateUUID,
   computeCartFingerprint,
   computeCartItemsFingerprint,
+  markPendingCheckoutCelebration,
+  clearPendingCheckoutCelebration,
+  buildOrderSuccessNavigationState,
 } from "../../utils/checkoutIdempotency.js";
 
 export function createRazorpayHandler({
@@ -71,7 +74,11 @@ export function createRazorpayHandler({
         refreshCart().catch(() => {});
         if (!isSameUser()) return;
         navigate(`/order-success/${orderRes.order_id}`, {
-          state: { paymentMethod: "Online Payment", status: orderRes.orderStatus || "Processing", confirmedUserId: requestUserId },
+          state: buildOrderSuccessNavigationState({
+            userId: requestUserId,
+            orderId: orderRes.order_id,
+            status: orderRes.orderStatus || "Processing",
+          }),
         });
         isSubmittingRef.current = false;
         setLoading(false);
@@ -125,6 +132,10 @@ export function createRazorpayHandler({
       },
       requestUserId
     );
+    markPendingCheckoutCelebration({
+      userId: requestUserId,
+      razorpayOrderId: requestOrderId,
+    });
 
     activeOrderRef.current = requestOrderId;
     activeUserRef.current = requestUserId;
@@ -175,7 +186,11 @@ export function createRazorpayHandler({
                 refreshCart().catch(() => {});
                 if (!isSameUser()) return;
                 navigate(`/order-success/${checkRes.order_id}`, {
-                  state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing", confirmedUserId: requestUserId },
+                  state: buildOrderSuccessNavigationState({
+                    userId: requestUserId,
+                    orderId: checkRes.order_id,
+                    status: checkRes.orderStatus || "Processing",
+                  }),
                 });
                 return;
               }
@@ -232,6 +247,7 @@ export function createRazorpayHandler({
             return;
           }
           clearPendingPayment(requestUserId);
+          clearPendingCheckoutCelebration();
           retireCheckoutIdempotencyKey(requestUserId);
           activeOrderRef.current = null;
           idempotencyKeyRef.current = generateUUID();
@@ -268,7 +284,11 @@ export function createRazorpayHandler({
             refreshCart().catch(() => {});
             if (!isSameUser()) return;
             navigate(`/order-success/${verifyRes.order_id}`, {
-              state: { paymentMethod: "Online Payment", status: verifyRes.orderStatus || "Processing", confirmedUserId: requestUserId },
+              state: buildOrderSuccessNavigationState({
+                userId: requestUserId,
+                orderId: verifyRes.order_id,
+                status: verifyRes.orderStatus || "Processing",
+              }),
             });
             return;
           }
@@ -337,7 +357,11 @@ export function createRazorpayHandler({
                 refreshCart().catch(() => {});
                 if (!isSameUser()) return;
                 navigate(`/order-success/${checkRes.order_id}`, {
-                  state: { paymentMethod: "Online Payment", status: checkRes.orderStatus || "Processing", confirmedUserId: requestUserId },
+                  state: buildOrderSuccessNavigationState({
+                    userId: requestUserId,
+                    orderId: checkRes.order_id,
+                    status: checkRes.orderStatus || "Processing",
+                  }),
                 });
                 return;
               }
@@ -423,6 +447,7 @@ export function createRazorpayHandler({
       setLoading(false);
       setPaymentStep("");
       clearPendingPayment(requestUserId);
+      clearPendingCheckoutCelebration();
       retireCheckoutIdempotencyKey(requestUserId);
       activeOrderRef.current = null;
       idempotencyKeyRef.current = generateUUID();

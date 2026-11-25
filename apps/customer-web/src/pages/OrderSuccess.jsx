@@ -21,6 +21,9 @@ import {
   getPendingPayment,
   clearPendingPayment,
   clearCheckoutIdempotencyKey,
+  hasMatchingDirectCheckoutCelebration,
+  matchesServerConfirmedCheckoutCelebration,
+  consumePendingCheckoutCelebration,
 } from "../utils/checkoutIdempotency.js";
 
 function OrderSuccess() {
@@ -37,9 +40,16 @@ function OrderSuccess() {
   const [activeOrderId, setActiveOrderId] = useState(id || queryOrderId || null);
   const [isResolvingRzp, setIsResolvingRzp] = useState(Boolean(!id && !queryOrderId && rzpOrderId));
 
-  const hasDirectCheckoutState = Boolean(
-    user?.id && String(location.state?.confirmedUserId) === String(user.id) &&
-    (typeof performance === "undefined" || performance.getEntriesByType("navigation")[0]?.type !== "reload")
+  const [hasDirectCheckoutState] = useState(() =>
+    Boolean(
+      user?.id &&
+      String(location.state?.confirmedUserId) === String(user.id) &&
+      hasMatchingDirectCheckoutCelebration({
+        userId: user.id,
+        orderId: id || queryOrderId,
+        token: location.state?.confirmationToken,
+      })
+    )
   );
   const [resolvedNewlyPaid, setResolvedNewlyPaid] = useState(Boolean(rzpOrderId));
   const [paymentMethodTitle, setPaymentMethodTitle] = useState(
@@ -158,6 +168,19 @@ function OrderSuccess() {
         if (!data?.order) throw new Error("Order details unavailable");
         setOrder(data.order);
 
+        if (matchesServerConfirmedCheckoutCelebration({ userId: user?.id, order: data.order })) {
+          setResolvedNewlyPaid(true);
+          const storedPending = getPendingPayment(user?.id);
+          if (
+            storedPending?.razorpay_order_id &&
+            data.order?.razorpay_order_id &&
+            String(storedPending.razorpay_order_id) === String(data.order.razorpay_order_id)
+          ) {
+            clearPendingPayment(user?.id);
+            clearCheckoutIdempotencyKey(user?.id);
+          }
+        }
+
         if (data?.order?.payment_method_title) {
           setPaymentMethodTitle(data.order.payment_method_title);
         }
@@ -202,7 +225,7 @@ function OrderSuccess() {
       isMounted = false;
       if (pollTimeout) clearTimeout(pollTimeout);
     };
-  }, [activeOrderId, hasDirectCheckoutState, retryCount]);
+  }, [activeOrderId, hasDirectCheckoutState, retryCount, user?.id]);
 
   // Play Paytm-style payment confirmation chime + tactile haptic once for newly confirmed orders
   const shouldCelebrate = Boolean(
@@ -216,6 +239,7 @@ function OrderSuccess() {
   useEffect(() => {
     if (!shouldCelebrate || chimePlayedRef.current) return;
     chimePlayedRef.current = true;
+    consumePendingCheckoutCelebration();
     triggerHaptic("success");
     void playOrderSuccessSound(activeOrderId);
   }, [shouldCelebrate, activeOrderId]);
@@ -315,11 +339,15 @@ function OrderSuccess() {
   const isAfterHours = Boolean(location.state?.isAfterHours || isScheduledFulfillmentOrder(order) || scheduledDeliveryMeta);
   const needsDeliveryReview = isPaymentAwaitingDeliveryReview(order);
   const scheduledFulfillmentLabel = getScheduledFulfillmentLabel(order);
-  const deliveryEtaText = needsDeliveryReview
-    ? "To be confirmed by store"
-    : isAfterHours
-      ? `${scheduledFulfillmentLabel} (Delivery follows)`
-      : "Same Day Delivery";
+  const deliveryEtaText = detailsFailed && !order
+    ? "Delivery timing unavailable"
+    : !order
+      ? "Checking delivery timing…"
+      : needsDeliveryReview
+        ? "To be confirmed by store"
+        : isAfterHours
+          ? `${scheduledFulfillmentLabel} (Delivery follows)`
+          : "Same Day Delivery";
 
   return (
     <div className="order-success-page min-h-[calc(100vh-2rem)] w-full bg-[#F0F8E8] text-[#1E293B] flex items-center justify-center px-4 py-8 sm:py-12">

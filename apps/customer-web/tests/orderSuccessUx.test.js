@@ -12,8 +12,10 @@ test("OrderSuccess UX, Dark/Light Theme Alignment, and Success Chime Suite", asy
     assert.equal(orderSuccessSrc.includes("Our local team will begin packing and dispatching your order shortly."), false);
   });
 
-  await t.test("2. Sets standard Est. Delivery to Same Day Delivery", () => {
+  await t.test("2. Sets confirmed standard Est. Delivery to Same Day Delivery with safe loading/failure guards", () => {
     assert.equal(orderSuccessSrc.includes("Same Day Delivery"), true);
+    assert.equal(orderSuccessSrc.includes("Checking delivery timing…"), true);
+    assert.equal(orderSuccessSrc.includes("Delivery timing unavailable"), true);
     assert.equal(orderSuccessSrc.includes("Delivery timing will be confirmed by the store"), false);
   });
 
@@ -82,6 +84,110 @@ test("OrderSuccess UX, Dark/Light Theme Alignment, and Success Chime Suite", asy
     } finally {
       globalThis.window = origWindow;
       globalThis.sessionStorage = origSessionStorage;
+    }
+  });
+
+  await t.test("5. Replaces document reload heuristic with session-scoped celebration matching SPA and 303 redirect paths", async () => {
+    assert.equal(orderSuccessSrc.includes('getEntriesByType("navigation")'), false);
+
+    const origWindow = globalThis.window;
+    const origSessionStorage = globalThis.sessionStorage;
+    const origLocalStorage = globalThis.localStorage;
+    const sessionMap = new Map();
+    const localMap = new Map();
+
+    globalThis.window = {
+      sessionStorage: {
+        getItem: (k) => (sessionMap.has(k) ? sessionMap.get(k) : null),
+        setItem: (k, v) => sessionMap.set(k, String(v)),
+        removeItem: (k) => sessionMap.delete(k),
+      },
+      localStorage: {
+        getItem: (k) => (localMap.has(k) ? localMap.get(k) : null),
+        setItem: (k, v) => localMap.set(k, String(v)),
+        removeItem: (k) => localMap.delete(k),
+      },
+    };
+    globalThis.sessionStorage = globalThis.window.sessionStorage;
+    globalThis.localStorage = globalThis.window.localStorage;
+
+    try {
+      const {
+        markPendingCheckoutCelebration,
+        clearPendingCheckoutCelebration,
+        buildOrderSuccessNavigationState,
+        hasMatchingDirectCheckoutCelebration,
+        matchesServerConfirmedCheckoutCelebration,
+        consumePendingCheckoutCelebration,
+      } = await import(`../src/utils/checkoutIdempotency.js?v=${Date.now()}`);
+
+      // A. Server 303 callback redirect (/order-success?order=7523) after pending Razorpay session
+      markPendingCheckoutCelebration({ userId: 42, razorpayOrderId: "order_rzp_101" });
+      assert.equal(
+        matchesServerConfirmedCheckoutCelebration({
+          userId: 42,
+          order: { id: 7523, razorpay_order_id: "order_rzp_999" },
+        }),
+        false
+      );
+      assert.equal(
+        matchesServerConfirmedCheckoutCelebration({
+          userId: 42,
+          order: { id: 7523, razorpay_order_id: "order_rzp_101" },
+        }),
+        true
+      );
+      consumePendingCheckoutCelebration();
+      assert.equal(
+        matchesServerConfirmedCheckoutCelebration({
+          userId: 42,
+          order: { id: 7523, razorpay_order_id: "order_rzp_101" },
+        }),
+        false
+      );
+
+      // B. SPA checkout flow (even if storefront had an earlier reload) verifies once and fails after consumption
+      const navState = buildOrderSuccessNavigationState({ userId: 42, orderId: 7524 });
+      assert.equal(
+        hasMatchingDirectCheckoutCelebration({
+          userId: 42,
+          orderId: 7524,
+          token: navState.confirmationToken,
+        }),
+        true
+      );
+      assert.equal(
+        hasMatchingDirectCheckoutCelebration({
+          userId: 99,
+          orderId: 7524,
+          token: navState.confirmationToken,
+        }),
+        false
+      );
+      consumePendingCheckoutCelebration();
+      assert.equal(
+        hasMatchingDirectCheckoutCelebration({
+          userId: 42,
+          orderId: 7524,
+          token: navState.confirmationToken,
+        }),
+        false
+      );
+
+      // C. Cancelled checkout clears pending celebration marker
+      markPendingCheckoutCelebration({ userId: 42, razorpayOrderId: "order_rzp_202" });
+      clearPendingCheckoutCelebration();
+      assert.equal(
+        matchesServerConfirmedCheckoutCelebration({
+          userId: 42,
+          order: { id: 7525, razorpay_order_id: "order_rzp_202" },
+        }),
+        false
+      );
+    } finally {
+      globalThis.window = origWindow;
+      globalThis.sessionStorage = origSessionStorage;
+      globalThis.localStorage = origLocalStorage;
     }
   });
 });

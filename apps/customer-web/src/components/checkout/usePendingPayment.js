@@ -7,6 +7,7 @@ import {
   clearCheckoutIdempotencyKey,
   retireCheckoutIdempotencyKey,
   generateUUID,
+  buildOrderSuccessNavigationState,
 } from "../../utils/checkoutIdempotency.js";
 
 const BACKOFF_SCHEDULE = [2000, 4000, 8000, 15000, 30000, 30000, 30000, 30000, 30000];
@@ -103,7 +104,11 @@ export function usePendingPayment({
           refreshCart().catch(() => {});
           if (!isCurrentAttempt()) return;
           navigate(`/order-success/${res.order_id}`, {
-            state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing", confirmedUserId: requestUserId },
+            state: buildOrderSuccessNavigationState({
+              userId: requestUserId,
+              orderId: res.order_id,
+              status: res.orderStatus || "Processing",
+            }),
             replace: true,
           });
           return;

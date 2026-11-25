@@ -13,6 +13,7 @@ import {
   getPendingPayment,
   clearPendingPayment,
   clearCheckoutIdempotencyKey,
+  buildOrderSuccessNavigationState,
 } from "../utils/checkoutIdempotency";
 import { useAuth } from "../context/AuthContext";
 import { useNoIndex } from "../hooks/useNoIndex";
@@ -160,7 +161,11 @@ function Orders() {
         clearCheckoutIdempotencyKey(user?.id);
         setPendingPayment(null);
         navigate(`/order-success/${res.order_id}`, {
-          state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing", confirmedUserId: user.id },
+          state: buildOrderSuccessNavigationState({
+            userId: user.id,
+            orderId: res.order_id,
+            status: res.orderStatus || "Processing",
+          }),
         });
         return;
       }

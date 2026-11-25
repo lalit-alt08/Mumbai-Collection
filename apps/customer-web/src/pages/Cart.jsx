@@ -11,7 +11,13 @@ import CartCrossSells from "../components/cart/CartCrossSells";
 import SharedCartModal from "../components/cart/SharedCartModal";
 import BillingForm from "../components/checkout/BillingForm";
 import { checkPaymentStatus } from "../services/paymentService";
-import { getPendingPayment, clearPendingPayment, clearCheckoutIdempotencyKey, getHeldQuantityForPendingCheckout } from "../utils/checkoutIdempotency";
+import {
+  getPendingPayment,
+  clearPendingPayment,
+  clearCheckoutIdempotencyKey,
+  getHeldQuantityForPendingCheckout,
+  buildOrderSuccessNavigationState,
+} from "../utils/checkoutIdempotency";
 import { buildCartShareUrl, parseSharedCartItems, isCartShareTruncated, MAX_SHARED_CART_ITEMS } from "../utils/cartShareUtils";
 import { useNoIndex } from "../hooks/useNoIndex";
 import { triggerHaptic } from "../utils/haptics";
@@ -151,7 +157,11 @@ function Cart() {
             clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             navigate(`/order-success/${res.order_id}`, {
-              state: { paymentMethod: "Online Payment", status: res.orderStatus || "Processing", confirmedUserId: user.id },
+              state: buildOrderSuccessNavigationState({
+                userId: user.id,
+                orderId: res.order_id,
+                status: res.orderStatus || "Processing",
+              }),
               replace: true,
             });
           }
