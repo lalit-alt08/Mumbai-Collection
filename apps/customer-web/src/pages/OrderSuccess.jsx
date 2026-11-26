@@ -359,19 +359,59 @@ function OrderSuccess() {
 
           {/* Celebratory Animated Success Tick */}
           <div className="order-success-tick-wrap relative mx-auto mb-5 flex h-24 w-24 items-center justify-center">
-            <span className="order-success-tick-ripple" aria-hidden="true" />
             <span className="order-success-tick-halo" aria-hidden="true" />
-            <div className="order-success-tick-disc relative z-10 flex h-20 w-20 items-center justify-center rounded-full shadow-lg">
+            <span className="order-success-tick-ripple" aria-hidden="true" />
+            <svg
+              viewBox="0 0 100 100"
+              className="order-success-tick-ring pointer-events-none absolute inset-0 h-full w-full -rotate-90"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                pathLength="100"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                className="order-success-ring-path"
+              />
+            </svg>
+            {[
+              { x: "0px", y: "-56px", delay: "0.26s", cls: "h-2 w-2 order-success-spark-primary" },
+              { x: "40px", y: "-40px", delay: "0.29s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
+              { x: "56px", y: "0px", delay: "0.31s", cls: "h-2 w-2 order-success-spark-neutral" },
+              { x: "40px", y: "40px", delay: "0.34s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
+              { x: "0px", y: "56px", delay: "0.30s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
+              { x: "-40px", y: "40px", delay: "0.33s", cls: "h-2 w-2 order-success-spark-neutral" },
+              { x: "-56px", y: "0px", delay: "0.28s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
+              { x: "-40px", y: "-40px", delay: "0.32s", cls: "h-2 w-2 order-success-spark-accent" },
+            ].map((spark, idx) => (
+              <span
+                key={idx}
+                aria-hidden="true"
+                className={`order-success-tick-spark pointer-events-none absolute left-1/2 top-1/2 rounded-full ${spark.cls}`}
+                style={{
+                  "--sx": spark.x,
+                  "--sy": spark.y,
+                  animationDelay: spark.delay,
+                }}
+              />
+            ))}
+            <div className="order-success-tick-disc relative z-10 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full shadow-lg">
+              <span className="order-success-tick-sheen pointer-events-none" aria-hidden="true" />
               <svg
                 viewBox="0 0 52 52"
-                className="h-11 w-11 text-white"
+                className="order-success-check-svg relative z-10 h-12 w-12 text-white"
                 fill="none"
                 aria-hidden="true"
               >
                 <path
-                  d="M14.5 27.5L22.2 35.2L38.5 17.5"
+                  d="M13.5 27.2L22.2 35.8L38.8 17.2"
+                  pathLength="100"
                   stroke="currentColor"
-                  strokeWidth="4.6"
+                  strokeWidth="5.2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className="order-success-check-path"

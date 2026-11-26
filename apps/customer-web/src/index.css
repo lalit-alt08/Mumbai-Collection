@@ -957,28 +957,65 @@ html, body {
     background: radial-gradient(circle, rgba(22, 163, 74, 0.16) 0%, rgba(34, 73, 159, 0.08) 55%, transparent 75%);
   }
   .order-success-tick-disc {
-    background: linear-gradient(135deg, #16A34A 0%, #22C55E 100%);
-    box-shadow: 0 10px 26px rgba(22, 163, 74, 0.34), inset 0 1px 1px rgba(255, 255, 255, 0.35);
-    animation: orderSuccessPop 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    background: linear-gradient(145deg, #15803D 0%, #16A34A 48%, #22C55E 100%);
+    border: 1.5px solid rgba(255, 255, 255, 0.38);
+    box-shadow:
+      0 12px 28px rgba(22, 163, 74, 0.32),
+      0 0 0 4px rgba(22, 163, 74, 0.10),
+      inset 0 2px 3px rgba(255, 255, 255, 0.32);
+    animation: orderSuccessPop 0.56s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
   .order-success-tick-halo {
     position: absolute;
-    inset: 4px;
+    inset: -10px;
     border-radius: 9999px;
-    background: rgba(34, 197, 94, 0.16);
-    animation: orderSuccessHaloBreath 2.4s ease-in-out 0.65s infinite;
+    background: radial-gradient(circle, rgba(34, 197, 94, 0.30) 0%, rgba(34, 197, 94, 0.10) 52%, transparent 74%);
+    filter: blur(10px);
+    animation: orderSuccessHaloBreath 2.8s ease-in-out 0.65s infinite;
   }
   .order-success-tick-ripple {
     position: absolute;
     inset: 4px;
     border-radius: 9999px;
-    border: 2px solid rgba(22, 163, 74, 0.45);
-    animation: orderSuccessRipple 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+    border: 2px solid rgba(22, 163, 74, 0.48);
+    animation: orderSuccessRipple 0.95s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+  }
+  .order-success-tick-ring {
+    color: rgba(22, 163, 74, 0.36);
+  }
+  .order-success-ring-path {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    animation: orderSuccessRingSweep 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.08s forwards;
+  }
+  .order-success-tick-sheen {
+    position: absolute;
+    inset: -20% auto -20% -65%;
+    width: 48%;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.42) 50%, transparent 100%);
+    transform: skewX(-22deg);
+    animation: orderSuccessSheen 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.52s both;
+  }
+  .order-success-tick-spark {
+    opacity: 0;
+    animation: orderSuccessSpark 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .order-success-spark-primary {
+    background-color: #16A34A;
+  }
+  .order-success-spark-accent {
+    background-color: #F59E0B;
+  }
+  .order-success-spark-neutral {
+    background-color: #22499F;
+  }
+  .order-success-check-svg {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.14));
   }
   .order-success-check-path {
-    stroke-dasharray: 48;
-    stroke-dashoffset: 48;
-    animation: orderSuccessDrawCheck 0.44s cubic-bezier(0.65, 0, 0.35, 1) 0.22s forwards;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    animation: orderSuccessDrawCheck 0.46s cubic-bezier(0.65, 0, 0.35, 1) 0.22s forwards;
   }
 
   html[data-store-theme="dark"] .order-success-page {
@@ -991,17 +1028,33 @@ html, body {
     box-shadow: 0 20px 52px rgba(0, 0, 0, 0.48) !important;
   }
   html[data-store-theme="dark"] .order-success-glow {
-    background: radial-gradient(circle, rgba(52, 211, 153, 0.18) 0%, rgba(255, 148, 47, 0.08) 55%, transparent 75%);
+    background: radial-gradient(circle, rgba(52, 211, 153, 0.20) 0%, rgba(255, 148, 47, 0.10) 55%, transparent 75%);
   }
   html[data-store-theme="dark"] .order-success-tick-disc {
-    background: linear-gradient(135deg, #10B981 0%, #34D399 100%) !important;
-    box-shadow: 0 10px 28px rgba(16, 185, 129, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35) !important;
+    background: linear-gradient(145deg, #059669 0%, #10B981 52%, #34D399 100%) !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
+    box-shadow:
+      0 12px 30px rgba(5, 150, 105, 0.42),
+      0 0 0 4px rgba(52, 211, 153, 0.12),
+      inset 0 2px 3px rgba(255, 255, 255, 0.30) !important;
   }
   html[data-store-theme="dark"] .order-success-tick-halo {
-    background: rgba(52, 211, 153, 0.16) !important;
+    background: radial-gradient(circle, rgba(52, 211, 153, 0.34) 0%, rgba(16, 185, 129, 0.12) 52%, transparent 74%) !important;
   }
   html[data-store-theme="dark"] .order-success-tick-ripple {
-    border-color: rgba(52, 211, 153, 0.5) !important;
+    border-color: rgba(52, 211, 153, 0.55) !important;
+  }
+  html[data-store-theme="dark"] .order-success-tick-ring {
+    color: rgba(52, 211, 153, 0.42) !important;
+  }
+  html[data-store-theme="dark"] .order-success-spark-primary {
+    background-color: #34D399 !important;
+  }
+  html[data-store-theme="dark"] .order-success-spark-accent {
+    background-color: #FFBF80 !important;
+  }
+  html[data-store-theme="dark"] .order-success-spark-neutral {
+    background-color: #FAF8F4 !important;
   }
   html[data-store-theme="dark"] .order-success-state-icon {
     background-color: #242D35 !important;
@@ -1116,6 +1169,33 @@ html, body {
       opacity: 1;
     }
   }
+  @keyframes orderSuccessRingSweep {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes orderSuccessSheen {
+    0% {
+      transform: translateX(0) skewX(-22deg);
+    }
+    100% {
+      transform: translateX(460%) skewX(-22deg);
+    }
+  }
+  @keyframes orderSuccessSpark {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -50%) translate(calc(var(--sx) * 0.28), calc(var(--sy) * 0.28)) scale(0.3);
+    }
+    30% {
+      opacity: 1;
+      transform: translate(-50%, -50%) translate(calc(var(--sx) * 0.88), calc(var(--sy) * 0.88)) scale(1.1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%) translate(var(--sx), var(--sy)) scale(0.2);
+    }
+  }
   @keyframes orderSuccessDrawCheck {
     to {
       stroke-dashoffset: 0;
@@ -1129,6 +1209,11 @@ html, body {
     .order-success-tick-ripple {
       animation: none !important;
     }
+    .order-success-tick-sheen,
+    .order-success-tick-spark {
+      display: none !important;
+    }
+    .order-success-ring-path,
     .order-success-check-path {
       animation: none !important;
       stroke-dashoffset: 0 !important;
