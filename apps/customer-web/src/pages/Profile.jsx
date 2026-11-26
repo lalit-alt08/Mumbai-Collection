@@ -14,6 +14,7 @@ import {
   Loader2,
   ArrowLeft,
   ChevronLeft,
+  Home,
   AlertCircle,
   AlertTriangle,
   Trash2,
@@ -666,8 +667,15 @@ function Profile() {
             </h1>
           </div>
 
-          {/* Right Spacer for optical balance */}
-          <div className="w-12 sm:w-[52px] shrink-0" aria-hidden="true" />
+          {/* Right: Circular Home Button */}
+          <Link
+            to="/"
+            onClick={() => triggerHaptic("light")}
+            aria-label="Home"
+            className="flex h-12 w-12 sm:h-[52px] sm:w-[52px] shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/90 backdrop-blur-md text-[#22499F] border border-[#E2E8F0] shadow-[inset_0_1px_1px_rgba(255,255,255,0.1),0_2px_8px_rgba(0,0,0,0.06)] transition-all hover:bg-[#FFFFFF] hover:border-[#22499F]/40 hover:text-[#1B3B82] active:scale-95 cursor-pointer"
+          >
+            <Home size={21} strokeWidth={2.2} />
+          </Link>
         </div>
 
 {/* SUCCESS */}
