@@ -361,6 +361,7 @@ function OrderSuccess() {
           <div className="order-success-tick-wrap relative mx-auto mb-5 flex h-24 w-24 items-center justify-center">
             <span className="order-success-tick-halo" aria-hidden="true" />
             <span className="order-success-tick-ripple" aria-hidden="true" />
+            <span className="order-success-tick-ripple order-success-tick-ripple-2" aria-hidden="true" />
             <svg
               viewBox="0 0 100 100"
               className="order-success-tick-ring pointer-events-none absolute inset-0 h-full w-full -rotate-90"
@@ -373,20 +374,44 @@ function OrderSuccess() {
                 r="45"
                 pathLength="100"
                 stroke="currentColor"
-                strokeWidth="2.5"
+                strokeWidth="2.4"
                 strokeLinecap="round"
                 className="order-success-ring-path"
               />
             </svg>
+            <svg
+              viewBox="0 0 100 100"
+              className="order-success-tick-orbit pointer-events-none absolute inset-0 h-full w-full"
+              fill="none"
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient id="orderSuccessOrbitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
+                  <stop offset="55%" stopColor="currentColor" stopOpacity="0.35" />
+                  <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <circle
+                cx="50"
+                cy="50"
+                r="45"
+                pathLength="100"
+                stroke="url(#orderSuccessOrbitGrad)"
+                strokeWidth="3.2"
+                strokeLinecap="round"
+                strokeDasharray="48 52"
+              />
+            </svg>
             {[
-              { x: "0px", y: "-56px", delay: "0.26s", cls: "h-2 w-2 order-success-spark-primary" },
-              { x: "40px", y: "-40px", delay: "0.29s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
-              { x: "56px", y: "0px", delay: "0.31s", cls: "h-2 w-2 order-success-spark-neutral" },
-              { x: "40px", y: "40px", delay: "0.34s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
-              { x: "0px", y: "56px", delay: "0.30s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
-              { x: "-40px", y: "40px", delay: "0.33s", cls: "h-2 w-2 order-success-spark-neutral" },
-              { x: "-56px", y: "0px", delay: "0.28s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
-              { x: "-40px", y: "-40px", delay: "0.32s", cls: "h-2 w-2 order-success-spark-accent" },
+              { x: "0px", y: "-54px", delay: "0.2s", cls: "h-2 w-2 order-success-spark-primary" },
+              { x: "38px", y: "-38px", delay: "0.65s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
+              { x: "54px", y: "0px", delay: "1.1s", cls: "h-2 w-2 order-success-spark-neutral" },
+              { x: "38px", y: "38px", delay: "1.55s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
+              { x: "0px", y: "54px", delay: "0.4s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
+              { x: "-38px", y: "38px", delay: "0.85s", cls: "h-2 w-2 order-success-spark-neutral" },
+              { x: "-54px", y: "0px", delay: "1.3s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
+              { x: "-38px", y: "-38px", delay: "1.75s", cls: "h-2 w-2 order-success-spark-accent" },
             ].map((spark, idx) => (
               <span
                 key={idx}

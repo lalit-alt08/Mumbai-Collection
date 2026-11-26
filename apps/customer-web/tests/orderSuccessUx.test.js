@@ -19,19 +19,24 @@ test("OrderSuccess UX, Dark/Light Theme Alignment, and Success Chime Suite", asy
     assert.equal(orderSuccessSrc.includes("Delivery timing will be confirmed by the store"), false);
   });
 
-  await t.test("3. Uses larger animated checkmark, sweep ring, sparkles, and full light/dark CSS alignment with reduced-motion support", () => {
+  await t.test("3. Uses larger animated checkmark, continuous orbit ring, sonar waves, sparkles, and full light/dark CSS alignment", () => {
     assert.match(orderSuccessSrc, /h-24 w-24/);
     assert.match(orderSuccessSrc, /order-success-check-path/);
     assert.match(orderSuccessSrc, /order-success-ring-path/);
+    assert.match(orderSuccessSrc, /order-success-tick-orbit/);
+    assert.match(orderSuccessSrc, /order-success-tick-ripple-2/);
     assert.match(orderSuccessSrc, /order-success-tick-spark/);
     assert.match(orderSuccessSrc, /order-success-tick-sheen/);
     assert.match(indexCssSrc, /orderSuccessDrawCheck/);
     assert.match(indexCssSrc, /orderSuccessRingSweep/);
+    assert.match(indexCssSrc, /orderSuccessOrbitSpin/);
+    assert.match(indexCssSrc, /orderSuccessDiscBreath/);
     assert.match(indexCssSrc, /orderSuccessSpark/);
     assert.match(indexCssSrc, /orderSuccessSheen/);
     assert.match(indexCssSrc, /prefers-reduced-motion: reduce/);
     assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-card/);
     assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-tick-ring/);
+    assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-tick-orbit/);
     assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-spark-accent/);
     assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-secondary/);
   });
