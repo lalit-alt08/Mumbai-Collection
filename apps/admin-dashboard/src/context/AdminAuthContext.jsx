@@ -16,7 +16,7 @@ export const AdminAuthProvider = ({ children }) => {
   const checkAuth = async () => {
     const seq = ++authSeqRef.current;
     try {
-      const data = await getCurrentUser();
+      const data = await getCurrentUser({ optional: true });
       if (seq !== authSeqRef.current) return;
 
       if (data?.logged_in && data?.current_user_id) {

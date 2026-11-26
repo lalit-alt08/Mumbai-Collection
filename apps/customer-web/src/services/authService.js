@@ -40,9 +40,12 @@ export const googleLogin = async (payload) => {
   return data;
 };
 
-export const getCurrentUser = async () => {
+export const getCurrentUser = async ({ optional = false } = {}) => {
   const { data } = await API.get("/me", {
-    params: { context: "customer" },
+    params: {
+      context: "customer",
+      ...(optional ? { optional: "1" } : {}),
+    },
   });
   return data;
 };

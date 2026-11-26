@@ -36,9 +36,12 @@ export const loginEmployee = async (email, password) => {
   return response.data;
 };
 
-export const getCurrentUser = async () => {
+export const getCurrentUser = async ({ optional = false } = {}) => {
   const response = await authApi.get("/auth/me", {
-    params: { context: "employee" },
+    params: {
+      context: "employee",
+      ...(optional ? { optional: "1" } : {}),
+    },
   });
 
   return response.data;

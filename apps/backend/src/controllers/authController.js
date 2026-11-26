@@ -330,13 +330,16 @@ export const resetPassword = async (req, res) => {
 };
 
 export const me = async (req, res) => {
+  const isOptionalProbe = req.query?.optional === "1" || req.query?.optional === "true";
+  const unauthenticatedStatus = isOptionalProbe ? 200 : 401;
+
   try {
     const context = resolveContext(req);
     const cookieConfig = COOKIE_NAMES[context] || COOKIE_NAMES.customer;
     const wpAuth = req.cookies?.[cookieConfig.auth] || (context === "customer" ? req.cookies?.mumbai_wp_auth : undefined);
 
     if (!wpAuth) {
-      return res.status(401).json({
+      return res.status(unauthenticatedStatus).json({
         success: false,
         logged_in: false,
         user: null,
@@ -356,7 +359,7 @@ export const me = async (req, res) => {
         });
       }
 
-      return res.status(401).json({
+      return res.status(unauthenticatedStatus).json({
         success: false,
         logged_in: false,
         user: null,
@@ -367,7 +370,7 @@ export const me = async (req, res) => {
     const userId = session.userId;
     const roles = Array.isArray(session.roles) ? session.roles : [];
     if (!rolesMatchAuthContext(context, roles)) {
-      return res.status(403).json({
+      return res.status(isOptionalProbe ? 200 : 403).json({
         success: false,
         logged_in: false,
         user: null,

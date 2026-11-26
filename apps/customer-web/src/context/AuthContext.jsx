@@ -79,7 +79,7 @@ export function AuthProvider({ children }) {
 
       const epoch = authEpochRef.current;
       try {
-        const response = await getCurrentUser();
+        const response = await getCurrentUser({ optional: true });
         if (epoch !== authEpochRef.current) return;
 
         // Purge legacy persistent storage to prevent PII retention on disk (Finding #12 fix)

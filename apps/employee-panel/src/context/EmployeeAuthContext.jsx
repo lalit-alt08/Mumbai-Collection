@@ -29,7 +29,7 @@ export const EmployeeAuthProvider = ({ children }) => {
 
     const seq = ++authSeqRef.current;
     try {
-      const data = await getCurrentUser();
+      const data = await getCurrentUser({ optional: true });
 
       // Ignore session-check results started before the latest login or newer check
       if (seq !== authSeqRef.current) return;

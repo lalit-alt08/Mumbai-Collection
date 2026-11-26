@@ -255,4 +255,24 @@ test("Focused Authentication & Role Isolation Security Suite", async (suite) => 
     assert.strictEqual(meRes.responseData.user.id, 88);
     assert.strictEqual(meRes.responseData.user.email, "cached@example.com");
   });
+
+  await suite.test("7. /auth/me returns clean 200 logged_in:false when optional=1 and unauthenticated, keeping strict 401 otherwise", async () => {
+    const strictRes = await simulate(me, {
+      cookies: {},
+      query: { context: "customer" },
+      headers: {},
+    });
+    assert.strictEqual(strictRes.statusCode, 401);
+    assert.strictEqual(strictRes.responseData.logged_in, false);
+
+    const optionalRes = await simulate(me, {
+      cookies: {},
+      query: { context: "customer", optional: "1" },
+      headers: {},
+    });
+    assert.strictEqual(optionalRes.statusCode, 200);
+    assert.strictEqual(optionalRes.responseData.success, false);
+    assert.strictEqual(optionalRes.responseData.logged_in, false);
+    assert.strictEqual(optionalRes.responseData.user, null);
+  });
 });
