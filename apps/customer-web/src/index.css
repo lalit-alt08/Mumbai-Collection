@@ -680,9 +680,9 @@ body {
 
 /* Respect user's device motion preferences (except essential progress/loading spinners & live badge cues) */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"]),
-  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"])::before,
-  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"])::after {
+  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"]):not([data-animate="live"] *),
+  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"]):not([data-animate="live"] *)::before,
+  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"]):not([data-animate="live"] *)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -950,83 +950,46 @@ html, body {
   }
 }
 
-/* OrderSuccess: live animated checkmark + complete light/dark alignment */
+/* OrderSuccess: Lottie-inspired 12-lobed scalloped seal + sunburst rays + light/dark alignment */
 .order-success-enter {
   animation: orderSuccessCardIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .order-success-glow {
-  background: radial-gradient(circle, rgba(22, 163, 74, 0.16) 0%, rgba(34, 73, 159, 0.08) 55%, transparent 75%);
-}
-.order-success-tick-disc {
-  background: linear-gradient(145deg, #15803D 0%, #16A34A 48%, #22C55E 100%);
-  border: 1.5px solid rgba(255, 255, 255, 0.38);
-  box-shadow:
-    0 12px 28px rgba(22, 163, 74, 0.32),
-    0 0 0 4px rgba(22, 163, 74, 0.10),
-    inset 0 2px 3px rgba(255, 255, 255, 0.32);
-  animation:
-    orderSuccessPop 0.56s cubic-bezier(0.34, 1.56, 0.64, 1) both,
-    orderSuccessDiscBreath 2.4s ease-in-out 0.6s infinite;
+  background: radial-gradient(circle, rgba(0, 200, 117, 0.16) 0%, rgba(34, 73, 159, 0.07) 55%, transparent 75%);
 }
 .order-success-tick-halo {
   position: absolute;
-  inset: -12px;
+  inset: -8px;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgba(34, 197, 94, 0.36) 0%, rgba(34, 197, 94, 0.12) 52%, transparent 74%);
+  background: radial-gradient(circle, rgba(0, 200, 117, 0.22) 0%, rgba(0, 200, 117, 0.06) 54%, transparent 76%);
   filter: blur(10px);
-  animation: orderSuccessHaloBreath 2.4s ease-in-out infinite;
+  animation: orderSuccessHaloBreath 2.2s ease-in-out infinite;
 }
-.order-success-tick-ripple {
-  position: absolute;
-  inset: 4px;
-  border-radius: 9999px;
-  border: 2px solid rgba(22, 163, 74, 0.55);
-  animation: orderSuccessRipple 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-.order-success-tick-ripple-2 {
-  animation-delay: 1.2s;
-}
-.order-success-tick-ring {
-  color: rgba(22, 163, 74, 0.22);
-}
-.order-success-ring-path {
-  stroke-dasharray: 100;
+.order-success-lottie-ring {
+  stroke: #D1D5DB;
+  stroke-dasharray: 100 100;
   stroke-dashoffset: 100;
-  animation: orderSuccessRingSweep 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.08s forwards;
+  animation: orderSuccessRingLoop 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
-.order-success-tick-orbit {
-  color: #16A34A;
-  animation: orderSuccessOrbitSpin 2.2s linear infinite;
+.order-success-lottie-ray {
+  stroke: #00C875;
+  stroke-dasharray: 46 160;
+  stroke-dashoffset: 48;
+  animation: orderSuccessRayBurst 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
-.order-success-tick-sheen {
-  position: absolute;
-  inset: -20% auto -20% -65%;
-  width: 48%;
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.48) 50%, transparent 100%);
-  transform: skewX(-22deg);
-  animation: orderSuccessSheen 3.2s cubic-bezier(0.22, 1, 0.36, 1) 0.55s infinite;
+.order-success-seal-group {
+  transform-origin: 60px 60px;
+  animation: orderSuccessSealPop 2.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
 }
-.order-success-tick-spark {
-  opacity: 0;
-  animation: orderSuccessSpark 2.4s ease-in-out infinite;
-}
-.order-success-spark-primary {
-  background-color: #16A34A;
-}
-.order-success-spark-accent {
-  background-color: #F59E0B;
-}
-.order-success-spark-neutral {
-  background-color: #22499F;
-}
-.order-success-check-svg {
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.14));
-  animation: orderSuccessCheckPulse 2.4s ease-in-out 0.7s infinite;
+.order-success-seal-fill {
+  fill: #00C875;
+  filter: drop-shadow(0 8px 18px rgba(0, 200, 117, 0.28));
 }
 .order-success-check-path {
-  stroke-dasharray: 100;
+  transform-origin: 60px 60px;
+  stroke-dasharray: 100 100;
   stroke-dashoffset: 100;
-  animation: orderSuccessDrawCheck 0.46s cubic-bezier(0.65, 0, 0.35, 1) 0.22s forwards;
+  animation: orderSuccessDrawCheck 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
 html[data-store-theme="dark"] .order-success-page {
@@ -1039,36 +1002,20 @@ html[data-store-theme="dark"] .order-success-card {
   box-shadow: 0 20px 52px rgba(0, 0, 0, 0.48) !important;
 }
 html[data-store-theme="dark"] .order-success-glow {
-  background: radial-gradient(circle, rgba(52, 211, 153, 0.20) 0%, rgba(255, 148, 47, 0.10) 55%, transparent 75%);
-}
-html[data-store-theme="dark"] .order-success-tick-disc {
-  background: linear-gradient(145deg, #059669 0%, #10B981 52%, #34D399 100%) !important;
-  border-color: rgba(255, 255, 255, 0.28) !important;
-  box-shadow:
-    0 12px 30px rgba(5, 150, 105, 0.42),
-    0 0 0 4px rgba(52, 211, 153, 0.12),
-    inset 0 2px 3px rgba(255, 255, 255, 0.30) !important;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.20) 0%, rgba(255, 148, 47, 0.08) 55%, transparent 75%);
 }
 html[data-store-theme="dark"] .order-success-tick-halo {
-  background: radial-gradient(circle, rgba(52, 211, 153, 0.38) 0%, rgba(16, 185, 129, 0.14) 52%, transparent 74%) !important;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(52, 211, 153, 0.08) 54%, transparent 76%) !important;
 }
-html[data-store-theme="dark"] .order-success-tick-ripple {
-  border-color: rgba(52, 211, 153, 0.62) !important;
+html[data-store-theme="dark"] .order-success-lottie-ring {
+  stroke: rgba(203, 213, 225, 0.42) !important;
 }
-html[data-store-theme="dark"] .order-success-tick-ring {
-  color: rgba(52, 211, 153, 0.25) !important;
+html[data-store-theme="dark"] .order-success-lottie-ray {
+  stroke: #34D399 !important;
 }
-html[data-store-theme="dark"] .order-success-tick-orbit {
-  color: #34D399 !important;
-}
-html[data-store-theme="dark"] .order-success-spark-primary {
-  background-color: #34D399 !important;
-}
-html[data-store-theme="dark"] .order-success-spark-accent {
-  background-color: #FFBF80 !important;
-}
-html[data-store-theme="dark"] .order-success-spark-neutral {
-  background-color: #FAF8F4 !important;
+html[data-store-theme="dark"] .order-success-seal-fill {
+  fill: #10B981 !important;
+  filter: drop-shadow(0 8px 20px rgba(16, 185, 129, 0.36)) !important;
 }
   html[data-store-theme="dark"] .order-success-state-icon {
     background-color: #242D35 !important;
@@ -1149,128 +1096,106 @@ html[data-store-theme="dark"] .order-success-spark-neutral {
     transform: translateY(0) scale(1);
   }
 }
-@keyframes orderSuccessPop {
-  0% {
-    opacity: 0;
-    transform: scale(0.45);
-  }
-  65% {
-    opacity: 1;
-    transform: scale(1.09);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-@keyframes orderSuccessDiscBreath {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.055);
-  }
-}
-@keyframes orderSuccessCheckPulse {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.06);
-  }
-}
-@keyframes orderSuccessOrbitSpin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes orderSuccessRipple {
-  0% {
-    opacity: 0.72;
-    transform: scale(0.86);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.48);
-  }
-}
 @keyframes orderSuccessHaloBreath {
   0%, 100% {
-    transform: scale(0.96);
-    opacity: 0.68;
+    transform: scale(0.95);
+    opacity: 0.65;
   }
-  50% {
-    transform: scale(1.14);
+  58% {
+    transform: scale(1.12);
     opacity: 1;
   }
 }
-@keyframes orderSuccessRingSweep {
-  to {
+@keyframes orderSuccessRingLoop {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0.95;
+  }
+  24% {
     stroke-dashoffset: 0;
+    opacity: 0.95;
   }
-}
-@keyframes orderSuccessSheen {
-  0% {
-    transform: translateX(0) skewX(-22deg);
+  44% {
+    stroke-dashoffset: -100;
+    opacity: 0.9;
   }
-  32%, 100% {
-    transform: translateX(460%) skewX(-22deg);
-  }
-}
-@keyframes orderSuccessSpark {
-  0% {
+  47%, 100% {
+    stroke-dashoffset: -100;
     opacity: 0;
-    transform: translate(-50%, -50%) translate(calc(var(--sx) * 0.55), calc(var(--sy) * 0.55)) scale(0.35);
   }
-  35% {
+}
+@keyframes orderSuccessSealPop {
+  0%, 38% {
+    transform: scale(0.92) rotate(0deg);
+  }
+  43% {
+    transform: scale(0.84) rotate(-14deg);
+  }
+  57% {
+    transform: scale(1.1) rotate(8deg);
+  }
+  72%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+@keyframes orderSuccessRayBurst {
+  0%, 44% {
+    stroke-dashoffset: 48;
+    opacity: 0;
+  }
+  47% {
+    stroke-dashoffset: 46;
     opacity: 1;
-    transform: translate(-50%, -50%) translate(calc(var(--sx) * 0.92), calc(var(--sy) * 0.92)) scale(1.1);
   }
-  75%, 100% {
+  66% {
+    stroke-dashoffset: -18;
+    opacity: 1;
+  }
+  85% {
+    stroke-dashoffset: -86;
+    opacity: 1;
+  }
+  94%, 100% {
+    stroke-dashoffset: -102;
     opacity: 0;
-    transform: translate(-50%, -50%) translate(var(--sx), var(--sy)) scale(0.25);
   }
 }
 @keyframes orderSuccessDrawCheck {
-  to {
+  0%, 36% {
     stroke-dashoffset: 0;
+    opacity: 1;
   }
-}
-
-.order-success-orbit-dot {
-  filter: drop-shadow(0 0 4px currentColor);
+  41% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  45% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+  66%, 100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .order-success-enter,
-  .order-success-tick-disc,
-  .order-success-check-svg {
+  .order-success-enter {
     animation: none !important;
-  }
-  .order-success-tick-spark {
-    display: none !important;
-  }
-  .order-success-tick-orbit {
-    animation: orderSuccessOrbitSpin 2.4s linear infinite !important;
   }
   .order-success-tick-halo {
-    animation: orderSuccessHaloBreath 2.4s ease-in-out infinite !important;
+    animation: orderSuccessHaloBreath 2.2s ease-in-out infinite !important;
   }
-  .order-success-tick-ripple {
-    animation: orderSuccessRipple 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite !important;
+  .order-success-lottie-ring {
+    animation: orderSuccessRingLoop 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite !important;
   }
-  .order-success-tick-ripple-2 {
-    animation-delay: 1.2s !important;
+  .order-success-lottie-ray {
+    animation: orderSuccessRayBurst 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite !important;
   }
-  .order-success-tick-sheen {
-    animation: orderSuccessSheen 3.2s cubic-bezier(0.22, 1, 0.36, 1) infinite !important;
+  .order-success-seal-group {
+    animation: orderSuccessSealPop 2.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
   }
-  .order-success-ring-path,
   .order-success-check-path {
-    animation: none !important;
-    stroke-dashoffset: 0 !important;
+    animation: orderSuccessDrawCheck 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite !important;
   }
 }

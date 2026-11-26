@@ -19,27 +19,21 @@ test("OrderSuccess UX, Dark/Light Theme Alignment, and Success Chime Suite", asy
     assert.equal(orderSuccessSrc.includes("Delivery timing will be confirmed by the store"), false);
   });
 
-  await t.test("3. Uses larger animated checkmark, continuous orbit ring, sonar waves, sparkles, and full light/dark CSS alignment", () => {
+  await t.test("3. Uses 12-lobed scalloped Lottie-style seal, sweeping ring, sunburst rays, and full light/dark CSS alignment", () => {
     assert.match(orderSuccessSrc, /h-24 w-24/);
+    assert.match(orderSuccessSrc, /order-success-seal-group/);
+    assert.match(orderSuccessSrc, /order-success-lottie-ring/);
+    assert.match(orderSuccessSrc, /order-success-lottie-ray/);
     assert.match(orderSuccessSrc, /order-success-check-path/);
-    assert.match(orderSuccessSrc, /order-success-ring-path/);
-    assert.match(orderSuccessSrc, /order-success-tick-orbit/);
-    assert.match(orderSuccessSrc, /order-success-orbit-dot/);
-    assert.match(orderSuccessSrc, /data-animate="spin"/);
-    assert.match(orderSuccessSrc, /order-success-tick-ripple-2/);
-    assert.match(orderSuccessSrc, /order-success-tick-spark/);
-    assert.match(orderSuccessSrc, /order-success-tick-sheen/);
+    assert.match(orderSuccessSrc, /data-animate="live"/);
+    assert.match(indexCssSrc, /orderSuccessRingLoop/);
+    assert.match(indexCssSrc, /orderSuccessSealPop/);
+    assert.match(indexCssSrc, /orderSuccessRayBurst/);
     assert.match(indexCssSrc, /orderSuccessDrawCheck/);
-    assert.match(indexCssSrc, /orderSuccessRingSweep/);
-    assert.match(indexCssSrc, /orderSuccessOrbitSpin/);
-    assert.match(indexCssSrc, /orderSuccessDiscBreath/);
-    assert.match(indexCssSrc, /orderSuccessSpark/);
-    assert.match(indexCssSrc, /orderSuccessSheen/);
     assert.match(indexCssSrc, /prefers-reduced-motion: reduce/);
     assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-card/);
-    assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-tick-ring/);
-    assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-tick-orbit/);
-    assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-spark-accent/);
+    assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-seal-fill/);
+    assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-lottie-ray/);
     assert.match(indexCssSrc, /html\[data-store-theme="dark"\] \.order-success-secondary/);
   });
 

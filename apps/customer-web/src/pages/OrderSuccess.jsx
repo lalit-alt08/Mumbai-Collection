@@ -357,100 +357,70 @@ function OrderSuccess() {
           {/* Subtle ambient top glow */}
           <div className="order-success-glow pointer-events-none absolute -top-16 left-1/2 -translate-x-1/2 h-40 w-72 rounded-full blur-3xl" />
 
-          {/* Celebratory Animated Success Tick */}
-          <div className="order-success-tick-wrap relative mx-auto mb-5 flex h-24 w-24 items-center justify-center">
-            <span className="order-success-tick-halo" data-animate="live" aria-hidden="true" />
-            <span className="order-success-tick-ripple" data-animate="live" aria-hidden="true" />
-            <span className="order-success-tick-ripple order-success-tick-ripple-2" data-animate="live" aria-hidden="true" />
+          {/* Celebratory Animated Success Seal */}
+          <div
+            data-animate="live"
+            className="order-success-tick-wrap relative mx-auto mb-5 flex h-24 w-24 items-center justify-center"
+          >
+            <span className="order-success-tick-halo" aria-hidden="true" />
             <svg
-              viewBox="0 0 100 100"
-              className="order-success-tick-ring pointer-events-none absolute -inset-1 h-[104px] w-[104px] -rotate-90"
+              viewBox="0 0 120 120"
+              className="order-success-lottie-svg relative z-10 h-28 w-28 shrink-0 overflow-visible"
               fill="none"
               aria-hidden="true"
             >
+              {/* Intro progress ring sweep */}
               <circle
-                cx="50"
-                cy="50"
-                r="46"
+                cx="60"
+                cy="60"
+                r="47"
                 pathLength="100"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                className="order-success-ring-path"
+                strokeWidth="5"
+                strokeLinecap="butt"
+                transform="rotate(-90 60 60)"
+                className="order-success-lottie-ring"
               />
-            </svg>
-            <svg
-              viewBox="0 0 100 100"
-              data-animate="spin"
-              className="order-success-tick-orbit pointer-events-none absolute -inset-1 h-[104px] w-[104px]"
-              fill="none"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="orderSuccessOrbitGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
-                  <stop offset="55%" stopColor="currentColor" stopOpacity="0.45" />
-                  <stop offset="100%" stopColor="currentColor" stopOpacity="1" />
-                </linearGradient>
-              </defs>
-              <circle
-                cx="50"
-                cy="50"
-                r="46"
-                pathLength="100"
-                stroke="url(#orderSuccessOrbitGrad)"
-                strokeWidth="3.4"
-                strokeLinecap="round"
-                strokeDasharray="42 58"
-              />
-              <circle
-                cx="96"
-                cy="50"
-                r="3.2"
-                fill="currentColor"
-                className="order-success-orbit-dot"
-              />
-            </svg>
-            {[
-              { x: "0px", y: "-56px", delay: "0.2s", cls: "h-2 w-2 order-success-spark-primary" },
-              { x: "40px", y: "-40px", delay: "0.65s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
-              { x: "56px", y: "0px", delay: "1.1s", cls: "h-2 w-2 order-success-spark-neutral" },
-              { x: "40px", y: "40px", delay: "1.55s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
-              { x: "0px", y: "56px", delay: "0.4s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
-              { x: "-40px", y: "40px", delay: "0.85s", cls: "h-2 w-2 order-success-spark-neutral" },
-              { x: "-56px", y: "0px", delay: "1.3s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
-              { x: "-40px", y: "-40px", delay: "1.75s", cls: "h-2 w-2 order-success-spark-accent" },
-            ].map((spark, idx) => (
-              <span
-                key={idx}
-                aria-hidden="true"
-                className={`order-success-tick-spark pointer-events-none absolute left-1/2 top-1/2 rounded-full ${spark.cls}`}
-                style={{
-                  "--sx": spark.x,
-                  "--sy": spark.y,
-                  animationDelay: spark.delay,
-                }}
-              />
-            ))}
-            <div className="order-success-tick-disc relative z-10 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full shadow-lg">
-              <span className="order-success-tick-sheen pointer-events-none" data-animate="live" aria-hidden="true" />
-              <svg
-                viewBox="0 0 52 52"
-                className="order-success-check-svg relative z-10 h-12 w-12 text-white"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M13.5 27.2L22.2 35.8L38.8 17.2"
+              {/* 8 symmetric sunburst rays shooting out and collapsing to outer perimeter dots */}
+              {[
+                { x1: 60.0, y1: 22.0, x2: 60.0, y2: 4.0 },
+                { x1: 86.87, y1: 33.13, x2: 99.6, y2: 20.4 },
+                { x1: 98.0, y1: 60.0, x2: 116.0, y2: 60.0 },
+                { x1: 86.87, y1: 86.87, x2: 99.6, y2: 99.6 },
+                { x1: 60.0, y1: 98.0, x2: 60.0, y2: 116.0 },
+                { x1: 33.13, y1: 86.87, x2: 20.4, y2: 99.6 },
+                { x1: 22.0, y1: 60.0, x2: 4.0, y2: 60.0 },
+                { x1: 33.13, y1: 33.13, x2: 20.4, y2: 20.4 },
+              ].map((ray, idx) => (
+                <line
+                  key={idx}
+                  x1={ray.x1}
+                  y1={ray.y1}
+                  x2={ray.x2}
+                  y2={ray.y2}
                   pathLength="100"
-                  stroke="currentColor"
-                  strokeWidth="5.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="order-success-check-path"
+                  strokeWidth="3.2"
+                  strokeLinecap="butt"
+                  className="order-success-lottie-ray"
                 />
-              </svg>
-            </div>
+              ))}
+              {/* 12-lobed scalloped emerald badge */}
+              <g className="order-success-seal-group">
+                <path
+                  d="M 60.00 23.20 C 64.84 23.20, 63.49 26.36, 68.64 27.74 C 73.80 29.12, 74.21 25.71, 78.40 28.13 C 82.59 30.55, 79.85 32.61, 83.62 36.38 C 87.39 40.15, 89.45 37.41, 91.87 41.60 C 94.29 45.79, 90.88 46.20, 92.26 51.36 C 93.64 56.51, 96.80 55.16, 96.80 60.00 C 96.80 64.84, 93.64 63.49, 92.26 68.64 C 90.88 73.80, 94.29 74.21, 91.87 78.40 C 89.45 82.59, 87.39 79.85, 83.62 83.62 C 79.85 87.39, 82.59 89.45, 78.40 91.87 C 74.21 94.29, 73.80 90.88, 68.64 92.26 C 63.49 93.64, 64.84 96.80, 60.00 96.80 C 55.16 96.80, 56.51 93.64, 51.36 92.26 C 46.20 90.88, 45.79 94.29, 41.60 91.87 C 37.41 89.45, 40.15 87.39, 36.38 83.62 C 32.61 79.85, 30.55 82.59, 28.13 78.40 C 25.71 74.21, 29.12 73.80, 27.74 68.64 C 26.36 63.49, 23.20 64.84, 23.20 60.00 C 23.20 55.16, 26.36 56.51, 27.74 51.36 C 29.12 46.20, 25.71 45.79, 28.13 41.60 C 30.55 37.41, 32.61 40.15, 36.38 36.38 C 40.15 32.61, 37.41 30.55, 41.60 28.13 C 45.79 25.71, 46.20 29.12, 51.36 27.74 C 56.51 26.36, 55.16 23.20, 60.00 23.20 Z"
+                  className="order-success-seal-fill"
+                />
+              </g>
+              {/* Centered crisp white checkmark */}
+              <path
+                d="M 43.5 60.5 L 54.5 71.5 L 77.5 47.5"
+                pathLength="100"
+                stroke="#FFFFFF"
+                strokeWidth="6.2"
+                strokeLinecap="butt"
+                strokeLinejoin="miter"
+                className="order-success-check-path"
+              />
+            </svg>
           </div>
 
           {/* Order Number Badge & Title */}
