@@ -359,59 +359,67 @@ function OrderSuccess() {
 
           {/* Celebratory Animated Success Tick */}
           <div className="order-success-tick-wrap relative mx-auto mb-5 flex h-24 w-24 items-center justify-center">
-            <span className="order-success-tick-halo" aria-hidden="true" />
-            <span className="order-success-tick-ripple" aria-hidden="true" />
-            <span className="order-success-tick-ripple order-success-tick-ripple-2" aria-hidden="true" />
+            <span className="order-success-tick-halo" data-animate="live" aria-hidden="true" />
+            <span className="order-success-tick-ripple" data-animate="live" aria-hidden="true" />
+            <span className="order-success-tick-ripple order-success-tick-ripple-2" data-animate="live" aria-hidden="true" />
             <svg
               viewBox="0 0 100 100"
-              className="order-success-tick-ring pointer-events-none absolute inset-0 h-full w-full -rotate-90"
+              className="order-success-tick-ring pointer-events-none absolute -inset-1 h-[104px] w-[104px] -rotate-90"
               fill="none"
               aria-hidden="true"
             >
               <circle
                 cx="50"
                 cy="50"
-                r="45"
+                r="46"
                 pathLength="100"
                 stroke="currentColor"
-                strokeWidth="2.4"
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 className="order-success-ring-path"
               />
             </svg>
             <svg
               viewBox="0 0 100 100"
-              className="order-success-tick-orbit pointer-events-none absolute inset-0 h-full w-full"
+              data-animate="spin"
+              className="order-success-tick-orbit pointer-events-none absolute -inset-1 h-[104px] w-[104px]"
               fill="none"
               aria-hidden="true"
             >
               <defs>
-                <linearGradient id="orderSuccessOrbitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
-                  <stop offset="55%" stopColor="currentColor" stopOpacity="0.35" />
-                  <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+                <linearGradient id="orderSuccessOrbitGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
+                  <stop offset="55%" stopColor="currentColor" stopOpacity="0.45" />
+                  <stop offset="100%" stopColor="currentColor" stopOpacity="1" />
                 </linearGradient>
               </defs>
               <circle
                 cx="50"
                 cy="50"
-                r="45"
+                r="46"
                 pathLength="100"
                 stroke="url(#orderSuccessOrbitGrad)"
-                strokeWidth="3.2"
+                strokeWidth="3.4"
                 strokeLinecap="round"
-                strokeDasharray="48 52"
+                strokeDasharray="42 58"
+              />
+              <circle
+                cx="96"
+                cy="50"
+                r="3.2"
+                fill="currentColor"
+                className="order-success-orbit-dot"
               />
             </svg>
             {[
-              { x: "0px", y: "-54px", delay: "0.2s", cls: "h-2 w-2 order-success-spark-primary" },
-              { x: "38px", y: "-38px", delay: "0.65s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
-              { x: "54px", y: "0px", delay: "1.1s", cls: "h-2 w-2 order-success-spark-neutral" },
-              { x: "38px", y: "38px", delay: "1.55s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
-              { x: "0px", y: "54px", delay: "0.4s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
-              { x: "-38px", y: "38px", delay: "0.85s", cls: "h-2 w-2 order-success-spark-neutral" },
-              { x: "-54px", y: "0px", delay: "1.3s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
-              { x: "-38px", y: "-38px", delay: "1.75s", cls: "h-2 w-2 order-success-spark-accent" },
+              { x: "0px", y: "-56px", delay: "0.2s", cls: "h-2 w-2 order-success-spark-primary" },
+              { x: "40px", y: "-40px", delay: "0.65s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
+              { x: "56px", y: "0px", delay: "1.1s", cls: "h-2 w-2 order-success-spark-neutral" },
+              { x: "40px", y: "40px", delay: "1.55s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
+              { x: "0px", y: "56px", delay: "0.4s", cls: "h-1.5 w-1.5 order-success-spark-accent" },
+              { x: "-40px", y: "40px", delay: "0.85s", cls: "h-2 w-2 order-success-spark-neutral" },
+              { x: "-56px", y: "0px", delay: "1.3s", cls: "h-1.5 w-1.5 order-success-spark-primary" },
+              { x: "-40px", y: "-40px", delay: "1.75s", cls: "h-2 w-2 order-success-spark-accent" },
             ].map((spark, idx) => (
               <span
                 key={idx}
@@ -425,7 +433,7 @@ function OrderSuccess() {
               />
             ))}
             <div className="order-success-tick-disc relative z-10 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full shadow-lg">
-              <span className="order-success-tick-sheen pointer-events-none" aria-hidden="true" />
+              <span className="order-success-tick-sheen pointer-events-none" data-animate="live" aria-hidden="true" />
               <svg
                 viewBox="0 0 52 52"
                 className="order-success-check-svg relative z-10 h-12 w-12 text-white"

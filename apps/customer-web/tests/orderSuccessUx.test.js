@@ -24,6 +24,8 @@ test("OrderSuccess UX, Dark/Light Theme Alignment, and Success Chime Suite", asy
     assert.match(orderSuccessSrc, /order-success-check-path/);
     assert.match(orderSuccessSrc, /order-success-ring-path/);
     assert.match(orderSuccessSrc, /order-success-tick-orbit/);
+    assert.match(orderSuccessSrc, /order-success-orbit-dot/);
+    assert.match(orderSuccessSrc, /data-animate="spin"/);
     assert.match(orderSuccessSrc, /order-success-tick-ripple-2/);
     assert.match(orderSuccessSrc, /order-success-tick-spark/);
     assert.match(orderSuccessSrc, /order-success-tick-sheen/);

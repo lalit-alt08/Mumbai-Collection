@@ -678,11 +678,11 @@ body {
   box-shadow: none !important;
 }
 
-/* Respect user's device motion preferences (except essential progress/loading spinners) */
+/* Respect user's device motion preferences (except essential progress/loading spinners & live badge cues) */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.animate-spin):not([data-animate="spin"]),
-  *:not(.animate-spin):not([data-animate="spin"])::before,
-  *:not(.animate-spin):not([data-animate="spin"])::after {
+  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"]),
+  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"])::before,
+  *:not(.animate-spin):not([data-animate="spin"]):not([data-animate="live"])::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -1240,18 +1240,33 @@ html[data-store-theme="dark"] .order-success-spark-neutral {
   }
 }
 
+.order-success-orbit-dot {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .order-success-enter,
   .order-success-tick-disc,
-  .order-success-tick-halo,
-  .order-success-tick-ripple,
-  .order-success-tick-orbit,
   .order-success-check-svg {
     animation: none !important;
   }
-  .order-success-tick-sheen,
   .order-success-tick-spark {
     display: none !important;
+  }
+  .order-success-tick-orbit {
+    animation: orderSuccessOrbitSpin 2.4s linear infinite !important;
+  }
+  .order-success-tick-halo {
+    animation: orderSuccessHaloBreath 2.4s ease-in-out infinite !important;
+  }
+  .order-success-tick-ripple {
+    animation: orderSuccessRipple 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite !important;
+  }
+  .order-success-tick-ripple-2 {
+    animation-delay: 1.2s !important;
+  }
+  .order-success-tick-sheen {
+    animation: orderSuccessSheen 3.2s cubic-bezier(0.22, 1, 0.36, 1) infinite !important;
   }
   .order-success-ring-path,
   .order-success-check-path {
