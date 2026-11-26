@@ -369,17 +369,6 @@ function OrderSuccess() {
               fill="none"
               aria-hidden="true"
             >
-              {/* Intro progress ring sweep */}
-              <circle
-                cx="60"
-                cy="60"
-                r="47"
-                pathLength="100"
-                strokeWidth="5"
-                strokeLinecap="butt"
-                transform="rotate(-90 60 60)"
-                className="order-success-lottie-ring"
-              />
               {/* 8 symmetric sunburst rays shooting out and collapsing to outer perimeter dots */}
               {[
                 { x1: 60.0, y1: 22.0, x2: 60.0, y2: 4.0 },

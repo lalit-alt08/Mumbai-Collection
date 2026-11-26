@@ -963,23 +963,17 @@ html, body {
   border-radius: 9999px;
   background: radial-gradient(circle, rgba(0, 200, 117, 0.22) 0%, rgba(0, 200, 117, 0.06) 54%, transparent 76%);
   filter: blur(10px);
-  animation: orderSuccessHaloBreath 2.2s ease-in-out infinite;
-}
-.order-success-lottie-ring {
-  stroke: #D1D5DB;
-  stroke-dasharray: 100 100;
-  stroke-dashoffset: 100;
-  animation: orderSuccessRingLoop 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation: orderSuccessHaloBreath 1.8s ease-in-out infinite;
 }
 .order-success-lottie-ray {
   stroke: #00C875;
   stroke-dasharray: 46 160;
   stroke-dashoffset: 48;
-  animation: orderSuccessRayBurst 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: orderSuccessRayBurst 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 .order-success-seal-group {
   transform-origin: 60px 60px;
-  animation: orderSuccessSealPop 2.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+  animation: orderSuccessSealPop 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
 }
 .order-success-seal-fill {
   fill: #00C875;
@@ -989,7 +983,7 @@ html, body {
   transform-origin: 60px 60px;
   stroke-dasharray: 100 100;
   stroke-dashoffset: 100;
-  animation: orderSuccessDrawCheck 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation: orderSuccessDrawCheck 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
 html[data-store-theme="dark"] .order-success-page {
@@ -1006,9 +1000,6 @@ html[data-store-theme="dark"] .order-success-glow {
 }
 html[data-store-theme="dark"] .order-success-tick-halo {
   background: radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(52, 211, 153, 0.08) 54%, transparent 76%) !important;
-}
-html[data-store-theme="dark"] .order-success-lottie-ring {
-  stroke: rgba(203, 213, 225, 0.42) !important;
 }
 html[data-store-theme="dark"] .order-success-lottie-ray {
   stroke: #34D399 !important;
@@ -1101,79 +1092,61 @@ html[data-store-theme="dark"] .order-success-seal-fill {
     transform: scale(0.95);
     opacity: 0.65;
   }
-  58% {
-    transform: scale(1.12);
+  30% {
+    transform: scale(1.14);
     opacity: 1;
   }
 }
-@keyframes orderSuccessRingLoop {
-  0% {
-    stroke-dashoffset: 100;
-    opacity: 0.95;
-  }
-  24% {
-    stroke-dashoffset: 0;
-    opacity: 0.95;
-  }
-  44% {
-    stroke-dashoffset: -100;
-    opacity: 0.9;
-  }
-  47%, 100% {
-    stroke-dashoffset: -100;
-    opacity: 0;
-  }
-}
 @keyframes orderSuccessSealPop {
-  0%, 38% {
+  0% {
     transform: scale(0.92) rotate(0deg);
   }
-  43% {
+  10% {
     transform: scale(0.84) rotate(-14deg);
   }
-  57% {
+  26% {
     transform: scale(1.1) rotate(8deg);
   }
-  72%, 100% {
+  42%, 100% {
     transform: scale(1) rotate(0deg);
   }
 }
 @keyframes orderSuccessRayBurst {
-  0%, 44% {
+  0%, 10% {
     stroke-dashoffset: 48;
     opacity: 0;
   }
-  47% {
+  14% {
     stroke-dashoffset: 46;
     opacity: 1;
   }
-  66% {
+  38% {
     stroke-dashoffset: -18;
     opacity: 1;
   }
-  85% {
+  64% {
     stroke-dashoffset: -86;
     opacity: 1;
   }
-  94%, 100% {
+  78%, 100% {
     stroke-dashoffset: -102;
     opacity: 0;
   }
 }
 @keyframes orderSuccessDrawCheck {
-  0%, 36% {
+  0% {
     stroke-dashoffset: 0;
     opacity: 1;
   }
-  41% {
+  8% {
     stroke-dashoffset: 100;
     opacity: 0;
   }
-  45% {
+  12% {
     stroke-dashoffset: 100;
     opacity: 1;
   }
-  66%, 100% {
+  34%, 100% {
     stroke-dashoffset: 0;
     opacity: 1;
   }
@@ -1184,18 +1157,15 @@ html[data-store-theme="dark"] .order-success-seal-fill {
     animation: none !important;
   }
   .order-success-tick-halo {
-    animation: orderSuccessHaloBreath 2.2s ease-in-out infinite !important;
-  }
-  .order-success-lottie-ring {
-    animation: orderSuccessRingLoop 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite !important;
+    animation: orderSuccessHaloBreath 1.8s ease-in-out infinite !important;
   }
   .order-success-lottie-ray {
-    animation: orderSuccessRayBurst 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite !important;
+    animation: orderSuccessRayBurst 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite !important;
   }
   .order-success-seal-group {
-    animation: orderSuccessSealPop 2.2s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
+    animation: orderSuccessSealPop 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) infinite !important;
   }
   .order-success-check-path {
-    animation: orderSuccessDrawCheck 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite !important;
+    animation: orderSuccessDrawCheck 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite !important;
   }
 }
