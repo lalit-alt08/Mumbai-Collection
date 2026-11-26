@@ -69,7 +69,7 @@ export const login = async (req, res) => {
       cookieConfig,
     });
 
-    await accountLoginThrottle.recordSuccess(email);
+    await accountLoginThrottle.recordSuccess(email, context);
 
     res.json({
       success: data.success,

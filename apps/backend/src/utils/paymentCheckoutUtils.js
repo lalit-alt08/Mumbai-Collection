@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import https from "https";
 import axios from "axios";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { logger, sanitizeError } from "./logger.js";
 import { serverCache } from "./memoryCache.js";
 import { getRedisClient, isRedisActive } from "../config/redis.js";
@@ -13,9 +13,7 @@ import paymentIntentService, {
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "https://mumbai-collection.local").replace(/\/$/, "");
 export const MIN_ORDER_VALUE_INR = Number(process.env.MIN_ORDER_VALUE_INR || 1); // Temporarily 1 for testing (normally 500)
 
-export const httpsAgent = new https.Agent({
-  rejectUnauthorized: process.env.NODE_ENV === "production",
-});
+export { httpAgent, httpsAgent };
 
 export const formatPaiseAsRupees = (paise) => (paise / 100).toFixed(2);
 
@@ -163,6 +161,7 @@ export const getCustomerCart = async (wpAuthCookie, cartToken = null, addresses 
         },
         {
           headers,
+          httpAgent,
           httpsAgent,
           timeout: 10000,
         }
@@ -184,6 +183,7 @@ export const getCustomerCart = async (wpAuthCookie, cartToken = null, addresses 
     `${WP_BASE_URL}/wp-json/wc/store/v1/cart`,
     {
       headers,
+      httpAgent,
       httpsAgent,
       timeout: 10000,
     }

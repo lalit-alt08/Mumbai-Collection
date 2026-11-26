@@ -14,7 +14,12 @@
 import express from "express";
 import { requireAuth, requireVerifiedPhone, optionalAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
-import { checkoutLimiter, statusCheckLimiter } from "../middlewares/rateLimiter.js";
+import {
+  checkoutLimiter,
+  statusCheckLimiter,
+  paymentRecoveryIpLimiter,
+  paymentCallbackLimiter,
+} from "../middlewares/rateLimiter.js";
 import { requireIdempotency } from "../middlewares/idempotencyMiddleware.js";
 import { schemas, validateRequest } from "../middlewares/requestValidation.js";
 import {
@@ -45,8 +50,9 @@ router.post(
 router.post(
   "/verify",
   validateRequest({ body: schemas.paymentVerify }),
-  statusCheckLimiter,
+  paymentRecoveryIpLimiter,
   optionalAuth("customer"),
+  statusCheckLimiter,
   verifyPayment
 );
 
@@ -54,23 +60,25 @@ router.post(
 // Server-side redirect fallback for gateway POST form submissions or cross-browser returns
 router.post(
   "/callback",
-  statusCheckLimiter,
+  paymentCallbackLimiter,
   handlePaymentCallback
 );
 
 // POST /api/payments/check-status (App-Switch / Visibility / Reopen Recovery)
-// Session required; returns 401 if unauthenticated so client preserves pendingPayment and prompts sign-in
+// Session required; coarse IP limiter runs pre-auth and user-scoped limiter runs post-auth
 router.post(
   "/check-status",
   validateRequest({ body: schemas.paymentCheckStatus }),
-  statusCheckLimiter,
+  paymentRecoveryIpLimiter,
   requireAuth("customer"),
+  statusCheckLimiter,
   checkPaymentStatus
 );
 
 // POST /api/payments/cancel (Customer Dismisses Checkout / Explicit Cancel)
 router.post(
   "/cancel",
+  paymentRecoveryIpLimiter,
   requireAuth("customer"),
   validateRequest({ body: schemas.paymentCancel }),
   statusCheckLimiter,

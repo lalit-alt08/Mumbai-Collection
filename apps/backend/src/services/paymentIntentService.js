@@ -1,14 +1,10 @@
 import axios from "axios";
-import https from "https";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { logger } from "../utils/logger.js";
 
 const WP_BASE_URL = (process.env.WORDPRESS_URL || "http://localhost:8080").replace(/\/$/, "");
 const INTERNAL_KEY = process.env.MUMBAI_INTERNAL_API_KEY || "";
-
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: process.env.NODE_ENV === "production",
-});
 
 let wpClient = axios.create({
   baseURL: WP_BASE_URL,
@@ -16,6 +12,7 @@ let wpClient = axios.create({
     "X-Mumbai-Internal-Key": INTERNAL_KEY,
     "Content-Type": "application/json",
   },
+  httpAgent,
   httpsAgent,
   timeout: 8000,
 });

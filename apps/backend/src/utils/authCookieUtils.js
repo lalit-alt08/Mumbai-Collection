@@ -10,7 +10,7 @@ import {
 import { formatCustomerDisplayName } from "./nameFormatter.js";
 
 export const resolveContext = (req) => {
-  const panel = req.body?.context || req.query?.context || req.headers["x-mumbai-panel"];
+  const panel = req.body?.context || req.query?.context || req.headers?.["x-mumbai-panel"];
   if (panel === "admin") return "admin";
   if (panel === "employee") return "employee";
   if (panel === "customer") return "customer";

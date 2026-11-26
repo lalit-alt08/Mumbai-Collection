@@ -1,6 +1,6 @@
 import WooCommerceRestApiModule from "@woocommerce/woocommerce-rest-api";
 import axios from "axios";
-import { httpsAgent } from "./httpAgent.js";
+import { httpsAgent, httpAgent } from "./httpAgent.js";
 import {
   validateUpstreamJsonResponse,
   sanitizeUpstreamErrorResponse,
@@ -49,6 +49,7 @@ const api = new WooCommerceRestApi({
   queryStringAuth: false,
 
   axiosConfig: {
+    httpAgent,
     httpsAgent,
     // WooCommerce can take longer than the customer-facing API, especially
     // when an employee status change needs a read followed by a write.

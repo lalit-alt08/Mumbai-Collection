@@ -429,7 +429,7 @@ test("accountLoginThrottle applies progressive per-account cooldowns across rota
   await throttle.recordFailure("Staff@Example.com", "admin");
   await throttle.recordFailure("staff@example.com", "admin");
   let nextCalled = false;
-  await throttle({ body: { email: "staff@example.com" }, ip: "1.1.1.1" }, makeThrottleRes(), () => { nextCalled = true; });
+  await throttle({ body: { email: "staff@example.com", context: "admin" }, ip: "1.1.1.1" }, makeThrottleRes(), () => { nextCalled = true; });
   assert.equal(nextCalled, true, "Under threshold should still pass");
 
   const third = await throttle.recordFailure("staff@example.com", "admin");
@@ -438,19 +438,141 @@ test("accountLoginThrottle applies progressive per-account cooldowns across rota
   // Request from a completely different IP is blocked by per-account cooldown
   const blockedRes = makeThrottleRes();
   nextCalled = false;
-  await throttle({ body: { email: "STAFF@example.com" }, ip: "9.9.9.9" }, blockedRes, () => { nextCalled = true; });
+  await throttle({ body: { email: "STAFF@example.com", context: "admin" }, ip: "9.9.9.9" }, blockedRes, () => { nextCalled = true; });
   assert.equal(nextCalled, false);
   assert.equal(blockedRes.statusCode, 429);
   assert.ok(Number(blockedRes.headers["Retry-After"]) >= 1);
   assert.equal(blockedRes.body.success, false);
+
+  // With no panel hint, the controller and throttle both select Customer.
+  const defaultContextRes = makeThrottleRes();
+  await throttle({ body: { email: "staff@example.com" }, ip: "9.9.9.9" }, defaultContextRes, () => { nextCalled = true; });
+  assert.equal(nextCalled, true, "Admin cooldown must not block a default Customer login");
+  assert.equal(defaultContextRes.statusCode, 200);
 
   // Subsequent failure escalates cooldown progressively (15s -> 30s)
   const fourth = await throttle.recordFailure("staff@example.com", "admin");
   assert.equal(fourth.cooldownSec, 30);
 
   // Successful login clears the throttle state immediately
-  await throttle.recordSuccess("staff@example.com");
+  await throttle.recordSuccess("staff@example.com", "admin");
   nextCalled = false;
-  await throttle({ body: { email: "staff@example.com" }, ip: "8.8.8.8" }, makeThrottleRes(), () => { nextCalled = true; });
+  await throttle({ body: { email: "staff@example.com", context: "admin" }, ip: "8.8.8.8" }, makeThrottleRes(), () => { nextCalled = true; });
   assert.equal(nextCalled, true, "Cleared after successful login");
+});
+
+test("accountLoginThrottle isolates contexts and performs atomic concurrent updates via Redis eval", async () => {
+  const { createAccountLoginThrottle } = await import("../src/middlewares/rateLimiter.js");
+  const { _setRedisClientForTesting } = await import("../src/config/redis.js");
+
+  const fakeRedisStore = new Map();
+  const fakeRedis = {
+    async get(key) {
+      return fakeRedisStore.get(key) ?? null;
+    },
+    async del(key) {
+      fakeRedisStore.delete(key);
+      return 1;
+    },
+    async eval(_script, _numKeys, key, nowStr, windowMsStr, thresholdStr, scheduleRaw) {
+      const now = Number(nowStr);
+      const windowMs = Number(windowMsStr);
+      const threshold = Number(thresholdStr);
+      const schedule = String(scheduleRaw).split(",").map(Number);
+
+      let count = 1;
+      let expiresAt = now + windowMs;
+      const cur = fakeRedisStore.get(key);
+      if (cur) {
+        const [c, e] = String(cur).split("|").map(Number);
+        if (Number.isFinite(c) && Number.isFinite(e) && now < e) {
+          count = c + 1;
+          expiresAt = e;
+        }
+      }
+      let cooldownSec = 0;
+      if (count >= threshold) {
+        const idx = Math.min(count - threshold, schedule.length - 1);
+        cooldownSec = schedule[idx];
+      }
+      const blockedUntil = cooldownSec > 0 ? now + cooldownSec * 1000 : 0;
+      fakeRedisStore.set(key, `${count}|${expiresAt}|${blockedUntil}`);
+      return [count, cooldownSec, blockedUntil];
+    },
+  };
+
+  const makeThrottleRes = () => {
+    const headers = {};
+    return {
+      statusCode: 200,
+      headers,
+      body: null,
+      set(k, v) { headers[k] = v; },
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.body = payload; return this; },
+    };
+  };
+
+  try {
+    _setRedisClientForTesting(fakeRedis);
+    const throttle = createAccountLoginThrottle({
+      staffThreshold: 3,
+      customerThreshold: 3,
+      cooldownScheduleSec: [15, 30],
+    });
+
+    // Concurrent failures on customer login must not lose increments
+    const results = await Promise.all([
+      throttle.recordFailure("dual@example.com", "customer"),
+      throttle.recordFailure("dual@example.com", "customer"),
+      throttle.recordFailure("dual@example.com", "customer"),
+    ]);
+    assert.deepEqual(
+      results.map((r) => r.count).sort((a, b) => a - b),
+      [1, 2, 3],
+      "Atomic Redis eval must preserve every concurrent failure count"
+    );
+
+    // Customer login for dual@example.com is blocked, while admin login with same email stays unblocked
+    const custRes = makeThrottleRes();
+    let custNext = false;
+    await throttle({ body: { email: "dual@example.com", context: "customer" }, ip: "1.2.3.4" }, custRes, () => { custNext = true; });
+    assert.equal(custNext, false);
+    assert.equal(custRes.statusCode, 429);
+
+    const adminRes = makeThrottleRes();
+    let adminNext = false;
+    await throttle({ body: { email: "dual@example.com", context: "admin" }, ip: "1.2.3.4" }, adminRes, () => { adminNext = true; });
+    assert.equal(adminNext, true);
+
+    // Omitting body.context while providing X-Mumbai-Panel resolves the single panel via resolveContext
+    const headerAdminRes = makeThrottleRes();
+    let headerAdminNext = false;
+    await throttle(
+      { body: { email: "dual@example.com" }, headers: { "x-mumbai-panel": "admin" }, ip: "1.2.3.4" },
+      headerAdminRes,
+      () => { headerAdminNext = true; }
+    );
+    assert.equal(headerAdminNext, true);
+
+    const headerCustRes = makeThrottleRes();
+    let headerCustNext = false;
+    await throttle(
+      { body: { email: "dual@example.com" }, headers: { "x-mumbai-panel": "customer" }, ip: "1.2.3.4" },
+      headerCustRes,
+      () => { headerCustNext = true; }
+    );
+    assert.equal(headerCustNext, false);
+    assert.equal(headerCustRes.statusCode, 429);
+
+    const defaultContextRes = makeThrottleRes();
+    await throttle({ body: { email: "dual@example.com" }, ip: "1.2.3.4" }, defaultContextRes, () => {
+      assert.fail("A request without a panel hint must enforce the Customer cooldown");
+    });
+    assert.equal(defaultContextRes.statusCode, 429);
+
+    await throttle.recordSuccess("dual@example.com", "customer");
+  } finally {
+    _setRedisClientForTesting(null);
+  }
 });

@@ -1,6 +1,6 @@
 import express from "express";
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpsAgent, httpAgent } from "../config/httpAgent.js";
 import { transformMediaUrls } from "../utils/mediaUrl.js";
 import { serverCache } from "../utils/memoryCache.js";
 import { getSessionValidation, checkSessionPhoneVerified, checkSessionSuspended } from "../middlewares/authMiddleware.js";
@@ -82,7 +82,7 @@ export async function proxyStoreApi(req, res) {
         return res.status(400).json({ success: false, code: "INVALID_CHECKOUT_TOTAL", message: "Please review your cart before continuing." });
       }
       try {
-        const capability = await storeUpstreamAxios.get(`${WP_BASE_URL}/wp-json/mumbai-auth/v1/checkout-total-capability`, { httpsAgent, timeout: 4000 });
+        const capability = await storeUpstreamAxios.get(`${WP_BASE_URL}/wp-json/mumbai-auth/v1/checkout-total-capability`, { httpAgent, httpsAgent, timeout: 4000 });
         if (capability.data?.version !== 1) throw new Error("Checkout total validation unavailable");
       } catch (_) {
         return res.status(503).json({ success: false, code: "CHECKOUT_TOTAL_UNAVAILABLE", message: "Checkout is temporarily unavailable. Please try again shortly." });
@@ -195,6 +195,7 @@ export async function proxyStoreApi(req, res) {
 
       const cartRes = await storeUpstreamAxios.get(`${WP_BASE_URL}/wp-json/wc/store/v1/cart`, {
         headers: cartHeaders,
+        httpAgent,
         httpsAgent,
         timeout: 10000,
       });
@@ -270,6 +271,7 @@ export async function proxyStoreApi(req, res) {
       params: req.query,
       data: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
       headers: forwardHeaders,
+      httpAgent,
       httpsAgent,
       validateStatus: () => true,
       timeout: isCheckoutRequest ? 25000 : 10000,

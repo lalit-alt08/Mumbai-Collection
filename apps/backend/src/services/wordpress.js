@@ -1,5 +1,5 @@
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpsAgent, httpAgent } from "../config/httpAgent.js";
 import { shouldRetryUpstreamRead } from "../utils/upstreamReadRetry.js";
 import {
   validateUpstreamJsonResponse,
@@ -13,6 +13,7 @@ const wp = axios.create({
   // mumbai_internal_server_permission which checks X-Mumbai-Internal-Key only.
   // Adding Basic Auth causes WordPress Core to run wp_authenticate_application_password()
   // BEFORE the route callback, which rejects anything that isn't a proper WP App Password.
+  httpAgent,
   httpsAgent,
 });
 
