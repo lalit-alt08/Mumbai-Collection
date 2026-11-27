@@ -9,7 +9,10 @@ import productRouter from "../src/routes/productRoutes.js";
 import reviewRouter from "../src/routes/reviewRoutes.js";
 import paymentRouter from "../src/routes/paymentRoutes.js";
 import {
+  authLimiter,
   catalogLimiter,
+  checkoutIpLimiter,
+  checkoutLimiter,
   reviewLimiter,
   statusCheckLimiter,
   paymentRecoveryIpLimiter,
@@ -216,5 +219,26 @@ test("Rate limiter and HTTP agent hardening invariants", async (t) => {
     assert.ok(orphansFn.includes("durable_table_missing") && orphansFn.includes("'status' => 500"), "orphan webhook list must fail closed with 500 when table is missing");
     assert.ok(orphansFn.includes("db_query_failed") && orphansFn.includes("wpdb->last_error"), "orphan webhook list must fail closed with 500 on DB query errors");
     assert.ok(orphansFn.includes("refund_only") && orphansFn.includes("created_at ASC, event_id ASC"), "orphan webhook list must support oldest-first refund_only backlog queries");
+  });
+
+  await t.test("7. authLimiter tolerates non-string credentials and /create-order enforces pre-auth checkoutIpLimiter", () => {
+    const strKey = authLimiter.keyGenerator({
+      body: { credential: "header.payload.signature_1234567890abcdef1234567890" },
+      ip: "203.0.113.10",
+    });
+    assert.equal(strKey, "auth:ature_1234567890abcdef1234567890:203.0.113.10");
+
+    for (const badBody of [{ credential: 12345 }, { credential: { bad: true } }, { credential: ["a"] }, { email: { $ne: "" } }]) {
+      const key = authLimiter.keyGenerator({ body: badBody, ip: "203.0.113.10" });
+      assert.equal(key, "auth:anon:203.0.113.10");
+    }
+
+    const createOrderLayer = paymentRouter.stack.find((l) => l.route?.path === "/create-order");
+    assert.ok(createOrderLayer, "/create-order route must exist");
+    const handles = createOrderLayer.route.stack.map((s) => s.handle);
+    const ipIdx = handles.indexOf(checkoutIpLimiter);
+    const checkoutIdx = handles.indexOf(checkoutLimiter);
+    assert.ok(ipIdx >= 1, "/create-order must apply validateRequest then checkoutIpLimiter");
+    assert.ok(checkoutIdx > ipIdx + 1, "/create-order must apply auth/idempotency before per-user checkoutLimiter");
   });
 });

@@ -15,6 +15,7 @@ import express from "express";
 import { requireAuth, requireVerifiedPhone, optionalAuth } from "../middlewares/authMiddleware.js";
 import { requireRole } from "../middlewares/roleMiddleware.js";
 import {
+  checkoutIpLimiter,
   checkoutLimiter,
   statusCheckLimiter,
   paymentRecoveryIpLimiter,
@@ -38,6 +39,7 @@ const router = express.Router();
 router.post(
   "/create-order",
   validateRequest({ body: schemas.paymentCreateOrder }),
+  checkoutIpLimiter,
   requireAuth("customer"),
   requireVerifiedPhone,
   requireIdempotency,

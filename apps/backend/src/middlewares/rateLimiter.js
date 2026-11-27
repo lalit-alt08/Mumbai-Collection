@@ -132,8 +132,10 @@ export const authLimiter = createRateLimiter({
   max: 20,
   message: "Too many authentication attempts. Please try again in a few minutes.",
   keyGenerator: (req) => {
-    const raw = req.body?.email || req.body?.phone || req.body?.credential?.slice(-32) || "anon";
-    return `auth:${String(raw).trim().toLowerCase().slice(0, 64)}:${getClientIp(req)}`;
+    const cred = typeof req.body?.credential === "string" ? req.body.credential.slice(-32) : undefined;
+    const raw = req.body?.email || req.body?.phone || cred || "anon";
+    const safeRaw = typeof raw === "string" || typeof raw === "number" ? String(raw) : "anon";
+    return `auth:${safeRaw.trim().toLowerCase().slice(0, 64)}:${getClientIp(req)}`;
   },
 });
 
@@ -382,6 +384,14 @@ export const catalogLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 300,
   message: "Too many catalog requests. Please slow down.",
+});
+
+export const checkoutIpLimiter = createRateLimiter({
+  name: "checkout_ip",
+  windowMs: 60 * 1000,
+  max: 120,
+  message: "Too many checkout requests from this IP. Please wait a moment.",
+  keyGenerator: (req) => getClientIp(req),
 });
 
 export const checkoutLimiter = createRateLimiter({
