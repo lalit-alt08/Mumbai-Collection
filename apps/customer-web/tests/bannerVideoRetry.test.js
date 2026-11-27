@@ -142,6 +142,7 @@ test("Banner Video Retry Manager Suite", async (t) => {
     const indexHtmlSrc = readFileSync(new URL("../index.html", import.meta.url), "utf8");
     assert.match(indexHtmlSrc, /__MUMBAI_EARLY_BANNERS__/, "index.html must start /api/banners early on /");
     assert.match(indexHtmlSrc, /AbortController/, "index.html early fetch must have an abort timeout");
+    assert.match(indexHtmlSrc, /\.finally\(clearDeadline\)/, "index.html early fetch must keep deadline active until body parsing finishes");
     assert.match(
       indexHtmlSrc,
       /media_type === "video" && b\.video_url/,

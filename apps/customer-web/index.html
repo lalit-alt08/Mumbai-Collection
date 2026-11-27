@@ -105,7 +105,7 @@
             "/api/banners",
             controller ? { credentials: "same-origin", signal: controller.signal } : { credentials: "same-origin" }
           )
-            .then(function (res) { clearDeadline(); return res.ok ? res.json() : null; })
+            .then(function (res) { return res.ok ? res.json() : null; })
             .then(function (data) {
               if (!data || data.success !== true || !Array.isArray(data.banners)) return null;
               var first = null;
@@ -131,7 +131,8 @@
               }
               return data;
             })
-            .catch(function () { clearDeadline(); return null; });
+            .catch(function () { return null; })
+            .finally(clearDeadline);
         } catch (_) {}
       })();
     </script>
