@@ -130,7 +130,6 @@ function Header() {
                     alt="Mumbai Collection"
                     width={912}
                     height={182}
-                    fetchPriority="high"
                     decoding="async"
                     className="h-11 sm:h-12 md:h-14 w-auto max-w-full object-contain select-none"
                   />

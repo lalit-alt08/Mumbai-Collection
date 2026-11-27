@@ -354,7 +354,7 @@ function ProductInfo({ product }) {
               ) : isMaxReached ? (
                 <span className="text-[10px] font-bold text-amber-600 mt-0.5">All in cart</span>
               ) : remainingStock <= 5 ? (
-                <span className="text-[10px] font-bold text-orange-500 mt-0.5">
+                <span className="text-[10px] font-bold store-low-stock-text mt-0.5">
                   Only {remainingStock} left
                 </span>
               ) : (

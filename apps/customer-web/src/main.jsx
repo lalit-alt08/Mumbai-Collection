@@ -34,22 +34,15 @@ if (typeof window !== "undefined") {
 import { CartProvider } from "./context/CartContext";
 import { AuthProvider } from "./context/AuthContext";
 import { FavoritesProvider } from "./context/FavoritesContext";
-import { GoogleOAuthProvider } from "@react-oauth/google";
-
-const GOOGLE_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-  "477688999568-t4mnenlkrvhs6qd90sffptr6ht00v2u8.apps.googleusercontent.com";
 
 createRoot(document.getElementById("root")).render(
   <ErrorBoundary>
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <AuthProvider>
-        <CartProvider>
-          <FavoritesProvider>
-            <App />
-          </FavoritesProvider>
-        </CartProvider>
-      </AuthProvider>
-    </GoogleOAuthProvider>
+    <AuthProvider>
+      <CartProvider>
+        <FavoritesProvider>
+          <App />
+        </FavoritesProvider>
+      </CartProvider>
+    </AuthProvider>
   </ErrorBoundary>
 );

@@ -163,7 +163,7 @@ function ProductCard({ product }) {
               Max in cart
             </span>
           ) : remainingStock <= 5 && remainingStock > 0 ? (
-            <span className="text-xs font-semibold text-orange-400 leading-tight">
+            <span className="text-xs font-semibold store-low-stock-text leading-tight">
               ⚡ Only {remainingStock} left
             </span>
           ) : null}

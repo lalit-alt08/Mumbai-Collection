@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect } from "react";
-import { useGoogleLogin } from "@react-oauth/google";
+import { GoogleOAuthProvider, useGoogleLogin, useGoogleOAuth } from "@react-oauth/google";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Loader2, AlertCircle } from "lucide-react";
 import { googleLogin, confirmAuthenticatedUser } from "../../services/authService";
 import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 import { executePostAuthNavigation } from "../../utils/postAuthRedirect.js";
+
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  "477688999568-t4mnenlkrvhs6qd90sffptr6ht00v2u8.apps.googleusercontent.com";
 
 function GoogleIcon({ className = "h-5 w-5 shrink-0" }) {
   return (
@@ -30,9 +34,16 @@ function GoogleIcon({ className = "h-5 w-5 shrink-0" }) {
   );
 }
 
-export default function GoogleAuthButton({ mode = "signup", onError, disabled = false, onBusyChange }) {
+function GoogleAuthButtonInner({
+  mode = "signup",
+  onError,
+  disabled = false,
+  onBusyChange,
+  scriptError = false,
+}) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { scriptLoadedSuccessfully } = useGoogleOAuth();
   const { login: loginUser, reconcileSupersededAuth, handleSessionExpired, getAuthEpoch } = useAuth();
   const { cart, waitForAuthenticatedCart } = useCart();
 
@@ -54,6 +65,12 @@ export default function GoogleAuthButton({ mode = "signup", onError, disabled = 
   const [loading, setLoading] = useState(false);
   const [internalError, setInternalError] = useState("");
   const [linked, setLinked] = useState(false);
+
+  useEffect(() => {
+    if (scriptLoadedSuccessfully && internalError.startsWith("Google Sign-In is still initializing")) {
+      setInternalError("");
+    }
+  }, [scriptLoadedSuccessfully, internalError]);
 
   const handleLoginSuccess = async (codeResponse) => {
     const pendingAttempt = pendingPopupAttemptRef.current;
@@ -177,6 +194,16 @@ export default function GoogleAuthButton({ mode = "signup", onError, disabled = 
         type="button"
         onClick={() => {
           if (disabled || loading) return;
+          if (!scriptLoadedSuccessfully) {
+            if (scriptError) {
+              const msg = "Unable to load Google Sign-In. Please check your connection and try again.";
+              setInternalError(msg);
+              if (onError) onError(msg);
+            } else {
+              setInternalError("Google Sign-In is still initializing. Please tap again in a second.");
+            }
+            return;
+          }
           const attemptId = ++authAttemptRef.current;
           const preAuthEpoch = typeof getAuthEpoch === "function" ? getAuthEpoch() : null;
           pendingPopupAttemptRef.current = { attemptId, preAuthEpoch };
@@ -203,5 +230,19 @@ export default function GoogleAuthButton({ mode = "signup", onError, disabled = 
         )}
       </button>
     </div>
+  );
+}
+
+export default function GoogleAuthButton(props) {
+  const [scriptError, setScriptError] = useState(false);
+
+  return (
+    <GoogleOAuthProvider
+      clientId={GOOGLE_CLIENT_ID}
+      onScriptLoadSuccess={() => setScriptError(false)}
+      onScriptLoadError={() => setScriptError(true)}
+    >
+      <GoogleAuthButtonInner {...props} scriptError={scriptError} />
+    </GoogleOAuthProvider>
   );
 }
