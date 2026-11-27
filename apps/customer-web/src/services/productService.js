@@ -289,21 +289,32 @@ export const getBanners = async (options = {}) => {
       }
     : options;
 
-  bannersInFlight = catalogClient
-    .get("/banners", reqOptions)
-    .then((response) => {
-      // Sequence guard: prevent a delayed older response from overwriting a newer completed response
-      if (reqSeq >= latestCompletedSeq) {
-        latestCompletedSeq = reqSeq;
-        const hasBanners = Array.isArray(response.data?.banners) && response.data.banners.length > 0;
-        const hasThin = Boolean(response.data?.thin_banner);
-        // Full TTL for populated banner data; 5s TTL for empty/degraded responses to allow fast recovery
-        bannersCachedData = response.data;
-        bannersCachedTimestamp = (hasBanners || hasThin)
-          ? Date.now()
-          : (Date.now() - BANNERS_CACHE_TTL_MS + 5000);
+  const commitBannersData = (data) => {
+    // Sequence guard: prevent a delayed older response from overwriting a newer completed response
+    if (reqSeq >= latestCompletedSeq) {
+      latestCompletedSeq = reqSeq;
+      const hasBanners = Array.isArray(data?.banners) && data.banners.length > 0;
+      const hasThin = Boolean(data?.thin_banner);
+      // Full TTL for populated banner data; 5s TTL for empty/degraded responses to allow fast recovery
+      bannersCachedData = data;
+      bannersCachedTimestamp = (hasBanners || hasThin)
+        ? Date.now()
+        : (Date.now() - BANNERS_CACHE_TTL_MS + 5000);
+    }
+    return data;
+  };
+
+  const earlyPromise = !force && typeof window !== "undefined" ? window.__MUMBAI_EARLY_BANNERS__ : null;
+  if (earlyPromise && typeof window !== "undefined") {
+    window.__MUMBAI_EARLY_BANNERS__ = null;
+  }
+
+  bannersInFlight = Promise.resolve(earlyPromise)
+    .then((earlyData) => {
+      if (earlyData && earlyData.success === true) {
+        return commitBannersData(earlyData);
       }
-      return response.data;
+      return catalogClient.get("/banners", reqOptions).then((response) => commitBannersData(response.data));
     })
     .finally(() => {
       bannersInFlight = null;

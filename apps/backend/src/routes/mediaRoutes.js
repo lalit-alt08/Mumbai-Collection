@@ -195,15 +195,21 @@ router.use(async (req, res) => {
       res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'");
     }
 
-    // Partial 206 byte-range responses MUST NOT be cached as whole objects by proxies/CDNs.
+    // Partial 206 byte-range and error responses (e.g. 416) MUST NOT be cached by proxies/CDNs.
     // Full 200 responses (including .mp4) are safe to cache so Cloudflare can serve 206 ranges from edge cache.
-    if (response.status === 206) {
+    if (response.status === 200) {
+      if (req.query?.v || req.query?.ver) {
+        res.setHeader("Cache-Control", "public, max-age=2592000, stale-while-revalidate=604800");
+      } else {
+        res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      }
+    } else {
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-      res.setHeader("Vary", "Range, Origin");
-    } else {
-      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      if (response.status === 206) {
+        res.setHeader("Vary", "Range, Origin");
+      }
     }
 
     if (response.status === 416) {

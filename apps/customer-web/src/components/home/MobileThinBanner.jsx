@@ -37,12 +37,28 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
   }
   const [hasEnteredView, setHasEnteredView] = useState(false);
   const [isInView, setIsInView] = useState(false);
+  const [isDeferredVideoReady, setIsDeferredVideoReady] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(
+    () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+  );
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [isPlaybackFailed, setIsPlaybackFailed] = useState(false);
   const [attemptEpoch, setAttemptEpoch] = useState(0);
   const mediaIdentity = `${banner?.video_url || ""}|${banner?.image || ""}|${banner?.media_type || ""}`;
   const currentMediaRef = useRef(mediaIdentity);
   currentMediaRef.current = mediaIdentity;
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!media) return undefined;
+    const update = (event) => setReduceMotion(event.matches);
+    if (media.addEventListener) media.addEventListener("change", update);
+    else media.addListener(update);
+    return () => {
+      if (media.removeEventListener) media.removeEventListener("change", update);
+      else media.removeListener(update);
+    };
+  }, []);
 
   // Monitor viewport match
   useEffect(() => {
@@ -110,10 +126,46 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
   }, [isMobile, fetchThinBanner]);
 
   const isVideoMode = banner?.media_type === "video" && Boolean(banner?.video_url);
-  const canObserveVideo = isMobile && !loading && Boolean(banner?.image) && isVideoMode;
-  const videoSrc = canObserveVideo && hasEnteredView && !isPlaybackFailed
+  const canObserveVideo = isMobile && !loading && Boolean(banner?.image) && isVideoMode && !reduceMotion;
+  const videoSrc = canObserveVideo && hasEnteredView && isDeferredVideoReady && !isPlaybackFailed
     ? resolveMediaUrl(banner.video_url)
     : "";
+
+  // Defer attaching the MP4 source until after page load + settle (or first user gesture)
+  // so the thin banner poster renders immediately without competing with the Hero LCP download.
+  useEffect(() => {
+    if (!canObserveVideo || isDeferredVideoReady || typeof window === "undefined") return undefined;
+
+    let settledTimer = null;
+    const unlockVideo = () => {
+      if (settledTimer) window.clearTimeout(settledTimer);
+      setIsDeferredVideoReady(true);
+    };
+
+    const scheduleAfterLoad = () => {
+      settledTimer = window.setTimeout(unlockVideo, 2500);
+    };
+
+    if (document.readyState === "complete") {
+      scheduleAfterLoad();
+    } else {
+      window.addEventListener("load", scheduleAfterLoad, { once: true });
+    }
+
+    window.addEventListener("touchstart", unlockVideo, { passive: true, once: true });
+    window.addEventListener("pointerdown", unlockVideo, { passive: true, once: true });
+    window.addEventListener("scroll", unlockVideo, { passive: true, once: true });
+    window.addEventListener("keydown", unlockVideo, { passive: true, once: true });
+
+    return () => {
+      if (settledTimer) window.clearTimeout(settledTimer);
+      window.removeEventListener("load", scheduleAfterLoad);
+      window.removeEventListener("touchstart", unlockVideo);
+      window.removeEventListener("pointerdown", unlockVideo);
+      window.removeEventListener("scroll", unlockVideo);
+      window.removeEventListener("keydown", unlockVideo);
+    };
+  }, [canObserveVideo, isDeferredVideoReady]);
 
   // Unified failure recovery with exponential backoff, retry cap, and dual-error deduplication
   const scheduleRetryOrGiveUp = useCallback((reason = "error", epoch = undefined) => {
@@ -266,7 +318,7 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
         alt={banner.title || "Welcome to Mumbai Collection"}
         className="absolute inset-0 w-full h-full object-cover bg-[#F0F8E8]"
         loading="eager"
-        fetchPriority="high"
+        decoding="async"
       />
 
       {/* 2. Video Player (Source attached when entering view; plays muted inline) */}

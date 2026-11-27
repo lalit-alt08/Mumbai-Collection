@@ -7,19 +7,36 @@ import { transformMediaUrls, transformMediaUrl } from "../utils/mediaUrl.js";
 import { uploadVideoMedia } from "../services/wordpressMediaService.js";
 import { logError } from "../utils/logger.js";
 
+const appendMediaVersion = (url, tag) => {
+  if (!url || !tag || typeof url !== "string" || !url.includes("/api/media/uploads/")) {
+    return url;
+  }
+  const vTag = `v=${tag}`;
+  if (!url.includes("?")) return `${url}?${vTag}`;
+  if (!url.includes("v=")) return `${url}&${vTag}`;
+  return url;
+};
+
 const normalizePublicVideoBanner = (banner, version) => {
   if (!banner) return banner;
   const normalized = { ...banner };
   if (normalized.media_type === "video" && !normalized.video_url) {
     normalized.media_type = "image";
   }
-  if (normalized.video_url && (normalized.video_media_id || version)) {
-    const vTag = `v=${normalized.video_media_id || version || 2}`;
-    if (!normalized.video_url.includes("?")) {
-      normalized.video_url = `${normalized.video_url}?${vTag}`;
-    } else if (!normalized.video_url.includes("v=")) {
-      normalized.video_url = `${normalized.video_url}&${vTag}`;
-    }
+  const videoTag = normalized.video_media_id || version || 2;
+  if (normalized.video_url && videoTag) {
+    normalized.video_url = appendMediaVersion(normalized.video_url, videoTag);
+  }
+  const desktopTag = normalized.desktop_media_id || normalized.media_id || version;
+  const mobileTag = normalized.mobile_media_id || normalized.media_id || version;
+  if (normalized.desktop_image) {
+    normalized.desktop_image = appendMediaVersion(normalized.desktop_image, desktopTag);
+  }
+  if (normalized.mobile_image) {
+    normalized.mobile_image = appendMediaVersion(normalized.mobile_image, mobileTag);
+  }
+  if (normalized.image) {
+    normalized.image = appendMediaVersion(normalized.image, normalized.media_id || version);
   }
   return normalized;
 };
@@ -44,6 +61,12 @@ export const getPublicBanners = async (req, res) => {
     const publicHeroBanners = transformMediaUrls(activeBanners, req).map((banner) =>
       normalizePublicVideoBanner(banner, data.version)
     );
+
+    if (req.query?.force === "true" || data?.degraded === true) {
+      res.setHeader?.("Cache-Control", "no-store, no-cache, must-revalidate");
+    } else {
+      res.setHeader?.("Cache-Control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300");
+    }
 
     res.json({
       success: true,

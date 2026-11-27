@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   createBannerVideoRetryManager,
   MAX_VIDEO_RETRIES,
@@ -105,5 +106,50 @@ test("Banner Video Retry Manager Suite", async (t) => {
     assert.equal(manager.getTimeoutId(), null);
 
     manager.dispose();
+  });
+
+  await t.test("7. Early /api/banners bootstrap avoids duplicate fetch and MobileThinBanner defers video mount", async () => {
+    const { getBanners, _setCatalogClientForTesting } = await import("../src/services/productService.js");
+    const prevWindow = globalThis.window;
+    let networkCalls = 0;
+    try {
+      const earlyPayload = {
+        success: true,
+        banners: [{ id: "hero-1", desktop_image: "/api/media/uploads/h.webp?v=1", is_active: true }],
+        thin_banner: { id: "thin-1", image: "/banners/welcome-thin-banner.webp", is_active: true },
+      };
+      globalThis.window = { __MUMBAI_EARLY_BANNERS__: Promise.resolve(earlyPayload) };
+      _setCatalogClientForTesting({
+        async get() {
+          networkCalls += 1;
+          return { data: earlyPayload };
+        },
+      });
+      const result = await getBanners();
+      assert.deepEqual(result, earlyPayload);
+      assert.equal(networkCalls, 0, "getBanners must reuse early head fetch when available");
+    } finally {
+      globalThis.window = prevWindow;
+    }
+
+    const thinBannerSrc = readFileSync(
+      new URL("../src/components/home/MobileThinBanner.jsx", import.meta.url),
+      "utf8"
+    );
+    assert.match(thinBannerSrc, /isDeferredVideoReady/, "MobileThinBanner must defer MP4 attachment until post-load/interaction");
+    assert.match(thinBannerSrc, /prefers-reduced-motion:\s*reduce/, "MobileThinBanner must respect reduced-motion");
+
+    const indexHtmlSrc = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    assert.match(indexHtmlSrc, /__MUMBAI_EARLY_BANNERS__/, "index.html must start /api/banners early on /");
+    assert.match(indexHtmlSrc, /AbortController/, "index.html early fetch must have an abort timeout");
+    assert.match(
+      indexHtmlSrc,
+      /media_type === "video" && b\.video_url/,
+      "index.html must match HeroBanner slide eligibility before choosing image preload"
+    );
+    assert.ok(
+      indexHtmlSrc.indexOf("__MUMBAI_EARLY_BANNERS__") < indexHtmlSrc.indexOf("fonts.googleapis.com/css2"),
+      "early banner bootstrap must run before the render-blocking Google Fonts stylesheet"
+    );
   });
 });

@@ -136,4 +136,34 @@ test("Rate limiter and HTTP agent hardening invariants", async (t) => {
       "paymentIntentService.js must bind both httpAgent and httpsAgent on wpClient"
     );
   });
+
+  await t.test("4. Banner endpoint sets conditional cache headers and versioned media uses 30-day cache", () => {
+    const bannerCtrlSrc = readFileSync(new URL("../src/controllers/bannerController.js", import.meta.url), "utf8");
+    assert.ok(
+      bannerCtrlSrc.includes("public, max-age=30, s-maxage=60, stale-while-revalidate=300"),
+      "getPublicBanners must allow short public caching on healthy non-forced requests"
+    );
+    assert.ok(
+      bannerCtrlSrc.includes("data?.degraded === true"),
+      "getPublicBanners must bypass public caching for degraded fallback responses"
+    );
+    assert.ok(
+      bannerCtrlSrc.includes("appendMediaVersion"),
+      "bannerController must tag /api/media/uploads/ assets with ?v="
+    );
+
+    const bannerServiceSrc = readFileSync(new URL("../src/services/bannerService.js", import.meta.url), "utf8");
+    assert.ok(
+      bannerServiceSrc.includes("degraded = true"),
+      "bannerService getOutageFallback must mark fallback responses degraded"
+    );
+
+    const mediaRoutesSrc = readFileSync(new URL("../src/routes/mediaRoutes.js", import.meta.url), "utf8");
+    assert.ok(
+      mediaRoutesSrc.includes("if (response.status === 200)") &&
+        mediaRoutesSrc.includes("req.query?.v || req.query?.ver") &&
+        mediaRoutesSrc.includes("public, max-age=2592000, stale-while-revalidate=604800"),
+      "mediaRoutes must apply 30-day cache strictly on 200 responses for versioned ?v= media"
+    );
+  });
 });

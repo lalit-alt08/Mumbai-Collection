@@ -57,6 +57,84 @@
     />
     <meta name="twitter:image" content="https://mumbaicollections.in/og-image.jpg" />
 
+    <script>
+      (function () {
+        try {
+          var path = window.location.pathname || "/";
+          var host = window.location.hostname || "";
+          if ((path !== "/" && path !== "") || host === "localhost" || host === "127.0.0.1") return;
+          var controller = typeof AbortController === "function" ? new AbortController() : null;
+          var timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
+          var clearDeadline = function () { if (timer) { clearTimeout(timer); timer = null; } };
+          var normalizeHref = function (raw) {
+            if (!raw || typeof raw !== "string") return "";
+            var s = raw.trim();
+            if (!s) return "";
+            if (s.indexOf("data:") === 0 || s.indexOf("blob:") === 0 || s === "/product-placeholder.svg") return s;
+            if (s.indexOf("wp-content/uploads/") === 0) {
+              return "/api/media/uploads/" + s.slice("wp-content/uploads/".length);
+            }
+            var wpMarker = "/wp-content/uploads/";
+            var wpIdx = s.indexOf(wpMarker);
+            if (wpIdx !== -1) {
+              var isRelWp = s.indexOf(wpMarker) === 0 || s.indexOf("wp-content/uploads/") === 0;
+              var isApprovedHost = false;
+              if (!isRelWp) {
+                try {
+                  var uHost = new URL(s).hostname.toLowerCase();
+                  isApprovedHost =
+                    uHost === "mumbai-collection.local" ||
+                    uHost === "mumbaicollection.local" ||
+                    uHost === "localhost" ||
+                    uHost === "127.0.0.1";
+                } catch (_) {}
+              }
+              if (isRelWp || isApprovedHost) {
+                var rel = s.slice(wpIdx + wpMarker.length);
+                if (rel) return "/api/media/uploads/" + rel;
+              }
+            }
+            var localMatch = s.match(/^https?:\/\/(localhost|127\.0\.0\.1):5000(\/api\/.*)$/i);
+            if (localMatch) return localMatch[2];
+            if (window.location.protocol === "https:" && s.indexOf("http://") === 0) {
+              return "https://" + s.slice(7);
+            }
+            return s;
+          };
+          window.__MUMBAI_EARLY_BANNERS__ = fetch(
+            "/api/banners",
+            controller ? { credentials: "same-origin", signal: controller.signal } : { credentials: "same-origin" }
+          )
+            .then(function (res) { clearDeadline(); return res.ok ? res.json() : null; })
+            .then(function (data) {
+              if (!data || data.success !== true || !Array.isArray(data.banners)) return null;
+              var first = null;
+              for (var i = 0; i < data.banners.length; i++) {
+                var b = data.banners[i];
+                if (b && b.is_active !== false && (b.desktop_image || b.mobile_image || (b.media_type === "video" && b.video_url))) {
+                  first = b;
+                  break;
+                }
+              }
+              if (first && (first.desktop_image || first.mobile_image)) {
+                var isSmall = window.matchMedia && window.matchMedia("(max-width: 639px)").matches;
+                var raw = isSmall ? (first.mobile_image || first.desktop_image) : (first.desktop_image || first.mobile_image);
+                var href = normalizeHref(raw);
+                if (href) {
+                  var link = document.createElement("link");
+                  link.rel = "preload";
+                  link.as = "image";
+                  link.href = href;
+                  link.setAttribute("fetchpriority", "high");
+                  document.head.appendChild(link);
+                }
+              }
+              return data;
+            })
+            .catch(function () { clearDeadline(); return null; });
+        } catch (_) {}
+      })();
+    </script>
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -105,10 +105,15 @@ export const sanitizeThinBanner = (item) => {
 
 const getOutageFallback = () => {
   if (bannersCache?.data) {
-    return bannersCache.data;
+    const cached = [...bannersCache.data];
+    cached.thin_banner = bannersCache.data.thin_banner;
+    cached.version = bannersCache.data.version;
+    cached.degraded = true;
+    return cached;
   }
   const fallback = [...DEFAULT_BANNERS];
   fallback.thin_banner = { ...DEFAULT_THIN_BANNER, is_active: false };
+  fallback.degraded = true;
   return fallback;
 };
 
