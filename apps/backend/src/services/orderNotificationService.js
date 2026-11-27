@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { getRedisClient, getRedisSubscriber, isRedisActive, isRedisSubscriberActive } from "../config/redis.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
@@ -567,6 +567,7 @@ export const handleEmployeeOrderStream = (req, res) => {
         try {
           const wpRes = await axios.get(`${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`, {
             headers: { Cookie: authCookie },
+            httpAgent,
             httpsAgent,
             timeout: 4000,
           });

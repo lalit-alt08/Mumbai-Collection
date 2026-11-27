@@ -1,5 +1,5 @@
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
 import { serverCache } from "../utils/memoryCache.js";
 
@@ -404,6 +404,7 @@ export const getStoreHoursConfig = async (forceFresh = false) => {
   try {
     const response = await axios.get(endpoint, {
       headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
+      httpAgent,
       httpsAgent,
       timeout: 8000,
     });
@@ -488,6 +489,7 @@ export const saveStoreHoursConfig = async (newConfig, { expectedVersion } = {}) 
     requestPayload,
     {
       headers: { "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY },
+      httpAgent,
       httpsAgent,
       timeout: 10000,
     }

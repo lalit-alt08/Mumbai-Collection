@@ -38,6 +38,15 @@ router.use(async (req, res) => {
     return res.status(204).end();
   }
 
+  const applyNoStore = () => {
+    if (!res.headersSent) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
+  };
+  applyNoStore();
+
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.setHeader("Allow", "GET, HEAD, OPTIONS");
     return res.status(405).json({ success: false, message: "Method Not Allowed" });
@@ -198,15 +207,15 @@ router.use(async (req, res) => {
     // Partial 206 byte-range and error responses (e.g. 416) MUST NOT be cached by proxies/CDNs.
     // Full 200 responses (including .mp4) are safe to cache so Cloudflare can serve 206 ranges from edge cache.
     if (response.status === 200) {
+      res.removeHeader("Pragma");
+      res.removeHeader("Expires");
       if (req.query?.v || req.query?.ver) {
         res.setHeader("Cache-Control", "public, max-age=2592000, stale-while-revalidate=604800");
       } else {
         res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
       }
     } else {
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      res.setHeader("Pragma", "no-cache");
-      res.setHeader("Expires", "0");
+      applyNoStore();
       if (response.status === 206) {
         res.setHeader("Vary", "Range, Origin");
       }
@@ -234,6 +243,10 @@ router.use(async (req, res) => {
     });
     response.data.on("error", (streamError) => {
       if (!res.headersSent) {
+        applyNoStore();
+        for (const header of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"]) {
+          res.removeHeader(header);
+        }
         res.status(502).json({ success: false, message: "Media stream could not be completed." });
       } else {
         res.destroy(streamError);
@@ -243,6 +256,7 @@ router.use(async (req, res) => {
     return response.data.pipe(res);
   } catch (error) {
     res.removeListener("close", abortUpstreamOnDisconnect);
+    applyNoStore();
     if (error.response?.status === 404 || error.code === "ERR_BAD_REQUEST") {
       return res.status(404).json({ success: false, message: "Media file not found." });
     }

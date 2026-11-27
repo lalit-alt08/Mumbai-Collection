@@ -1,7 +1,7 @@
 import axios from "axios";
 import wp from "../services/wordpress.js";
 import wcApi from "../config/woocommerce.js";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import {
   COOKIE_NAMES,
   getSessionValidation,
@@ -460,6 +460,7 @@ export const googleLogin = async (req, res) => {
       { email, name, google_sub, authenticated_user_id },
       {
         headers: getInternalHeaders(),
+        httpAgent,
         httpsAgent,
         timeout: 10000,
       }

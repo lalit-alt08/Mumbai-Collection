@@ -1,5 +1,5 @@
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import {
   COOKIE_NAMES,
   evictSessionUserCache,
@@ -48,6 +48,7 @@ export const checkPhoneAvailability = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           ...(req.wpUserId ? { "X-Mumbai-User-ID": String(req.wpUserId) } : {}),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -80,6 +81,7 @@ export const getProfile = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -151,6 +153,7 @@ export const saveProfile = async (req, res) => {
           "X-Mumbai-User-ID": String(req.wpUserId),
           Cookie: req.cookies?.[COOKIE_NAMES.customer.auth] || req.cookies?.mumbai_wp_auth || "",
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -275,6 +278,7 @@ export const checkProfileComplete = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       },
@@ -357,6 +361,7 @@ export const deleteAccount = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(userId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 10000,
       }

@@ -366,8 +366,11 @@ export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanM
       older_than_minutes: olderThanMinutes,
       cursor,
     });
+    if (res.data?.success !== true || !Array.isArray(res.data.intents) || typeof res.data.has_more !== "boolean") {
+      throw new Error("Invalid payment reconciliation list response");
+    }
     return {
-      intents: Array.isArray(res.data?.intents) ? res.data.intents : [],
+      intents: res.data.intents,
       page: res.data?.page || page,
       limit: res.data?.limit || limit,
       hasMore: Boolean(res.data?.has_more),
@@ -434,10 +437,16 @@ export const updateWebhookEventStatus = async ({ eventId, status }) => {
 /**
  * Fetches list and count of orphan webhook events.
  */
-export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1 } = {}) => {
+export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1, refundOnly = false, cursor = null } = {}) => {
   try {
+    const params = { limit, page };
+    if (refundOnly) params.refund_only = 'true';
+    if (cursor) {
+      params.after_created_at = cursor.createdAt;
+      params.after_event_id = cursor.eventId;
+    }
     const res = await wpClient.get("/wp-json/mumbai-auth/v1/webhook-events/orphans", {
-      params: { limit, page },
+      params,
     });
     if (!Number.isSafeInteger(Number(res.data?.count)) || Number(res.data.count) < 0 || !Array.isArray(res.data?.orphans)) {
       throw new Error("Invalid orphan webhook health response");
@@ -447,6 +456,7 @@ export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1 } = {}) =>
       orphans: Array.isArray(res.data?.orphans) ? res.data.orphans : [],
       page: res.data?.page || page,
       limit: res.data?.limit || limit,
+      nextCursor: res.data?.next_cursor || null,
     };
   } catch (err) {
     logger.warn(

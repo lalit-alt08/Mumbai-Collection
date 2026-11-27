@@ -2,7 +2,7 @@ import wp from "../services/wordpress.js";
 import { createHash } from "node:crypto";
 import axios from "axios";
 import api from "../config/woocommerce.js";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import {
   uploadMedia,
   markMediaAttached,
@@ -160,6 +160,7 @@ export const fetchStockCounts = async ({ bypassCache = false } = {}) => {
       try {
         const res = await axios.get(`${wpBaseUrl}/wp-json/mumbai-auth/v1/products/stock-counts`, {
           headers: { "X-Mumbai-Internal-Key": internalKey },
+          httpAgent,
           httpsAgent,
           timeout: 4000,
         });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { httpAgent, httpsAgent } from "../src/config/httpAgent.js";
 import wooClient from "../src/config/woocommerce.js";
 import wpClient from "../src/services/wordpress.js";
@@ -165,5 +165,56 @@ test("Rate limiter and HTTP agent hardening invariants", async (t) => {
         mediaRoutesSrc.includes("public, max-age=2592000, stale-while-revalidate=604800"),
       "mediaRoutes must apply 30-day cache strictly on 200 responses for versioned ?v= media"
     );
+  });
+
+  await t.test("5. Every backend file passing httpsAgent to axios/clients also binds bounded httpAgent", () => {
+    const srcRoot = new URL("../src/", import.meta.url);
+    const collectJs = (dirUrl) => {
+      const files = [];
+      for (const entry of readdirSync(dirUrl, { withFileTypes: true })) {
+        const nextUrl = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dirUrl);
+        if (entry.isDirectory()) files.push(...collectJs(nextUrl));
+        else if (entry.name.endsWith(".js")) files.push(nextUrl);
+      }
+      return files;
+    };
+    for (const fileUrl of collectJs(srcRoot)) {
+      if (fileUrl.pathname.endsWith("/config/httpAgent.js")) continue;
+      const content = readFileSync(fileUrl, "utf8");
+      const httpsCount = (content.match(/\bhttpsAgent\b/g) || []).length;
+      const httpCount = (content.match(/\bhttpAgent\b/g) || []).length;
+      if (httpsCount >= 2) {
+        assert.ok(
+          httpCount >= httpsCount,
+          `${fileUrl.pathname} binds httpsAgent without matching httpAgent (${httpCount} vs ${httpsCount})`
+        );
+      }
+    }
+  });
+
+  await t.test("6. Media error paths enforce no-store and PHP reconciliation fails closed on missing table or DB errors", () => {
+    const mediaRoutesSrc = readFileSync(new URL("../src/routes/mediaRoutes.js", import.meta.url), "utf8");
+    const errIdx = mediaRoutesSrc.indexOf('response.data.on("error"');
+    assert.ok(errIdx !== -1 && mediaRoutesSrc.slice(errIdx).includes("applyNoStore()"), "mediaRoutes stream error must enforce no-store");
+    assert.ok(
+      mediaRoutesSrc.includes('setHeader("Cache-Control", "no-cache, no-store, must-revalidate")'),
+      "mediaRoutes catch handler must explicitly enforce no-store on 404/502 errors"
+    );
+
+    const phpSrc = readFileSync(new URL("../../wordpress-plugin/mumbai-auth.php", import.meta.url), "utf8");
+    const fnStart = phpSrc.indexOf("function mumbai_payment_intent_reconciliation_list");
+    const fnEnd = phpSrc.indexOf("function mumbai_webhook_event_store");
+    assert.ok(fnStart !== -1 && fnEnd > fnStart);
+    const reconFn = phpSrc.slice(fnStart, fnEnd);
+    assert.ok(reconFn.includes("durable_table_missing") && reconFn.includes("'status' => 500"), "reconciliation list must fail closed with 500 when table is missing");
+    assert.ok(reconFn.includes("db_query_failed") && reconFn.includes("wpdb->last_error"), "reconciliation list must fail closed with 500 on DB query errors");
+
+    const orphansStart = phpSrc.indexOf("function mumbai_webhook_events_orphans");
+    const orphansEnd = phpSrc.indexOf("function mumbai_find_order_by_razorpay_order_id");
+    assert.ok(orphansStart !== -1 && orphansEnd > orphansStart);
+    const orphansFn = phpSrc.slice(orphansStart, orphansEnd);
+    assert.ok(orphansFn.includes("durable_table_missing") && orphansFn.includes("'status' => 500"), "orphan webhook list must fail closed with 500 when table is missing");
+    assert.ok(orphansFn.includes("db_query_failed") && orphansFn.includes("wpdb->last_error"), "orphan webhook list must fail closed with 500 on DB query errors");
+    assert.ok(orphansFn.includes("refund_only") && orphansFn.includes("created_at ASC, event_id ASC"), "orphan webhook list must support oldest-first refund_only backlog queries");
   });
 });

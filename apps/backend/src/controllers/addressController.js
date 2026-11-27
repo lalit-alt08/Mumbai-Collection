@@ -1,5 +1,5 @@
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { parseFirstAndLastName } from "../utils/nameFormatter.js";
 import { logError } from "../utils/logger.js";
 
@@ -128,6 +128,7 @@ export const getAddresses = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       },
@@ -264,6 +265,7 @@ export const saveAddress = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -290,6 +292,7 @@ export const saveAddress = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -349,6 +352,7 @@ export const updateAddress = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -375,6 +379,7 @@ export const updateAddress = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -423,6 +428,7 @@ export const deleteAddress = async (req, res) => {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           "X-Mumbai-User-ID": String(req.wpUserId),
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       },

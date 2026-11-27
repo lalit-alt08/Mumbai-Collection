@@ -1,6 +1,6 @@
 import api from "../config/woocommerce.js";
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { checkSessionSuspended } from "../middlewares/authMiddleware.js";
 import { formatCustomerDisplayName } from "../utils/nameFormatter.js";
 import { logError, logger } from "../utils/logger.js";
@@ -123,6 +123,7 @@ const getCustomerDetails = async (req) => {
             `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
             {
               headers: { Cookie: req.wpAuthCookie },
+              httpAgent,
               httpsAgent,
               timeout: 4000,
             }
@@ -151,6 +152,7 @@ const getCustomerDetails = async (req) => {
                 "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
                 "X-Mumbai-User-ID": String(userId),
               },
+              httpAgent,
               httpsAgent,
               timeout: 4000,
             }

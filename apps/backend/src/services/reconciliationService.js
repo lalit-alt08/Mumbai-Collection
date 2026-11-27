@@ -1,4 +1,5 @@
 import { finalizePaymentAndCreateOrder } from "../controllers/paymentController.js";
+import { processRefundWebhookEvent } from "../controllers/paymentWebhookHandler.js";
 import { acquirePaymentLease } from "./paymentLease.js";
 import { logger, getErrorMessage, sanitizeError } from "../utils/logger.js";
 import {
@@ -13,10 +14,43 @@ import api from "../config/woocommerce.js";
 import { invalidateOrderDetailCache } from "./orderDetailCache.js";
 import { publishOrderEvent } from "./orderNotificationService.js";
 import { serverCache } from "../utils/memoryCache.js";
+import { getRedisClient } from "../config/redis.js";
 
 const RECONCILIATION_LOCK_ID = "cron_reconciler_worker";
 const MAX_RECOVERY_ATTEMPTS = 3;
 const RECOVERABLE_STATUSES = new Set(['created', 'cancelled', 'abandoned', 'paid', 'quarantined', 'orphan_payment', 'refund_pending', 'refund_failed']);
+const REFUND_WEBHOOK_EVENTS = new Set(["refund.processed", "refund.failed"]);
+const localOrphanRefundAttempts = new Map();
+let orphanRefundCursor = null;
+
+const nextOrphanRefundAttempt = async (eventId) => {
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      const key = `reconciler:orphan_refund_attempts:${eventId}`;
+      const count = Number(await redis.incr(key));
+      if (count === 1) await redis.expire(key, 24 * 60 * 60);
+      return count;
+    } catch (_) {}
+  }
+  if (localOrphanRefundAttempts.size >= 1000 && !localOrphanRefundAttempts.has(eventId)) {
+    const firstKey = localOrphanRefundAttempts.keys().next().value;
+    if (firstKey) localOrphanRefundAttempts.delete(firstKey);
+  }
+  const next = (localOrphanRefundAttempts.get(eventId) || 0) + 1;
+  localOrphanRefundAttempts.set(eventId, next);
+  return next;
+};
+
+const clearOrphanRefundAttempt = async (eventId) => {
+  localOrphanRefundAttempts.delete(eventId);
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      await redis.del(`reconciler:orphan_refund_attempts:${eventId}`);
+    } catch (_) {}
+  }
+};
 const recoveryAttempts = (intent) => ['refund_pending', 'refund_failed'].includes(intent.status)
   ? Number(intent.attempts || 0)
   : Number(String(intent.error_reason || '').match(/^GATEWAY_LOOKUP_FAILURES:(\d+)/)?.[1] || 0);
@@ -125,7 +159,7 @@ export const extractCheckoutDetails = (intentRow) => {
 export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) => {
   const lease = await acquirePaymentLease(RECONCILIATION_LOCK_ID, 'reconciler', 2000);
   if (!lease) return { skipped: true, reason: 'locked' };
-  const results = { processed: 0, healedOrders: 0, refundsExecuted: 0, refundsConfirmed: 0, escalated: 0, errorCount: 0, errors: [] };
+  const results = { processed: 0, healedOrders: 0, refundsExecuted: 0, refundsConfirmed: 0, orphanRefundsRecovered: 0, escalated: 0, errorCount: 0, errors: [] };
   let cursor = '';
   try {
     while (true) {
@@ -230,6 +264,93 @@ export const runPaymentReconciliation = async ({ olderThanMinutes = 1 } = {}) =>
       if (!batch.nextCursor || batch.nextCursor === cursor) throw new Error('Reconciliation cursor did not advance');
       cursor = batch.nextCursor;
     }
+
+    // Retry unresolved/orphan refund webhook events (e.g., interrupted right after 200 ACK
+    // or failed prior to staging refund_pending on the payment intent).
+    if (typeof paymentIntentService.fetchOrphanWebhookEvents === "function") {
+      try {
+        for (let iter = 0; iter < 10; iter++) {
+          await lease.refresh();
+          const orphanBatch = await paymentIntentService.fetchOrphanWebhookEvents({
+            limit: 50, refundOnly: true, cursor: orphanRefundCursor,
+          });
+          const orphans = Array.isArray(orphanBatch?.orphans) ? orphanBatch.orphans : [];
+          for (const row of orphans) {
+            if (!row?.event_id) continue;
+            if (!REFUND_WEBHOOK_EVENTS.has(row.event_type)) continue;
+            results.processed++;
+            let parsedPayload = null;
+            if (row.raw_payload) {
+              try {
+                parsedPayload = typeof row.raw_payload === "string" ? JSON.parse(row.raw_payload) : row.raw_payload;
+              } catch (_) {}
+            }
+            const refundEntity = parsedPayload?.payload?.refund?.entity || null;
+            const paymentEntity = parsedPayload?.payload?.payment?.entity || null;
+            try {
+              await processRefundWebhookEvent({
+                eventId: row.event_id,
+                event: row.event_type,
+                rzpPaymentId: row.rzp_payment_id || refundEntity?.payment_id || paymentEntity?.id,
+                rzpOrderId: row.rzp_order_id || paymentEntity?.order_id || refundEntity?.notes?.rzp_order_id,
+                refundEntity,
+                paymentEntity,
+              });
+              await clearOrphanRefundAttempt(row.event_id);
+              results.orphanRefundsRecovered++;
+            } catch (refundErr) {
+              const attempts = await nextOrphanRefundAttempt(row.event_id);
+              let escalated = false;
+              let recordedError = refundErr;
+              if (attempts >= MAX_RECOVERY_ATTEMPTS) {
+                try {
+                  const alert = await alertStaffAnomaly({
+                    type: "ORPHAN_REFUND_WEBHOOK_ESCALATED",
+                    severity: "critical",
+                    rzpOrderId: row.rzp_order_id,
+                    rzpPaymentId: row.rzp_payment_id,
+                    message: "Automatic retry of a refund webhook event failed repeatedly. Staff review is required.",
+                    details: { eventId: row.event_id, eventType: row.event_type, attempts, reason: getErrorMessage(refundErr) },
+                  });
+                  if (!alert?.success) {
+                    throw new Error("Could not queue orphan refund escalation alert");
+                  }
+                  const updated = await paymentIntentService.updateWebhookEventStatus({ eventId: row.event_id, status: "failed" });
+                  if (!updated) throw new Error("Could not durably record orphan refund escalation");
+                  await clearOrphanRefundAttempt(row.event_id);
+                  escalated = true;
+                  results.escalated++;
+                } catch (escalationErr) {
+                  recordedError = escalationErr;
+                  logger.error(
+                    { eventId: row.event_id, rzpOrderId: row.rzp_order_id, err: sanitizeError(escalationErr) },
+                    "[Reconciler] Failed to escalate orphan refund webhook event; keeping eligible for retry"
+                  );
+                }
+              }
+              results.errorCount++;
+              if (results.errors.length < 50) {
+                results.errors.push({
+                  eventId: row.event_id,
+                  rzpOrderId: row.rzp_order_id,
+                  error: getErrorMessage(recordedError),
+                  escalated,
+                });
+              }
+            }
+          }
+          orphanRefundCursor = orphanBatch.nextCursor || null;
+          if (!orphanRefundCursor) break;
+        }
+      } catch (orphanFetchErr) {
+        results.errorCount++;
+        if (results.errors.length < 50) {
+          results.errors.push({ stage: "orphan_refund_fetch", error: getErrorMessage(orphanFetchErr) });
+        }
+        logger.error({ err: sanitizeError(orphanFetchErr) }, "[Reconciler] Failed to scan orphan refund webhook events");
+      }
+    }
+
     return results;
   } finally { await lease.release(); }
 };

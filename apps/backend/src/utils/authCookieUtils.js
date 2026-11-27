@@ -1,5 +1,5 @@
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { logger } from "./logger.js";
 import {
   setSessionCache,
@@ -52,6 +52,7 @@ export const revokeIssuedWordPressSession = async (data) => {
           Cookie: `${data.cookie_name}=${data.session}`,
           ...getInternalHeaders(),
         },
+        httpAgent,
         httpsAgent,
         timeout: 5000,
       }
@@ -118,6 +119,7 @@ export const revokeUpstreamWordPressSession = async (wpAuth) => {
             Cookie: wpAuth,
             ...getInternalHeaders(),
           },
+          httpAgent,
           httpsAgent,
           timeout: 3000,
         }

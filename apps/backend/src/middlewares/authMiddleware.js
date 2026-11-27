@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { logError, logger } from "../utils/logger.js";
 import { getRedisClient, getRedisSubscriber } from "../config/redis.js";
 
@@ -899,6 +899,7 @@ const executeAuth = async (context, req, res, next) => {
         headers: {
           Cookie: parsedAuth.canonicalForward,
         },
+        httpAgent,
         httpsAgent,
         timeout: 8000,
       }
@@ -1211,6 +1212,7 @@ export const getSessionValidation = async (wpAuth) => {
         `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
         {
           headers: { Cookie: parsedAuth.canonicalForward },
+          httpAgent,
           httpsAgent,
           timeout: 8000, // 8000ms upstream timeout
         }
@@ -1456,6 +1458,7 @@ const executeOptionalAuth = async (context, req, res, next) => {
       `${process.env.WORDPRESS_URL}/wp-json/mumbai-auth/v1/me`,
       {
         headers: { Cookie: parsedAuth.canonicalForward },
+        httpAgent,
         httpsAgent,
         timeout: 4000,
       }

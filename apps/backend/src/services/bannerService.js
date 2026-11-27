@@ -1,5 +1,5 @@
 import axios from "axios";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
 import {
   validateUpstreamJsonResponse,
@@ -155,6 +155,7 @@ export const getBanners = async (forceFresh = false) => {
           headers: {
             "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
           },
+          httpAgent,
           httpsAgent,
           timeout: 8000,
         }).catch((err) => {
@@ -279,6 +280,7 @@ export const saveBanners = async ({ banners, thin_banner, expected_version } = {
         headers: {
           "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
         },
+        httpAgent,
         httpsAgent,
         timeout: 10000,
       }

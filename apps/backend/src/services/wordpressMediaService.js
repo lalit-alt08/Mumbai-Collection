@@ -1,6 +1,6 @@
 import axios from "axios";
 import path from "path";
-import { httpsAgent } from "../config/httpAgent.js";
+import { httpAgent, httpsAgent } from "../config/httpAgent.js";
 import { logger } from "../utils/logger.js";
 import { processProductImage } from "./imageProcessor.js";
 import { validateMp4Buffer } from "../utils/videoValidator.js";
@@ -47,6 +47,7 @@ export const uploadMedia = async (file, options = {}) => {
           "Content-Type": cleanMimeType,
           "X-Mumbai-Internal-Key": internalApiKey,
         },
+        httpAgent,
         httpsAgent,
         timeout: 25000,
       });
@@ -89,6 +90,7 @@ export const uploadMedia = async (file, options = {}) => {
       "Content-Disposition": `attachment; filename="${cleanFilename}"`,
       Authorization: `Basic ${authHeader}`,
     },
+    httpAgent,
     httpsAgent,
     timeout: 25000,
   });
@@ -162,6 +164,7 @@ export const uploadVideoMedia = async (file, options = {}) => {
           "Content-Type": cleanMimeType,
           "X-Mumbai-Internal-Key": internalApiKey,
         },
+        httpAgent,
         httpsAgent,
         timeout: 45000,
       });
@@ -203,6 +206,7 @@ export const uploadVideoMedia = async (file, options = {}) => {
       "Content-Disposition": `attachment; filename="${cleanFilename}"`,
       Authorization: `Basic ${authHeader}`,
     },
+    httpAgent,
     httpsAgent,
     timeout: 45000,
   });
@@ -255,6 +259,7 @@ export const trackPendingMedia = async (mediaId, options = {}) => {
         "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
         "Content-Type": "application/json",
       },
+      httpAgent,
       httpsAgent,
       timeout: 10000,
     }
@@ -294,6 +299,7 @@ export const markMediaAttached = async (mediaIds, targetId, targetType = "produc
         "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
         "Content-Type": "application/json",
       },
+      httpAgent,
       httpsAgent,
       timeout: 10000,
     }
@@ -334,6 +340,7 @@ export const deleteMediaIfUnreferenced = async (mediaIds, options = {}) => {
         "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
         "Content-Type": "application/json",
       },
+      httpAgent,
       httpsAgent,
       timeout: 15000,
     }
@@ -359,6 +366,7 @@ export const cleanupPendingOrphanMedia = async () => {
         "X-Mumbai-Internal-Key": process.env.MUMBAI_INTERNAL_API_KEY,
         "Content-Type": "application/json",
       },
+      httpAgent,
       httpsAgent,
       timeout: 20000,
     }

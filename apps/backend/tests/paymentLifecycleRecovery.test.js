@@ -12,10 +12,11 @@ import { serverCache } from '../src/utils/memoryCache.js';
 
 test('Payment lifecycle recovery regressions (mock gateways; no money or HTTP server)', async t => {
   const originals = { ...service };
-  const oldPut = api.put, oldPost = api.post, oldHours = storeHours.getStoreStatus;
+  const oldGet = api.get, oldPut = api.put, oldPost = api.post, oldHours = storeHours.getStoreStatus;
   let intent, order, creations, refunds, released, gateway, batches, locks;
   const response = () => ({ statusCode: 200, body: null, status(n) { this.statusCode=n; return this; }, json(body) { this.body=body; return this; } });
   t.beforeEach(() => {
+    Object.assign(service, originals);
     serverCache.clear();
     intent = { customer_id: 7, status: 'created', amount_in_paise: 54000, created_at: Date.now(),
       stock_reservation_id: 'stock-token-123', checkout_payload: { customer_id: 7, line_items: [{ product_id: 9, quantity: 2 }] } };
@@ -38,6 +39,7 @@ test('Payment lifecycle recovery regressions (mock gateways; no money or HTTP se
     };
     service.createPaidOrder=async () => { creations++; order={ id:88, customer_id:7, total:'540.00', status:'processing' }; return { data:order }; };
     service.fetchReconciliationList=async p => { batches.push(p); return { intents:[{ rzp_order_id:'order_lifecycle', status:intent.status }], hasMore:false }; };
+    service.fetchOrphanWebhookEvents=async () => ({ count:0, orphans:[] });
     gateway={ payments: {
       fetch:async () => ({ id:'pay_lifecycle', order_id:'order_lifecycle', status:'captured', amount:54000, currency:'INR', amount_refunded:0 }),
       fetchMultipleRefund:async () => ({ items:[] }),
@@ -45,13 +47,14 @@ test('Payment lifecycle recovery regressions (mock gateways; no money or HTTP se
     }, orders:{ fetch:async () => ({ status:'created',amount_paid:0 }), fetchPayments:async () => ({ items:[{ id:'pay_lifecycle',status:'captured' }] }) } };
     _setRazorpayInstanceForTesting(gateway);
     _setWpClientForTesting({ post:async () => ({ data:{ success:true,updated:true } }) });
-    _setAnomalyHandlerForTesting(async () => {});
+    _setAnomalyHandlerForTesting(async () => ({ success:true, queued:true }));
     storeHours.getStoreStatus=async () => ({ is_open:true });
+    api.get=async () => ({ data:order || { status:'processing' } });
     api.put=async () => ({ data:{} }); api.post=async () => ({ data:{} });
     process.env.RAZORPAY_WEBHOOK_SECRET='test_webhook_secret';
   });
   t.after(() => {
-    Object.assign(service,originals); api.put=oldPut; api.post=oldPost; storeHours.getStoreStatus=oldHours;
+    Object.assign(service,originals); api.get=oldGet; api.put=oldPut; api.post=oldPost; storeHours.getStoreStatus=oldHours;
     _setRazorpayInstanceForTesting(null); _setWpClientForTesting(null); _setAnomalyHandlerForTesting(null);
   });
   const finalize = () => finalizePaymentAndCreateOrder({ rzpOrderId:'order_lifecycle',rzpPaymentId:'pay_lifecycle',expectedCustomerId:7 });
@@ -204,5 +207,143 @@ test('Payment lifecycle recovery regressions (mock gateways; no money or HTTP se
     intent.first_paid_at=new Date().toISOString().slice(0,19).replace('T',' ');
     await runPaymentReconciliation();
     assert.equal(intent.status,'order_created'); assert.equal(creations,1); assert.equal(refunds,0);
+  });
+  await t.test('orphan refund webhook is replayed cleanly into refunded intent and order',async () => {
+    intent.status='order_created';
+    intent.wc_order_id=88;
+    order={ id:88, customer_id:7, total:'540.00', status:'processing' };
+    const webhookStatuses=[];
+    service.fetchReconciliationList=async () => ({ intents:[], hasMore:false });
+    service.updateWebhookEventStatus=async p => { webhookStatuses.push(p); return true; };
+    service.fetchOrphanWebhookEvents=async () => ({
+      count:1,
+      orphans:[{
+        event_id:'evt_orphan_refund_replay',
+        event_type:'refund.processed',
+        rzp_order_id:'order_lifecycle',
+        rzp_payment_id:'pay_lifecycle',
+        status:'orphan',
+        raw_payload:JSON.stringify({ payload:{ refund:{ entity:{ id:'rfnd_replay_1', payment_id:'pay_lifecycle' } } } }),
+      }],
+    });
+    gateway.payments.fetch=async () => ({
+      id:'pay_lifecycle', order_id:'order_lifecycle', status:'refunded', amount:54000, amount_refunded:54000, refund_status:'full',
+    });
+    let putBody=null;
+    api.put=async (_url, body) => { putBody=body; return { data:{ id:88, status:'refunded' } }; };
+    const res=await runPaymentReconciliation();
+    assert.equal(res.orphanRefundsRecovered, 1);
+    assert.equal(res.errorCount, 0);
+    assert.equal(intent.status, 'refunded');
+    assert.equal(putBody?.status, 'refunded');
+    assert.deepEqual(webhookStatuses, [{ eventId:'evt_orphan_refund_replay', status:'processed' }]);
+  });
+  await t.test('unrecoverable orphan refund webhook escalates after 3 reconciliation attempts',async () => {
+    const webhookStatuses=[];
+    const alerts=[];
+    service.fetchReconciliationList=async () => ({ intents:[], hasMore:false });
+    service.getPaymentIntent=async () => null;
+    service.updateWebhookEventStatus=async p => { webhookStatuses.push(p); return true; };
+    service.fetchOrphanWebhookEvents=async () => ({
+      count:1,
+      orphans:[{
+        event_id:'evt_orphan_refund_perm_fail',
+        event_type:'refund.processed',
+        rzp_order_id:'order_missing',
+        rzp_payment_id:'pay_missing',
+        status:'orphan',
+        raw_payload:null,
+      }],
+    });
+    gateway.payments.fetch=async () => ({ id:'pay_missing', order_id:'order_missing', amount:54000, amount_refunded:54000, refund_status:'full' });
+    _setAnomalyHandlerForTesting(async payload => { alerts.push(payload); return { success:true, queued:true }; });
+    await runPaymentReconciliation();
+    await runPaymentReconciliation();
+    const third=await runPaymentReconciliation();
+    assert.equal(third.escalated, 1);
+    assert.deepEqual(webhookStatuses, [{ eventId:'evt_orphan_refund_perm_fail', status:'failed' }]);
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].type, 'ORPHAN_REFUND_WEBHOOK_ESCALATED');
+  });
+  await t.test('refund status write failure is not reported as recovered',async () => {
+    intent.status='order_created'; intent.wc_order_id=88;
+    order={ id:88, status:'processing' };
+    service.fetchReconciliationList=async () => ({ intents:[], hasMore:false });
+    service.fetchOrphanWebhookEvents=async () => ({ orphans:[{
+      event_id:'evt_failed_status_write', event_type:'refund.processed', rzp_order_id:'order_lifecycle', rzp_payment_id:'pay_lifecycle',
+    }], nextCursor:null });
+    let allowStatusWrite=false, notes=0;
+    service.updateWebhookEventStatus=async () => allowStatusWrite;
+    api.put=async () => { order.status='refunded'; return { data:order }; };
+    api.post=async () => { notes++; return { data:{} }; };
+    gateway.payments.fetch=async () => ({ id:'pay_lifecycle', order_id:'order_lifecycle', amount:54000, amount_refunded:54000, refund_status:'full' });
+    const result=await runPaymentReconciliation();
+    assert.equal(result.orphanRefundsRecovered,0);
+    assert.equal(result.errorCount,1);
+    allowStatusWrite=true;
+    const retry=await runPaymentReconciliation();
+    assert.equal(retry.orphanRefundsRecovered,1);
+    assert.equal(notes,1);
+  });
+  await t.test('escalation alert failure leaves the event eligible for retry without blocking subsequent events',async () => {
+    intent.status='order_created';
+    intent.wc_order_id=88;
+    order={ id:88, status:'processing' };
+    let orphansBatch=[{
+      event_id:'evt_failed_escalation_alert', event_type:'refund.processed', rzp_order_id:'order_missing', rzp_payment_id:'pay_missing',
+    }];
+    service.fetchReconciliationList=async () => ({ intents:[], hasMore:false });
+    service.fetchOrphanWebhookEvents=async () => ({ orphans:orphansBatch, nextCursor:null });
+    service.getPaymentIntent=async rzpOrderId => (rzpOrderId==='order_lifecycle' ? intent : null);
+    gateway.payments.fetch=async paymentId => (
+      paymentId==='pay_lifecycle'
+        ? { id:'pay_lifecycle', order_id:'order_lifecycle', amount:54000, amount_refunded:54000, refund_status:'full' }
+        : { id:paymentId, order_id:'order_missing', amount:54000, amount_refunded:54000, refund_status:'full' }
+    );
+    const statuses=[];
+    service.updateWebhookEventStatus=async p => { statuses.push(p); return true; };
+    _setAnomalyHandlerForTesting(async () => ({ success:false, queued:false }));
+    await runPaymentReconciliation(); await runPaymentReconciliation();
+    orphansBatch=[
+      { event_id:'evt_failed_escalation_alert', event_type:'refund.processed', rzp_order_id:'order_missing', rzp_payment_id:'pay_missing' },
+      { event_id:'evt_healthy_behind_failed', event_type:'refund.processed', rzp_order_id:'order_lifecycle', rzp_payment_id:'pay_lifecycle' },
+    ];
+    const failed=await runPaymentReconciliation();
+    assert.equal(failed.escalated,0);
+    assert.equal(failed.errorCount,1);
+    assert.equal(failed.orphanRefundsRecovered,1);
+    assert.equal(failed.errors[0]?.eventId,'evt_failed_escalation_alert');
+    assert.deepEqual(statuses,[{ eventId:'evt_healthy_behind_failed',status:'processed' }]);
+    orphansBatch=[{
+      event_id:'evt_failed_escalation_alert', event_type:'refund.processed', rzp_order_id:'order_missing', rzp_payment_id:'pay_missing',
+    }];
+    _setAnomalyHandlerForTesting(async () => ({ success:true, queued:true }));
+    const retried=await runPaymentReconciliation();
+    assert.equal(retried.escalated,1);
+    assert.deepEqual(statuses,[
+      { eventId:'evt_healthy_behind_failed',status:'processed' },
+      { eventId:'evt_failed_escalation_alert',status:'failed' },
+    ]);
+  });
+  await t.test('refund scan continues beyond 500 unresolved events on the next run',async () => {
+    service.fetchReconciliationList=async () => ({ intents:[], hasMore:false });
+    const rows=Array.from({ length:501 }, (_, index) => ({
+      event_id:`evt_backlog_${String(index).padStart(4,'0')}`,
+      event_type:'refund.processed', rzp_payment_id:'pay_missing',
+    }));
+    const cursors=[];
+    service.fetchOrphanWebhookEvents=async ({ cursor, refundOnly }) => {
+      assert.equal(refundOnly,true);
+      cursors.push(cursor);
+      const start=cursor ? Number(cursor.eventId.slice(-4))+1 : 0;
+      const batch=rows.slice(start,start+50);
+      return { orphans:batch, nextCursor:batch.length===50 ? { createdAt:'2026-01-01 00:00:00',eventId:batch.at(-1).event_id } : null };
+    };
+    gateway.payments.fetch=async () => { throw new Error('Temporarily unavailable'); };
+    const first=await runPaymentReconciliation();
+    const second=await runPaymentReconciliation();
+    assert.equal(first.processed,500);
+    assert.equal(second.processed,1);
+    assert.equal(cursors[10].eventId,'evt_backlog_0499');
   });
 });

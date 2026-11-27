@@ -88,6 +88,7 @@ test("Refund Sync, Manual Reconcile Guard & Admin Status/Chart Fixes", async (t)
     });
 
     // 1a. Simulate WooCommerce timeout on refund write -> intent MUST stay refund_pending for reconciler
+    api.get = async () => ({ data: { id: 501, status: "processing" } });
     api.put = async () => {
       throw new Error("WooCommerce 504 Gateway Timeout");
     };

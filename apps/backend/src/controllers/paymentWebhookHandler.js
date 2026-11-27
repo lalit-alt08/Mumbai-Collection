@@ -20,6 +20,136 @@ import { findOrderByRazorpayOrderId } from "../utils/paymentCheckoutUtils.js";
 import { finalizePaymentAndCreateOrder } from "../services/paymentFinalizeService.js";
 
 /**
+ * Shared durable refund webhook processor used by both handleWebhook and
+ * periodic reconciliation replay of stranded/orphan refund webhook events.
+ */
+export const processRefundWebhookEvent = async ({
+  eventId,
+  event = "refund.processed",
+  rzpPaymentId = null,
+  rzpOrderId = null,
+  refundEntity = null,
+  paymentEntity = null,
+}) => {
+  const refundPaymentId = rzpPaymentId || refundEntity?.payment_id || paymentEntity?.id;
+  let refundRzpOrderId = rzpOrderId || paymentEntity?.order_id || refundEntity?.notes?.rzp_order_id;
+  let refundLease;
+
+  try {
+    if (!refundPaymentId && !refundRzpOrderId) {
+      throw new Error("Refund webhook missing payment and order identifiers");
+    }
+    const payment = await fetchRazorpayPayment(refundPaymentId);
+    refundRzpOrderId = payment.order_id || refundRzpOrderId;
+    if (!refundRzpOrderId) throw new Error("Refund payment has no order ID");
+
+    refundLease = await acquirePaymentLease(refundRzpOrderId, "refund-event");
+    if (!refundLease) throw new Error("Payment refund is already being processed");
+
+    const intent = await paymentIntentService.getPaymentIntent(refundRzpOrderId, { fresh: true });
+    if (!intent) throw new Error("Refund intent missing; requires staff review");
+
+    const full =
+      payment.refund_status === "full" ||
+      Number(payment.amount_refunded || 0) >= Number(payment.amount || Infinity);
+
+    if (full) {
+      // Stage 1: Persist refund_pending BEFORE WooCommerce write so any store sync failure
+      // stays visible to the automatic reconciliation loop rather than getting stranded as refunded.
+      let currentIntentStatus = intent.status;
+      if (currentIntentStatus !== "refunded" && currentIntentStatus !== "refund_pending") {
+        const staged = await updatePaymentIntentStatus({
+          rzpOrderId: refundRzpOrderId,
+          fromStatus: currentIntentStatus,
+          toStatus: "refund_pending",
+          refundId: refundEntity?.id,
+        });
+        if (staged) {
+          currentIntentStatus = "refund_pending";
+        }
+      }
+      await releaseCheckoutStock(
+        intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || refundRzpOrderId
+      );
+
+      // Locate and transition existing WooCommerce order to refunded status to prevent dispatch
+      const wcOrderId = intent.wc_order_id || (await findOrderByRazorpayOrderId(refundRzpOrderId))?.id;
+      if (wcOrderId) {
+        try {
+          const existingOrder = await api.get(`orders/${wcOrderId}`);
+          if (typeof existingOrder.data?.status !== "string") {
+            throw new Error("Could not verify current WooCommerce order status");
+          }
+          if (existingOrder.data?.status !== "refunded") {
+            await api.put(`orders/${wcOrderId}`, {
+              status: "refunded",
+              meta_data: [{ key: "_delivery_status", value: "refunded" }],
+            });
+            await api.post(`orders/${wcOrderId}/notes`, {
+              note: `[Razorpay Webhook] Full gateway refund confirmed (${refundEntity?.id || "refunded"}). Order status moved to refunded.`,
+              customer_note: false,
+            });
+          }
+          await invalidateOrderDetailCache(wcOrderId);
+          serverCache.invalidatePrefix("employee:overview");
+          publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: wcOrderId, status: "refunded" });
+          logger.info(
+            { rzpOrderId: refundRzpOrderId, wcOrderId },
+            "[Payment Webhook] WooCommerce order moved to refunded following full gateway refund"
+          );
+        } catch (wcRefundErr) {
+          logger.error(
+            { err: wcRefundErr.message, wcOrderId, rzpOrderId: refundRzpOrderId },
+            "[Payment Webhook] Failed to transition WooCommerce order to refunded"
+          );
+          await updatePaymentIntentStatus({
+            rzpOrderId: refundRzpOrderId,
+            toStatus: "refund_pending",
+            refundId: refundEntity?.id,
+            errorReason: `WooCommerce order ${wcOrderId} sync to refunded failed: ${wcRefundErr.message}`,
+            incrementAttempts: true,
+          });
+          throw new Error(`WooCommerce order ${wcOrderId} sync to refunded failed; queued for reconciliation`);
+        }
+      }
+
+      const settled =
+        currentIntentStatus === "refunded"
+          ? true
+          : await updatePaymentIntentStatus({
+              rzpOrderId: refundRzpOrderId,
+              fromStatus: currentIntentStatus,
+              toStatus: "refunded",
+              refundId: refundEntity?.id,
+            });
+      if (!settled && currentIntentStatus !== "refunded") {
+        throw new Error("Could not transition payment intent to refunded");
+      }
+    } else {
+      // Partial/manual refunds do not authorize refunding the remaining purchase.
+      const alert = await alertStaffAnomaly({
+        type: "PARTIAL_OR_FAILED_REFUND",
+        severity: "warning",
+        rzpOrderId: refundRzpOrderId,
+        rzpPaymentId: refundPaymentId,
+        message: "Refund event observed; existing refund recovery state preserved.",
+        details: { event, amount_refunded: payment.amount_refunded },
+      });
+      if (!alert?.success) throw new Error("Could not queue refund review alert");
+    }
+
+    if (eventId) {
+      const updated = await paymentIntentService.updateWebhookEventStatus({ eventId, status: "processed" });
+      if (!updated) throw new Error("Could not durably record refund webhook processing");
+      serverCache.set(`webhook:event:${eventId}`, true, 24 * 60 * 60 * 1000);
+    }
+    return { success: true, rzpOrderId: refundRzpOrderId };
+  } finally {
+    await refundLease?.release();
+  }
+};
+
+/**
  * POST /api/payments/webhook
  *
  * Verifies Razorpay webhook signature, durably stores the raw webhook event,
@@ -178,90 +308,19 @@ export const handleWebhook = async (req, res) => {
       });
 
       setImmediate(async () => {
-        let refundLease;
         try {
-          const payment = await fetchRazorpayPayment(refundPaymentId);
-          refundRzpOrderId = payment.order_id || refundRzpOrderId;
-          if (!refundRzpOrderId) throw new Error("Refund payment has no order ID");
-          refundLease = await acquirePaymentLease(refundRzpOrderId, "refund-event");
-          if (!refundLease) throw new Error("Payment refund is already being processed");
-          const intent = await paymentIntentService.getPaymentIntent(refundRzpOrderId, { fresh: true });
-          if (!intent) throw new Error("Refund intent missing; requires staff review");
-          const full = payment.refund_status === "full" || Number(payment.amount_refunded || 0) >= Number(payment.amount || Infinity);
-          if (full) {
-            // Stage 1: Persist refund_pending BEFORE WooCommerce write so any store sync failure
-            // stays visible to the automatic reconciliation loop rather than getting stranded as refunded.
-            let currentIntentStatus = intent.status;
-            if (currentIntentStatus !== "refunded" && currentIntentStatus !== "refund_pending") {
-              const staged = await updatePaymentIntentStatus({
-                rzpOrderId: refundRzpOrderId,
-                fromStatus: currentIntentStatus,
-                toStatus: "refund_pending",
-                refundId: refundEntity?.id,
-              });
-              if (staged) {
-                currentIntentStatus = "refund_pending";
-              }
-            }
-            await releaseCheckoutStock(intent.stock_reservation_id || intent.checkout_payload?.stock_reservation_id || refundRzpOrderId);
-
-            // Locate and transition existing WooCommerce order to refunded status to prevent dispatch
-            const wcOrderId = intent.wc_order_id || (await findOrderByRazorpayOrderId(refundRzpOrderId))?.id;
-            if (wcOrderId) {
-              try {
-                await api.put(`orders/${wcOrderId}`, {
-                  status: "refunded",
-                  meta_data: [{ key: "_delivery_status", value: "refunded" }],
-                });
-                await api.post(`orders/${wcOrderId}/notes`, {
-                  note: `[Razorpay Webhook] Full gateway refund confirmed (${refundEntity?.id || "refunded"}). Order status moved to refunded.`,
-                  customer_note: false,
-                });
-                await invalidateOrderDetailCache(wcOrderId);
-                serverCache.invalidatePrefix("employee:overview");
-                publishOrderEvent({ event: "ORDER_STATUS_UPDATED", orderId: wcOrderId, status: "refunded" });
-                logger.info({ rzpOrderId: refundRzpOrderId, wcOrderId }, "[Payment Webhook] WooCommerce order moved to refunded following full gateway refund");
-              } catch (wcRefundErr) {
-                logger.error({ err: wcRefundErr.message, wcOrderId, rzpOrderId: refundRzpOrderId }, "[Payment Webhook] Failed to transition WooCommerce order to refunded");
-                await updatePaymentIntentStatus({
-                  rzpOrderId: refundRzpOrderId,
-                  toStatus: "refund_pending",
-                  refundId: refundEntity?.id,
-                  errorReason: `WooCommerce order ${wcOrderId} sync to refunded failed: ${wcRefundErr.message}`,
-                  incrementAttempts: true,
-                });
-                throw new Error(`WooCommerce order ${wcOrderId} sync to refunded failed; queued for reconciliation`);
-              }
-            }
-
-            const settled = currentIntentStatus === "refunded" ? true : await updatePaymentIntentStatus({
-              rzpOrderId: refundRzpOrderId,
-              fromStatus: currentIntentStatus,
-              toStatus: "refunded",
-              refundId: refundEntity?.id,
-            });
-            if (!settled && currentIntentStatus !== "refunded") {
-              throw new Error("Could not transition payment intent to refunded");
-            }
-          } else {
-            // Partial/manual refunds do not authorize refunding the remaining purchase.
-            await alertStaffAnomaly({
-              type: "PARTIAL_OR_FAILED_REFUND",
-              severity: "warning",
-              rzpOrderId: refundRzpOrderId,
-              rzpPaymentId: refundPaymentId,
-              message: "Refund event observed; existing refund recovery state preserved.",
-              details: { event, amount_refunded: payment.amount_refunded },
-            });
-          }
-          await updateWebhookEventStatus({ eventId, status: "processed" });
-          if (eventId) serverCache.set(`webhook:event:${eventId}`, true, 24 * 60 * 60 * 1000);
+          await processRefundWebhookEvent({
+            eventId,
+            event,
+            rzpPaymentId: refundPaymentId,
+            rzpOrderId: refundRzpOrderId,
+            refundEntity,
+            paymentEntity: pEntity,
+          });
         } catch (err) {
           logger.error({ err: err.message, eventId, rzpOrderId: refundRzpOrderId }, "[Payment Webhook] Refund event requires retry/review");
           serverCache.delete("webhook:event:" + eventId);
           await updateWebhookEventStatus({ eventId, status: "orphan" });
-        } finally {
-          await refundLease?.release();
         }
       });
 

@@ -11353,9 +11353,10 @@ function mumbai_reconciliation_set_watermark(WP_REST_Request $request) {
 
 function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
     global $wpdb;
+    mumbai_run_durable_payments_migration();
     $table = $wpdb->prefix . 'mumbai_payment_intents';
-    if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
-        return rest_ensure_response(['success' => true, 'intents' => [], 'page' => 1, 'has_more' => false]);
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+        return new WP_Error('durable_table_missing', 'Payment intents table is missing.', ['status' => 500]);
     }
 
     $limit = absint($request->get_param('limit') ?? 50);
@@ -11393,7 +11394,10 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
     $params[] = $limit;
 
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
-    $count = is_array($rows) ? count($rows) : 0;
+    if ($wpdb->last_error || !is_array($rows)) {
+        return new WP_Error('db_query_failed', 'Failed to query payment reconciliation list.', ['status' => 500]);
+    }
+    $count = count($rows);
 
     return rest_ensure_response([
         'success'   => true,
@@ -11401,7 +11405,7 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
         'limit'     => $limit,
         'has_more'  => ($count === $limit),
         'next_cursor' => $count ? $rows[$count - 1]['rzp_order_id'] : '',
-        'intents'   => is_array($rows) ? $rows : [],
+        'intents'   => $rows,
     ]);
 }
 
@@ -11463,9 +11467,22 @@ function mumbai_webhook_event_update_status(WP_REST_Request $request) {
         ['%s']
     );
 
+    if ($updated === false) {
+        return new WP_Error('db_query_failed', 'Failed to update webhook event.', ['status' => 500]);
+    }
+    if ($updated === 0) {
+        $current = $wpdb->get_var($wpdb->prepare("SELECT status FROM {$table} WHERE event_id = %s", $event_id));
+        if ($wpdb->last_error) {
+            return new WP_Error('db_query_failed', 'Failed to verify webhook event.', ['status' => 500]);
+        }
+        if ($current !== $status) {
+            return new WP_Error('webhook_event_not_updated', 'Webhook event was not updated.', ['status' => 404]);
+        }
+    }
+
     return rest_ensure_response([
         'success'  => true,
-        'updated'  => ($updated !== false),
+        'updated'  => true,
         'event_id' => $event_id,
         'status'   => $status,
     ]);
@@ -11475,6 +11492,9 @@ function mumbai_webhook_events_orphans(WP_REST_Request $request) {
     global $wpdb;
     mumbai_run_durable_payments_migration();
     $table = $wpdb->prefix . 'mumbai_webhook_events';
+    if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+        return new WP_Error('durable_table_missing', 'Webhook events table is missing.', ['status' => 500]);
+    }
 
     $limit = absint($request->get_param('limit') ?? 50);
     if ($limit <= 0 || $limit > 100) $limit = 50;
@@ -11482,19 +11502,46 @@ function mumbai_webhook_events_orphans(WP_REST_Request $request) {
     if ($page <= 0) $page = 1;
     $offset = ($page - 1) * $limit;
 
-    $where = "status = 'orphan' OR (status = 'stored' AND created_at < UTC_TIMESTAMP() - INTERVAL 5 MINUTE)";
-    $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE {$where}");
+    $refund_only = $request->get_param('refund_only') === 'true';
+    $where = "(status = 'orphan' OR (status = 'stored' AND created_at < UTC_TIMESTAMP() - INTERVAL 5 MINUTE))";
+    if ($refund_only) {
+        $where .= " AND event_type IN ('refund.processed', 'refund.failed')";
+    }
+    $total = $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE {$where}");
+    if ($wpdb->last_error || $total === null) {
+        return new WP_Error('db_query_failed', 'Failed to count webhook events.', ['status' => 500]);
+    }
+
+    $after_created_at = $request->get_param('after_created_at');
+    $after_event_id = $request->get_param('after_event_id');
+    $query_params = [];
+    if ($refund_only && ($after_created_at !== null || $after_event_id !== null)) {
+        if (!is_string($after_created_at) || !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $after_created_at) || !is_string($after_event_id) || $after_event_id === '' || strlen($after_event_id) > 64) {
+            return new WP_Error('invalid_cursor', 'Invalid webhook cursor.', ['status' => 400]);
+        }
+        $where .= ' AND (created_at > %s OR (created_at = %s AND event_id > %s))';
+        $query_params = [$after_created_at, $after_created_at, $after_event_id];
+        $offset = 0;
+    }
+    $order = $refund_only ? 'created_at ASC, event_id ASC' : 'created_at DESC, event_id DESC';
+    $query_params[] = $limit;
+    $query_params[] = $offset;
     $rows = $wpdb->get_results(
-        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, status, created_at FROM {$table} WHERE {$where} ORDER BY created_at DESC LIMIT %d OFFSET %d", $limit, $offset),
+        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, raw_payload, status, created_at FROM {$table} WHERE {$where} ORDER BY {$order} LIMIT %d OFFSET %d", $query_params),
         ARRAY_A
     );
+    if ($wpdb->last_error || !is_array($rows)) {
+        return new WP_Error('db_query_failed', 'Failed to query webhook events.', ['status' => 500]);
+    }
+    $last = $refund_only && count($rows) === $limit ? end($rows) : null;
 
     return rest_ensure_response([
         'success'  => true,
-        'count'    => $total,
+        'count'    => (int) $total,
         'page'     => $page,
         'limit'    => $limit,
-        'orphans'  => is_array($rows) ? $rows : [],
+        'orphans'  => $rows,
+        'next_cursor' => $last ? ['createdAt' => $last['created_at'], 'eventId' => $last['event_id']] : null,
     ]);
 }
 
