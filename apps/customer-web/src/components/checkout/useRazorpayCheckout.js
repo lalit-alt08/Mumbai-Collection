@@ -89,6 +89,7 @@ export function createRazorpayHandler({
     }
 
     const requestOrderId = orderRes.razorpay_order_id;
+    let lastGatewayFailureMessage = "";
     const isCurrentAttempt = () =>
       String(activeUserRef.current) === String(requestUserId) &&
       activeOrderRef.current === requestOrderId;
@@ -261,7 +262,7 @@ export function createRazorpayHandler({
           activeOrderRef.current = null;
           idempotencyKeyRef.current = generateUUID();
           setIsPersistentPending(false);
-          setError("Payment was cancelled. You can retry paying anytime.");
+          setError(lastGatewayFailureMessage || "Payment was cancelled. You can retry paying anytime.");
         },
       },
       handler: async (paymentResponse) => {
@@ -448,55 +449,16 @@ export function createRazorpayHandler({
     };
 
     const rzp = new window.Razorpay(options);
-    rzp.on("payment.failed", async (failedRes) => {
-      const failedOrderId = failedRes?.error?.metadata?.order_id || requestOrderId;
-
+    rzp.on("payment.failed", (failedRes) => {
       if (!isCurrentAttempt()) {
         return;
       }
-
-      if (failedOrderId) {
-        try {
-          const cancelled = await cancelPaymentOrder(failedOrderId);
-          if (!isCurrentAttempt()) {
-            return;
-          }
-          if (cancelled?.support_required) {
-            isSubmittingRef.current = false;
-            setLoading(false);
-            setPaymentStep("");
-            recordSupportRequired(cancelled.message);
-            return;
-          }
-          if (!cancelled?.cancelled && !cancelled?.terminal) throw new Error("Cancellation not confirmed");
-        } catch {
-          if (!isCurrentAttempt()) {
-            return;
-          }
-          isSubmittingRef.current = false;
-          setLoading(false);
-          setPaymentStep("");
-          setIsPersistentPending(true);
-          setError("Payment status is uncertain. Please check status before paying again.");
-          return;
-        }
-      }
-
-      if (!isCurrentAttempt()) {
-        return;
-      }
-
-      isSubmittingRef.current = false;
-      setLoading(false);
-      setPaymentStep("");
-      clearPendingPayment(requestUserId);
-      clearPendingCheckoutCelebration();
-      retireCheckoutIdempotencyKey(requestUserId);
-      activeOrderRef.current = null;
-      idempotencyKeyRef.current = generateUUID();
-      setIsPersistentPending(false);
-      const desc = failedRes?.error?.description || "Payment attempt failed. You can retry paying.";
-      setError(desc);
+      // Razorpay keeps the modal open after payment.failed so the shopper can retry
+      // the same razorpay_order_id (e.g. after entering an incorrect UPI PIN).
+      // Lifecycle cleanup and cancellation belong in modal.ondismiss once closed.
+      lastGatewayFailureMessage =
+        failedRes?.error?.description || "Payment attempt failed. You can retry paying.";
+      setError(lastGatewayFailureMessage);
     });
 
     rzp.open();

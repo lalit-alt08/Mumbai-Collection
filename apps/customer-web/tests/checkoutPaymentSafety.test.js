@@ -677,3 +677,121 @@ test("Razorpay checkout blocks order-success on on-hold/_flagged and preserves R
     currentMockHandler = null;
   }
 });
+
+test("In-modal retry after Razorpay payment.failed (wrong UPI PIN) clears error and redirects to order-success", async () => {
+  const originalWindow = globalThis.window;
+  const listeners = new Map();
+  let capturedOptions = null;
+
+  globalThis.window = {
+    location: { hostname: "localhost", origin: "http://localhost:5173" },
+    Razorpay: class MockRazorpay {
+      constructor(opts) {
+        capturedOptions = opts;
+      }
+      on(event, fn) {
+        listeners.set(event, fn);
+      }
+      open() {}
+    },
+  };
+
+  let cancelledCalls = 0;
+  let verifyCalls = 0;
+  let lastError = "";
+  let navigatedTo = null;
+  const activeOrderRef = { current: null };
+  const activeUserRef = { current: 42010 };
+  const isSubmittingRef = { current: true };
+  const idempotencyKeyRef = { current: "idem-pin-retry" };
+
+  const { createRazorpayHandler } = await import(
+    `../src/components/checkout/useRazorpayCheckout.js?test_pin_retry=${Date.now()}`
+  );
+  const { getPendingPayment, clearPendingPayment } = await import(
+    "../src/utils/checkoutIdempotency.js"
+  );
+
+  const restore = setupMockAdapter(async (config) => {
+    if (config.url?.includes("/create-order")) {
+      return { data: { razorpay_order_id: "order_pin_retry_1", key_id: "rzp_test", amount: 59900, currency: "INR" } };
+    }
+    if (config.url?.includes("/cancel")) {
+      cancelledCalls++;
+      return { data: { cancelled: true } };
+    }
+    if (config.url?.includes("/verify")) {
+      verifyCalls++;
+      return { data: { success: true, order_id: 987, orderStatus: "processing" } };
+    }
+    if (config.url?.includes("/check-status")) {
+      return { data: { success: false, terminal: false, paid: false } };
+    }
+    throw new Error(`Unexpected request ${config.url}`);
+  });
+
+  try {
+    const startPayment = createRazorpayHandler({
+      user: { id: 42010 },
+      cart: { items: [{ id: 10, quantity: 1 }], totals: { total_price: "59900" } },
+      finalTotal: 599,
+      billingAddress: {},
+      shippingAddress: {},
+      idempotencyKeyRef,
+      activeOrderRef,
+      activeUserRef,
+      isSubmittingRef,
+      pollTimerRef: { current: null },
+      setLoading: () => {},
+      setPaymentStep: () => {},
+      setError: (msg) => { lastError = msg; },
+      setIsPersistentPending: () => {},
+      refreshCart: async () => {},
+      navigate: (to) => { navigatedTo = to; },
+    });
+
+    await startPayment();
+
+    // 1. First UPI attempt fails inside modal with wrong PIN
+    await listeners.get("payment.failed")({
+      error: {
+        description: "Incorrect PIN entered. Please try again.",
+        metadata: { order_id: "order_pin_retry_1" },
+      },
+    });
+    assert.equal(cancelledCalls, 0, "must not cancel order while Razorpay modal remains open for retry");
+    assert.equal(activeOrderRef.current, "order_pin_retry_1", "activeOrderRef must remain intact for in-modal retry");
+    assert.equal(lastError, "Incorrect PIN entered. Please try again.");
+
+    // 2. Shopper retries inside the same modal and payment succeeds
+    await capturedOptions.handler({
+      razorpay_order_id: "order_pin_retry_1",
+      razorpay_payment_id: "pay_pin_retry_ok",
+      razorpay_signature: "sig_pin_retry_ok",
+    });
+
+    assert.equal(verifyCalls, 1, "handler must verify the successful retry");
+    assert.equal(lastError, "", "previous incorrect PIN error must be cleared on successful retry");
+    assert.equal(navigatedTo, "/order-success/987");
+    assert.equal(getPendingPayment(42010), null);
+
+    // 3. If shopper instead dismisses the modal after payment.failed without paying, it cancels & keeps failure reason
+    lastError = "";
+    navigatedTo = null;
+    await startPayment();
+    await listeners.get("payment.failed")({
+      error: {
+        description: "Incorrect PIN entered. Please try again.",
+        metadata: { order_id: "order_pin_retry_1" },
+      },
+    });
+    await capturedOptions.modal.ondismiss();
+    assert.equal(cancelledCalls, 1, "dismissing modal after failure must cancel the order");
+    assert.equal(lastError, "Incorrect PIN entered. Please try again.");
+    assert.equal(activeOrderRef.current, null);
+  } finally {
+    clearPendingPayment(42010);
+    restore();
+    globalThis.window = originalWindow;
+  }
+});
