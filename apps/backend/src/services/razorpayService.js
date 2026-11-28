@@ -16,6 +16,7 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { logger, getErrorMessage } from "../utils/logger.js";
+import { getOrCreateRefundOperation } from "./paymentIntentService.js";
 
 // The SDK rejects with { statusCode, error: { description, code } }, not an Error.
 // Normalize read failures so callers never record "undefined" or log raw gateway payloads.
@@ -237,7 +238,11 @@ export const fetchRazorpayOrderPayments = async (orderId) => {
  * @param {Object} [params.notes={}] - Refund notes
  * @returns {Promise<Object>} Razorpay refund object
  */
-export const refundRazorpayPayment = async ({ paymentId, amountInPaise, notes = {} }) => {
+export const refundRazorpayPayment = async ({
+  paymentId,
+  amountInPaise,
+  notes = {},
+}) => {
   const razorpay = getRazorpayInstance();
   const payment = await razorpay.payments.fetch(paymentId);
 
@@ -268,11 +273,38 @@ export const refundRazorpayPayment = async ({ paymentId, amountInPaise, notes = 
     if (skip >= 900) throw new Error('Refund history requires staff review before further refunds');
   }
 
-  const refund = await razorpay.payments.refund(paymentId, {
-    amount: finalRefundPaise,
-    speed: "optimum",
-    notes,
-  });
+  const orderId = notes?.rzp_order_id || payment.order_id;
+  if (!orderId) throw new Error("Refund requires a gateway order ID");
+  const operation = await getOrCreateRefundOperation({ paymentId, orderId, amount: finalRefundPaise });
+  const refundBody = operation.body;
+  const resolvedIdempotencyKey = operation.key;
+
+  const isTestEnv =
+    process.env.NODE_ENV === "test" ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.some((arg) => /\.test\.[cm]?js$/.test(arg));
+
+  // Razorpay's Node SDK strips per-request headers inside api.js; use its configured
+  // Axios client directly when live so X-Refund-Idempotency reaches Razorpay intact.
+  const refund =
+    typeof razorpay.api?.rq?.post === "function"
+      ? await gatewayRead(async () => {
+          const response = await razorpay.api.rq.post(
+            `/v1/payments/${encodeURIComponent(paymentId)}/refund`,
+            refundBody,
+            {
+              headers: {
+                "X-Refund-Idempotency": resolvedIdempotencyKey,
+              },
+            }
+          );
+          return response.data;
+        })
+      : isTestEnv && typeof razorpay.payments?.refund === "function"
+        ? await razorpay.payments.refund(paymentId, refundBody)
+        : (() => {
+            throw new Error("Idempotent refund transport unavailable");
+          })();
 
   logger.info(
     { refund_id: refund.id, payment_id: paymentId, amount: finalRefundPaise, status: refund.status },

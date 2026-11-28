@@ -93,6 +93,7 @@ function OrderSuccess() {
     if (activeOrderId) return;
 
     const resolvePayment = async () => {
+      let resolvedMessage = null;
       if (rzpOrderId) {
         setIsResolvingRzp(true);
         try {
@@ -102,7 +103,7 @@ function OrderSuccess() {
               razorpay_payment_id: rzpPaymentId,
               razorpay_signature: rzpSignature,
             });
-            if (verifyRes?.success && verifyRes?.order_id) {
+            if (verifyRes?.success && verifyRes?.order_id && !verifyRes?._flagged && verifyRes?.orderStatus !== "on-hold") {
               clearPendingPayment(user?.id);
               clearCheckoutIdempotencyKey();
               setResolvedNewlyPaid(true);
@@ -111,10 +112,11 @@ function OrderSuccess() {
               setIsResolvingRzp(false);
               return;
             }
+            if (verifyRes?.message) resolvedMessage = verifyRes.message;
           }
 
           const statusRes = await checkPaymentStatus(rzpOrderId);
-          if (statusRes?.success && statusRes?.order_id) {
+          if (statusRes?.success && statusRes?.order_id && !statusRes?._flagged && statusRes?.orderStatus !== "on-hold") {
             clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             setResolvedNewlyPaid(true);
@@ -123,14 +125,19 @@ function OrderSuccess() {
             setIsResolvingRzp(false);
             return;
           }
-        } catch (_) {}
+          if (statusRes?.message) resolvedMessage = statusRes.message;
+        } catch (resolveErr) {
+          if (resolveErr?.response?.data?.message) {
+            resolvedMessage = resolveErr.response.data.message;
+          }
+        }
       }
 
       const storedPending = getPendingPayment(user?.id);
       if (storedPending?.razorpay_order_id) {
         try {
           const statusRes = await checkPaymentStatus(storedPending.razorpay_order_id);
-          if (statusRes?.success && statusRes?.order_id) {
+          if (statusRes?.success && statusRes?.order_id && !statusRes?._flagged && statusRes?.orderStatus !== "on-hold") {
             clearPendingPayment(user?.id);
             clearCheckoutIdempotencyKey();
             setResolvedNewlyPaid(true);
@@ -139,12 +146,13 @@ function OrderSuccess() {
             setIsResolvingRzp(false);
             return;
           }
+          if (statusRes?.message) resolvedMessage = statusRes.message;
         } catch (_) {}
       }
 
       setIsResolvingRzp(false);
       setFetchError(true);
-      setErrorMessage("No order number provided.");
+      setErrorMessage(resolvedMessage || "No order number provided.");
     };
 
     resolvePayment();

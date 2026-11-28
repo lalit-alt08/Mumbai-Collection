@@ -363,6 +363,10 @@ add_action('rest_api_init', function () {
         'callback'            => 'mumbai_payment_intent_store',
         'permission_callback' => 'mumbai_internal_server_permission',
     ]);
+    register_rest_route('mumbai-auth/v1', '/payment-intent/refund-operation', [
+        'methods' => 'POST', 'callback' => 'mumbai_payment_refund_operation',
+        'permission_callback' => 'mumbai_internal_server_permission',
+    ]);
     register_rest_route('mumbai-auth/v1', '/payment-intent/get', [
         'methods'             => 'POST',
         'callback'            => 'mumbai_payment_intent_get',
@@ -732,6 +736,24 @@ add_action('rest_api_init', function () {
                 'sanitize_callback' => 'absint',
             ],
         ],
+    ]);
+    register_rest_route('mumbai-auth/v1', '/internal/orders/(?P<id>\d+)/sync-refund', [
+        'methods'             => 'POST',
+        'callback'            => 'mumbai_internal_sync_order_refund',
+        'permission_callback' => 'mumbai_internal_server_permission',
+        'args'                => [
+            'id' => [
+                'validate_callback' => function ($param) {
+                    return is_numeric($param);
+                },
+                'sanitize_callback' => 'absint',
+            ],
+        ],
+    ]);
+    register_rest_route('mumbai-auth/v1', '/internal/orders/unfulfilled-razorpay', [
+        'methods'             => 'GET',
+        'callback'            => 'mumbai_internal_list_unfulfilled_razorpay_orders',
+        'permission_callback' => 'mumbai_internal_server_permission',
     ]);
     register_rest_route('mumbai-auth/v1', '/staff/products/(?P<id>\d+)/adjust', [
         'methods' => 'POST', 'callback' => 'mumbai_staff_adjust_product',
@@ -8563,6 +8585,10 @@ function mumbai_internal_reconcile_order_payment(WP_REST_Request $request) {
             ]);
         }
 
+        if ($order->get_meta('_payment_partial_refund_hold', true) === 'yes' || $order->get_meta('_payment_amount_mismatch', true) === 'yes') {
+            return new WP_Error('order_review_hold', 'Order is held for manual owner/staff review.', ['status' => 409]);
+        }
+
         // Check Razorpay order association
         $expected_rzp_order_id = sanitize_text_field($request->get_param('razorpay_order_id'));
         $order_rzp_id = $order->get_meta('_razorpay_order_id', true);
@@ -8597,12 +8623,17 @@ function mumbai_internal_reconcile_order_payment(WP_REST_Request $request) {
         // Write processing status and payment metadata under the lock
         $rzp_payment_id = sanitize_text_field($request->get_param('razorpay_payment_id'));
         $payment_method_detail = sanitize_text_field($request->get_param('payment_method_detail') ?: 'online');
+        $verified_by = sanitize_text_field($request->get_param('payment_verified_by') ?: 'reconciliation');
 
         $order->set_status('processing');
+        $order->update_meta_data('_delivery_status', 'processing');
+        if (!$order->get_date_paid()) {
+            $order->set_date_paid(time());
+        }
         $order->set_transaction_id($rzp_payment_id);
         $order->update_meta_data('_razorpay_payment_id', $rzp_payment_id);
         $order->update_meta_data('_payment_verified_at', current_time('mysql', true));
-        $order->update_meta_data('_payment_verified_by', 'reconciliation');
+        $order->update_meta_data('_payment_verified_by', $verified_by);
         $order->update_meta_data('_payment_method_detail', $payment_method_detail);
         $order->save();
 
@@ -8619,6 +8650,232 @@ function mumbai_internal_reconcile_order_payment(WP_REST_Request $request) {
     } finally {
         $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $key));
     }
+}
+
+/**
+ * Applies full refund status or partial-refund owner-review hold under the exact
+ * same staff-order MySQL lock used by employee status transitions.
+ */
+function mumbai_internal_sync_order_refund(WP_REST_Request $request) {
+    global $wpdb;
+    $id = absint($request['id']);
+    if (!$id) {
+        return new WP_Error('invalid_order_id', 'Valid order ID is required.', ['status' => 400]);
+    }
+
+    $mode = sanitize_text_field($request->get_param('mode') ?: 'full');
+    if (!in_array($mode, ['full', 'partial_hold', 'amount_mismatch_hold'], true)) {
+        return new WP_Error('invalid_mode', 'Unsupported refund/hold sync mode.', ['status' => 400]);
+    }
+
+    $key = hash('sha256', 'staff-order:' . $id);
+    if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 3)', $key)) !== 1) {
+        return new WP_Error('order_busy', 'Another staff member or process is updating this order.', ['status' => 409]);
+    }
+
+    try {
+        $order = wc_get_order($id);
+        if (!$order) {
+            return new WP_Error('order_read_failed', 'Could not read current order state from store database.', ['status' => 503]);
+        }
+
+        $core_status = $order->get_status();
+        $delivery_status = $order->get_meta('_delivery_status', true) ?: $core_status;
+        $note = sanitize_textarea_field((string) $request->get_param('note'));
+        $refund_id = sanitize_text_field((string) $request->get_param('refund_id'));
+
+        if ($mode === 'full') {
+            $changed = ($core_status !== 'refunded' || $delivery_status !== 'refunded');
+            if ($changed) {
+                $order->set_status('refunded');
+                $order->update_meta_data('_delivery_status', 'refunded');
+                $order->save();
+                if ($note !== '') {
+                    $order->add_order_note($note, false);
+                }
+            }
+            return rest_ensure_response([
+                'synced'       => true,
+                'action'       => $changed ? 'refunded' : 'already_refunded',
+                'order_status' => 'refunded',
+                'order_id'     => $id,
+            ]);
+        }
+
+        if ($mode === 'amount_mismatch_hold') {
+            $changed = ($core_status !== 'on-hold' || $delivery_status !== 'on-hold');
+            $order->set_status('on-hold');
+            $order->update_meta_data('_delivery_status', 'on-hold');
+            $order->update_meta_data('_payment_amount_mismatch', 'yes');
+            $order->save();
+            if ($note !== '' && $changed) {
+                $order->add_order_note($note, false);
+            }
+            return rest_ensure_response([
+                'synced'       => true,
+                'action'       => 'held_amount_mismatch',
+                'order_status' => 'on-hold',
+                'order_id'     => $id,
+            ]);
+        }
+
+        // partial_hold: block dispatch ONLY for orders not already shipped/terminal
+        $shipped_or_terminal = ['completed', 'dispatched', 'out-for-delivery', 'refunded', 'cancelled', 'failed', 'trash'];
+        if (in_array($core_status, $shipped_or_terminal, true) || in_array($delivery_status, $shipped_or_terminal, true)) {
+            $recorded_ref = $order->get_meta('_payment_partial_refund_last_id', true);
+            if ($refund_id && $recorded_ref !== $refund_id) {
+                $order->update_meta_data('_payment_partial_refund_last_id', $refund_id);
+                $order->save();
+                if ($note !== '') {
+                    $order->add_order_note($note, false);
+                }
+            }
+            return rest_ensure_response([
+                'synced'       => true,
+                'action'       => 'noted_fulfilled_or_terminal',
+                'order_status' => $delivery_status,
+                'order_id'     => $id,
+            ]);
+        }
+
+        $changed = ($core_status !== 'on-hold' || $delivery_status !== 'on-hold' || $order->get_meta('_payment_partial_refund_hold', true) !== 'yes');
+        $order->set_status('on-hold');
+        $order->update_meta_data('_delivery_status', 'on-hold');
+        $order->update_meta_data('_payment_partial_refund_hold', 'yes');
+        if ($refund_id !== '') {
+            $order->update_meta_data('_payment_partial_refund_last_id', $refund_id);
+        }
+        $order->save();
+        if ($note !== '' && $changed) {
+            $order->add_order_note($note, false);
+        }
+
+        return rest_ensure_response([
+            'synced'       => true,
+            'action'       => 'held_partial_refund',
+            'order_status' => 'on-hold',
+            'order_id'     => $id,
+        ]);
+    } catch (Throwable $e) {
+        error_log('[mumbai_internal_sync_order_refund] Error: ' . $e->getMessage());
+        return new WP_Error('refund_sync_failed', 'Internal error updating order refund state.', ['status' => 500]);
+    } finally {
+        $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $key));
+    }
+}
+
+/**
+ * Lists recent paid, unfulfilled WooCommerce orders (including packed) with a Razorpay order ID
+ * using a stable (date_created_gmt, order_id) keyset cursor so new orders or 100+ same-second
+ * orders never shift pagination offsets or loop.
+ */
+function mumbai_internal_list_unfulfilled_razorpay_orders(WP_REST_Request $request) {
+    if (!function_exists('wc_get_orders')) {
+        return new WP_Error('commerce_unavailable', 'WooCommerce orders unavailable.', ['status' => 503]);
+    }
+    $limit = min(50, max(1, absint($request->get_param('limit') ?: 25)));
+    $days = min(30, max(1, absint($request->get_param('days') ?: 14)));
+    $cursor = sanitize_text_field((string) $request->get_param('cursor'));
+    $min_ts = time() - ($days * DAY_IN_SECONDS);
+
+    $cursor_data = null;
+    if ($cursor !== '') {
+        if (!preg_match('/^(\d{1,10}):(\d+)$/', $cursor, $m) || (int) $m[1] <= 0 || (int) $m[2] <= 0) {
+            return new WP_Error('invalid_cursor', 'Invalid refund scan cursor.', ['status' => 400]);
+        }
+        $cursor_data = ['date_gmt' => gmdate('Y-m-d H:i:s', (int) $m[1]), 'id' => (int) $m[2]];
+    }
+
+    $token = 'mumbai_alarm_' . wp_generate_password(16, false);
+    $query_args = [
+        'status'             => ['wc-processing', 'wc-on-hold', 'wc-pending'],
+        'limit'              => $limit + 1,
+        'orderby'            => 'date',
+        'order'              => 'DESC',
+        'date_created'       => '>' . $min_ts,
+        'mumbai_alarm_token' => $token,
+        'meta_query'         => [
+            [
+                'key'     => '_razorpay_order_id',
+                'compare' => 'EXISTS',
+            ],
+        ],
+        'return'             => 'objects',
+    ];
+    $keyset_applied = false;
+    $hpos_filter = function ($clauses, $query = null, $hpos_args = []) use ($cursor_data, $token, &$keyset_applied) {
+        $is_match =
+            (is_object($query) && method_exists($query, 'get') && $query->get('mumbai_alarm_token') === $token) ||
+            (isset($hpos_args['mumbai_alarm_token']) && $hpos_args['mumbai_alarm_token'] === $token);
+        if ($is_match) {
+            mumbai_apply_packing_alarm_clauses($clauses, $cursor_data, 'hpos');
+            $keyset_applied = true;
+        }
+        return $clauses;
+    };
+    $posts_filter = function ($clauses, $wp_query = null) use ($cursor_data, $token, &$keyset_applied) {
+        if (is_object($wp_query) && method_exists($wp_query, 'get') && $wp_query->get('mumbai_alarm_token') === $token) {
+            mumbai_apply_packing_alarm_clauses($clauses, $cursor_data, 'legacy');
+            $keyset_applied = true;
+        }
+        return $clauses;
+    };
+    add_filter('woocommerce_orders_table_query_clauses', $hpos_filter, 10, 3);
+    add_filter('posts_clauses', $posts_filter, 10, 2);
+    try {
+        $orders = wc_get_orders($query_args);
+    } finally {
+        remove_filter('woocommerce_orders_table_query_clauses', $hpos_filter, 10);
+        remove_filter('posts_clauses', $posts_filter, 10);
+    }
+    global $wpdb;
+    if (!$keyset_applied || $wpdb->last_error || !is_array($orders)) {
+        return new WP_Error('refund_scan_unavailable', 'Could not safely query refund scan orders.', ['status' => 503]);
+    }
+
+    $items = [];
+    $kept_meta = [];
+    $has_more = false;
+    foreach ($orders as $order) {
+        $created = $order->get_date_created();
+        $created_ts = $created ? (int) $created->getTimestamp() : 0;
+        if ($created_ts < $min_ts) {
+            continue;
+        }
+        $rzp_order_id = (string) $order->get_meta('_razorpay_order_id', true);
+        if ($rzp_order_id === '') {
+            continue;
+        }
+        if (count($items) >= $limit) {
+            $has_more = true;
+            break;
+        }
+        $delivery_status = strtolower((string) ($order->get_meta('_delivery_status', true) ?: $order->get_status()));
+        $order_id = (int) $order->get_id();
+        $items[] = [
+            'id'                  => $order_id,
+            'status'              => $order->get_status(),
+            'delivery_status'     => $delivery_status,
+            'rzp_order_id'        => $rzp_order_id,
+            'rzp_payment_id'      => (string) ($order->get_meta('_razorpay_payment_id', true) ?: $order->get_transaction_id()),
+            'partial_refund_hold' => ($order->get_meta('_payment_partial_refund_hold', true) === 'yes'),
+        ];
+        $kept_meta[] = ['id' => $order_id, 'ts' => $created_ts];
+    }
+
+    $next_cursor = '';
+    if ($has_more && !empty($kept_meta)) {
+        $last = end($kept_meta);
+        $last_ts = (int) $last['ts'];
+        $next_cursor = $last_ts . ':' . (int) $last['id'];
+    }
+
+    return rest_ensure_response([
+        'success'     => true,
+        'orders'      => $items,
+        'has_more'    => $has_more,
+        'next_cursor' => $next_cursor,
+    ]);
 }
 
 /** Compare and replace while holding the same authoritative stock row used by WooCommerce. */
@@ -10807,14 +11064,14 @@ function mumbai_verify_durable_payments_schema() {
                 'rzp_order_id', 'user_id', 'amount_paise', 'captured_amount_paise',
                 'status', 'cart_fingerprint', 'checkout_payload', 'rzp_payment_id',
                 'wc_order_id', 'refund_id', 'error_reason', 'attempts',
-                'last_attempt_at', 'first_paid_at', 'created_at', 'updated_at',
+                'last_attempt_at', 'first_paid_at', 'next_retry_at', 'created_at', 'updated_at',
             ],
         ],
         $wpdb->prefix . 'mumbai_webhook_events' => [
             'pk' => ['event_id'],
             'cols' => [
                 'event_id', 'event_type', 'rzp_order_id', 'rzp_payment_id',
-                'raw_payload', 'status', 'created_at',
+                'raw_payload', 'status', 'attempts', 'next_retry_at', 'created_at', 'updated_at',
             ],
         ],
         $wpdb->prefix . 'mumbai_locks' => [
@@ -10862,23 +11119,23 @@ function mumbai_run_durable_payments_migration($force = false) {
     }
 
     $installed_ver = (int) get_option('mumbai_durable_db_ver', 0);
-    $target_ver = 3;
+    $target_ver = 4;
 
     // Fast path: In WordPress, options are autoloaded into memory.
     // If already installed and verified, skip all DB queries.
     if ($installed_ver >= $target_ver && !$force) {
-        if (get_option('mumbai_durable_db_v3_verified')) {
+        if (get_option('mumbai_durable_db_v4_verified')) {
             $already_checked = true;
             return;
         }
-        // One-time check for stores already marked version 3 without prior verification
+        // One-time check for stores already marked version 4 without prior verification
         if (mumbai_verify_durable_payments_schema()) {
-            update_option('mumbai_durable_db_v3_verified', 1);
+            update_option('mumbai_durable_db_v4_verified', 1);
             $already_checked = true;
             return;
         }
-        // Schema is incomplete on an existing v3 store: proceed to repair below without dropping tables
-        error_log('[Mumbai Auth] Durable payment schema incomplete on v3 store; running repair.');
+        // Schema is incomplete on an existing v4 store: proceed to repair below without dropping tables
+        error_log('[Mumbai Auth] Durable payment schema incomplete on v4 store; running repair.');
     }
 
     $table_intents = $wpdb->prefix . 'mumbai_payment_intents';
@@ -10904,10 +11161,12 @@ function mumbai_run_durable_payments_migration($force = false) {
         attempts int(10) unsigned NOT NULL DEFAULT 0,
         last_attempt_at datetime DEFAULT NULL,
         first_paid_at datetime DEFAULT NULL,
+        next_retry_at datetime DEFAULT NULL,
         created_at datetime NOT NULL,
         updated_at datetime NOT NULL,
         PRIMARY KEY  (rzp_order_id),
         KEY idx_status_created (status, created_at),
+        KEY idx_status_retry (status, next_retry_at),
         KEY idx_rzp_payment (rzp_payment_id),
         KEY idx_user (user_id)
     ) {$charset_collate};";
@@ -10919,10 +11178,14 @@ function mumbai_run_durable_payments_migration($force = false) {
         rzp_payment_id varchar(64) DEFAULT NULL,
         raw_payload longtext NOT NULL,
         status varchar(32) NOT NULL DEFAULT 'stored',
+        attempts int(10) unsigned NOT NULL DEFAULT 0,
+        next_retry_at datetime DEFAULT NULL,
         created_at datetime NOT NULL,
+        updated_at datetime DEFAULT NULL,
         PRIMARY KEY  (event_id),
         KEY idx_rzp_order (rzp_order_id),
-        KEY idx_status (status)
+        KEY idx_status (status),
+        KEY idx_status_retry (status, next_retry_at)
     ) {$charset_collate};";
 
     $sql_locks = "CREATE TABLE {$table_locks} (
@@ -10948,7 +11211,7 @@ function mumbai_run_durable_payments_migration($force = false) {
 
     if (mumbai_verify_durable_payments_schema()) {
         update_option('mumbai_durable_db_ver', $target_ver);
-        update_option('mumbai_durable_db_v3_verified', 1);
+        update_option('mumbai_durable_db_v4_verified', 1);
         $already_checked = true;
     } else {
         $already_checked = false;
@@ -11170,6 +11433,31 @@ if (!wp_next_scheduled('mumbai_daily_maintenance')) {
     wp_schedule_event(time(), 'daily', 'mumbai_daily_maintenance');
 }
 
+function mumbai_payment_refund_operation(WP_REST_Request $request) {
+    global $wpdb;
+    $payment_id = sanitize_text_field((string) $request->get_param('payment_id'));
+    $order_id = sanitize_text_field((string) $request->get_param('order_id'));
+    $amount = $request->get_param('amount');
+    if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $payment_id) || !preg_match('/^[A-Za-z0-9_-]{1,64}$/', $order_id) || !is_numeric($amount) || (int) $amount <= 0) {
+        return new WP_Error('invalid_refund_operation', 'Invalid refund operation.', ['status' => 400]);
+    }
+    $name = '_mumbai_refund_op_' . hash('sha256', $payment_id);
+    $value = wp_json_encode([
+        'payment_id' => $payment_id, 'order_id' => $order_id,
+        'key' => 'refund_' . substr(hash('sha256', $payment_id), 0, 48),
+        'body' => ['amount' => (int) $amount, 'speed' => 'optimum', 'notes' => ['reason' => 'Automatic full-refund recovery', 'rzp_order_id' => $order_id]],
+    ]);
+    $inserted = $wpdb->query($wpdb->prepare("INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')", $name, $value));
+    if ($inserted === false) return new WP_Error('refund_operation_storage_failed', 'Refund operation storage unavailable.', ['status' => 503]);
+    $stored = $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name));
+    if ($wpdb->last_error || !$stored) return new WP_Error('refund_operation_storage_failed', 'Refund operation storage unavailable.', ['status' => 503]);
+    $operation = json_decode($stored, true);
+    if (!is_array($operation) || ($operation['payment_id'] ?? '') !== $payment_id || ($operation['order_id'] ?? '') !== $order_id) {
+        return new WP_Error('refund_operation_conflict', 'Refund operation requires review.', ['status' => 409]);
+    }
+    return rest_ensure_response(['success' => true, 'operation' => $operation]);
+}
+
 function mumbai_payment_intent_store(WP_REST_Request $request) {
     global $wpdb;
     if (!get_option('mumbai_payment_clock_utc_v1')) return new WP_Error('payment_storage_upgrading', 'Payment storage upgrade pending.', ['status' => 503]);
@@ -11285,6 +11573,7 @@ function mumbai_payment_intent_update_status(WP_REST_Request $request) {
     $error_reason   = $request->get_param('error_reason') ? sanitize_text_field($request->get_param('error_reason')) : null;
     $captured_paise = $request->get_param('captured_amount_paise') ? absint($request->get_param('captured_amount_paise')) : null;
     $inc_attempts   = (bool) $request->get_param('increment_attempts');
+    $next_retry_sec = $request->get_param('next_retry_seconds');
 
     $set_clauses = ["status = %s", "updated_at = %s"];
     $params = [$to_status, $now];
@@ -11294,6 +11583,12 @@ function mumbai_payment_intent_update_status(WP_REST_Request $request) {
     }
     if ($to_status === 'refund_pending' && $from_status && !in_array($from_status, ['refund_pending', 'refund_failed', 'refund_escalated'], true)) {
         $set_clauses[] = 'attempts = 0';
+    }
+    if ($next_retry_sec !== null && is_numeric($next_retry_sec) && (int) $next_retry_sec > 0) {
+        $set_clauses[] = 'next_retry_at = %s';
+        $params[] = gmdate('Y-m-d H:i:s', time() + min(86400, (int) $next_retry_sec));
+    } elseif (in_array($to_status, ['paid', 'order_created', 'refunded', 'amount_mismatch', 'refund_escalated', 'reconciliation_escalated'], true)) {
+        $set_clauses[] = 'next_retry_at = NULL';
     }
 
     if ($rzp_payment_id !== null) {
@@ -11378,19 +11673,28 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
     $created_cutoff = ($created_older_than_minutes > 0)
         ? gmdate('Y-m-d H:i:s', time() - ($created_older_than_minutes * MINUTE_IN_SECONDS))
         : gmdate('Y-m-d H:i:s', time() + 60);
+    $status_group = sanitize_text_field($request->get_param('status_group') ?? '');
 
-    $params = [$cutoff, $created_cutoff];
+    if ($status_group === 'urgent') {
+        $params = [$cutoff];
+        $where = "status IN ('paid', 'refund_pending', 'refund_failed', 'quarantined', 'orphan_payment') AND updated_at < %s AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())";
+    } elseif ($status_group === 'unpaid') {
+        $params = [$created_cutoff];
+        $where = "status IN ('created', 'cancelled', 'abandoned') AND created_at < %s AND created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())";
+    } else {
+        $params = [$cutoff, $created_cutoff];
+        $where = "((status IN ('paid', 'refund_pending', 'refund_failed', 'quarantined', 'orphan_payment') AND updated_at < %s)
+            OR (status IN ('created', 'cancelled', 'abandoned') AND created_at < %s AND created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY))
+            AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())";
+    }
+
     $watermark_where = '';
     if ($cursor !== '') {
         $watermark_where = ' AND rzp_order_id > %s';
         $params[] = $cursor;
     }
 
-    $sql = "SELECT * FROM {$table} 
-         WHERE ((status IN ('paid', 'refund_pending', 'refund_failed', 'quarantined', 'orphan_payment') AND updated_at < %s)
-            OR (status IN ('created', 'cancelled', 'abandoned') AND created_at < %s AND created_at >= UTC_TIMESTAMP() - INTERVAL 7 DAY))" . $watermark_where . "
-         ORDER BY rzp_order_id ASC LIMIT %d";
-
+    $sql = "SELECT * FROM {$table} WHERE {$where}" . $watermark_where . " ORDER BY rzp_order_id ASC LIMIT %d";
     $params[] = $limit;
 
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
@@ -11399,6 +11703,17 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
     }
     $count = count($rows);
 
+    $oldest_payment_age = $wpdb->get_var(
+        "SELECT COALESCE(MAX(TIMESTAMPDIFF(SECOND, COALESCE(first_paid_at, created_at), UTC_TIMESTAMP())), 0)
+         FROM {$table}
+         WHERE status IN ('paid', 'quarantined', 'orphan_payment')"
+    );
+    $oldest_refund_age = $wpdb->get_var(
+        "SELECT COALESCE(MAX(TIMESTAMPDIFF(SECOND, updated_at, UTC_TIMESTAMP())), 0)
+         FROM {$table}
+         WHERE status IN ('refund_pending', 'refund_failed')"
+    );
+
     return rest_ensure_response([
         'success'   => true,
         'page'      => $page,
@@ -11406,6 +11721,8 @@ function mumbai_payment_intent_reconciliation_list(WP_REST_Request $request) {
         'has_more'  => ($count === $limit),
         'next_cursor' => $count ? $rows[$count - 1]['rzp_order_id'] : '',
         'intents'   => $rows,
+        'oldest_unresolved_payment_seconds' => $wpdb->last_error ? null : (int) $oldest_payment_age,
+        'oldest_unresolved_refund_seconds'  => $wpdb->last_error ? null : (int) $oldest_refund_age,
     ]);
 }
 
@@ -11459,12 +11776,25 @@ function mumbai_webhook_event_update_status(WP_REST_Request $request) {
     }
 
     $table = $wpdb->prefix . 'mumbai_webhook_events';
-    $updated = $wpdb->update(
-        $table,
-        ['status' => $status],
-        ['event_id' => $event_id],
-        ['%s'],
-        ['%s']
+    $now = gmdate('Y-m-d H:i:s');
+    $inc_attempts = (bool) $request->get_param('increment_attempts');
+    $next_retry_sec = $request->get_param('next_retry_seconds');
+
+    $set_clauses = ['status = %s', 'updated_at = %s'];
+    $params = [$status, $now];
+    if ($inc_attempts) {
+        $set_clauses[] = 'attempts = attempts + 1';
+    }
+    if ($status === 'processed' || $status === 'failed') {
+        $set_clauses[] = 'next_retry_at = NULL';
+    } elseif ($next_retry_sec !== null && is_numeric($next_retry_sec) && (int) $next_retry_sec > 0) {
+        $set_clauses[] = 'next_retry_at = %s';
+        $params[] = gmdate('Y-m-d H:i:s', time() + min(86400, (int) $next_retry_sec));
+    }
+    $params[] = $event_id;
+
+    $updated = $wpdb->query(
+        $wpdb->prepare("UPDATE {$table} SET " . implode(', ', $set_clauses) . " WHERE event_id = %s", $params)
     );
 
     if ($updated === false) {
@@ -11475,7 +11805,7 @@ function mumbai_webhook_event_update_status(WP_REST_Request $request) {
         if ($wpdb->last_error) {
             return new WP_Error('db_query_failed', 'Failed to verify webhook event.', ['status' => 500]);
         }
-        if ($current !== $status) {
+        if ($current !== $status && !$inc_attempts && $next_retry_sec === null) {
             return new WP_Error('webhook_event_not_updated', 'Webhook event was not updated.', ['status' => 404]);
         }
     }
@@ -11503,19 +11833,31 @@ function mumbai_webhook_events_orphans(WP_REST_Request $request) {
     $offset = ($page - 1) * $limit;
 
     $refund_only = $request->get_param('refund_only') === 'true';
+    $event_group = sanitize_text_field($request->get_param('event_group') ?? '');
     $where = "(status = 'orphan' OR (status = 'stored' AND created_at < UTC_TIMESTAMP() - INTERVAL 5 MINUTE))";
-    if ($refund_only) {
-        $where .= " AND event_type IN ('refund.processed', 'refund.failed')";
+    if ($refund_only || $event_group === 'refund') {
+        $where .= " AND event_type IN ('refund.processed', 'refund.failed') AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())";
+    } elseif ($event_group === 'capture') {
+        $where .= " AND event_type IN ('order.paid', 'payment.captured') AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())";
     }
     $total = $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE {$where}");
     if ($wpdb->last_error || $total === null) {
         return new WP_Error('db_query_failed', 'Failed to count webhook events.', ['status' => 500]);
     }
+    $oldest_age = $wpdb->get_var(
+        "SELECT COALESCE(MAX(TIMESTAMPDIFF(SECOND, created_at, UTC_TIMESTAMP())), 0)
+         FROM {$table}
+         WHERE (status = 'orphan' OR (status = 'stored' AND created_at < UTC_TIMESTAMP() - INTERVAL 5 MINUTE))"
+    );
+    if ($wpdb->last_error || $oldest_age === null) {
+        return new WP_Error('db_query_failed', 'Failed to inspect webhook event age.', ['status' => 500]);
+    }
 
     $after_created_at = $request->get_param('after_created_at');
     $after_event_id = $request->get_param('after_event_id');
     $query_params = [];
-    if ($refund_only && ($after_created_at !== null || $after_event_id !== null)) {
+    $use_cursor = $refund_only || $event_group === 'refund' || $event_group === 'capture';
+    if ($use_cursor && ($after_created_at !== null || $after_event_id !== null)) {
         if (!is_string($after_created_at) || !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $after_created_at) || !is_string($after_event_id) || $after_event_id === '' || strlen($after_event_id) > 64) {
             return new WP_Error('invalid_cursor', 'Invalid webhook cursor.', ['status' => 400]);
         }
@@ -11523,21 +11865,22 @@ function mumbai_webhook_events_orphans(WP_REST_Request $request) {
         $query_params = [$after_created_at, $after_created_at, $after_event_id];
         $offset = 0;
     }
-    $order = $refund_only ? 'created_at ASC, event_id ASC' : 'created_at DESC, event_id DESC';
+    $order = $use_cursor ? 'created_at ASC, event_id ASC' : 'created_at DESC, event_id DESC';
     $query_params[] = $limit;
     $query_params[] = $offset;
     $rows = $wpdb->get_results(
-        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, raw_payload, status, created_at FROM {$table} WHERE {$where} ORDER BY {$order} LIMIT %d OFFSET %d", $query_params),
+        $wpdb->prepare("SELECT event_id, event_type, rzp_order_id, rzp_payment_id, raw_payload, status, attempts, next_retry_at, created_at, updated_at FROM {$table} WHERE {$where} ORDER BY {$order} LIMIT %d OFFSET %d", $query_params),
         ARRAY_A
     );
     if ($wpdb->last_error || !is_array($rows)) {
         return new WP_Error('db_query_failed', 'Failed to query webhook events.', ['status' => 500]);
     }
-    $last = $refund_only && count($rows) === $limit ? end($rows) : null;
+    $last = $use_cursor && count($rows) === $limit ? end($rows) : null;
 
     return rest_ensure_response([
         'success'  => true,
         'count'    => (int) $total,
+        'oldest_unresolved_seconds' => (int) $oldest_age,
         'page'     => $page,
         'limit'    => $limit,
         'orphans'  => $rows,
@@ -11578,8 +11921,16 @@ function mumbai_find_order_by_razorpay_order_id(WP_REST_Request $request) {
                 'number'         => $order->get_order_number(),
                 'customer_id'    => $order->get_customer_id(),
                 'status'         => $order->get_status(),
+                'currency'       => $order->get_currency(),
                 'transaction_id' => $order->get_transaction_id(),
                 'total'          => $order->get_total(),
+                'date_paid'      => $order->get_date_paid() ? gmdate('c', $order->get_date_paid()->getTimestamp()) : null,
+                'meta_data'      => [
+                    ['key' => '_delivery_status', 'value' => (string) ($order->get_meta('_delivery_status', true) ?: '')],
+                    ['key' => '_payment_verified_at', 'value' => (string) ($order->get_meta('_payment_verified_at', true) ?: '')],
+                    ['key' => '_payment_partial_refund_hold', 'value' => (string) ($order->get_meta('_payment_partial_refund_hold', true) ?: '')],
+                    ['key' => '_payment_amount_mismatch', 'value' => (string) ($order->get_meta('_payment_amount_mismatch', true) ?: '')],
+                ],
             ],
         ]);
     }
@@ -11662,19 +12013,33 @@ function mumbai_payment_intent_lock(WP_REST_Request $request) {
         "INSERT IGNORE INTO `{$table_name}` (`lock_key`, `worker_id`, `locked_at`) VALUES (%s, %s, %d)",
         $lock_key, $worker_id, $now
     ));
+    if ($wpdb->last_error || $inserted === false) {
+        return new WP_Error('lock_storage_unavailable', 'Lock storage unavailable.', ['status' => 503]);
+    }
 
     $acquired = ($inserted === 1);
     if (!$acquired) {
-        // Atomic stale lock recovery (worker timed out > 30s)
+        // Atomic stale lock recovery (worker timed out > 5 min)
         $stale = $wpdb->query($wpdb->prepare(
             "UPDATE `{$table_name}` SET `worker_id` = %s, `locked_at` = %d WHERE `lock_key` = %s AND (`worker_id` = %s OR `locked_at` < %d)",
             $worker_id, $now, $lock_key, $worker_id, $now - 300
         ));
-        if ($stale === 1 || $wpdb->get_var($wpdb->prepare(
-            "SELECT worker_id FROM `{$table_name}` WHERE lock_key = %s AND locked_at >= %d",
-            $lock_key, $now - 300
-        )) === $worker_id) {
+        if ($wpdb->last_error || $stale === false) {
+            return new WP_Error('lock_storage_unavailable', 'Lock storage unavailable.', ['status' => 503]);
+        }
+        if ($stale === 1) {
             $acquired = true;
+        } else {
+            $holder = $wpdb->get_var($wpdb->prepare(
+                "SELECT worker_id FROM `{$table_name}` WHERE lock_key = %s AND locked_at >= %d",
+                $lock_key, $now - 300
+            ));
+            if ($wpdb->last_error) {
+                return new WP_Error('lock_storage_unavailable', 'Lock storage unavailable.', ['status' => 503]);
+            }
+            if ($holder === $worker_id) {
+                $acquired = true;
+            }
         }
     }
 

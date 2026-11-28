@@ -179,7 +179,7 @@ export function createRazorpayHandler({
               if (!isCurrentAttempt()) {
                 return;
               }
-              if (checkRes?.success && checkRes?.order_id) {
+              if (checkRes?.success && checkRes?.order_id && !checkRes?._flagged && checkRes?.orderStatus !== "on-hold") {
                 clearPendingPayment(requestUserId);
                 clearCheckoutIdempotencyKey(requestUserId);
                 activeOrderRef.current = null;
@@ -194,11 +194,16 @@ export function createRazorpayHandler({
                 });
                 return;
               }
-              if (checkRes?.support_required) {
+              if (checkRes?.support_required || checkRes?._flagged || checkRes?.orderStatus === "on-hold") {
                 recordSupportRequired(checkRes.message);
                 return;
               }
-              if (checkRes?.refunded || checkRes?.terminal) {
+              if (checkRes?.refund_status === "pending" && !checkRes?.refunded) {
+                setIsPersistentPending(true);
+                setError(checkRes.message || "Refund pending — confirming your refund with Razorpay.");
+                return;
+              }
+              if (checkRes?.refunded || checkRes?.terminal || checkRes?.cancelled) {
                 clearPendingPayment(requestUserId);
                 retireCheckoutIdempotencyKey(requestUserId);
                 activeOrderRef.current = null;
@@ -208,9 +213,13 @@ export function createRazorpayHandler({
                 setError(checkRes.message || "Checkout attempt completed or cancelled.");
                 return;
               }
-              if (checkRes?.captured || checkRes?.authorized || checkRes?.processing) {
+              if (checkRes?.confirming || checkRes?.captured || checkRes?.authorized || checkRes?.processing) {
                 setIsPersistentPending(true);
-                setError("Payment is processing or confirmed. Please check payment status before trying again.");
+                setError(
+                  checkRes?.confirming
+                    ? "Payment received · Confirming your order"
+                    : "Payment is processing or confirmed. Please check payment status before trying again."
+                );
                 return;
               }
             }
@@ -277,7 +286,7 @@ export function createRazorpayHandler({
             return;
           }
 
-          if (verifyRes.success && verifyRes.order_id) {
+          if (verifyRes.success && verifyRes.order_id && !verifyRes._flagged && verifyRes.orderStatus !== "on-hold") {
             clearCheckoutIdempotencyKey(requestUserId);
             clearPendingPayment(requestUserId);
             activeOrderRef.current = null;
@@ -293,12 +302,18 @@ export function createRazorpayHandler({
             return;
           }
 
-          if (verifyRes.support_required) {
+          if (verifyRes.support_required || verifyRes._flagged || verifyRes.orderStatus === "on-hold") {
             recordSupportRequired(verifyRes.message);
             return;
           }
 
-          if (verifyRes.refunded || verifyRes.terminal) {
+          if (verifyRes.refund_status === "pending" && !verifyRes.refunded) {
+            setIsPersistentPending(true);
+            setError(verifyRes.message || "Refund pending — confirming your refund with Razorpay.");
+            return;
+          }
+
+          if (verifyRes.refunded || verifyRes.terminal || verifyRes.cancelled) {
             clearCheckoutIdempotencyKey(requestUserId);
             clearPendingPayment(requestUserId);
             activeOrderRef.current = null;
@@ -316,13 +331,26 @@ export function createRazorpayHandler({
           if (!isCurrentAttempt()) {
             return;
           }
-          if (verifyErr?.response?.data?.support_required) {
-            recordSupportRequired(verifyErr.response.data.message);
+          const errData = verifyErr?.response?.data;
+          if (errData?.support_required) {
+            recordSupportRequired(errData.message);
+            return;
+          }
+          if (errData?.refunded && errData?.terminal) {
+            clearCheckoutIdempotencyKey(requestUserId);
+            clearPendingPayment(requestUserId);
+            activeOrderRef.current = null;
+            await refreshCart().catch(() => {});
+            if (!isSameUser()) return;
+            setError(
+              errData.message ||
+                "An item in your order went out of stock during payment. Your payment was automatically refunded."
+            );
             return;
           }
 
-          const errCode = verifyErr.response?.data?.code;
-          const errMsg = String(verifyErr.response?.data?.message || verifyErr.message || "");
+          const errCode = errData?.code;
+          const errMsg = String(errData?.message || verifyErr.message || "");
           const isExplicitSignatureFailure =
             errCode === "INVALID_SIGNATURE" ||
             errMsg.toLowerCase().includes("invalid signature") ||
@@ -335,11 +363,13 @@ export function createRazorpayHandler({
           }
 
           let pollSucceeded = false;
+          let sawRefundPending = errData?.refund_status === "pending" && !errData?.refunded;
+          let sawConfirming = Boolean(errData?.confirming);
           for (let attempt = 1; attempt <= 5; attempt++) {
             if (!isCurrentAttempt()) {
               return;
             }
-            setPaymentStep(`confirming (${attempt}/5)`);
+            setPaymentStep(sawRefundPending ? "refund_pending" : `confirming (${attempt}/5)`);
             await new Promise((resolve) => setTimeout(resolve, 2500));
             if (!isCurrentAttempt()) {
               return;
@@ -349,7 +379,7 @@ export function createRazorpayHandler({
               if (!isCurrentAttempt()) {
                 return;
               }
-              if (checkRes?.success && checkRes?.order_id) {
+              if (checkRes?.success && checkRes?.order_id && !checkRes?._flagged && checkRes?.orderStatus !== "on-hold") {
                 pollSucceeded = true;
                 clearCheckoutIdempotencyKey(requestUserId);
                 clearPendingPayment(requestUserId);
@@ -365,12 +395,17 @@ export function createRazorpayHandler({
                 });
                 return;
               }
-              if (checkRes?.support_required) {
+              if (checkRes?.support_required || checkRes?._flagged || checkRes?.orderStatus === "on-hold") {
                 pollSucceeded = true;
                 recordSupportRequired(checkRes.message);
                 return;
               }
-              if (checkRes?.refunded || checkRes?.terminal) {
+              if (checkRes?.refund_status === "pending" && !checkRes?.refunded) {
+                sawRefundPending = true;
+                setError(checkRes.message || "Refund pending — confirming your refund with Razorpay.");
+                continue;
+              }
+              if (checkRes?.refunded || checkRes?.terminal || checkRes?.cancelled) {
                 pollSucceeded = true;
                 clearCheckoutIdempotencyKey(requestUserId);
                 clearPendingPayment(requestUserId);
@@ -383,6 +418,10 @@ export function createRazorpayHandler({
                 );
                 return;
               }
+              if (checkRes?.confirming || checkRes?.captured) {
+                sawConfirming = true;
+                setError("Payment received · Confirming your order");
+              }
             } catch (_) {
               // Continue
             }
@@ -391,7 +430,11 @@ export function createRazorpayHandler({
           if (!pollSucceeded && isCurrentAttempt()) {
             setIsPersistentPending(true);
             setError(
-              "We couldn’t confirm your payment yet. If money was debited, please do not pay again."
+              sawRefundPending
+                ? "Refund pending — confirming your refund with Razorpay."
+                : sawConfirming
+                ? "Payment received · Confirming your order"
+                : "We couldn’t confirm your payment yet. If money was debited, please do not pay again."
             );
           }
         } finally {

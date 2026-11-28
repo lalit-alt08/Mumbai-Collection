@@ -72,16 +72,56 @@ export const operationalHealth = async (req, res) => {
     return res.status(401).json({ success: false });
   }
   try {
-    const { fetchOrphanWebhookEvents } = await import("./paymentIntentService.js");
+    const {
+      fetchOrphanWebhookEvents,
+      fetchReconciliationList,
+    } = await import("./paymentIntentService.js");
     let wordpress = false;
-    try { await fetchOrphanWebhookEvents({ limit: 1 }); wordpress = true; } catch { /* Report failure, not zero. */ }
+    let payments = null;
+    try {
+      const [orphanSummary, urgentSummary] = await Promise.all([
+        fetchOrphanWebhookEvents({ limit: 1 }),
+        typeof fetchReconciliationList === "function"
+          ? fetchReconciliationList({ limit: 1, olderThanMinutes: 0, statusGroup: "urgent" })
+          : Promise.resolve(null),
+      ]);
+      wordpress = true;
+      payments = {
+        unresolvedWebhookCount: orphanSummary?.count ?? 0,
+        oldestUnresolvedWebhookSeconds: orphanSummary?.oldestUnresolvedSeconds ?? 0,
+        oldestUnresolvedPaymentSeconds: urgentSummary?.oldestUnresolvedPaymentSeconds ?? 0,
+        oldestUnresolvedRefundSeconds: urgentSummary?.oldestUnresolvedRefundSeconds ?? 0,
+      };
+    } catch { /* Report failure, not zero. */ }
     const queue = await getAlertQueueHealth();
     const redis = isRedisConfigured() ? isRedisActive() : null;
     const state = await sharedHealth();
     const reconciler = { ...state, overdue: state.lastSuccess ? Date.now() - state.lastSuccess > 25 * 60 * 1000 : process.uptime() > 15 * 60 };
     const alertChannelsConfigured = configuredAlertChannels().length > 0;
-    const healthy = wordpress && redis !== false && !reconciler.overdue && alertChannelsConfigured && queue.oldestPendingSeconds < 900 && queue.pending < 4500;
-    return res.status(healthy ? 200 : 503).json({ healthy, wordpress, redis, reconciler, alerts: queue, alertChannelsConfigured });
+    const backlogStale = Boolean(
+      payments && (
+        payments.oldestUnresolvedWebhookSeconds > 1800 ||
+        payments.oldestUnresolvedPaymentSeconds > 1800 ||
+        payments.oldestUnresolvedRefundSeconds > 1800
+      )
+    );
+    const healthy =
+      wordpress &&
+      redis !== false &&
+      !reconciler.overdue &&
+      !backlogStale &&
+      alertChannelsConfigured &&
+      queue.oldestPendingSeconds < 900 &&
+      queue.pending < 4500;
+    return res.status(healthy ? 200 : 503).json({
+      healthy,
+      wordpress,
+      redis,
+      reconciler,
+      payments,
+      alerts: queue,
+      alertChannelsConfigured,
+    });
   } catch {
     return res.status(503).json({ healthy: false, reason: "health_check_failed" });
   }

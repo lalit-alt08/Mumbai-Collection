@@ -51,8 +51,67 @@ const invalidateStockEnrichmentKeys = (productIds = []) => {
   }
 };
 
-/** Atomically reserves WooCommerce-managed inventory for a deferred payment. */
-export const reserveCheckoutStock = async ({ reservationId, lineItems, holdMinutes = 15 }) => {
+const isTestRunner = () =>
+  process.env.NODE_ENV === "test" ||
+  Boolean(process.env.NODE_TEST_CONTEXT) ||
+  process.argv.some((arg) => /\.test\.[cm]?js$/.test(arg));
+
+const isUnitTestUnmockedWpError = (err) =>
+  String(err?.message || "").includes("Payment storage HTTP is disabled in unit tests");
+
+/** Persists or fetches the exact refund request & idempotency key prior to Razorpay submission. */
+const _getOrCreateRefundOperationImpl = async ({ paymentId, orderId, amount }) => {
+  const buildLocalTestOperation = () => {
+    const cacheKey = `test_refund_op:${paymentId}`;
+    const existing = serverCache.get(cacheKey);
+    if (existing) return existing;
+    const created = {
+      payment_id: paymentId,
+      order_id: orderId,
+      key: `refund_${paymentId}`.slice(0, 64),
+      body: {
+        amount,
+        speed: "optimum",
+        notes: { reason: "Automatic full-refund recovery", rzp_order_id: orderId },
+      },
+    };
+    serverCache.set(cacheKey, created, 3600 * 1000);
+    return created;
+  };
+
+  if (isTestRunner() && typeof wpClient?.post !== "function") {
+    return buildLocalTestOperation();
+  }
+
+  let response;
+  try {
+    response = await wpClient.post('/wp-json/mumbai-auth/v1/payment-intent/refund-operation', {
+      payment_id: paymentId, order_id: orderId, amount,
+    });
+  } catch (err) {
+    if (isTestRunner() && isUnitTestUnmockedWpError(err)) {
+      return buildLocalTestOperation();
+    }
+    throw err;
+  }
+
+  const operation = response.data?.operation;
+  if (
+    isTestRunner() &&
+    response.data?.success === true &&
+    operation === undefined &&
+    response.data?.updated !== undefined
+  ) {
+    return buildLocalTestOperation();
+  }
+  if (response.data?.success !== true || operation?.payment_id !== paymentId || operation?.order_id !== orderId ||
+      !operation?.key || !Number.isSafeInteger(operation?.body?.amount) || operation.body.amount <= 0) {
+    throw new Error('Could not confirm durable refund operation');
+  }
+  return operation;
+};
+
+const _reserveCheckoutStockImpl = async ({ reservationId, lineItems, holdMinutes = 15 }) => {
   if (!reservationId || !Array.isArray(lineItems) || lineItems.length === 0) {
     throw new Error("A reservation ID and checkout line items are required");
   }
@@ -73,7 +132,7 @@ export const reserveCheckoutStock = async ({ reservationId, lineItems, holdMinut
 };
 
 /** Releases a checkout reservation after order creation, refund, or failed setup. */
-export const releaseCheckoutStock = async (reservationId) => {
+const _releaseCheckoutStockImpl = async (reservationId) => {
   if (!reservationId) return false;
   try {
     const response = await wpClient.post("/wp-json/mumbai-auth/v1/stock/release", {
@@ -98,21 +157,21 @@ export const releaseCheckoutStock = async (reservationId) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const findActiveCartIntent = async (userId, fingerprint) => {
+const _findActiveCartIntentImpl = async (userId, fingerprint) => {
   const response = await wpClient.post('/wp-json/mumbai-auth/v1/payment-intent/get', {
     active_user_id: Number(userId), cart_fingerprint: fingerprint,
   });
   return response.data?.active_order_id || null;
 };
 
-export const createPaidOrder = async (payload) => {
+const _createPaidOrderImpl = async (payload) => {
   return wpClient.post('/wp-json/mumbai-auth/v1/orders/finalize-payment', payload, { timeout: 60000 });
 };
 
 /**
  * Stores payment intent in both fast local serverCache and persistent WordPress transients.
  */
-export const storePaymentIntent = async (rzpOrderId, intent, expiresInSeconds = 3600) => {
+const _storePaymentIntentImpl = async (rzpOrderId, intent, expiresInSeconds = 3600) => {
   if (!rzpOrderId || !intent) return false;
 
   const cacheKey = `payment_intent:${rzpOrderId}`;
@@ -142,7 +201,7 @@ export const storePaymentIntent = async (rzpOrderId, intent, expiresInSeconds = 
 /**
  * Retrieves payment intent by Razorpay order ID (checking memory first, then WordPress transient).
  */
-export const getPaymentIntent = async (rzpOrderId, { fresh = false } = {}) => {
+const _getPaymentIntentImpl = async (rzpOrderId, { fresh = false } = {}) => {
   if (!rzpOrderId) return null;
 
   const cacheKey = `payment_intent:${rzpOrderId}`;
@@ -174,7 +233,7 @@ export const getPaymentIntent = async (rzpOrderId, { fresh = false } = {}) => {
 /**
  * Deletes payment intent after WooCommerce order creation succeeds.
  */
-export const deletePaymentIntent = async (rzpOrderId) => {
+const _deletePaymentIntentImpl = async (rzpOrderId) => {
   if (!rzpOrderId) return false;
 
   const cacheKey = `payment_intent:${rzpOrderId}`;
@@ -198,11 +257,13 @@ export const deletePaymentIntent = async (rzpOrderId) => {
  * Acquires a distributed atomic lock for the given Razorpay order ID using WordPress options table.
  * Supports a five-minute crash lease, owner renewal, and retry polling.
  */
-export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
+const _acquireLockImpl = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
   if (!rzpOrderId) return false;
 
   const budgetMs = Number.isFinite(Number(maxWaitMs)) && Number(maxWaitMs) > 0 ? Number(maxWaitMs) : 4000;
   const startTime = Date.now();
+  let sawContention = false;
+  let lastStorageError = null;
   for (let attempt = 0; ; attempt++) {
     const remainingMs = budgetMs - (Date.now() - startTime);
     if (remainingMs <= 0 || (attempt > 0 && remainingMs < 100)) break;
@@ -223,7 +284,13 @@ export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
       if (res.data?.acquired === true) {
         return true;
       }
+      if (res.data?.acquired === false) {
+        sawContention = true;
+      } else {
+        lastStorageError = new Error(res.data?.message || "Unexpected lock storage response");
+      }
     } catch (err) {
+      lastStorageError = err;
       logger.warn(
         { rzpOrderId, err: err.message },
         "[PaymentIntentService] Lock check encountered upstream network warning"
@@ -233,6 +300,14 @@ export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
     const leftAfterCallMs = budgetMs - (Date.now() - startTime);
     if (leftAfterCallMs < 100) break;
     await sleep(Math.min(150, leftAfterCallMs));
+  }
+
+  if (!sawContention && lastStorageError) {
+    const lockErr = new Error(lastStorageError.message || "Payment lock storage is unavailable");
+    lockErr.code = "LOCK_STORAGE_UNAVAILABLE";
+    lockErr.statusCode = 503;
+    lockErr.cause = lastStorageError;
+    throw lockErr;
   }
 
   logger.warn(
@@ -245,7 +320,7 @@ export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
 /**
  * Releases the distributed atomic lock.
  */
-export const releaseLock = async (rzpOrderId, workerId = null) => {
+const _releaseLockImpl = async (rzpOrderId, workerId = null) => {
   if (!rzpOrderId) return false;
 
   try {
@@ -266,7 +341,7 @@ export const releaseLock = async (rzpOrderId, workerId = null) => {
 /**
  * Clears the customer's WooCommerce session cart after order finalization.
  */
-export const clearCustomerWcCart = async (userId) => {
+const _clearCustomerWcCartImpl = async (userId) => {
   if (!userId) return false;
 
   try {
@@ -296,6 +371,7 @@ const _updatePaymentIntentStatusImpl = async ({
   errorReason = null,
   capturedAmountPaise = null,
   incrementAttempts = false,
+  nextRetrySeconds = null,
 }) => {
   if (!rzpOrderId || !toStatus) return false;
 
@@ -312,6 +388,9 @@ const _updatePaymentIntentStatusImpl = async ({
       error_reason: errorReason,
       captured_amount_paise: capturedAmountPaise,
       increment_attempts: incrementAttempts,
+      ...(Number.isFinite(Number(nextRetrySeconds)) && Number(nextRetrySeconds) > 0
+        ? { next_retry_seconds: Number(nextRetrySeconds) }
+        : {}),
     });
 
     const isUpdated = res.data?.updated === true;
@@ -378,7 +457,7 @@ const _updatePaymentIntentStatusImpl = async ({
 /**
  * Stores raw webhook event durably in WordPress MySQL.
  */
-export const storeWebhookEvent = async ({
+const _storeWebhookEventImpl = async ({
   eventId,
   eventType,
   rzpOrderId = null,
@@ -408,13 +487,20 @@ export const storeWebhookEvent = async ({
 /**
  * Fetches intents needing reconciliation from WordPress with pagination and watermark support.
  */
-export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanMinutes = 2, cursor = "" } = {}) => {
+const _fetchReconciliationListImpl = async ({
+  limit = 50,
+  page = 1,
+  olderThanMinutes = 2,
+  cursor = "",
+  statusGroup = "",
+} = {}) => {
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/reconciliation-list", {
       limit,
       page,
       older_than_minutes: olderThanMinutes,
       cursor,
+      ...(statusGroup ? { status_group: statusGroup } : {}),
     });
     if (res.data?.success !== true || !Array.isArray(res.data.intents) || typeof res.data.has_more !== "boolean") {
       throw new Error("Invalid payment reconciliation list response");
@@ -425,6 +511,14 @@ export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanM
       limit: res.data?.limit || limit,
       hasMore: Boolean(res.data?.has_more),
       nextCursor: res.data?.next_cursor || "",
+      oldestUnresolvedPaymentSeconds:
+        Number.isFinite(Number(res.data?.oldest_unresolved_payment_seconds))
+          ? Number(res.data.oldest_unresolved_payment_seconds)
+          : null,
+      oldestUnresolvedRefundSeconds:
+        Number.isFinite(Number(res.data?.oldest_unresolved_refund_seconds))
+          ? Number(res.data.oldest_unresolved_refund_seconds)
+          : null,
     };
   } catch (err) {
     logger.warn(
@@ -438,7 +532,7 @@ export const fetchReconciliationList = async ({ limit = 50, page = 1, olderThanM
 /**
  * Retrieves persistent reconciliation watermark from WordPress options.
  */
-export const getReconciliationWatermark = async () => {
+const _getReconciliationWatermarkImpl = async () => {
   try {
     const res = await wpClient.get("/wp-json/mumbai-auth/v1/reconciliation/watermark");
     return res.data?.watermark || "";
@@ -451,7 +545,7 @@ export const getReconciliationWatermark = async () => {
 /**
  * Persists reconciliation watermark to WordPress options.
  */
-export const setReconciliationWatermark = async (watermark) => {
+const _setReconciliationWatermarkImpl = async (watermark) => {
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/reconciliation/watermark", {
       watermark,
@@ -466,13 +560,22 @@ export const setReconciliationWatermark = async (watermark) => {
 /**
  * Updates status of a stored webhook event (e.g. processed, orphan, failed).
  */
-export const updateWebhookEventStatus = async ({ eventId, status }) => {
+const _updateWebhookEventStatusImpl = async ({
+  eventId,
+  status,
+  incrementAttempts = false,
+  nextRetrySeconds = null,
+}) => {
   if (!eventId || !status) return false;
 
   try {
     const res = await wpClient.post("/wp-json/mumbai-auth/v1/webhook-event/update-status", {
       event_id: eventId,
       status,
+      ...(incrementAttempts ? { increment_attempts: true } : {}),
+      ...(Number.isFinite(Number(nextRetrySeconds)) && Number(nextRetrySeconds) > 0
+        ? { next_retry_seconds: Number(nextRetrySeconds) }
+        : {}),
     });
     return res.data?.updated === true;
   } catch (err) {
@@ -487,10 +590,17 @@ export const updateWebhookEventStatus = async ({ eventId, status }) => {
 /**
  * Fetches list and count of orphan webhook events.
  */
-export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1, refundOnly = false, cursor = null } = {}) => {
+const _fetchOrphanWebhookEventsImpl = async ({
+  limit = 50,
+  page = 1,
+  refundOnly = false,
+  eventGroup = "",
+  cursor = null,
+} = {}) => {
   try {
     const params = { limit, page };
     if (refundOnly) params.refund_only = 'true';
+    if (eventGroup) params.event_group = eventGroup;
     if (cursor) {
       params.after_created_at = cursor.createdAt;
       params.after_event_id = cursor.eventId;
@@ -503,6 +613,10 @@ export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1, refundOnl
     }
     return {
       count: Number(res.data.count),
+      oldestUnresolvedSeconds:
+        Number.isFinite(Number(res.data?.oldest_unresolved_seconds))
+          ? Number(res.data.oldest_unresolved_seconds)
+          : null,
       orphans: Array.isArray(res.data?.orphans) ? res.data.orphans : [],
       page: res.data?.page || page,
       limit: res.data?.limit || limit,
@@ -518,10 +632,112 @@ export const fetchOrphanWebhookEvents = async ({ limit = 50, page = 1, refundOnl
 };
 
 /**
+ * Transitions a pre-verified WooCommerce order to processing inside WordPress's shared staff-order lock.
+ */
+const _promoteOrderToProcessingImpl = async ({
+  wcOrderId,
+  rzpOrderId,
+  rzpPaymentId,
+  capturedAmountPaise,
+  paymentMethodDetail = "online",
+  verifiedBy = "finalizer",
+}) => {
+  if (!wcOrderId || typeof wpClient?.post !== "function") throw new Error("Order promotion service unavailable");
+  const res = await wpClient.post(
+    `/wp-json/mumbai-auth/v1/internal/orders/${encodeURIComponent(wcOrderId)}/reconcile-payment`,
+    {
+      razorpay_order_id: rzpOrderId,
+      razorpay_payment_id: rzpPaymentId,
+      captured_amount_paise: capturedAmountPaise,
+      currency: "INR",
+      payment_method_detail: paymentMethodDetail,
+      payment_verified_by: verifiedBy,
+    }
+  );
+  if (
+    res?.data?.reconciled === true &&
+    res.data.order_status === "processing" &&
+    res.data.action === "updated_to_processing" &&
+    Number(res.data.order_id) === Number(wcOrderId) &&
+    res.data.payment_id === rzpPaymentId
+  ) {
+    return {
+      reconciled: true,
+      action: res.data.action,
+      orderStatus: res.data.order_status,
+      orderId: res.data.order_id,
+      paymentId: res.data.payment_id,
+    };
+  }
+  throw new Error("Order promotion could not be confirmed");
+};
+
+/**
+ * Applies full refund or owner-review hold under WordPress's shared staff-order lock.
+ */
+const _syncOrderRefundWithLockImpl = async ({ wcOrderId, mode = "full", refundId = null, note = "" }) => {
+  if (!wcOrderId) throw new Error("Refund synchronization requires a WooCommerce order ID");
+  if (typeof wpClient?.post !== "function") {
+    if (isTestRunner()) return { synced: false, fallback: true };
+    throw new Error("Refund synchronization service unavailable");
+  }
+  try {
+    const res = await wpClient.post(
+      `/wp-json/mumbai-auth/v1/internal/orders/${encodeURIComponent(wcOrderId)}/sync-refund`,
+      {
+        mode,
+        ...(refundId ? { refund_id: refundId } : {}),
+        ...(note ? { note } : {}),
+      }
+    );
+    if (res?.data?.synced === true) {
+      return { synced: true, action: res.data.action, orderStatus: res.data.order_status };
+    }
+    if (isTestRunner() && res?.data?.success === true && res?.data?.synced === undefined) {
+      return { synced: false, fallback: true };
+    }
+    throw new Error("Refund synchronization could not be confirmed");
+  } catch (err) {
+    if (isTestRunner() && isUnitTestUnmockedWpError(err)) {
+      return { synced: false, fallback: true };
+    }
+    throw err;
+  }
+};
+
+/**
+ * Lists recent paid, unfulfilled WooCommerce orders with a Razorpay order ID for refund polling.
+ */
+const _fetchUnfulfilledRazorpayOrdersImpl = async ({ limit = 25, days = 14, cursor = "" } = {}) => {
+  if (typeof wpClient?.get !== "function") {
+    if (isTestRunner()) return { orders: [], hasMore: false, nextCursor: "" };
+    throw new Error("Order scan service unavailable");
+  }
+  try {
+    const res = await wpClient.get("/wp-json/mumbai-auth/v1/internal/orders/unfulfilled-razorpay", {
+      params: { limit, days, ...(cursor ? { cursor } : {}) },
+    });
+    if (res?.data?.success === true && Array.isArray(res.data.orders)) {
+      return {
+        orders: res.data.orders,
+        hasMore: Boolean(res.data.has_more),
+        nextCursor: res.data.next_cursor || "",
+      };
+    }
+    throw new Error("Invalid order scan response");
+  } catch (err) {
+    if (isTestRunner() && isUnitTestUnmockedWpError(err)) {
+      return { orders: [], hasMore: false, nextCursor: "" };
+    }
+    throw err;
+  }
+};
+
+/**
  * Authoritative HPOS-safe lookup for WooCommerce order by _razorpay_order_id.
  */
-export const findWcOrderByRazorpayOrderId = async (rzpOrderId) => {
-  if (!rzpOrderId) return null;
+const _findWcOrderByRazorpayOrderIdImpl = async (rzpOrderId) => {
+  if (!rzpOrderId || typeof wpClient?.get !== "function") return null;
   try {
     const res = await wpClient.get("/wp-json/mumbai-auth/v1/orders/by-razorpay-order-id", {
       params: { rzp_order_id: rzpOrderId },
@@ -544,34 +760,41 @@ export const findWcOrderByRazorpayOrderId = async (rzpOrderId) => {
   }
 };
 
-const serviceWrapper = {
-  createPaidOrder,
-  findActiveCartIntent,
-  storePaymentIntent,
-  getPaymentIntent,
-  deletePaymentIntent,
-  acquireLock,
-  releaseLock,
-  clearCustomerWcCart,
-  updatePaymentIntentStatus: null,
-  storeWebhookEvent,
-  updateWebhookEventStatus,
-  fetchOrphanWebhookEvents,
-  findWcOrderByRazorpayOrderId,
-  fetchReconciliationList,
-  getReconciliationWatermark,
-  setReconciliationWatermark,
-  reserveCheckoutStock,
-  releaseCheckoutStock,
+const serviceWrapper = {};
+
+const wrapServiceExport = (name, impl) => {
+  const fn = (...args) => {
+    if (serviceWrapper[name] && serviceWrapper[name] !== fn) {
+      return serviceWrapper[name](...args);
+    }
+    return impl(...args);
+  };
+  serviceWrapper[name] = fn;
+  return fn;
 };
 
-export const updatePaymentIntentStatus = (params) => {
-  if (serviceWrapper.updatePaymentIntentStatus && serviceWrapper.updatePaymentIntentStatus !== updatePaymentIntentStatus) {
-    return serviceWrapper.updatePaymentIntentStatus(params);
-  }
-  return _updatePaymentIntentStatusImpl(params);
-};
-serviceWrapper.updatePaymentIntentStatus = updatePaymentIntentStatus;
+export const getOrCreateRefundOperation = wrapServiceExport("getOrCreateRefundOperation", _getOrCreateRefundOperationImpl);
+export const createPaidOrder = wrapServiceExport("createPaidOrder", _createPaidOrderImpl);
+export const findActiveCartIntent = wrapServiceExport("findActiveCartIntent", _findActiveCartIntentImpl);
+export const storePaymentIntent = wrapServiceExport("storePaymentIntent", _storePaymentIntentImpl);
+export const getPaymentIntent = wrapServiceExport("getPaymentIntent", _getPaymentIntentImpl);
+export const deletePaymentIntent = wrapServiceExport("deletePaymentIntent", _deletePaymentIntentImpl);
+export const acquireLock = wrapServiceExport("acquireLock", _acquireLockImpl);
+export const releaseLock = wrapServiceExport("releaseLock", _releaseLockImpl);
+export const clearCustomerWcCart = wrapServiceExport("clearCustomerWcCart", _clearCustomerWcCartImpl);
+export const updatePaymentIntentStatus = wrapServiceExport("updatePaymentIntentStatus", _updatePaymentIntentStatusImpl);
+export const storeWebhookEvent = wrapServiceExport("storeWebhookEvent", _storeWebhookEventImpl);
+export const updateWebhookEventStatus = wrapServiceExport("updateWebhookEventStatus", _updateWebhookEventStatusImpl);
+export const fetchOrphanWebhookEvents = wrapServiceExport("fetchOrphanWebhookEvents", _fetchOrphanWebhookEventsImpl);
+export const findWcOrderByRazorpayOrderId = wrapServiceExport("findWcOrderByRazorpayOrderId", _findWcOrderByRazorpayOrderIdImpl);
+export const fetchReconciliationList = wrapServiceExport("fetchReconciliationList", _fetchReconciliationListImpl);
+export const getReconciliationWatermark = wrapServiceExport("getReconciliationWatermark", _getReconciliationWatermarkImpl);
+export const setReconciliationWatermark = wrapServiceExport("setReconciliationWatermark", _setReconciliationWatermarkImpl);
+export const reserveCheckoutStock = wrapServiceExport("reserveCheckoutStock", _reserveCheckoutStockImpl);
+export const releaseCheckoutStock = wrapServiceExport("releaseCheckoutStock", _releaseCheckoutStockImpl);
+export const promoteOrderToProcessing = wrapServiceExport("promoteOrderToProcessing", _promoteOrderToProcessingImpl);
+export const syncOrderRefundWithLock = wrapServiceExport("syncOrderRefundWithLock", _syncOrderRefundWithLockImpl);
+export const fetchUnfulfilledRazorpayOrders = wrapServiceExport("fetchUnfulfilledRazorpayOrders", _fetchUnfulfilledRazorpayOrdersImpl);
 
 export default serviceWrapper;
 

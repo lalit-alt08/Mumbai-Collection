@@ -26,6 +26,99 @@ import {
   deleteActiveCartIntentId,
 } from "../utils/paymentCheckoutUtils.js";
 
+const ORDER_STATUS_TERMINAL = new Set(["refunded", "cancelled", "failed", "trash"]);
+
+const hasOrderMetaFlag = (order, key, expectedValue = "yes") => {
+  const meta = Array.isArray(order?.meta_data) ? order.meta_data : [];
+  return meta.some((m) => m?.key === key && m?.value === expectedValue);
+};
+
+const invalidateOrderCachesAndNotify = async ({ order, customerId, rzpOrderId, rzpPaymentId, source }) => {
+  if (customerId) {
+    serverCache.invalidatePrefix(`customer:orders:${customerId}:`);
+  }
+  await notifyFulfillmentOrderCreated(order);
+
+  serverCache.invalidatePrefix("employee:overview");
+  serverCache.invalidatePrefix("admin:analytics");
+  serverCache.invalidatePrefix("admin:customers");
+  serverCache.delete("product_stock_counts");
+  serverCache.invalidatePrefix("admin_products:");
+  serverCache.invalidatePrefix("catalog:products:");
+  serverCache.invalidatePrefix("catalog:category:");
+
+  if (Array.isArray(order?.line_items)) {
+    for (const item of order.line_items) {
+      if (item.product_id) {
+        serverCache.delete(`catalog:product:${item.product_id}`);
+        serverCache.delete(`stock:enrichment:product:${item.product_id}`);
+      }
+      if (item.variation_id && item.variation_id !== item.product_id) {
+        serverCache.delete(`stock:enrichment:product:${item.variation_id}`);
+      }
+    }
+  }
+
+  logger.info(
+    { wc_order_id: order.id, razorpay_order_id: rzpOrderId, razorpay_payment_id: rzpPaymentId, source },
+    "[Payment Finalize] SUCCESS: Exactly 1 WooCommerce order created in processing status"
+  );
+};
+
+const holdOrderForMismatch = async ({ order, rzpOrderId, rzpPaymentId, capturedPaise, wcTotalPaise, wcCurrency }) => {
+  const mismatchNote =
+    `[AUDIT ALERT] Total/Currency Mismatch: Captured Razorpay payment is ₹${formatPaiseAsRupees(capturedPaise)} INR, ` +
+    `but WooCommerce order total was ${wcCurrency} ₹${formatPaiseAsRupees(wcTotalPaise)}. Hold for administrative review.`;
+
+  const syncFn = paymentIntentService.syncOrderRefundWithLock;
+  const syncRes = typeof syncFn === "function"
+    ? await syncFn({ wcOrderId: order.id, mode: "amount_mismatch_hold", note: mismatchNote })
+    : { fallback: true };
+
+  if (syncRes?.fallback) {
+    if (String(order.status || "").toLowerCase() !== "on-hold") {
+      await api.put(`orders/${order.id}`, {
+        status: "on-hold",
+        customer_note: "Order placed on hold for verification: payment amount discrepancy detected.",
+      });
+    }
+    await invalidateOrderDetailCache(order.id);
+    await api.post(`orders/${order.id}/notes`, {
+      note: mismatchNote,
+      customer_note: false,
+    }).catch(() => {});
+  } else {
+    await invalidateOrderDetailCache(order.id);
+  }
+  order.status = "on-hold";
+};
+
+const promoteVerifiedOrderToProcessing = async ({ order, rzpOrderId, rzpPaymentId, capturedPaise, paymentMethodDetail, source }) => {
+  if (String(order.status || "").toLowerCase() === "processing") {
+    return order;
+  }
+
+  const promoteFn = paymentIntentService.promoteOrderToProcessing;
+  const res = typeof promoteFn === "function"
+    ? await promoteFn({
+        wcOrderId: order.id,
+        rzpOrderId,
+        rzpPaymentId,
+        capturedAmountPaise: capturedPaise,
+        paymentMethodDetail,
+        verifiedBy: source || "finalizer",
+      })
+    : { fallback: true };
+
+  if (!res?.reconciled || res.orderStatus !== "processing" || res.action !== "updated_to_processing") {
+    throw new Error("Order promotion was not confirmed");
+  }
+
+  await invalidateOrderDetailCache(order.id);
+  order.status = "processing";
+  return order;
+};
+
 const notifyFulfillmentOrderCreated = async (order, { fallbackTotal = null, suppressPush = null } = {}) => {
   if (!order?.id) return;
   const orderStatus = String(order.status || "processing").toLowerCase();
@@ -128,27 +221,306 @@ export const finalizePaymentAndCreateOrder = async ({
   }
 
   // 3. Acquire Distributed Atomic Lock for rzpOrderId
-  const lease = await acquirePaymentLease(rzpOrderId, source, 4000);
+  let lease;
+  try {
+    lease = await acquirePaymentLease(rzpOrderId, source, 4000);
+  } catch (lockErr) {
+    if (lockErr?.code === "LOCK_STORAGE_UNAVAILABLE") {
+      return {
+        success: false,
+        status: 503,
+        confirming: true,
+        paid: true,
+        captured: true,
+        message: "Payment received · Confirming your order",
+      };
+    }
+    throw lockErr;
+  }
   const lockAcquired = Boolean(lease);
   if (!lockAcquired) {
-    // Check if concurrent thread already created the order
+    // Check if concurrent thread already created and verified the order
     const existing = await findOrderByRazorpayOrderId(rzpOrderId);
     if (existing) {
-      await notifyFulfillmentOrderCreated(existing);
-      return {
-        success: true,
-        order_id: existing.id,
-        orderStatus: existing.status || "processing",
-        message: "Payment already verified.",
-        _idempotent: true,
-      };
+      const existingStatus = String(existing.status || "").toLowerCase();
+      if (existingStatus === "refunded") {
+        return {
+          success: false,
+          status: 200,
+          terminal: true,
+          refunded: true,
+          refund_status: "completed",
+          order_id: existing.id,
+          orderStatus: existingStatus,
+          message: "Your payment was refunded.",
+        };
+      }
+      if (["cancelled", "failed"].includes(existingStatus)) {
+        return {
+          success: false,
+          status: 200,
+          terminal: true,
+          cancelled: true,
+          order_id: existing.id,
+          orderStatus: existingStatus,
+          message: "This order was cancelled or failed.",
+        };
+      }
     }
     return {
       success: false,
       status: 409,
+      confirming: true,
+      paid: true,
+      captured: true,
       message: "Payment finalization is currently in progress. Please wait a moment.",
     };
   }
+
+  const settleVerifiedExistingOrder = async (existingOrder) => {
+    const existingCustomerId = Number(existingOrder.customer_id || 0);
+    if (expectedCustomerId && existingCustomerId && existingCustomerId !== Number(expectedCustomerId)) {
+      return paymentOwnershipFailure();
+    }
+
+    const freshIntent = await paymentIntentService.getPaymentIntent(rzpOrderId, { fresh: true });
+    const existingStatus = String(existingOrder.status || "").toLowerCase();
+    const reservationId =
+      freshIntent?.stock_reservation_id || freshIntent?.checkout_payload?.stock_reservation_id;
+
+    if ((Number(rzpPayment.amount_refunded || 0) > 0 || rzpPayment.refund_status) && existingStatus !== "refunded" && freshIntent?.status !== "refunded") {
+      const isFullGatewayRefund =
+        rzpPayment.refund_status === "full" ||
+        Number(rzpPayment.amount_refunded || 0) >= Number(rzpPayment.amount || Infinity);
+
+      if (isFullGatewayRefund) {
+        const fullNote = `[Payment Recovery] Full Razorpay refund detected for order #${existingOrder.id}. Order moved to refunded.`;
+        const syncFn = paymentIntentService.syncOrderRefundWithLock;
+        const syncRes = typeof syncFn === "function"
+          ? await syncFn({ wcOrderId: existingOrder.id, mode: "full", note: fullNote })
+          : { fallback: true };
+        if (syncRes?.fallback && existingStatus !== "refunded") {
+          await api.put(`orders/${existingOrder.id}`, {
+            status: "refunded",
+            meta_data: [{ key: "_delivery_status", value: "refunded" }],
+          });
+        }
+        await invalidateOrderDetailCache(existingOrder.id);
+        if (freshIntent && freshIntent.status !== "refunded") {
+          await updatePaymentIntentStatus({
+            rzpOrderId,
+            fromStatus: freshIntent.status,
+            toStatus: "refunded",
+            rzpPaymentId,
+            wcOrderId: existingOrder.id,
+          });
+        }
+        if (reservationId) await releaseCheckoutStock(reservationId);
+        return {
+          success: false,
+          status: 200,
+          terminal: true,
+          refunded: true,
+          refund_status: "completed",
+          order_id: existingOrder.id,
+          orderStatus: "refunded",
+          message: "Your payment was refunded.",
+          _idempotent: true,
+        };
+      }
+
+      if (
+        ["pending", "processing", "packed"].includes(existingStatus) ||
+        (existingStatus === "on-hold" && !hasOrderMetaFlag(existingOrder, "_payment_partial_refund_hold"))
+      ) {
+        const partialNote = `[AUDIT ALERT] Partial Razorpay refund detected during order recovery for #${existingOrder.id}. Order placed on-hold for owner review; do not dispatch.`;
+        const syncFn = paymentIntentService.syncOrderRefundWithLock;
+        const syncRes = typeof syncFn === "function"
+          ? await syncFn({ wcOrderId: existingOrder.id, mode: "partial_hold", note: partialNote })
+          : { fallback: true };
+        if (syncRes?.fallback) {
+          await api.put(`orders/${existingOrder.id}`, {
+            status: "on-hold",
+            meta_data: [
+              { key: "_delivery_status", value: "on-hold" },
+              { key: "_payment_partial_refund_hold", value: "yes" },
+            ],
+          });
+        }
+        await invalidateOrderDetailCache(existingOrder.id);
+        await alertStaffAnomaly({
+          type: "PARTIAL_OR_FAILED_REFUND",
+          severity: "critical",
+          rzpOrderId,
+          rzpPaymentId,
+          wcOrderId: existingOrder.id,
+          message: `Partial refund detected during order recovery for #${existingOrder.id}. Dispatch blocked (on-hold).`,
+          details: { amount_refunded: rzpPayment.amount_refunded, wcOrderId: existingOrder.id },
+        });
+      }
+
+      return {
+        success: false,
+        status: 200,
+        terminal: true,
+        support_required: true,
+        order_id: existingOrder.id,
+        orderStatus: "on-hold",
+        message: "A refund exists for this payment. Support must review it before the order can be completed.",
+      };
+    }
+
+    if (existingStatus === "refunded" || freshIntent?.status === "refunded") {
+      return {
+        success: false,
+        status: 200,
+        terminal: true,
+        refunded: true,
+        refund_status: "completed",
+        order_id: existingOrder.id,
+        orderStatus: "refunded",
+        message: "Your payment was refunded.",
+        _idempotent: true,
+      };
+    }
+    if (["cancelled", "failed"].includes(existingStatus)) {
+      return {
+        success: false,
+        status: 200,
+        terminal: true,
+        cancelled: true,
+        order_id: existingOrder.id,
+        orderStatus: existingStatus,
+        message: "This order was cancelled or failed.",
+        _idempotent: true,
+      };
+    }
+    if (["refund_pending", "refund_failed", "refund_escalated"].includes(freshIntent?.status)) {
+      return {
+        success: false,
+        status: 200,
+        terminal: freshIntent.status === "refund_escalated",
+        support_required: freshIntent.status === "refund_escalated",
+        refunded: false,
+        refund_status: "pending",
+        order_id: existingOrder.id,
+        orderStatus: existingStatus,
+        message: "Your refund is being processed and will reflect in 5-7 business days.",
+        _idempotent: true,
+      };
+    }
+    if (
+      freshIntent?.status === "amount_mismatch" ||
+      hasOrderMetaFlag(existingOrder, "_payment_amount_mismatch") ||
+      hasOrderMetaFlag(existingOrder, "_payment_partial_refund_hold")
+    ) {
+      return {
+        success: true,
+        order_id: existingOrder.id,
+        order_number: existingOrder.number || existingOrder.id,
+        orderStatus: "on-hold",
+        message: "Order is on hold for store verification.",
+        _flagged: true,
+        _idempotent: true,
+      };
+    }
+
+    // Re-verify financial total and currency before confirming or notifying staff
+    const wcCurrency = String(existingOrder.currency || "INR").toUpperCase();
+    const wcTotalPaise = Math.round(Number(existingOrder.total || 0) * 100);
+    const capturedPaise = Number(rzpPayment.amount);
+    const currencyOk = wcCurrency === "INR" && String(rzpPayment.currency || "INR").toUpperCase() === "INR";
+    const totalMatches = currencyOk && wcTotalPaise === capturedPaise;
+
+    if (!totalMatches) {
+      await holdOrderForMismatch({
+        order: existingOrder,
+        rzpOrderId,
+        rzpPaymentId,
+        capturedPaise,
+        wcTotalPaise,
+        wcCurrency,
+      });
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "amount_mismatch",
+        rzpPaymentId,
+        wcOrderId: existingOrder.id,
+        capturedAmountPaise: capturedPaise,
+        errorReason: `Total mismatch: WooCommerce ${wcCurrency} ₹${formatPaiseAsRupees(wcTotalPaise)} vs Paid ₹${formatPaiseAsRupees(capturedPaise)}`,
+      });
+      await alertStaffAnomaly({
+        type: "PAYMENT_AMOUNT_MISMATCH",
+        severity: "critical",
+        rzpOrderId,
+        rzpPaymentId,
+        wcOrderId: existingOrder.id,
+        message: `CRITICAL: Existing order #${existingOrder.id} total differs from captured payment. Placed on-hold for review.`,
+        details: { capturedAmountPaise: capturedPaise, wcTotalPaise, wcCurrency, wcOrderId: existingOrder.id },
+      });
+      if (reservationId) await releaseCheckoutStock(reservationId);
+      const cId = freshIntent?.customer_id || existingCustomerId;
+      if (cId) await paymentIntentService.clearCustomerWcCart(cId);
+      if (cId && freshIntent?.cart_fingerprint) await deleteActiveCartIntentId(cId, freshIntent.cart_fingerprint);
+      return {
+        success: true,
+        order_id: existingOrder.id,
+        order_number: existingOrder.number || existingOrder.id,
+        orderStatus: "on-hold",
+        message: "Payment captured, but an amount discrepancy was detected. Your order has been placed on hold for support review.",
+        _flagged: true,
+        _idempotent: true,
+      };
+    }
+
+    // Only promote pre-verification holds (e.g. from an interrupted finalizer whose intent is still paid/created);
+    // standalone on-hold orders with no matching active intent stay safely on-hold.
+    if (
+      (existingStatus === "on-hold" || existingStatus === "pending") &&
+      freshIntent &&
+      ["paid", "created"].includes(freshIntent.status)
+    ) {
+      await promoteVerifiedOrderToProcessing({
+        order: existingOrder,
+        rzpOrderId,
+        rzpPaymentId,
+        capturedPaise,
+        paymentMethodDetail: rzpPayment.method || "online",
+        source,
+      });
+    }
+
+    let intentSynced = true;
+    const customerIdToClean = freshIntent?.customer_id || existingCustomerId;
+    if (freshIntent && freshIntent.status !== "order_created") {
+      intentSynced = await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "order_created",
+        rzpPaymentId,
+        wcOrderId: existingOrder.id,
+        capturedAmountPaise: capturedPaise,
+      });
+      if (reservationId) await releaseCheckoutStock(reservationId);
+      if (customerIdToClean) await paymentIntentService.clearCustomerWcCart(customerIdToClean);
+      if (customerIdToClean && freshIntent?.cart_fingerprint) {
+        await deleteActiveCartIntentId(customerIdToClean, freshIntent.cart_fingerprint);
+      }
+    }
+
+    if (String(existingOrder.status || "").toLowerCase() === "processing") {
+      await notifyFulfillmentOrderCreated(existingOrder);
+    }
+
+    return {
+      success: true,
+      order_id: existingOrder.id,
+      order_number: existingOrder.number || existingOrder.id,
+      orderStatus: existingOrder.status || "processing",
+      message: "Payment already verified.",
+      _idempotent: true,
+      ...(intentSynced ? {} : { _intentPendingSync: true }),
+    };
+  };
 
   try {
     // 4. Idempotency Check (Double-checked inside lock)
@@ -156,33 +528,23 @@ export const finalizePaymentAndCreateOrder = async ({
     if (existingOrder) {
       logger.info(
         { wc_order_id: existingOrder.id, rzpOrderId, source },
-        "[Payment Finalize] Order already created — returning idempotent success"
+        "[Payment Finalize] Order already created — reconciling post-creation state"
       );
-      await notifyFulfillmentOrderCreated(existingOrder);
-      return {
-        success: true,
-        order_id: existingOrder.id,
-        order_number: existingOrder.number || existingOrder.id,
-        orderStatus: existingOrder.status || "processing",
-        message: "Payment already verified.",
-        _idempotent: true,
-      };
+      return await settleVerifiedExistingOrder(existingOrder);
     }
 
     // 5. Retrieve Stored Payment Intent
     const intent = await paymentIntentService.getPaymentIntent(rzpOrderId, { fresh: true });
-    if (intent && (intent.status === "order_created" || intent.wc_order_id)) {
+    if (intent && intent.status === "order_created" && intent.wc_order_id) {
       logger.info(
         { wc_order_id: intent.wc_order_id, rzpOrderId, source },
         "[Payment Finalize] Intent already in order_created state — returning idempotent success"
       );
-      if (intent.status === "order_created" && intent.wc_order_id) {
-        await ensureOrderCreatedNotification({
-          orderId: Number(intent.wc_order_id),
-          total: intent.amount_in_paise ? formatPaiseAsRupees(intent.amount_in_paise) : null,
-          status: "processing",
-        });
-      }
+      await ensureOrderCreatedNotification({
+        orderId: Number(intent.wc_order_id),
+        total: intent.amount_in_paise ? formatPaiseAsRupees(intent.amount_in_paise) : null,
+        status: "processing",
+      });
       return {
         success: true,
         order_id: Number(intent.wc_order_id),
@@ -401,16 +763,20 @@ export const finalizePaymentAndCreateOrder = async ({
       await lease.refresh();
       let refundConfirmed = false;
       let refundId = null;
+      let alreadyRefundedGateway = false;
 
       try {
         const refund = await refundRazorpayPayment({
           paymentId: rzpPaymentId,
           amountInPaise: rzpPayment.amount,
           notes: {
-            reason: "Auto-refund: Item out of stock during payment capture",
+            reason: "Automatic full-refund recovery",
             rzp_order_id: rzpOrderId,
           },
         });
+        if (refund?.already_refunded) {
+          alreadyRefundedGateway = true;
+        }
         if (refund?.id) {
           refundId = refund.id;
           let paymentData = null;
@@ -470,10 +836,12 @@ export const finalizePaymentAndCreateOrder = async ({
         refund_status: refundConfirmed ? "completed" : "pending",
         message: refundConfirmed ? "Your payment has been refunded." : "Your order could not be completed. Refund recovery is pending; please do not pay again.",
         refund_id: refundId,
+        ...(alreadyRefundedGateway ? { _alreadyRefunded: true } : {}),
       };
     }
 
-    // 9. CREATE ONE WOOCOMMERCE ORDER DIRECTLY IN "processing" STATUS
+    // 9. CREATE ONE WOOCOMMERCE ORDER IN NON-PACKABLE "on-hold" STATUS FIRST
+    // Staff cannot see or pack it until total & currency verification succeeds.
     const isAfterHours = finalizedAfterHours;
     const scheduledDeliveryLabel = finalizedDeliveryLabel || "Scheduled fulfillment";
     const extraMeta = [];
@@ -490,10 +858,10 @@ export const finalizePaymentAndCreateOrder = async ({
 
     const wcOrderPayload = {
       ...intent.checkout_payload,
-      status: "processing",
+      status: "on-hold",
       payment_method: "razorpay",
       payment_method_title: "Online Payment",
-      set_paid: true,
+      set_paid: false,
       transaction_id: rzpPaymentId,
       customer_note: isAfterHours
         ? `Order scheduled for fulfillment when the store opens: ${scheduledDeliveryLabel}.`
@@ -513,23 +881,9 @@ export const finalizePaymentAndCreateOrder = async ({
     if (immediateExisting) {
       logger.info(
         { wc_order_id: immediateExisting.id, rzpOrderId, source },
-        "[Payment Finalize] Existing order detected immediately before creation — returning idempotent success"
+        "[Payment Finalize] Existing order detected immediately before creation — reconciling state"
       );
-      await updatePaymentIntentStatus({
-        rzpOrderId,
-        toStatus: "order_created",
-        rzpPaymentId,
-        wcOrderId: immediateExisting.id,
-      });
-      await releaseCheckoutStock(reservationId);
-      await notifyFulfillmentOrderCreated(immediateExisting);
-      return {
-        success: true,
-        order_id: immediateExisting.id,
-        orderStatus: immediateExisting.status || "processing",
-        message: "Payment already verified.",
-        _idempotent: true,
-      };
+      return await settleVerifiedExistingOrder(immediateExisting);
     }
 
     let createdOrder;
@@ -564,7 +918,10 @@ export const finalizePaymentAndCreateOrder = async ({
       return {
         success: false,
         status: 502,
-        message: "Payment captured, but order registration encountered an error. Support has been notified.",
+        confirming: true,
+        paid: true,
+        captured: true,
+        message: "Payment received · Confirming your order",
       };
     }
 
@@ -574,36 +931,64 @@ export const finalizePaymentAndCreateOrder = async ({
       serverCache.invalidatePrefix(`customer:orders:${intent.customer_id}:`);
     }
 
-    // 9c. FINANCIAL INTEGRITY GUARD: Verify created WooCommerce order total matches captured payment
+    // 9c. FINANCIAL INTEGRITY GUARD: Verify created WooCommerce order currency & total match captured payment
+    const wcCurrency = String(createdOrder.currency || "INR").toUpperCase();
     const wcTotalPaise = Math.round(Number(createdOrder.total || 0) * 100);
     const capturedPaise = Number(rzpPayment.amount);
+    const currencyMatch = wcCurrency === "INR" && String(rzpPayment.currency || "INR").toUpperCase() === "INR";
 
-    if (wcTotalPaise !== capturedPaise) {
+    if (!currencyMatch || wcTotalPaise !== capturedPaise) {
       logger.error(
         {
           rzpOrderId,
           rzpPaymentId,
           wcOrderId: createdOrder.id,
           wcTotalPaise,
+          wcCurrency,
           capturedPaise,
           discrepancyPaise: wcTotalPaise - capturedPaise,
         },
-        "[Payment Finalize] CRITICAL: WooCommerce order total does NOT match captured Razorpay payment!"
+        "[Payment Finalize] CRITICAL: WooCommerce order total/currency does NOT match captured Razorpay payment!"
       );
 
-      // Immediately hold order so fulfillment/dispatch is blocked
+      // Fail-closed: only confirm hold to shopper after WooCommerce/WordPress hold write succeeds
       try {
-        await api.put(`orders/${createdOrder.id}`, {
-          status: "on-hold",
-          customer_note: "Order placed on hold for verification: payment amount discrepancy detected.",
-        });
-        await invalidateOrderDetailCache(createdOrder.id);
-        await api.post(`orders/${createdOrder.id}/notes`, {
-          note: `[AUDIT ALERT] Total Mismatch: Captured Razorpay payment is ₹${formatPaiseAsRupees(capturedPaise)}, but WooCommerce order total was calculated as ₹${formatPaiseAsRupees(wcTotalPaise)} (difference of ₹${formatPaiseAsRupees(wcTotalPaise - capturedPaise)}). Hold for administrative review.`,
-          customer_note: false,
+        await holdOrderForMismatch({
+          order: createdOrder,
+          rzpOrderId,
+          rzpPaymentId,
+          capturedPaise,
+          wcTotalPaise,
+          wcCurrency,
         });
       } catch (holdErr) {
-        logger.error({ err: holdErr.message, wcOrderId: createdOrder.id }, "[Payment Finalize] Failed to set order to on-hold after total mismatch");
+        logger.error({ err: holdErr.message, wcOrderId: createdOrder.id }, "[Payment Finalize] Failed to enforce on-hold after total mismatch");
+        await updatePaymentIntentStatus({
+          rzpOrderId,
+          toStatus: "paid",
+          rzpPaymentId,
+          wcOrderId: createdOrder.id,
+          capturedAmountPaise: capturedPaise,
+          incrementAttempts: true,
+          errorReason: `Mismatch hold update failed: ${holdErr.message}`,
+        });
+        await alertStaffAnomaly({
+          type: "PAYMENT_AMOUNT_MISMATCH_HOLD_FAILED",
+          severity: "critical",
+          rzpOrderId,
+          rzpPaymentId,
+          wcOrderId: createdOrder.id,
+          message: `URGENT: Order #${createdOrder.id} has a total mismatch and could not be forced on-hold automatically!`,
+          details: { capturedAmountPaise: capturedPaise, wcTotalPaise, wcCurrency, error: holdErr.message },
+        });
+        return {
+          success: false,
+          status: 503,
+          confirming: true,
+          paid: true,
+          captured: true,
+          message: "Payment received · Confirming your order",
+        };
       }
 
       await updatePaymentIntentStatus({
@@ -612,7 +997,7 @@ export const finalizePaymentAndCreateOrder = async ({
         rzpPaymentId,
         wcOrderId: createdOrder.id,
         capturedAmountPaise: capturedPaise,
-        errorReason: `Total mismatch: WooCommerce ₹${formatPaiseAsRupees(wcTotalPaise)} vs Paid ₹${formatPaiseAsRupees(capturedPaise)}`,
+        errorReason: `Total mismatch: WooCommerce ${wcCurrency} ₹${formatPaiseAsRupees(wcTotalPaise)} vs Paid ₹${formatPaiseAsRupees(capturedPaise)}`,
       });
 
       await alertStaffAnomaly({
@@ -621,10 +1006,11 @@ export const finalizePaymentAndCreateOrder = async ({
         rzpOrderId,
         rzpPaymentId,
         wcOrderId: createdOrder.id,
-        message: `CRITICAL: Captured payment (₹${formatPaiseAsRupees(capturedPaise)}) differs from WooCommerce order total (₹${formatPaiseAsRupees(wcTotalPaise)}). Order placed on-hold for review.`,
+        message: `CRITICAL: Captured payment (₹${formatPaiseAsRupees(capturedPaise)}) differs from WooCommerce order total (${wcCurrency} ₹${formatPaiseAsRupees(wcTotalPaise)}). Order placed on-hold for review.`,
         details: {
           capturedAmountPaise: capturedPaise,
           wcTotalPaise,
+          wcCurrency,
           wcOrderId: createdOrder.id,
           differencePaise: wcTotalPaise - capturedPaise,
         },
@@ -647,8 +1033,42 @@ export const finalizePaymentAndCreateOrder = async ({
       };
     }
 
-    // 10. Post-Creation Cleanup (ONLY after WooCommerce order is securely created and total verified)
-    await updatePaymentIntentStatus({
+    // 9d. Total & currency verified -> release order to processing under shared lock
+    try {
+      await promoteVerifiedOrderToProcessing({
+        order: createdOrder,
+        rzpOrderId,
+        rzpPaymentId,
+        capturedPaise,
+        paymentMethodDetail: rzpPayment.method || "online",
+        source,
+      });
+    } catch (promoteErr) {
+      logger.error(
+        { rzpOrderId, wcOrderId: createdOrder.id, err: promoteErr.message },
+        "[Payment Finalize] Verified order could not yet transition from on-hold to processing"
+      );
+      await updatePaymentIntentStatus({
+        rzpOrderId,
+        toStatus: "paid",
+        rzpPaymentId,
+        wcOrderId: createdOrder.id,
+        capturedAmountPaise: capturedPaise,
+        incrementAttempts: true,
+        errorReason: `Processing promotion failed: ${promoteErr.message}`,
+      });
+      return {
+        success: false,
+        status: 502,
+        confirming: true,
+        paid: true,
+        captured: true,
+        message: "Payment received · Confirming your order",
+      };
+    }
+
+    // 10. Post-Creation Cleanup (ONLY after WooCommerce order total/currency is verified and promoted to processing)
+    const intentMarkedCreated = await updatePaymentIntentStatus({
       rzpOrderId,
       toStatus: "order_created",
       rzpPaymentId,
@@ -658,45 +1078,26 @@ export const finalizePaymentAndCreateOrder = async ({
     await releaseCheckoutStock(reservationId);
     await paymentIntentService.clearCustomerWcCart(intent.customer_id);
 
-    // Publish real-time event for employee dashboard & durable background push outbox
-    await notifyFulfillmentOrderCreated(createdOrder, {
-      suppressPush: isAfterHours || capturedDuringEmergencyWithoutSlot,
-    });
-
-    serverCache.invalidatePrefix("employee:overview");
-    serverCache.invalidatePrefix("admin:analytics");
-    serverCache.invalidatePrefix("admin:customers");
-    serverCache.delete("product_stock_counts");
-    serverCache.invalidatePrefix("admin_products:");
-    serverCache.invalidatePrefix("catalog:products:");
-    serverCache.invalidatePrefix("catalog:category:");
     if (intent?.customer_id && intent?.cart_fingerprint) {
       await deleteActiveCartIntentId(intent.customer_id, intent.cart_fingerprint);
     }
 
-    if (Array.isArray(createdOrder.line_items)) {
-      for (const item of createdOrder.line_items) {
-        if (item.product_id) {
-          serverCache.delete(`catalog:product:${item.product_id}`);
-          serverCache.delete(`stock:enrichment:product:${item.product_id}`);
-        }
-        if (item.variation_id && item.variation_id !== item.product_id) {
-          serverCache.delete(`stock:enrichment:product:${item.variation_id}`);
-        }
-      }
-    }
-
-    logger.info(
-      { wc_order_id: createdOrder.id, razorpay_order_id: rzpOrderId, razorpay_payment_id: rzpPaymentId, source },
-      "[Payment Finalize] SUCCESS: Exactly 1 WooCommerce order created in processing status"
-    );
+    if (isAfterHours) createdOrder._suppressPush = true;
+    await invalidateOrderCachesAndNotify({
+      order: createdOrder,
+      customerId: intent?.customer_id,
+      rzpOrderId,
+      rzpPaymentId,
+      source,
+    });
 
     return {
       success: true,
       order_id: createdOrder.id,
       order_number: createdOrder.number || createdOrder.id,
-      orderStatus: "processing",
+      orderStatus: createdOrder.status || "processing",
       message: "Payment verified successfully.",
+      ...(intentMarkedCreated ? {} : { _intentPendingSync: true }),
     };
   } finally {
     // 11. Guarantee Distributed Lock Release

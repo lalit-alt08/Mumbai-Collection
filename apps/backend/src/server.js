@@ -118,14 +118,14 @@ let dailyAlertTimer = null;
 let initialHealthTimer = null;
 
 const reportReconciliation = async (result, error) => {
-  if (result?.skipped) return;
+  if (!error && result?.skipped) return;
   const failed = Boolean(error || result?.errors?.length);
   await recordReconciliationHealth(!failed);
   if (failed) await alertStaffAnomaly({
     type: "RECONCILIATION_FAILURE", severity: "critical",
     message: "Payment reconciliation could not complete cleanly. Review pending payments and server logs.",
     details: {
-      failedPayments: result?.errorCount ?? result?.errors?.length ?? 0,
+      failedPayments: result?.errorCount ?? result?.errors?.length ?? (error ? 1 : 0),
       escalatedPayments: result?.escalated || 0,
       sampleFailures: (result?.errors || []).slice(0, 3),
       ...(error ? { reason: getErrorMessage(error) } : {}),

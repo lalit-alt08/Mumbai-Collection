@@ -21,6 +21,12 @@ test("pending checkout renders while checking and when idle", async () => {
     const retryable = renderToStaticMarkup(React.createElement(CheckoutBottomBar, { ...props, checkoutAction: "payment_retry", isPaymentUnpaid: true, canCancelPending: true }));
     assert.match(retryable, /Try Paying Again/);
     assert.match(retryable, /Cancel checkout/);
+    const confirming = renderToStaticMarkup(React.createElement(CheckoutBottomBar, { ...props, isConfirmingOrder: true, canCancelPending: false }));
+    assert.match(confirming, /Payment received · Confirming your order/);
+    assert.doesNotMatch(confirming, /Cancel checkout/);
+    const refundPending = renderToStaticMarkup(React.createElement(CheckoutBottomBar, { ...props, isRefundPending: true, pendingStatusFeedback: "Refund pending — confirming your refund with Razorpay.", canCancelPending: false }));
+    assert.match(refundPending, /Refund pending/);
+    assert.doesNotMatch(refundPending, /Cancel checkout/);
   } finally {
     await server.close();
   }

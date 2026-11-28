@@ -209,6 +209,18 @@ export const totalToPaise = (total) => {
   return Math.round(parsed * 100);
 };
 
+export const assertInrCartMinorUnits = (cart) => {
+  const totals = cart?.totals;
+  if (!totals || typeof totals !== "object") return true;
+  if (totals.currency_code !== undefined && String(totals.currency_code).toUpperCase() !== "INR") {
+    return false;
+  }
+  if (totals.currency_minor_unit !== undefined && Number(totals.currency_minor_unit) !== 2) {
+    return false;
+  }
+  return true;
+};
+
 /**
  * Computes a stable cart fingerprint based on sorted items, variation, quantities, and totals.
  */

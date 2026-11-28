@@ -111,6 +111,8 @@ function BillingForm({
     pendingStatusFeedback,
     canCancelPending,
     isPaymentUnpaid,
+    isConfirmingOrder,
+    isRefundPending,
     verifyPendingOrder,
     handleRetryPayment,
     handleCancelUnpaidCheckout,
@@ -797,6 +799,8 @@ function BillingForm({
         pendingStatusFeedback={pendingStatusFeedback}
         canCancelPending={canCancelPending}
         isPaymentUnpaid={isPaymentUnpaid}
+        isConfirmingOrder={isConfirmingOrder}
+        isRefundPending={isRefundPending}
         onOpenAddressModal={() => setShowAddressModal(true)}
         onRetryAddresses={() => setAddressRetry((value) => value + 1)}
         onCancelUnpaidCheckout={handleCancelUnpaidCheckout}

@@ -332,7 +332,8 @@ test('Payment lifecycle recovery regressions (mock gateways; no money or HTTP se
       event_type:'refund.processed', rzp_payment_id:'pay_missing',
     }));
     const cursors=[];
-    service.fetchOrphanWebhookEvents=async ({ cursor, refundOnly }) => {
+    service.fetchOrphanWebhookEvents=async ({ cursor, refundOnly, eventGroup }) => {
+      if (eventGroup==='capture') return { orphans:[], nextCursor:null };
       assert.equal(refundOnly,true);
       cursors.push(cursor);
       const start=cursor ? Number(cursor.eventId.slice(-4))+1 : 0;

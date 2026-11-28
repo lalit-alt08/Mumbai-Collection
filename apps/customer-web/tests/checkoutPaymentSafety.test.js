@@ -560,3 +560,120 @@ test("Upfront address pricing rejects incomplete/mismatched carts, preserves ret
     globalThis.window = originalWindow;
   }
 });
+
+test("Razorpay checkout blocks order-success on on-hold/_flagged and preserves Refund pending / Confirming states", async () => {
+  const originalWindow = globalThis.window;
+  const originalTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback) => originalTimeout(callback, 0);
+
+  let capturedOptions = null;
+  globalThis.window = {
+    Razorpay: class MockRazorpay {
+      constructor(opts) {
+        capturedOptions = opts;
+      }
+      on() {}
+      open() {}
+    },
+  };
+
+  try {
+    const { createRazorpayHandler } = await import(
+      `../src/components/checkout/useRazorpayCheckout.js?test_pillar3=${Date.now()}`
+    );
+    const { getPendingPayment, clearPendingPayment } = await import(
+      "../src/utils/checkoutIdempotency.js"
+    );
+
+    const runScenario = async (userId, rzpOrderId, handler) => {
+      clearPendingPayment(userId);
+      const restore = setupMockAdapter(handler);
+      let persistentPending = false;
+      let lastError = "";
+      let navigatedTo = null;
+      try {
+        const startPayment = createRazorpayHandler({
+          user: { id: userId, first_name: "Meera", email: "meera@example.com" },
+          cart: { items: [{ id: 1, quantity: 1 }], totals: { total_price: "59900" } },
+          finalTotal: 599,
+          billingAddress: { first_name: "Meera", email: "meera@example.com" },
+          shippingAddress: {},
+          idempotencyKeyRef: { current: `idem-${rzpOrderId}` },
+          activeOrderRef: { current: null },
+          activeUserRef: { current: userId },
+          isSubmittingRef: { current: true },
+          pollTimerRef: { current: null },
+          setLoading: () => {},
+          setPaymentStep: () => {},
+          setError: (msg) => { lastError = msg; },
+          setIsPersistentPending: (val) => { persistentPending = val; },
+          refreshCart: async () => {},
+          navigate: (to) => { navigatedTo = to; },
+        });
+        await startPayment();
+        await capturedOptions.handler({
+          razorpay_order_id: rzpOrderId,
+          razorpay_payment_id: `pay_${rzpOrderId}`,
+          razorpay_signature: `sig_${rzpOrderId}`,
+        });
+        return { pending: getPendingPayment(userId), persistentPending, lastError, navigatedTo };
+      } finally {
+        clearPendingPayment(userId);
+        restore();
+      }
+    };
+
+    // 1. Flagged / on-hold order must NOT celebrate as confirmed order success
+    const flaggedRes = await runScenario(42001, "order_flagged_hold", async (config) => {
+      if (config.url?.includes("/create-order")) {
+        return { data: { razorpay_order_id: "order_flagged_hold", key_id: "rzp_test", amount: 59900, currency: "INR" } };
+      }
+      if (config.url?.includes("/verify")) {
+        return { data: { success: true, order_id: 901, orderStatus: "on-hold", _flagged: true, message: "Order placed on hold for verification." } };
+      }
+      throw new Error(`Unexpected request ${config.url}`);
+    });
+    assert.equal(flaggedRes.navigatedTo, null);
+    assert.equal(flaggedRes.persistentPending, true);
+    assert.equal(flaggedRes.pending?.support_required, true);
+
+    // 2. Refund pending must retain pending state & keep showing Refund pending
+    const refundPendingRes = await runScenario(42002, "order_refund_wait", async (config) => {
+      if (config.url?.includes("/create-order")) {
+        return { data: { razorpay_order_id: "order_refund_wait", key_id: "rzp_test", amount: 59900, currency: "INR" } };
+      }
+      if (config.url?.includes("/verify")) {
+        return { status: 422, data: { success: false, code: "ITEM_OUT_OF_STOCK", refund_status: "pending", refunded: false, message: "Refund pending" } };
+      }
+      if (config.url?.includes("/check-status")) {
+        return { data: { success: false, paid: true, terminal: false, refunded: false, refund_status: "pending", message: "Refund pending — confirming refund." } };
+      }
+      throw new Error(`Unexpected request ${config.url}`);
+    });
+    assert.equal(refundPendingRes.navigatedTo, null);
+    assert.equal(refundPendingRes.persistentPending, true);
+    assert.ok(refundPendingRes.pending, "Pending payment must remain until Razorpay confirms refund");
+    assert.match(refundPendingRes.lastError, /Refund pending/i);
+
+    // 3. Temporary unavailability after capture shows Payment received · Confirming your order
+    const confirmingRes = await runScenario(42003, "order_confirming_wait", async (config) => {
+      if (config.url?.includes("/create-order")) {
+        return { data: { razorpay_order_id: "order_confirming_wait", key_id: "rzp_test", amount: 59900, currency: "INR" } };
+      }
+      if (config.url?.includes("/verify")) {
+        return { status: 503, data: { success: false, confirming: true, paid: true, captured: true, message: "Payment received · Confirming your order" } };
+      }
+      if (config.url?.includes("/check-status")) {
+        return { data: { success: false, confirming: true, paid: true, captured: true, terminal: false, message: "Payment received · Confirming your order" } };
+      }
+      throw new Error(`Unexpected request ${config.url}`);
+    });
+    assert.equal(confirmingRes.navigatedTo, null);
+    assert.equal(confirmingRes.persistentPending, true);
+    assert.match(confirmingRes.lastError, /Payment received · Confirming your order/);
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.setTimeout = originalTimeout;
+    currentMockHandler = null;
+  }
+});

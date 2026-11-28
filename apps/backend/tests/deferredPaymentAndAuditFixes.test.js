@@ -30,6 +30,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
   const originalApiGet = api.get;
   const originalApiPost = api.post;
   const originalApiPut = api.put;
+  const originalWpGet = wp.get;
   const originalWpPost = wp.post;
   const originalAxiosGet = axios.get;
   const originalAxiosPost = axios.post;
@@ -40,6 +41,12 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     serverCache.clear();
     _resetPaymentStoreHoursFallbackForTesting?.();
     storeHoursService.getStoreStatus = async () => ({ is_open: true });
+    wp.get = async (url) => {
+      if (String(url).includes("/internal/customer-suspension/")) {
+        return { data: { is_suspended: false } };
+      }
+      return { data: {} };
+    };
     const intents = new Map();
     const createdOrders = new Map();
     _setWpClientForTesting({
@@ -57,9 +64,21 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
           const result = await api.post("orders", body);
           const orderId = body.meta_data?.find((item) => item.key === "_razorpay_order_id")?.value;
           const amount = intents.get(orderId)?.amount_in_paise;
-          const order = { total: amount ? (amount / 100).toFixed(2) : "0", ...result.data };
+          const order = { total: amount ? (amount / 100).toFixed(2) : "0", currency: "INR", ...result.data };
           createdOrders.set(orderId, order);
           return { data: order };
+        }
+        const promoteMatch = String(path).match(/\/internal\/orders\/(\d+)\/reconcile-payment$/);
+        if (promoteMatch) {
+          return {
+            data: {
+              reconciled: true,
+              action: "updated_to_processing",
+              order_status: "processing",
+              order_id: Number(promoteMatch[1]),
+              payment_id: body?.razorpay_payment_id,
+            },
+          };
         }
         return { data: { success: true, updated: true } };
       },
@@ -71,6 +90,7 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     api.get = originalApiGet;
     api.post = originalApiPost;
     api.put = originalApiPut;
+    wp.get = originalWpGet;
     wp.post = originalWpPost;
     axios.get = originalAxiosGet;
     axios.post = originalAxiosPost;
@@ -102,6 +122,8 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
               { id: 101, quantity: 2, totals: { line_total: "120000" } },
             ],
             totals: {
+              currency_code: "INR",
+              currency_minor_unit: 2,
               total_items: "120000",
               total_price: "120000", // ₹1200.00
             },
@@ -195,16 +217,18 @@ test("Deferred Razorpay/WooCommerce Order Creation & Forensic Audit Fixes", asyn
     };
 
     // User closes browser or cancels modal -> payment.failed webhook fires
+    const failedBody = {
+      event: "payment.failed",
+      payload: {
+        payment: { entity: { id: "pay_failed_123", order_id: "order_mock_cancelled" } },
+      },
+    };
     const req = {
       headers: {
         "x-razorpay-signature": "dummy_sig",
       },
-      body: {
-        event: "payment.failed",
-        payload: {
-          payment: { entity: { id: "pay_failed_123", order_id: "order_mock_cancelled" } },
-        },
-      },
+      rawBody: Buffer.from(JSON.stringify(failedBody)),
+      body: failedBody,
     };
 
     let responseBody = null;

@@ -20,6 +20,8 @@ export function CheckoutBottomBar({
   pendingStatusFeedback,
   canCancelPending,
   isPaymentUnpaid,
+  isConfirmingOrder = false,
+  isRefundPending = false,
   onOpenAddressModal,
   onRetryAddresses,
   onCancelUnpaidCheckout,
@@ -132,6 +134,10 @@ export function CheckoutBottomBar({
                     <p role="status" aria-live="polite" className="checkout-pending-title font-bold text-[12px] leading-tight break-words">
                       {checkingPendingStatus
                         ? "Verifying payment"
+                        : isRefundPending
+                        ? "Refund pending"
+                        : isConfirmingOrder
+                        ? "Payment received · Confirming your order"
                         : isPaymentUnpaid
                         ? "No payment received"
                         : "Payment pending"}
@@ -139,6 +145,10 @@ export function CheckoutBottomBar({
                     <p className="checkout-pending-desc text-[10px] leading-tight mt-0.5 break-words">
                       {checkingPendingStatus
                         ? "Checking transaction status"
+                        : isRefundPending
+                        ? pendingStatusFeedback || "Confirming your refund with Razorpay."
+                        : isConfirmingOrder
+                        ? "Completing your order confirmation. Please do not pay again."
                         : isPaymentUnpaid
                         ? "Try paying again below, or cancel checkout"
                         : "Check payment status to continue"}

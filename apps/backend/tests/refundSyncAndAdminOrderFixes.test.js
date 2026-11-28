@@ -99,8 +99,10 @@ test("Refund Sync, Manual Reconcile Guard & Admin Status/Chart Fixes", async (t)
       payload: { refund: { entity: { id: "rfnd_501", payment_id: "pay_refund_sync_1" } } },
     };
     const res1 = createRes();
-    await handleWebhook({ headers: { "x-razorpay-signature": signWebhook(failPayload) }, body: failPayload }, res1);
-    await new Promise((r) => setTimeout(r, 40));
+    await handleWebhook({ headers: { "x-razorpay-signature": signWebhook(failPayload) }, rawBody: Buffer.from(JSON.stringify(failPayload)), body: failPayload }, res1);
+    for (let i = 0; i < 25 && intent.status !== "refund_pending"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
 
     assert.equal(res1.statusCode, 200);
     assert.equal(intent.status, "refund_pending", "Failed WooCommerce refund sync must leave intent in refund_pending");
@@ -119,8 +121,10 @@ test("Refund Sync, Manual Reconcile Guard & Admin Status/Chart Fixes", async (t)
       payload: { refund: { entity: { id: "rfnd_501", payment_id: "pay_refund_sync_1" } } },
     };
     const res2 = createRes();
-    await handleWebhook({ headers: { "x-razorpay-signature": signWebhook(okPayload) }, body: okPayload }, res2);
-    await new Promise((r) => setTimeout(r, 40));
+    await handleWebhook({ headers: { "x-razorpay-signature": signWebhook(okPayload) }, rawBody: Buffer.from(JSON.stringify(okPayload)), body: okPayload }, res2);
+    for (let i = 0; i < 25 && intent.status !== "refunded"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
 
     assert.equal(intent.status, "refunded");
     assert.equal(wcPutPayload?.status, "refunded");

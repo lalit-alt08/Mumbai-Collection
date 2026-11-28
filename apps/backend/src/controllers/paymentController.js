@@ -46,6 +46,7 @@ import {
   totalToPaise,
   computeCartFingerprint,
   findOrderByRazorpayOrderId,
+  assertInrCartMinorUnits,
 } from "../utils/paymentCheckoutUtils.js";
 import { finalizePaymentAndCreateOrder } from "../services/paymentFinalizeService.js";
 import { handleWebhook } from "./paymentWebhookHandler.js";
@@ -245,6 +246,14 @@ export const createOrder = async (req, res) => {
       }
     }
 
+    if (!assertInrCartMinorUnits(cart)) {
+      return res.status(422).json({
+        success: false,
+        code: "CURRENCY_MISMATCH",
+        message: "Only INR carts with standard paise precision can be checked out.",
+      });
+    }
+
     // Authoritative total price directly from WooCommerce cart
     const amountInPaise = Number(cart.totals?.total_price || 0);
     if (amountInPaise <= 0) {
@@ -270,7 +279,19 @@ export const createOrder = async (req, res) => {
     const cartFingerprint = computeCartFingerprint(cart);
 
     // Acquire shared distributed mutex across servers (Redis / DB)
-    const lockHandle = await acquireCheckoutConcurrencyLock(userId, cartFingerprint, 3000);
+    let lockHandle;
+    try {
+      lockHandle = await acquireCheckoutConcurrencyLock(userId, cartFingerprint, 3000);
+    } catch (lockErr) {
+      if (lockErr?.code === "LOCK_STORAGE_UNAVAILABLE") {
+        return res.status(503).json({
+          success: false,
+          code: "SERVICE_UNAVAILABLE",
+          message: "Checkout locking is temporarily unavailable. Please try again shortly.",
+        });
+      }
+      throw lockErr;
+    }
     if (!lockHandle.acquired) {
       return res.status(409).json({
         success: false,
@@ -311,9 +332,21 @@ export const createOrder = async (req, res) => {
           // from the authoritative store status and current checkout request.
           existingIntent.checkout_payload = {
             ...(existingIntent.checkout_payload || {}),
-            billing: billing || existingIntent.checkout_payload?.billing,
-            shipping: shipping || existingIntent.checkout_payload?.shipping,
-            customer_note: customer_note !== undefined ? customer_note : existingIntent.checkout_payload?.customer_note,
+            billing: {
+              ...billingValidation.normalized,
+              email:
+                billing_address.email ||
+                req.wpUserEmail ||
+                existingIntent.checkout_payload?.billing?.email ||
+                "",
+            },
+            shipping: {
+              ...shippingValidation.normalized,
+            },
+            customer_note:
+              typeof req.body?.customer_note === "string"
+                ? req.body.customer_note
+                : existingIntent.checkout_payload?.customer_note || "",
             ...checkoutScheduleFields(storeGuard),
           };
           const refreshedIntent = await paymentIntentService.storePaymentIntent(existingRzpOrderId, existingIntent);
@@ -555,7 +588,7 @@ export const handlePaymentCallback = async (req, res) => {
       req, razorpay_order_id, razorpay_payment_id, razorpay_signature, null, "callback"
     );
 
-    if (result.success && result.order_id) {
+    if (result.success && result.order_id && !result._flagged && result.orderStatus !== "on-hold") {
       // 303 See Other redirect to success page without signature or payment ID in URL
       return res.redirect(303, `${frontendOrigin}/order-success?order=${result.order_id}`);
     }
@@ -594,28 +627,13 @@ export const checkPaymentStatus = async (req, res) => {
       }
     }
 
-    // 1. Check if order was already created
-    const existing = await findOrderByRazorpayOrderId(razorpay_order_id);
-    if (existing) {
-      const existingCustomerId = Number(existing.customer_id || 0);
-      if (userId && existingCustomerId && existingCustomerId !== userId) {
-        return sendPaymentOrderNotFound(res);
-      }
-      return res.json({
-        success: true,
-        order_id: existing.id,
-        orderStatus: existing.status,
-        status: existing.status,
-        already_paid: true,
-      });
-    }
-
-    // 1b. Check if payment intent reached a terminal refunded status
-    if (intent && ["reconciliation_escalated", "test_archived"].includes(intent.status)) {
+    // 1. Check refund/review intent states before treating any WooCommerce order as complete
+    if (intent && ["reconciliation_escalated", "refund_escalated", "test_archived"].includes(intent.status)) {
       return res.json({
         success: false,
         terminal: true,
         support_required: true,
+        ...(intent.status === "refund_escalated" ? { refund_status: "pending" } : {}),
         message: "This payment requires staff review. Please do not pay again; contact support with your checkout reference.",
       });
     }
@@ -626,6 +644,7 @@ export const checkPaymentStatus = async (req, res) => {
         terminal: true,
         refunded: true,
         refund_status: "completed",
+        order_id: intent.wc_order_id || null,
         error_reason: intent.error_reason || "ITEM_OUT_OF_STOCK",
         refund_id: intent.refund_id || null,
         message: intent.error_reason === "ITEM_OUT_OF_STOCK"
@@ -634,26 +653,89 @@ export const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    if (intent && ["refund_pending", "refund_failed", "refund_escalated"].includes(intent.status)) {
+    if (intent && ["refund_pending", "refund_failed"].includes(intent.status)) {
       return res.json({
         success: false,
-        paid: false,
-        terminal: true,
+        paid: true,
+        terminal: false,
         refunded: false,
         refund_status: "pending",
         error_reason: intent.error_reason || "ITEM_OUT_OF_STOCK",
         refund_id: intent.refund_id || null,
-        message: intent.error_reason === "ITEM_OUT_OF_STOCK"
-          ? "An item in your order went out of stock during payment. Your refund is being processed and will reflect in 5-7 business days."
-          : "Your refund is being processed and will reflect in 5-7 business days.",
+        message: "Refund pending — your refund is being processed and will reflect in 5-7 business days.",
       });
     }
 
-    // 2. Fetch payments from Razorpay
+    // 2. Check if WooCommerce order already exists (guard against refunded/cancelled/held states)
+    const existing = await findOrderByRazorpayOrderId(razorpay_order_id);
+    if (existing) {
+      const existingCustomerId = Number(existing.customer_id || 0);
+      if (userId && existingCustomerId && existingCustomerId !== userId) {
+        return sendPaymentOrderNotFound(res);
+      }
+      const existingStatus = String(existing.status || "").toLowerCase();
+      if (existingStatus === "refunded") {
+        return res.json({
+          success: false,
+          paid: false,
+          terminal: true,
+          refunded: true,
+          refund_status: "completed",
+          order_id: existing.id,
+          orderStatus: existingStatus,
+          message: "Your payment was refunded.",
+        });
+      }
+      if (["cancelled", "failed"].includes(existingStatus)) {
+        return res.json({
+          success: false,
+          paid: false,
+          terminal: true,
+          cancelled: true,
+          order_id: existing.id,
+          orderStatus: existingStatus,
+          message: "This order was cancelled or failed.",
+        });
+      }
+      if (
+        intent?.status === "amount_mismatch" ||
+        (existingStatus === "on-hold" && intent?.status !== "paid")
+      ) {
+        return res.json({
+          success: false,
+          terminal: true,
+          support_required: true,
+          order_id: existing.id,
+          orderStatus: existingStatus,
+          message: "This order is on hold for store verification. Please contact support with your reference.",
+        });
+      }
+      if (existingStatus !== "pending" && existingStatus !== "on-hold") {
+        return res.json({
+          success: true,
+          order_id: existing.id,
+          orderStatus: existing.status,
+          status: existing.status,
+          already_paid: true,
+        });
+      }
+    }
+
+    // 3. Fetch payments from Razorpay
     let paymentsRes;
     try {
       paymentsRes = await fetchRazorpayOrderPayments(razorpay_order_id);
     } catch (err) {
+      if (intent?.status === "paid") {
+        return res.status(200).json({
+          success: false,
+          paid: true,
+          captured: true,
+          confirming: true,
+          terminal: false,
+          message: "Payment received · Confirming your order",
+        });
+      }
       return res.status(502).json({
         success: false,
         message: "Failed to query payment status from gateway.",
@@ -672,6 +754,16 @@ export const checkPaymentStatus = async (req, res) => {
         source: "app_switch_recovery",
         req,
       });
+      if (!result.success && [409, 502, 503].includes(result.status)) {
+        return res.status(200).json({
+          success: false,
+          paid: true,
+          captured: true,
+          confirming: true,
+          terminal: false,
+          message: "Payment received · Confirming your order",
+        });
+      }
       return sendFinalizationResult(res, result);
     }
 
@@ -857,6 +949,13 @@ export const cancelPaymentOrder = async (req, res) => {
         : "Checkout session cancelled. Reserved items could not be released immediately and will unlock automatically shortly.",
     });
   } catch (err) {
+    if (err?.code === "LOCK_STORAGE_UNAVAILABLE") {
+      return res.status(503).json({
+        success: false,
+        code: "SERVICE_UNAVAILABLE",
+        message: "Payment verification storage is temporarily unavailable. Please try again shortly.",
+      });
+    }
     logError(req, err, "[Payment Cancel] Error cancelling payment intent");
     return res.status(500).json({ success: false, message: "Failed to cancel checkout session." });
   } finally {

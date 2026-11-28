@@ -33,6 +33,8 @@ export function usePendingPayment({
   const [pendingStatusFeedback, setPendingStatusFeedback] = useState("");
   const [cancelPermission, setCancelPermission] = useState(null);
   const [isPaymentUnpaid, setIsPaymentUnpaid] = useState(false);
+  const [isConfirmingOrder, setIsConfirmingOrder] = useState(false);
+  const [isRefundPending, setIsRefundPending] = useState(false);
   const pollTimerRef = useRef(null);
   const statusRequestRef = useRef(null);
   const statusRequestSequenceRef = useRef(0);
@@ -54,6 +56,8 @@ export function usePendingPayment({
         if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
         setCheckingPendingStatus(false);
         setIsPersistentPending(false);
+        setIsConfirmingOrder(false);
+        setIsRefundPending(false);
         if (activeOrderRef) activeOrderRef.current = null;
         return;
       }
@@ -96,7 +100,7 @@ export function usePendingPayment({
           setCancelPermission({ userId: String(requestUserId), orderId: requestOrderId });
         }
 
-        if (res?.success && res?.order_id) {
+        if (res?.success && res?.order_id && !res?._flagged && res?.orderStatus !== "on-hold") {
           if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
           if (!isCurrentAttempt()) return;
           clearPendingPayment(requestUserId);
@@ -114,8 +118,10 @@ export function usePendingPayment({
           return;
         }
 
-        if (res?.support_required) {
+        if (res?.support_required || res?._flagged || res?.orderStatus === "on-hold") {
           if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+          setIsConfirmingOrder(false);
+          setIsRefundPending(false);
           const pending = getPendingPayment(requestUserId);
           if (pending) {
             setPendingPayment(
@@ -135,7 +141,15 @@ export function usePendingPayment({
           return;
         }
 
-        if (res?.refunded || res?.terminal || res?.cancelled) {
+        if (res?.refund_status === "pending" && !res?.refunded) {
+          setIsPaymentUnpaid(false);
+          setIsConfirmingOrder(false);
+          setIsRefundPending(true);
+          setPendingStatusFeedback(
+            res.message || "Refund pending — confirming your refund with Razorpay."
+          );
+          setError("");
+        } else if (res?.refunded || res?.terminal || res?.cancelled) {
           if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
           await refreshCart().catch(() => {});
           clearPendingPayment(requestUserId);
@@ -146,17 +160,26 @@ export function usePendingPayment({
             (res.refunded
               ? "Your payment was refunded."
               : "This payment attempt has ended. You can start a fresh checkout.");
+          setIsRefundPending(false);
+          setIsConfirmingOrder(false);
           setError(finalMsg);
           setPendingStatusFeedback(finalMsg);
           setIsPersistentPending(false);
           return;
-        }
-
-        if (res?.processing) {
+        } else if (res?.confirming || res?.captured) {
           setIsPaymentUnpaid(false);
+          setIsRefundPending(false);
+          setIsConfirmingOrder(true);
+          setPendingStatusFeedback(res.message || "Payment received · Confirming your order");
+        } else if (res?.processing) {
+          setIsPaymentUnpaid(false);
+          setIsRefundPending(false);
+          setIsConfirmingOrder(false);
           setPendingStatusFeedback("Payment is processing with your bank. Please check again in a moment.");
         } else {
           setIsPaymentUnpaid(true);
+          setIsRefundPending(false);
+          setIsConfirmingOrder(false);
           setPendingStatusFeedback(
             "No payment received. You can try paying again or cancel this checkout."
           );
@@ -313,6 +336,8 @@ export function usePendingPayment({
       if (idempotencyKeyRef) idempotencyKeyRef.current = generateUUID();
       setIsPersistentPending(false);
       setIsPaymentUnpaid(false);
+      setIsConfirmingOrder(false);
+      setIsRefundPending(false);
       setPendingStatusFeedback("");
       if (activeOrderRef) activeOrderRef.current = null;
       if (typeof onRetryReady === "function") {
@@ -332,6 +357,8 @@ export function usePendingPayment({
     setCancelPermission(null);
     setCancellingPending(false);
     setIsPaymentUnpaid(false);
+    setIsConfirmingOrder(false);
+    setIsRefundPending(false);
     verifyPendingOrder(true);
 
     const handleVisibilityChange = () => {
@@ -365,7 +392,9 @@ export function usePendingPayment({
     sessionExpiredPending,
     pendingStatusFeedback,
     isPaymentUnpaid,
-    canCancelPending: Boolean(!checkingPendingStatus && cancelPermission && String(user?.id) === cancelPermission.userId && getPendingPayment(user?.id)?.razorpay_order_id === cancelPermission.orderId),
+    isConfirmingOrder,
+    isRefundPending,
+    canCancelPending: Boolean(!checkingPendingStatus && !isConfirmingOrder && !isRefundPending && cancelPermission && String(user?.id) === cancelPermission.userId && getPendingPayment(user?.id)?.razorpay_order_id === cancelPermission.orderId),
     verifyPendingOrder,
     handleRetryPayment,
     handleCancelUnpaidCheckout,

@@ -227,10 +227,26 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
     const originalReserveStock = paymentIntentService.reserveCheckoutStock;
     const originalReleaseStock = paymentIntentService.releaseCheckoutStock;
+    const originalGetIntent = paymentIntentService.getPaymentIntent;
+    const originalFindWcOrder = paymentIntentService.findWcOrderByRazorpayOrderId;
+    const originalPromoteOrder = paymentIntentService.promoteOrderToProcessing;
+    const originalCreatePaidOrder = paymentIntentService.createPaidOrder;
+    const intentsById = new Map();
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
     paymentIntentService.reserveCheckoutStock = async () => ({ success: true });
     paymentIntentService.releaseCheckoutStock = async () => true;
+    paymentIntentService.findWcOrderByRazorpayOrderId = async () => null;
+    paymentIntentService.getPaymentIntent = async (id) => intentsById.get(id) || null;
+    paymentIntentService.createPaidOrder = async (payload) => api.post("orders", payload);
+    paymentIntentService.updatePaymentIntentStatus = async () => true;
+    paymentIntentService.promoteOrderToProcessing = async ({ wcOrderId, rzpPaymentId }) => ({
+      reconciled: true,
+      action: "updated_to_processing",
+      orderStatus: "processing",
+      orderId: wcOrderId,
+      paymentId: rzpPaymentId,
+    });
 
     try {
       // 5a: Reservation succeeds. A REST quantity of zero must not override the
@@ -252,6 +268,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
         payments: {
           fetch: async (id) => ({
             id,
+            order_id: rzpOrderIdA,
             status: "captured",
             amount: 15000,
             amount_refunded: 0,
@@ -272,7 +289,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
       api.post = async (path, payload) => {
         if (path === "orders") {
           wcOrderCreatedA = true;
-          return { data: { id: 1001, status: "processing" } };
+          return { data: { id: 1001, status: "on-hold", total: "150.00", currency: "INR" } };
         }
         return { data: {} };
       };
@@ -281,7 +298,9 @@ describe("Durable Payments & Reconciliation Suite", () => {
       const mockIntentA = {
         rzp_order_id: rzpOrderIdA,
         user_id: 1,
+        customer_id: 1,
         amount_paise: 15000,
+        amount_in_paise: 15000,
         status: "created",
         cart_fingerprint: "fp_test_123",
         checkout_payload: JSON.stringify({
@@ -294,6 +313,10 @@ describe("Durable Payments & Reconciliation Suite", () => {
         created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
         updated_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
       };
+      intentsById.set(rzpOrderIdA, {
+        ...mockIntentA,
+        checkout_payload: JSON.parse(mockIntentA.checkout_payload),
+      });
 
       paymentIntentService.fetchReconciliationList = async () => ({
         intents: [mockIntentA],
@@ -322,11 +345,13 @@ describe("Durable Payments & Reconciliation Suite", () => {
         payments: {
           fetch: async (id) => ({
             id,
+            order_id: rzpOrderIdB,
             status: "captured",
             amount: 20000,
             amount_refunded: 0,
             currency: "INR",
           }),
+          fetchMultipleRefund: async () => ({ items: [] }),
           refund: async (paymentId, params) => {
             if (paymentId === rzpPaymentIdB) {
               refundCalledB = true;
@@ -352,7 +377,9 @@ describe("Durable Payments & Reconciliation Suite", () => {
       const mockIntentB = {
         rzp_order_id: rzpOrderIdB,
         user_id: 2,
+        customer_id: 2,
         amount_paise: 20000,
+        amount_in_paise: 20000,
         status: "created",
         cart_fingerprint: "fp_test_456",
         checkout_payload: JSON.stringify({
@@ -365,6 +392,10 @@ describe("Durable Payments & Reconciliation Suite", () => {
         created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
         updated_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
       };
+      intentsById.set(rzpOrderIdB, {
+        ...mockIntentB,
+        checkout_payload: JSON.parse(mockIntentB.checkout_payload),
+      });
 
       paymentIntentService.fetchReconciliationList = async () => ({
         intents: [mockIntentB],
@@ -380,6 +411,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
       const rzpPaymentIdC = `pay_created_mismatch_${Date.now()}`;
       let wcOrderCreatedC = false;
       let statusUpdatedC = null;
+      let refundedC = false;
 
       _setRazorpayInstanceForTesting({
         orders: {
@@ -393,11 +425,21 @@ describe("Durable Payments & Reconciliation Suite", () => {
         payments: {
           fetch: async (paymentId) => {
             if (paymentId === rzpPaymentIdC) {
-              return { id: rzpPaymentIdC, status: "captured", amount: 5000, amount_refunded: 5000, refund_status: "full", currency: "INR" };
+              return {
+                id: rzpPaymentIdC,
+                order_id: rzpOrderIdC,
+                status: "captured",
+                amount: 5000,
+                amount_refunded: refundedC ? 5000 : 0,
+                refund_status: refundedC ? "full" : null,
+                currency: "INR",
+              };
             }
             return { id: paymentId, status: "captured", amount: 0, currency: "INR" };
           },
+          fetchMultipleRefund: async () => ({ items: [] }),
           refund: async (paymentId, payload) => {
+            refundedC = true;
             return { id: `rfnd_mismatch_${Date.now()}`, amount: payload.amount, status: "processed" };
           },
         },
@@ -414,7 +456,9 @@ describe("Durable Payments & Reconciliation Suite", () => {
       const mockIntentC = {
         rzp_order_id: rzpOrderIdC,
         user_id: 3,
+        customer_id: 3,
         amount_paise: 20000, // Expected ₹200 vs captured ₹50
+        amount_in_paise: 20000,
         status: "created",
         cart_fingerprint: "fp_test_789",
         checkout_payload: JSON.stringify({
@@ -427,6 +471,10 @@ describe("Durable Payments & Reconciliation Suite", () => {
         created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
         updated_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
       };
+      intentsById.set(rzpOrderIdC, {
+        ...mockIntentC,
+        checkout_payload: JSON.parse(mockIntentC.checkout_payload),
+      });
 
       paymentIntentService.fetchReconciliationList = async () => ({
         intents: [mockIntentC],
@@ -458,6 +506,10 @@ describe("Durable Payments & Reconciliation Suite", () => {
       paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
       paymentIntentService.reserveCheckoutStock = originalReserveStock;
       paymentIntentService.releaseCheckoutStock = originalReleaseStock;
+      paymentIntentService.getPaymentIntent = originalGetIntent;
+      paymentIntentService.findWcOrderByRazorpayOrderId = originalFindWcOrder;
+      paymentIntentService.promoteOrderToProcessing = originalPromoteOrder;
+      paymentIntentService.createPaidOrder = originalCreatePaidOrder;
     }
   });
 
@@ -578,7 +630,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
       api.post = async (path, payload) => {
         if (path === "orders") {
           wcOrdersCreatedCount++;
-          existingOrderInWc = { id: 7788, status: "processing" };
+          existingOrderInWc = { id: 7788, status: "processing", total: "500.00", currency: "INR" };
           return { data: existingOrderInWc };
         }
         return { data: {} };
@@ -602,7 +654,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
       };
 
       // Worker 2 runs first and creates order 7788
-      existingOrderInWc = { id: 7788, status: "processing" };
+      existingOrderInWc = { id: 7788, status: "processing", total: "500.00", currency: "INR" };
 
       // Worker 1 resumes right before order creation (lock TTL expired while worker 1 was paused)
       // Worker 1 executes finalizePaymentAndCreateOrder
@@ -674,10 +726,32 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const originalReleaseLock = paymentIntentService.releaseLock;
     const originalReserveStock = paymentIntentService.reserveCheckoutStock;
     const originalReleaseCheckoutStock = paymentIntentService.releaseCheckoutStock;
+    const originalGetIntent = paymentIntentService.getPaymentIntent;
+    const originalFindWcOrder = paymentIntentService.findWcOrderByRazorpayOrderId;
+    const originalPromoteOrder = paymentIntentService.promoteOrderToProcessing;
+    const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+    const originalCreatePaidOrder = paymentIntentService.createPaidOrder;
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
     paymentIntentService.reserveCheckoutStock = async () => ({ success: true });
     paymentIntentService.releaseCheckoutStock = async () => true;
+    paymentIntentService.findWcOrderByRazorpayOrderId = async () => null;
+    paymentIntentService.createPaidOrder = async (payload) => api.post("orders", payload);
+    paymentIntentService.updatePaymentIntentStatus = async () => true;
+    paymentIntentService.getPaymentIntent = async () => ({
+      ...JSON.parse(nestedRow.checkout_payload),
+      rzp_order_id: rzpOrderIdNested,
+      customer_id: 88,
+      amount_in_paise: 45000,
+      status: "created",
+    });
+    paymentIntentService.promoteOrderToProcessing = async ({ wcOrderId, rzpPaymentId }) => ({
+      reconciled: true,
+      action: "updated_to_processing",
+      orderStatus: "processing",
+      orderId: wcOrderId,
+      paymentId: rzpPaymentId,
+    });
 
     try {
       _setRazorpayInstanceForTesting({
@@ -692,6 +766,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
         payments: {
           fetch: async (id) => ({
             id,
+            order_id: rzpOrderIdNested,
             status: "captured",
             amount: 45000,
             amount_refunded: 0,
@@ -710,7 +785,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
       api.post = async (path, payload) => {
         if (path === "orders") {
           createdPayload = payload;
-          return { data: { id: 9001, status: "processing" } };
+          return { data: { id: 9001, status: "on-hold", total: "450.00", currency: "INR" } };
         }
         return { data: {} };
       };
@@ -746,6 +821,11 @@ describe("Durable Payments & Reconciliation Suite", () => {
       paymentIntentService.releaseLock = originalReleaseLock;
       paymentIntentService.reserveCheckoutStock = originalReserveStock;
       paymentIntentService.releaseCheckoutStock = originalReleaseCheckoutStock;
+      paymentIntentService.getPaymentIntent = originalGetIntent;
+      paymentIntentService.findWcOrderByRazorpayOrderId = originalFindWcOrder;
+      paymentIntentService.promoteOrderToProcessing = originalPromoteOrder;
+      paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
+      paymentIntentService.createPaidOrder = originalCreatePaidOrder;
     }
   });
 
@@ -825,6 +905,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
     const originalReserveStock = paymentIntentService.reserveCheckoutStock;
     const originalReleaseStock = paymentIntentService.releaseCheckoutStock;
+    const originalGetIntent = paymentIntentService.getPaymentIntent;
+    const originalFindWcOrder = paymentIntentService.findWcOrderByRazorpayOrderId;
 
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
@@ -833,7 +915,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
       err.response = { status: 409 };
       throw err;
     };
-    paymentIntentService.releaseStock = async () => true;
+    paymentIntentService.releaseCheckoutStock = async () => true;
+    paymentIntentService.findWcOrderByRazorpayOrderId = async () => null;
 
     const rzpOrderIdPending = `rzp_order_pending_rfnd_${Date.now()}`;
     const rzpPaymentIdPending = `pay_pending_rfnd_${Date.now()}`;
@@ -849,7 +932,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
         },
       },
       payments: {
-        fetch: async () => ({ id: rzpPaymentIdPending, status: "captured", amount: 15000, amount_refunded: 0, refund_status: null }),
+        fetch: async () => ({ id: rzpPaymentIdPending, order_id: rzpOrderIdPending, status: "captured", amount: 15000, amount_refunded: 0, refund_status: null, currency: "INR" }),
+        fetchMultipleRefund: async () => ({ items: [] }),
         refund: async () => ({ id: "rfnd_pending_gateway", amount: 15000, status: "pending" }),
       },
     });
@@ -857,7 +941,9 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const mockIntent = {
       rzp_order_id: rzpOrderIdPending,
       user_id: 5,
+      customer_id: 5,
       amount_paise: 15000,
+      amount_in_paise: 15000,
       status: "created",
       cart_fingerprint: "fp_test_pending",
       checkout_payload: JSON.stringify({
@@ -870,6 +956,11 @@ describe("Durable Payments & Reconciliation Suite", () => {
       created_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
       updated_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
     };
+
+    paymentIntentService.getPaymentIntent = async () => ({
+      ...mockIntent,
+      checkout_payload: JSON.parse(mockIntent.checkout_payload),
+    });
 
     paymentIntentService.fetchReconciliationList = async () => ({
       intents: [mockIntent],
@@ -893,6 +984,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
       paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
       paymentIntentService.reserveCheckoutStock = originalReserveStock;
       paymentIntentService.releaseCheckoutStock = originalReleaseStock;
+      paymentIntentService.getPaymentIntent = originalGetIntent;
+      paymentIntentService.findWcOrderByRazorpayOrderId = originalFindWcOrder;
     }
   });
 
@@ -901,6 +994,7 @@ describe("Durable Payments & Reconciliation Suite", () => {
     const originalReleaseLock = paymentIntentService.releaseLock;
     const originalFetchList = paymentIntentService.fetchReconciliationList;
     const originalUpdateStatus = paymentIntentService.updatePaymentIntentStatus;
+    const originalGetIntent = paymentIntentService.getPaymentIntent;
 
     paymentIntentService.acquireLock = async () => true;
     paymentIntentService.releaseLock = async () => true;
@@ -927,6 +1021,8 @@ describe("Durable Payments & Reconciliation Suite", () => {
       updated_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
     };
 
+    paymentIntentService.getPaymentIntent = async () => mockIntentEscalate;
+
     paymentIntentService.fetchReconciliationList = async () => ({
       intents: [mockIntentEscalate],
       hasMore: false,
@@ -941,12 +1037,13 @@ describe("Durable Payments & Reconciliation Suite", () => {
       const res = await runPaymentReconciliation({ olderThanMinutes: 0 });
       assert.ok(escalatedStatus !== null, "updatePaymentIntentStatus must be called");
       assert.strictEqual(escalatedStatus.toStatus, "refund_escalated", "Must transition to refund_escalated to stop repeated alert cycling");
-      assert.match(escalatedStatus.errorReason, /maximum refund attempts/i);
+      assert.match(escalatedStatus.errorReason, /retry limit reached|maximum refund attempts/i);
     } finally {
       paymentIntentService.acquireLock = originalAcquireLock;
       paymentIntentService.releaseLock = originalReleaseLock;
       paymentIntentService.fetchReconciliationList = originalFetchList;
       paymentIntentService.updatePaymentIntentStatus = originalUpdateStatus;
+      paymentIntentService.getPaymentIntent = originalGetIntent;
     }
   });
 });
