@@ -795,3 +795,103 @@ test("In-modal retry after Razorpay payment.failed (wrong UPI PIN) clears error 
     globalThis.window = originalWindow;
   }
 });
+
+test("Simultaneous modal.ondismiss and delayed payment.failed cannot interrupt in-flight retry verification", async () => {
+  const originalWindow = globalThis.window;
+  const listeners = new Map();
+  let capturedOptions = null;
+
+  globalThis.window = {
+    location: { hostname: "localhost", origin: "http://localhost:5173" },
+    Razorpay: class MockRazorpay {
+      constructor(opts) {
+        capturedOptions = opts;
+      }
+      on(event, fn) {
+        listeners.set(event, fn);
+      }
+      open() {}
+    },
+  };
+
+  let resolveVerify;
+  let cancelledCalls = 0;
+  let lastError = "";
+  let currentStep = "";
+  let isLoading = false;
+  let navigatedTo = null;
+  const activeOrderRef = { current: null };
+  const activeUserRef = { current: 42011 };
+  const isSubmittingRef = { current: true };
+
+  const { createRazorpayHandler } = await import(
+    `../src/components/checkout/useRazorpayCheckout.js?test_inflight_guard=${Date.now()}`
+  );
+  const { clearPendingPayment } = await import("../src/utils/checkoutIdempotency.js");
+
+  const restore = setupMockAdapter(async (config) => {
+    if (config.url?.includes("/create-order")) {
+      return { data: { razorpay_order_id: "order_inflight_1", key_id: "rzp_test", amount: 59900, currency: "INR" } };
+    }
+    if (config.url?.includes("/cancel")) {
+      cancelledCalls++;
+      return { data: { cancelled: true } };
+    }
+    if (config.url?.includes("/verify")) {
+      return await new Promise((resolve) => {
+        resolveVerify = resolve;
+      });
+    }
+    throw new Error(`Unexpected request ${config.url}`);
+  });
+
+  try {
+    const startPayment = createRazorpayHandler({
+      user: { id: 42011 },
+      cart: { items: [{ id: 10, quantity: 1 }], totals: { total_price: "59900" } },
+      finalTotal: 599,
+      billingAddress: {},
+      shippingAddress: {},
+      idempotencyKeyRef: { current: "idem-inflight-1" },
+      activeOrderRef,
+      activeUserRef,
+      isSubmittingRef,
+      pollTimerRef: { current: null },
+      setLoading: (val) => { isLoading = val; },
+      setPaymentStep: (step) => { currentStep = step; },
+      setError: (msg) => { lastError = msg; },
+      setIsPersistentPending: () => {},
+      refreshCart: async () => {},
+      navigate: (to) => { navigatedTo = to; },
+    });
+
+    await startPayment();
+
+    const handlerPromise = capturedOptions.handler({
+      razorpay_order_id: "order_inflight_1",
+      razorpay_payment_id: "pay_inflight_1",
+      razorpay_signature: "sig_inflight_1",
+    });
+
+    // Simulate mobile Razorpay firing ondismiss & delayed payment.failed while /verify is in flight
+    await capturedOptions.modal.ondismiss();
+    listeners.get("payment.failed")({
+      error: { description: "Incorrect PIN entered. Please try again.", metadata: { order_id: "order_inflight_1" } },
+    });
+
+    assert.equal(isLoading, true, "verifying spinner must stay active");
+    assert.equal(currentStep, "verifying");
+    assert.equal(lastError, "", "delayed failure must not flash error during verification");
+    assert.equal(cancelledCalls, 0, "ondismiss during verification must not cancel the order");
+
+    resolveVerify({ data: { success: true, order_id: 988, orderStatus: "processing" } });
+    await handlerPromise;
+
+    assert.equal(navigatedTo, "/order-success/988");
+    assert.equal(lastError, "");
+  } finally {
+    clearPendingPayment(42011);
+    restore();
+    globalThis.window = originalWindow;
+  }
+});

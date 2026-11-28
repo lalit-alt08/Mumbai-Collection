@@ -90,6 +90,7 @@ export function createRazorpayHandler({
 
     const requestOrderId = orderRes.razorpay_order_id;
     let lastGatewayFailureMessage = "";
+    let isVerifyingPayment = false;
     const isCurrentAttempt = () =>
       String(activeUserRef.current) === String(requestUserId) &&
       activeOrderRef.current === requestOrderId;
@@ -167,7 +168,7 @@ export function createRazorpayHandler({
       },
       modal: {
         ondismiss: async () => {
-          if (!isCurrentAttempt()) {
+          if (!isCurrentAttempt() || isVerifyingPayment) {
             return;
           }
           isSubmittingRef.current = false;
@@ -274,6 +275,7 @@ export function createRazorpayHandler({
         }
 
         try {
+          isVerifyingPayment = true;
           setPaymentStep("verifying");
           setLoading(true);
           setError("");
@@ -439,6 +441,7 @@ export function createRazorpayHandler({
             );
           }
         } finally {
+          isVerifyingPayment = false;
           if (isSameUser() && (activeOrderRef.current === requestOrderId || activeOrderRef.current === null)) {
             isSubmittingRef.current = false;
             setLoading(false);
@@ -450,7 +453,7 @@ export function createRazorpayHandler({
 
     const rzp = new window.Razorpay(options);
     rzp.on("payment.failed", (failedRes) => {
-      if (!isCurrentAttempt()) {
+      if (!isCurrentAttempt() || isVerifyingPayment) {
         return;
       }
       // Razorpay keeps the modal open after payment.failed so the shopper can retry
