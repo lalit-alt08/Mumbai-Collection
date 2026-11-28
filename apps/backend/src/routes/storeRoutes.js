@@ -22,6 +22,13 @@ export const _setStoreUpstreamAxiosForTesting = (client) => {
   storeUpstreamAxios = client || axios;
 };
 
+const DEFAULT_CART_ENRICHMENT_BUDGET_MS = 4500;
+let cartEnrichmentBudgetMs = DEFAULT_CART_ENRICHMENT_BUDGET_MS;
+export const _setCartEnrichmentBudgetForTesting = (ms) => {
+  cartEnrichmentBudgetMs =
+    Number.isInteger(ms) && ms > 0 ? ms : DEFAULT_CART_ENRICHMENT_BUDGET_MS;
+};
+
 // Safe last-known store-hours fallback cache with maximum 5-minute TTL
 let lastKnownStoreStatus = null;
 const STORE_HOURS_FALLBACK_MAX_AGE_MS = 5 * 60 * 1000;
@@ -72,6 +79,8 @@ export async function proxyStoreApi(req, res) {
   const targetUrl = `${WP_BASE_URL}/wp-json/wc/store/v1${targetPath}`;
 
   // Server-side enforcement for checkout order creation
+  let checkoutCartItems = [];
+
   if (req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout") {
     if (!req.body?.payment_method || String(req.body.payment_method).toLowerCase() === "cod") {
       return res.status(400).json({ success: false, code: "PAYMENT_METHOD_UNAVAILABLE", message: "Cash on delivery is no longer available. Please pay online." });
@@ -208,6 +217,7 @@ export async function proxyStoreApi(req, res) {
           message: "Your cart is empty.",
         });
       }
+      checkoutCartItems = cart.items;
 
       const itemsSubtotal = cart.totals?.total_items
         ? Number(cart.totals.total_items) / 100
@@ -264,18 +274,43 @@ export async function proxyStoreApi(req, res) {
   try {
     const isCheckoutRequest =
       req.method === "POST" && targetPath.replace(/\/+$/, "") === "/checkout";
+    const isReadRequest = req.method === "GET" || req.method === "HEAD";
+    const requestTimeoutMs = isCheckoutRequest ? 25000 : 10000;
+    const readAbortController = isReadRequest ? new AbortController() : null;
+    let readTimeoutId = null;
+    let onClientClose = null;
 
-    const response = await storeUpstreamAxios({
-      method: req.method,
-      url: targetUrl,
-      params: req.query,
-      data: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
-      headers: forwardHeaders,
-      httpAgent,
-      httpsAgent,
-      validateStatus: () => true,
-      timeout: isCheckoutRequest ? 25000 : 10000,
-    });
+    if (readAbortController) {
+      readTimeoutId = setTimeout(() => readAbortController.abort(), requestTimeoutMs);
+      readTimeoutId.unref?.();
+      if (typeof res?.on === "function") {
+        onClientClose = () => {
+          if (!res.writableEnded) readAbortController.abort();
+        };
+        res.on("close", onClientClose);
+      }
+    }
+
+    let response;
+    try {
+      response = await storeUpstreamAxios({
+        method: req.method,
+        url: targetUrl,
+        params: req.query,
+        data: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
+        headers: forwardHeaders,
+        httpAgent,
+        httpsAgent,
+        ...(readAbortController ? { signal: readAbortController.signal } : {}),
+        validateStatus: () => true,
+        timeout: requestTimeoutMs,
+      });
+    } finally {
+      if (readTimeoutId) clearTimeout(readTimeoutId);
+      if (onClientClose && typeof res?.removeListener === "function") {
+        res.removeListener("close", onClientClose);
+      }
+    }
 
     if (response.headers.nonce) {
       res.setHeader("Nonce", response.headers.nonce);
@@ -310,14 +345,31 @@ export async function proxyStoreApi(req, res) {
       serverCache.invalidatePrefix("catalog:category:");
 
       // Selectively invalidate detail caches for ordered products without wiping browse catalog
-      const orderItems = response.data?.items || response.data?.line_items || [];
-      if (Array.isArray(orderItems)) {
-        for (const item of orderItems) {
-          const productId = item.id || item.product_id;
-          if (productId) {
-            serverCache.delete(`catalog:product:${productId}`);
-          }
+      const responseItems = Array.isArray(response.data?.items)
+        ? response.data.items
+        : Array.isArray(response.data?.line_items)
+          ? response.data.line_items
+          : [];
+      const orderItems = checkoutCartItems.length > 0
+        ? [...checkoutCartItems, ...responseItems]
+        : responseItems;
+      const productIdsToInvalidate = new Set();
+      const enrichmentIdsToInvalidate = new Set();
+      for (const item of orderItems) {
+        const productId = item?.id || item?.product_id;
+        if (productId) {
+          productIdsToInvalidate.add(productId);
+          enrichmentIdsToInvalidate.add(productId);
         }
+        if (item?.variation_id && item.variation_id !== productId) {
+          enrichmentIdsToInvalidate.add(item.variation_id);
+        }
+      }
+      for (const productId of productIdsToInvalidate) {
+        serverCache.delete(`catalog:product:${productId}`);
+      }
+      for (const enrichmentId of enrichmentIdsToInvalidate) {
+        serverCache.delete(`stock:enrichment:product:${enrichmentId}`);
       }
 
       // NOTE: ORDER_CREATED notifications are intentionally NOT published here.
@@ -334,46 +386,86 @@ export async function proxyStoreApi(req, res) {
       response.data.items.length > 0 &&
       targetPath.includes("/cart")
     ) {
-      await Promise.allSettled(
-        response.data.items.map(async (item) => {
-          try {
-            const productId = item.id;
-            let prod = serverCache.get(`stock:enrichment:product:${productId}`);
-            if (!prod) {
-              const prodRes = await api.get(`products/${productId}`);
-              prod = prodRes?.data;
-              if (prod) {
-                serverCache.set(`stock:enrichment:product:${productId}`, prod, 15000);
+      const productIds = [
+        ...new Set(
+          response.data.items
+            .map((item) => item?.id)
+            .filter((id) => id !== undefined && id !== null && id !== "")
+        ),
+      ];
+      const productsById = new Map();
+      let cursor = 0;
+      const workerCount = Math.min(5, productIds.length);
+      const enrichmentDeadline = Date.now() + cartEnrichmentBudgetMs;
+      let stopEnrichment = Boolean(res?.destroyed || res?.writableEnded);
+      const onEnrichmentClose = () => {
+        if (!res?.writableEnded) stopEnrichment = true;
+      };
+      if (typeof res?.on === "function") {
+        res.on("close", onEnrichmentClose);
+      }
+
+      try {
+        await Promise.all(
+          Array.from({ length: workerCount }, async () => {
+            while (!stopEnrichment && Date.now() < enrichmentDeadline && cursor < productIds.length) {
+              const productId = productIds[cursor++];
+              try {
+                const prod = await serverCache.getOrFetch(
+                  `stock:enrichment:product:${productId}`,
+                  async () => {
+                    const prodRes = await api.get(
+                      `products/${productId}`,
+                      {},
+                      { timeout: 3500, signal: AbortSignal.timeout(3500) }
+                    );
+                    if (!prodRes?.data) {
+                      throw new Error(`Missing product data for ${productId}`);
+                    }
+                    return prodRes.data;
+                  },
+                  15000
+                );
+                if (prod) {
+                  productsById.set(productId, prod);
+                }
+              } catch (_) {
+                // fail-safe, retain original item
               }
             }
+          })
+        );
+      } finally {
+        if (typeof res?.removeListener === "function") {
+          res.removeListener("close", onEnrichmentClose);
+        }
+      }
 
-            if (prod && typeof prod.manage_stock !== "undefined") {
-              const backordersAllowed = Boolean(prod.backorders_allowed);
-              const managesStock = prod.manage_stock === true && typeof prod.stock_quantity === "number";
-              const isDepleted = !backordersAllowed && (
-                prod.stock_status === "outofstock" ||
-                (managesStock && prod.stock_quantity <= 0)
-              );
-              const isQuantityShort = !backordersAllowed && managesStock && prod.stock_quantity > 0 && prod.stock_quantity < item.quantity;
-              const isShort = isDepleted || isQuantityShort;
+      for (const item of response.data.items) {
+        const prod = productsById.get(item?.id);
+        if (prod && typeof prod.manage_stock !== "undefined") {
+          const backordersAllowed = Boolean(prod.backorders_allowed);
+          const managesStock = prod.manage_stock === true && typeof prod.stock_quantity === "number";
+          const isDepleted = !backordersAllowed && (
+            prod.stock_status === "outofstock" ||
+            (managesStock && prod.stock_quantity <= 0)
+          );
+          const isQuantityShort = !backordersAllowed && managesStock && prod.stock_quantity > 0 && prod.stock_quantity < item.quantity;
+          const isShort = isDepleted || isQuantityShort;
 
-              item.is_in_stock = !isDepleted;
-              item.stock_status = isDepleted ? "outofstock" : "instock";
-              item.isOutOfStock = isDepleted;
-              item.isQuantityShort = isQuantityShort;
-              if (isShort) {
-                if (!item.quantity_limits) item.quantity_limits = {};
-                item.quantity_limits.maximum =
-                  managesStock
-                    ? Math.max(0, prod.stock_quantity)
-                    : isDepleted ? 0 : 99;
-              }
-            }
-          } catch (enrichErr) {
-            // fail-safe, retain original item
+          item.is_in_stock = !isDepleted;
+          item.stock_status = isDepleted ? "outofstock" : "instock";
+          item.isOutOfStock = isDepleted;
+          item.isQuantityShort = isQuantityShort;
+          if (isShort) {
+            if (!item.quantity_limits) item.quantity_limits = {};
+            item.quantity_limits.maximum =
+              managesStock
+                ? Math.max(0, prod.stock_quantity)
+                : isDepleted ? 0 : 99;
           }
-        })
-      );
+        }
+      }
     }
 
     return res.status(response.status).json(transformMediaUrls(response.data, req));

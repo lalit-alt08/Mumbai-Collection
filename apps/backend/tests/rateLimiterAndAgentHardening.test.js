@@ -1,10 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import axios from "axios";
 import { httpAgent, httpsAgent } from "../src/config/httpAgent.js";
 import wooClient from "../src/config/woocommerce.js";
 import wpClient from "../src/services/wordpress.js";
 import * as paymentCheckoutUtils from "../src/utils/paymentCheckoutUtils.js";
+import { serverCache } from "../src/utils/memoryCache.js";
+import { acquireLock, _setWpClientForTesting } from "../src/services/paymentIntentService.js";
+import { _setRazorpayInstanceForTesting } from "../src/services/razorpayService.js";
+import { createOrder, cancelPaymentOrder } from "../src/controllers/paymentController.js";
+import {
+  proxyStoreApi,
+  _setStoreUpstreamAxiosForTesting,
+  _setCartEnrichmentBudgetForTesting,
+} from "../src/routes/storeRoutes.js";
+import { _setSessionCacheForTesting } from "../src/middlewares/authMiddleware.js";
+import storeHoursService from "../src/services/storeHoursService.js";
 import productRouter from "../src/routes/productRoutes.js";
 import reviewRouter from "../src/routes/reviewRoutes.js";
 import paymentRouter from "../src/routes/paymentRoutes.js";
@@ -240,5 +252,452 @@ test("Rate limiter and HTTP agent hardening invariants", async (t) => {
     const checkoutIdx = handles.indexOf(checkoutLimiter);
     assert.ok(ipIdx >= 1, "/create-order must apply validateRequest then checkoutIpLimiter");
     assert.ok(checkoutIdx > ipIdx + 1, "/create-order must apply auth/idempotency before per-user checkoutLimiter");
+  });
+
+  await t.test("8. Store API GET coalesces concurrent cart enrichment with read signals and acquireLock bounds waits", async () => {
+    const originalApiGet = wooClient.get;
+    const seenSignals = [];
+    let wcProductCalls = 0;
+
+    const makeMockRes = () => ({
+      statusCode: 200,
+      headers: {},
+      body: null,
+      writableEnded: false,
+      setHeader(k, v) { this.headers[String(k).toLowerCase()] = v; },
+      on() {},
+      removeListener() {},
+      status(code) { this.statusCode = code; return this; },
+      json(data) { this.body = data; this.writableEnded = true; return this; },
+    });
+
+    serverCache.clear();
+    _setStoreUpstreamAxiosForTesting(async (config) => {
+      seenSignals.push(config.signal);
+      return {
+        status: 200,
+        headers: {},
+        data: {
+          items: [
+            { id: 99, quantity: 1 },
+            { id: 99, quantity: 2 },
+          ],
+        },
+      };
+    });
+    wooClient.get = async (endpoint, _params, extraConfig = {}) => {
+      if (endpoint === "products/99") {
+        wcProductCalls += 1;
+        assert.equal(extraConfig.timeout, 3500);
+        assert.ok(extraConfig.signal instanceof AbortSignal);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return { data: { id: 99, manage_stock: true, stock_quantity: 4, backorders_allowed: false } };
+      }
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
+    };
+
+    try {
+      const reqA = { method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} };
+      const reqB = { method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} };
+      const resA = makeMockRes();
+      const resB = makeMockRes();
+      await Promise.all([proxyStoreApi(reqA, resA), proxyStoreApi(reqB, resB)]);
+
+      assert.equal(resA.statusCode, 200);
+      assert.equal(resB.statusCode, 200);
+      assert.equal(wcProductCalls, 1, "concurrent/duplicate cart items must coalesce to one product fetch");
+      assert.equal(seenSignals.length, 2);
+      assert.ok(seenSignals.every((sig) => sig instanceof AbortSignal), "Store API GET reads must pass an AbortSignal");
+      assert.equal(resA.body.items[0].stock_status, "instock");
+
+      const lockConfigs = [];
+      _setWpClientForTesting({
+        post: async (_url, _body, config) => {
+          lockConfigs.push(config);
+          return { data: { acquired: false } };
+        },
+      });
+      const start = Date.now();
+      const acquired = await acquireLock("ord_budget_test", "worker_1", 300);
+      const elapsed = Date.now() - start;
+      assert.equal(acquired, false);
+      assert.ok(lockConfigs.length >= 1, "acquireLock must call wpClient.post at least once");
+      assert.ok(
+        lockConfigs.every((cfg) => cfg?.timeout <= 300 && cfg?.signal instanceof AbortSignal),
+        "each acquireLock request must respect remaining budget"
+      );
+      assert.ok(elapsed < 380, `acquireLock exceeded 300ms budget (${elapsed}ms)`);
+
+      const boundedCalls = [];
+      _setWpClientForTesting({
+        post: async (_url, _body, config) => {
+          boundedCalls.push(config);
+          await new Promise((resolve) => setTimeout(resolve, 230));
+          return { data: { acquired: false } };
+        },
+      });
+      const boundedStart = Date.now();
+      await acquireLock("ord_budget_short", "worker_1", 300);
+      const boundedElapsed = Date.now() - boundedStart;
+      assert.equal(boundedCalls.length, 1, "acquireLock must not launch an oversized retry when <100ms remains");
+      assert.ok(boundedElapsed < 320, `acquireLock short remainder sleep overrun (${boundedElapsed}ms)`);
+    } finally {
+      wooClient.get = originalApiGet;
+      _setStoreUpstreamAxiosForTesting(null);
+      _setWpClientForTesting(null);
+      serverCache.clear();
+    }
+  });
+
+  await t.test("9. Cart enrichment bounds concurrency and invalidates immediately after stock mutations", async () => {
+    const originalApiGet = wooClient.get;
+    const originalStoreGuard = storeHoursService.checkCheckoutStoreGuard;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let product105Qty = 5;
+
+    const makeMockRes = () => {
+      const closeHandlers = new Set();
+      return {
+        statusCode: 200,
+        headers: {},
+        body: null,
+        destroyed: false,
+        writableEnded: false,
+        setHeader(k, v) { this.headers[String(k).toLowerCase()] = v; },
+        on(event, fn) {
+          if (event === "close") closeHandlers.add(fn);
+        },
+        removeListener(event, fn) {
+          if (event === "close") closeHandlers.delete(fn);
+        },
+        emitClose() {
+          this.destroyed = true;
+          for (const fn of [...closeHandlers]) fn();
+        },
+        status(code) { this.statusCode = code; return this; },
+        json(data) { this.body = data; this.writableEnded = true; return this; },
+      };
+    };
+
+    serverCache.clear();
+    const customerCookie = "wordpress_logged_in_test=cust99|9999999999|tok|sig";
+    _setSessionCacheForTesting(customerCookie, {
+      userId: 99,
+      roles: ["customer"],
+      email: "shopper99@example.com",
+      isPhoneVerified: true,
+      isSuspended: false,
+      expiresAt: Date.now() + 3600 * 1000,
+      timestamp: Date.now(),
+    });
+    storeHoursService.checkCheckoutStoreGuard = async () => ({ allowed: true });
+
+    const mockUpstream = async (config) => {
+      if (config.method === "POST") {
+        // Real WooCommerce Store API POST /checkout omits cart items/line_items
+        return {
+          status: 200,
+          headers: {},
+          data: {
+            order_id: 9001,
+            status: "pending",
+            payment_method: "razorpay",
+            payment_result: { payment_status: "success" },
+          },
+        };
+      }
+      if (config.params?.mode === "many") {
+        return {
+          status: 200,
+          headers: {},
+          data: { items: Array.from({ length: 8 }, (_, idx) => ({ id: 200 + idx, quantity: 1 })) },
+        };
+      }
+      return { status: 200, headers: {}, data: { items: [{ id: 105, quantity: 1 }] } };
+    };
+    mockUpstream.get = async (url) => {
+      if (String(url).includes("/wc/store/v1/cart")) {
+        return {
+          data: {
+            items: [{ id: 105, product_id: 105, totals: { line_subtotal: "50000" } }],
+            totals: { total_items: "50000" },
+          },
+        };
+      }
+      return { data: { version: 1 } };
+    };
+    _setStoreUpstreamAxiosForTesting(mockUpstream);
+
+    let onProductCall = null;
+    let productDelayMs = 15;
+    wooClient.get = async (endpoint) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      onProductCall?.(endpoint);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, productDelayMs));
+        if (endpoint === "products/105") {
+          return {
+            data: {
+              id: 105,
+              manage_stock: true,
+              stock_quantity: product105Qty,
+              stock_status: product105Qty > 0 ? "instock" : "outofstock",
+              backorders_allowed: false,
+            },
+          };
+        }
+        return { data: { id: 200, manage_stock: true, stock_quantity: 3, stock_status: "instock" } };
+      } finally {
+        inFlight -= 1;
+      }
+    };
+
+    try {
+      const warmRes = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} }, warmRes);
+      assert.equal(warmRes.body.items[0].isOutOfStock, false);
+
+      // Simulate stock depletion on WooCommerce + checkout cache invalidation
+      product105Qty = 0;
+      const checkoutRes = makeMockRes();
+      await proxyStoreApi({
+        method: "POST",
+        path: "/checkout",
+        headers: { "content-type": "application/json" },
+        cookies: { mumbai_customer_auth: customerCookie },
+        body: {
+          payment_method: "razorpay",
+          shipping_address: {
+            first_name: "Test",
+            last_name: "Shopper",
+            phone: "9876543210",
+            address_1: "101 Station Road",
+            city: "Vasai West",
+            state: "MH",
+            postcode: "401202",
+            country: "IN",
+          },
+        },
+        query: {},
+      }, checkoutRes);
+      assert.equal(checkoutRes.statusCode, 200);
+
+      const postCheckoutCart = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} }, postCheckoutCart);
+      assert.equal(postCheckoutCart.body.items[0].isOutOfStock, true, "GET /cart must see fresh stock immediately after checkout invalidation");
+
+      const manyRes = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: { mode: "many" } }, manyRes);
+      assert.equal(maxInFlight, 5, `cart enrichment concurrency must saturate at cap 5 (saw ${maxInFlight})`);
+
+      // Client disconnect during enrichment must stop queueing items 6-8 without aborting shared fetches
+      serverCache.clear();
+      const disconnectRes = makeMockRes();
+      let disconnectCalls = 0;
+      onProductCall = () => {
+        disconnectCalls += 1;
+        if (disconnectCalls === 1) disconnectRes.emitClose();
+      };
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: { mode: "many" } }, disconnectRes);
+      assert.ok(disconnectCalls <= 5, `disconnected cart must stop scheduling remaining batches (saw ${disconnectCalls})`);
+
+      // Expired overall enrichment deadline must stop queueing remaining items
+      serverCache.clear();
+      _setCartEnrichmentBudgetForTesting(20);
+      productDelayMs = 40;
+      let budgetCalls = 0;
+      onProductCall = () => { budgetCalls += 1; };
+      const budgetRes = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: { mode: "many" } }, budgetRes);
+      assert.equal(budgetCalls, 5, `expired enrichment budget must stop after first 5-worker batch (saw ${budgetCalls})`);
+    } finally {
+      _setCartEnrichmentBudgetForTesting(null);
+      wooClient.get = originalApiGet;
+      storeHoursService.checkCheckoutStoreGuard = originalStoreGuard;
+      _setStoreUpstreamAxiosForTesting(null);
+      serverCache.clear();
+    }
+
+    for (const file of [
+      "../src/controllers/adminProductController.js",
+      "../src/services/paymentFinalizeService.js",
+      "../src/controllers/paymentReconciliationHandler.js",
+    ]) {
+      const src = readFileSync(new URL(file, import.meta.url), "utf8");
+      assert.ok(src.includes("stock:enrichment:product:"), `${file} must invalidate stock:enrichment:product:`);
+    }
+  });
+
+  await t.test("10. Razorpay stock reserve and release immediately invalidate Cart availability cache", async () => {
+    const originalApiGet = wooClient.get;
+    const originalWpGet = wpClient.get;
+    const originalAxiosPost = axios.post;
+    const originalStoreGuard = storeHoursService.checkCheckoutStoreGuard;
+    const originalKeyId = process.env.RAZORPAY_KEY_ID;
+    const originalKeySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    process.env.RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_mock123";
+    process.env.RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "mock_secret_key_456";
+
+    const makeMockRes = () => ({
+      statusCode: 200,
+      headers: {},
+      body: null,
+      writableEnded: false,
+      setHeader(k, v) { this.headers[String(k).toLowerCase()] = v; },
+      on() {},
+      removeListener() {},
+      status(code) { this.statusCode = code; return this; },
+      json(data) { this.body = data; this.writableEnded = true; return this; },
+    });
+
+    serverCache.clear();
+    let product106Qty = 1;
+    const intents = new Map();
+    const activeReservations = new Map();
+
+    storeHoursService.checkCheckoutStoreGuard = async () => ({ allowed: true, status: "open" });
+    wpClient.get = async (url) => {
+      if (String(url).includes("/internal/customer-suspension/")) {
+        return { data: { is_suspended: false } };
+      }
+      throw new Error(`Unexpected wpClient.get: ${url}`);
+    };
+    axios.post = async (url) => {
+      if (String(url).includes("/wc/store/v1/cart/update-customer")) {
+        return {
+          data: {
+            items: [{ id: 106, quantity: 1, name: "Banarasi Dupatta", totals: { line_total: "59900" } }],
+            totals: { total_price: "59900", total_items: "59900" },
+            coupons: [],
+            shipping_rates: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected axios.post: ${url}`);
+    };
+    _setStoreUpstreamAxiosForTesting(async () => ({
+      status: 200,
+      headers: {},
+      data: { items: [{ id: 106, quantity: 1 }] },
+    }));
+    wooClient.get = async (endpoint) => {
+      const productPayload = {
+        id: 106,
+        name: "Banarasi Dupatta",
+        manage_stock: true,
+        stock_quantity: product106Qty,
+        stock_status: product106Qty > 0 ? "instock" : "outofstock",
+        backorders_allowed: false,
+      };
+      if (endpoint === "products") return { data: [productPayload] };
+      if (endpoint === "products/106") return { data: productPayload };
+      throw new Error(`Unexpected wooClient.get: ${endpoint}`);
+    };
+    _setRazorpayInstanceForTesting({
+      orders: {
+        create: async () => ({ id: "rzp_hold_106", amount: 59900, currency: "INR", status: "created" }),
+        fetch: async (id) => ({ id, status: "created", amount_paid: 0 }),
+        fetchPayments: async () => ({ items: [] }),
+      },
+    });
+    _setWpClientForTesting({
+      post: async (url, body) => {
+        if (url.endsWith("/payment-intent/lock")) return { data: { success: true, acquired: true } };
+        if (url.endsWith("/payment-intent/unlock")) return { data: { success: true, released: true } };
+        if (url.endsWith("/payment-intent/get")) {
+          if (body?.rzp_order_id) {
+            return { data: { success: true, intent: intents.get(body.rzp_order_id) || null } };
+          }
+          return { data: { success: true, active_order_id: null } };
+        }
+        if (url.endsWith("/payment-intent/store")) {
+          intents.set(body.rzp_order_id, { ...body.payload, rzp_order_id: body.rzp_order_id });
+          return { data: { success: true } };
+        }
+        if (url.endsWith("/payment-intent/update-status")) {
+          const intent = intents.get(body.rzp_order_id);
+          if (intent && (!body.from_status || intent.status === body.from_status)) {
+            intent.status = body.to_status;
+            return { data: { success: true, updated: true } };
+          }
+          return { data: { success: false, updated: false } };
+        }
+        if (url.endsWith("/stock/reserve")) {
+          activeReservations.set(body.reservation_id, body.line_items);
+          product106Qty = 0;
+          return { data: { success: true, reservation_id: body.reservation_id } };
+        }
+        if (url.endsWith("/stock/release")) {
+          if (activeReservations.has(body.reservation_id)) {
+            activeReservations.delete(body.reservation_id);
+            product106Qty = 1;
+          }
+          return { data: { success: true } };
+        }
+        throw new Error(`Unexpected payment wpClient.post: ${url}`);
+      },
+    });
+
+    try {
+      // 1. Warm Cart enrichment cache while last unit is available
+      const warmCartRes = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} }, warmCartRes);
+      assert.equal(warmCartRes.body.items[0].isOutOfStock, false);
+
+      // 2. Start Razorpay checkout (creates stock hold -> immediately invalidates warm Cart cache)
+      const address = {
+        first_name: "Test",
+        last_name: "Shopper",
+        phone: "9876543210",
+        address_1: "101 Station Road",
+        city: "Vasai West",
+        state: "MH",
+        postcode: "401202",
+        country: "IN",
+      };
+      const createRes = makeMockRes();
+      await createOrder({
+        wpUserId: 1060,
+        wpUserEmail: "shopper106@example.com",
+        wpAuthCookie: "wordpress_logged_in_test=cust106",
+        headers: {},
+        body: { billing_address: address, shipping_address: address },
+      }, createRes);
+      assert.equal(createRes.statusCode, 200);
+      assert.equal(createRes.body.razorpay_order_id, "rzp_hold_106");
+
+      const heldCartRes = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} }, heldCartRes);
+      assert.equal(heldCartRes.body.items[0].isOutOfStock, true, "Cart must immediately reflect held out-of-stock unit after Razorpay reserve");
+
+      // 3. Dismiss/cancel checkout (releases hold -> immediately invalidates out-of-stock cache)
+      const cancelRes = makeMockRes();
+      await cancelPaymentOrder({
+        user: { id: 1060 },
+        body: { razorpay_order_id: "rzp_hold_106" },
+      }, cancelRes);
+      assert.equal(cancelRes.statusCode, 200);
+      assert.equal(cancelRes.body.stock_released, true);
+
+      const releasedCartRes = makeMockRes();
+      await proxyStoreApi({ method: "GET", path: "/cart", headers: {}, cookies: {}, query: {} }, releasedCartRes);
+      assert.equal(releasedCartRes.body.items[0].isOutOfStock, false, "Cart must immediately show unit available again after cancel release");
+    } finally {
+      wooClient.get = originalApiGet;
+      wpClient.get = originalWpGet;
+      axios.post = originalAxiosPost;
+      storeHoursService.checkCheckoutStoreGuard = originalStoreGuard;
+      _setRazorpayInstanceForTesting(null);
+      _setStoreUpstreamAxiosForTesting(null);
+      _setWpClientForTesting(null);
+      serverCache.clear();
+      if (originalKeyId === undefined) delete process.env.RAZORPAY_KEY_ID;
+      else process.env.RAZORPAY_KEY_ID = originalKeyId;
+      if (originalKeySecret === undefined) delete process.env.RAZORPAY_KEY_SECRET;
+      else process.env.RAZORPAY_KEY_SECRET = originalKeySecret;
+    }
   });
 });

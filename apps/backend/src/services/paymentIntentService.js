@@ -31,6 +31,26 @@ export const _setWpClientForTesting = (client) => {
   wpClient = client || defaultWpClient;
 };
 
+const reservedStockProductIds = new Map();
+const MAX_TRACKED_RESERVATIONS = 2000;
+
+const extractReservationProductIds = (lineItems = []) => {
+  const ids = new Set();
+  for (const item of Array.isArray(lineItems) ? lineItems : []) {
+    for (const candidate of [item?.product_id, item?.variation_id, item?.id]) {
+      const id = Number(candidate);
+      if (Number.isInteger(id) && id > 0) ids.add(id);
+    }
+  }
+  return [...ids];
+};
+
+const invalidateStockEnrichmentKeys = (productIds = []) => {
+  for (const id of productIds) {
+    serverCache.delete(`stock:enrichment:product:${id}`);
+  }
+};
+
 /** Atomically reserves WooCommerce-managed inventory for a deferred payment. */
 export const reserveCheckoutStock = async ({ reservationId, lineItems, holdMinutes = 15 }) => {
   if (!reservationId || !Array.isArray(lineItems) || lineItems.length === 0) {
@@ -42,6 +62,13 @@ export const reserveCheckoutStock = async ({ reservationId, lineItems, holdMinut
     hold_minutes: holdMinutes,
   });
   if (response.data?.success !== true) throw new Error("WordPress did not confirm the stock reservation");
+  const productIds = extractReservationProductIds(lineItems);
+  invalidateStockEnrichmentKeys(productIds);
+  if (reservedStockProductIds.size >= MAX_TRACKED_RESERVATIONS) {
+    const oldestKey = reservedStockProductIds.keys().next().value;
+    if (oldestKey) reservedStockProductIds.delete(oldestKey);
+  }
+  reservedStockProductIds.set(reservationId, productIds);
   return response.data;
 };
 
@@ -52,7 +79,17 @@ export const releaseCheckoutStock = async (reservationId) => {
     const response = await wpClient.post("/wp-json/mumbai-auth/v1/stock/release", {
       reservation_id: reservationId,
     });
-    return response.data?.success === true;
+    if (response.data?.success === true) {
+      const trackedIds = reservedStockProductIds.get(reservationId);
+      if (trackedIds && trackedIds.length > 0) {
+        invalidateStockEnrichmentKeys(trackedIds);
+      } else {
+        serverCache.invalidatePrefix("stock:enrichment:product:");
+      }
+      reservedStockProductIds.delete(reservationId);
+      return true;
+    }
+    return false;
   } catch (err) {
     logger.warn({ reservationId, err: err.message }, "[PaymentIntentService] Failed to release stock reservation");
     return false;
@@ -164,13 +201,25 @@ export const deletePaymentIntent = async (rzpOrderId) => {
 export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
   if (!rzpOrderId) return false;
 
+  const budgetMs = Number.isFinite(Number(maxWaitMs)) && Number(maxWaitMs) > 0 ? Number(maxWaitMs) : 4000;
   const startTime = Date.now();
-  while (Date.now() - startTime < maxWaitMs) {
+  for (let attempt = 0; ; attempt++) {
+    const remainingMs = budgetMs - (Date.now() - startTime);
+    if (remainingMs <= 0 || (attempt > 0 && remainingMs < 100)) break;
+
+    const callTimeoutMs = Math.min(8000, remainingMs);
     try {
-      const res = await wpClient.post("/wp-json/mumbai-auth/v1/payment-intent/lock", {
-        rzp_order_id: rzpOrderId,
-        worker_id: workerId || `worker_${process.pid}`,
-      });
+      const res = await wpClient.post(
+        "/wp-json/mumbai-auth/v1/payment-intent/lock",
+        {
+          rzp_order_id: rzpOrderId,
+          worker_id: workerId || `worker_${process.pid}`,
+        },
+        {
+          timeout: callTimeoutMs,
+          signal: AbortSignal.timeout(callTimeoutMs),
+        }
+      );
       if (res.data?.acquired === true) {
         return true;
       }
@@ -181,12 +230,13 @@ export const acquireLock = async (rzpOrderId, workerId, maxWaitMs = 4000) => {
       );
     }
 
-    // Wait 150ms before retrying
-    await sleep(150);
+    const leftAfterCallMs = budgetMs - (Date.now() - startTime);
+    if (leftAfterCallMs < 100) break;
+    await sleep(Math.min(150, leftAfterCallMs));
   }
 
   logger.warn(
-    { rzpOrderId, maxWaitMs },
+    { rzpOrderId, maxWaitMs: budgetMs },
     "[PaymentIntentService] Timed out waiting to acquire lock"
   );
   return false;

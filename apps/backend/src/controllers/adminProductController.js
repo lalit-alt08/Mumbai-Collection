@@ -25,6 +25,7 @@ const invalidateInventoryCaches = async () => {
   batch.delete(PRODUCT_STOCK_COUNTS_CACHE_KEY);
   batch.invalidatePrefix("admin:analytics");
   batch.invalidatePrefix("catalog:");
+  batch.invalidatePrefix("stock:enrichment:product:");
   batch.delete("admin:categories");
   batch.delete("seo:sitemap_xml");
   searchIndexService.markDirty();

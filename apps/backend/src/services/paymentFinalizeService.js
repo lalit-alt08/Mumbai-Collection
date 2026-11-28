@@ -678,6 +678,10 @@ export const finalizePaymentAndCreateOrder = async ({
       for (const item of createdOrder.line_items) {
         if (item.product_id) {
           serverCache.delete(`catalog:product:${item.product_id}`);
+          serverCache.delete(`stock:enrichment:product:${item.product_id}`);
+        }
+        if (item.variation_id && item.variation_id !== item.product_id) {
+          serverCache.delete(`stock:enrichment:product:${item.variation_id}`);
         }
       }
     }

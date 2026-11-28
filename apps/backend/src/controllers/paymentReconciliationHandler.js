@@ -223,6 +223,7 @@ export const reconcileOrder = async (req, res) => {
       serverCache.invalidatePrefix("admin_products:");
       serverCache.invalidatePrefix("catalog:products:");
       serverCache.invalidatePrefix("catalog:category:");
+      serverCache.invalidatePrefix("stock:enrichment:product:");
 
       // Explicitly handle failed Redis distributed cache flush while preserving successful outcome
       let cachePropagationDegraded = false;

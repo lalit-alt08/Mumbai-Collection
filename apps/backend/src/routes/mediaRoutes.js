@@ -7,6 +7,20 @@ import { logError } from "../utils/logger.js";
 const router = express.Router();
 
 const WP_BASE_URL = process.env.WORDPRESS_URL || "https://mumbai-collection.local";
+const DEFAULT_MEDIA_STREAM_IDLE_TIMEOUT_MS = 20000;
+let mediaStreamIdleTimeoutMs = DEFAULT_MEDIA_STREAM_IDLE_TIMEOUT_MS;
+
+export const _setMediaStreamIdleTimeoutForTesting = (ms) => {
+  mediaStreamIdleTimeoutMs =
+    Number.isInteger(ms) && ms > 0 ? ms : DEFAULT_MEDIA_STREAM_IDLE_TIMEOUT_MS;
+};
+
+const destroyResponseStream = (targetResponse) => {
+  const data = targetResponse?.data;
+  if (data && typeof data.destroy === "function") {
+    data.destroy();
+  }
+};
 
 // Allowed media file extensions for security
 const ALLOWED_EXTENSIONS = new Set([
@@ -151,6 +165,7 @@ router.use(async (req, res) => {
       response = await axios(fetchConfig);
     } catch (err) {
       if (err.response?.status === 404 && normalized.includes(".SY522.")) {
+        destroyResponseStream(err.response);
         const altPath = normalized.replace(".SY522.", "._SY522_.");
         const altUrl = `${wpBaseUrl}/wp-content/uploads/${altPath.replace(/\\/g, "/")}`;
         response = await axios({
@@ -222,26 +237,45 @@ router.use(async (req, res) => {
     }
 
     if (response.status === 416) {
-      if (response.data && typeof response.data.destroy === "function") response.data.destroy();
+      destroyResponseStream(response);
       res.setHeader("Content-Length", "0");
       res.removeListener("close", abortUpstreamOnDisconnect);
       return res.end();
     }
 
     if (isHead) {
-      if (response.data && typeof response.data.destroy === "function") response.data.destroy();
+      destroyResponseStream(response);
       res.removeListener("close", abortUpstreamOnDisconnect);
       return res.end();
     }
 
+    let streamIdleTimer = null;
+    const clearStreamIdleTimer = () => {
+      if (streamIdleTimer) {
+        clearTimeout(streamIdleTimer);
+        streamIdleTimer = null;
+      }
+    };
+    const resetStreamIdleTimer = () => {
+      clearStreamIdleTimer();
+      streamIdleTimer = setTimeout(() => {
+        if (response?.data && typeof response.data.destroy === "function") {
+          response.data.destroy(new Error("Upstream media stream stalled"));
+        }
+      }, mediaStreamIdleTimeoutMs);
+    };
+
     // Clean up upstream stream when the client disconnects before the response ends.
     res.on("close", () => {
+      clearStreamIdleTimer();
       if (res.writableEnded) return;
-      if (response?.data && typeof response.data.destroy === "function") {
-        response.data.destroy();
-      }
+      destroyResponseStream(response);
     });
+    response.data.on("data", resetStreamIdleTimer);
+    response.data.once("end", clearStreamIdleTimer);
+    response.data.once("close", clearStreamIdleTimer);
     response.data.on("error", (streamError) => {
+      clearStreamIdleTimer();
       if (!res.headersSent) {
         applyNoStore();
         for (const header of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"]) {
@@ -252,9 +286,14 @@ router.use(async (req, res) => {
         res.destroy(streamError);
       }
     });
-    res.once("finish", () => res.removeListener("close", abortUpstreamOnDisconnect));
+    res.once("finish", () => {
+      clearStreamIdleTimer();
+      res.removeListener("close", abortUpstreamOnDisconnect);
+    });
+    resetStreamIdleTimer();
     return response.data.pipe(res);
   } catch (error) {
+    destroyResponseStream(error.response);
     res.removeListener("close", abortUpstreamOnDisconnect);
     applyNoStore();
     if (error.response?.status === 404 || error.code === "ERR_BAD_REQUEST") {
