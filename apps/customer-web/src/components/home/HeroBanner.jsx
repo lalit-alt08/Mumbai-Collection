@@ -7,7 +7,6 @@ import { Autoplay, Pagination } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/pagination";
 
-import { getBanners } from "../../services/productService.js";
 import { resolveMediaUrl } from "../../utils/imageUtils.js";
 import { createBannerVideoRetryManager } from "../../utils/bannerVideoRetry.js";
 
@@ -198,9 +197,12 @@ function HeroVideoSlide({
   );
 }
 
-function HeroBanner() {
-  const [banners, setBanners] = useState([]);
-  const [loading, setLoading] = useState(true);
+function HeroBanner({ data }) {
+  const loading = data === null;
+  const banners = (data?.banners ?? [])
+    .filter((banner) => banner && banner.is_active !== false &&
+      (banner.desktop_image || banner.mobile_image || (banner.media_type === "video" && banner.video_url)))
+    .slice(0, 3);
   const [failedImages, setFailedImages] = useState({});
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [isHeroInView, setIsHeroInView] = useState(true);
@@ -235,48 +237,8 @@ function HeroBanner() {
   }, [loading, banners.length]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadLiveBanners = async () => {
-      try {
-        const res = await getBanners();
-        if (!isMounted) return;
-
-        const liveList = res?.banners || (Array.isArray(res) ? res : []);
-        const activeList = liveList.filter(
-          (b) =>
-            b &&
-            b.is_active !== false &&
-            (b.desktop_image || b.mobile_image || (b.media_type === "video" && b.video_url))
-        );
-
-        if (activeList.length > 0) {
-          setBanners(activeList.slice(0, 3));
-        } else {
-          setBanners([]);
-        }
-      } catch {
-        // Keep the last successfully loaded banners when refresh fails.
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadLiveBanners();
-
-    const onVisible = () => { if (document.visibilityState === "visible") void loadLiveBanners(); };
-    document.addEventListener("visibilitychange", onVisible);
-    // Revalidate long-lived visible pages without bypassing either shared cache.
-    const refreshTimer = window.setInterval(onVisible, 5 * 60 * 1000);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
+    if (data?.success && !data.degraded) setFailedImages({});
+  }, [data]);
 
   if (loading) {
     return (

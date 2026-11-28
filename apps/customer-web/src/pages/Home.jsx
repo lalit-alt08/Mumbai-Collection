@@ -11,6 +11,7 @@ import { AlertCircle, CheckCircle2, X, ChevronRight } from "lucide-react";
 import { getSessionProductOrderSeed, orderProductsForSession } from "../utils/productUtils";
 import { useLiveProductStock } from "../hooks/useLiveProductStock";
 import { usePageCanonical } from "../hooks/usePageCanonical";
+import { useHomepageBanners } from "../hooks/useHomepageBanners";
 
 // In-memory module cache for SWR (Stale-While-Revalidate) catalog rendering
 let cachedHomeData = {
@@ -35,6 +36,7 @@ function fetchHomeSnapshot() {
 }
 
 function Home() {
+  const homepageBanners = useHomepageBanners();
   const location = useLocation();
   const [products, setProducts] = useState(() => cachedHomeData.products || []);
   const [categories, setCategories] = useState(() => cachedHomeData.categories || []);
@@ -355,7 +357,7 @@ function Home() {
       {/* Swap the two homepage banners on mobile while preserving desktop order. */}
       <div className="flex flex-col gap-2.5 sm:gap-3 md:gap-8">
         <div className="order-3 md:order-1">
-          <HeroBanner />
+          <HeroBanner data={homepageBanners} />
         </div>
 
         {/* Compact category shortcuts on mobile and desktop */}
@@ -365,7 +367,7 @@ function Home() {
 
         {/* Mobile welcome banner takes the hero's former top position. */}
         <div className="order-1 md:order-3">
-          <MobileThinBanner />
+          <MobileThinBanner banner={homepageBanners?.thin_banner} loading={homepageBanners === null} />
         </div>
       </div>
 

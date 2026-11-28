@@ -296,7 +296,7 @@ router.use(async (req, res) => {
     destroyResponseStream(error.response);
     res.removeListener("close", abortUpstreamOnDisconnect);
     applyNoStore();
-    if (error.response?.status === 404 || error.code === "ERR_BAD_REQUEST") {
+    if (error.response?.status === 404) {
       return res.status(404).json({ success: false, message: "Media file not found." });
     }
     logError(req, error, "Media proxy error");

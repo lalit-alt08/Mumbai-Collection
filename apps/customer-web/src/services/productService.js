@@ -262,22 +262,26 @@ export const getHomeShelves = async ({ page = 1, offset, ...options } = {}) => {
 let bannersInFlight = null;
 let bannersCachedData = null;
 let bannersCachedTimestamp = 0;
-let latestRequestSeq = 0;
-let latestCompletedSeq = 0;
+let lastHealthyBanners = null;
+let bannersRequestRevalidates = false;
 const BANNERS_CACHE_TTL_MS = 60_000;
+export const BANNERS_RECOVERY_DELAY_MS = 5_000;
 
 export const getBanners = async (options = {}) => {
   const force = options?.force === true;
-  if (!force && bannersCachedData && (Date.now() - bannersCachedTimestamp < BANNERS_CACHE_TTL_MS)) {
+  const ttl = bannersCachedData?.degraded ? BANNERS_RECOVERY_DELAY_MS : BANNERS_CACHE_TTL_MS;
+  if (!force && bannersCachedData && Date.now() - bannersCachedTimestamp < ttl) {
     return bannersCachedData;
   }
 
-  // Coalesce all concurrent calls (including concurrent forced refreshes) into one single in-flight Promise
+  // A refresh requested during an ordinary read still needs to reach the origin.
   if (bannersInFlight) {
+    if (force && !bannersRequestRevalidates) {
+      return bannersInFlight.catch(() => {}).then(() => getBanners(options));
+    }
     return bannersInFlight;
   }
 
-  const reqSeq = ++latestRequestSeq;
   const reqOptions = force
     ? {
         ...options,
@@ -290,25 +294,25 @@ export const getBanners = async (options = {}) => {
     : options;
 
   const commitBannersData = (data) => {
-    // Sequence guard: prevent a delayed older response from overwriting a newer completed response
-    if (reqSeq >= latestCompletedSeq) {
-      latestCompletedSeq = reqSeq;
-      const hasBanners = Array.isArray(data?.banners) && data.banners.length > 0;
-      const hasThin = Boolean(data?.thin_banner);
-      // Full TTL for populated banner data; 5s TTL for empty/degraded responses to allow fast recovery
-      bannersCachedData = data;
-      bannersCachedTimestamp = (hasBanners || hasThin)
-        ? Date.now()
-        : (Date.now() - BANNERS_CACHE_TTL_MS + 5000);
+    if (data?.success !== true || !Array.isArray(data.banners)) {
+      throw new Error("Invalid banner response");
     }
+    if (data.degraded && lastHealthyBanners) {
+      data = { ...lastHealthyBanners, degraded: true };
+    } else if (!data.degraded) {
+      lastHealthyBanners = data;
+    }
+    bannersCachedData = data;
+    bannersCachedTimestamp = Date.now();
     return data;
   };
 
   const earlyPromise = !force && typeof window !== "undefined" ? window.__MUMBAI_EARLY_BANNERS__ : null;
-  if (earlyPromise && typeof window !== "undefined") {
+  if (typeof window !== "undefined") {
     window.__MUMBAI_EARLY_BANNERS__ = null;
   }
 
+  bannersRequestRevalidates = force;
   bannersInFlight = Promise.resolve(earlyPromise)
     .then((earlyData) => {
       if (earlyData && earlyData.success === true) {

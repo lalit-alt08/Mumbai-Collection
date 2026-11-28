@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import { getBanners } from "../../services/productService.js";
 import { resolveMediaUrl } from "../../utils/imageUtils.js";
 import { createBannerVideoRetryManager } from "../../utils/bannerVideoRetry.js";
 
@@ -9,13 +8,11 @@ import { createBannerVideoRetryManager } from "../../utils/bannerVideoRetry.js";
  * Displayed strictly on mobile view right after the top Category bar on the homepage.
  * Supports static image or looping muted inline MP4 video with poster fallback.
  */
-export default function MobileThinBanner({ banner: initialBanner = null }) {
+export default function MobileThinBanner({ banner, loading }) {
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(max-width: 767px)").matches;
   });
-  const [banner, setBanner] = useState(initialBanner);
-  const [loading, setLoading] = useState(() => !initialBanner && isMobile);
 
   // Video playback states
   const containerRef = useRef(null);
@@ -69,70 +66,15 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  const fetchThinBanner = useCallback(async (force = false) => {
-    if (initialBanner && !force) {
-      setBanner(initialBanner);
-      setLoading(false);
-      return;
-    }
-    try {
-      const res = await getBanners({ force });
-      const thin = res?.thin_banner;
-      if (thin && thin.is_active !== false && thin.image) {
-        setBanner(thin);
-      } else {
-        setBanner(null);
-      }
-    } catch {
-      // Preserve current banner if a background refresh fails; do NOT wipe out existing UI!
-      setBanner((prev) => prev);
-    } finally {
-      setLoading(false);
-    }
-  }, [initialBanner]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    fetchThinBanner(false);
-
-    let refreshDebounce = null;
-    const triggerDebouncedRefresh = () => {
-      if (refreshDebounce) clearTimeout(refreshDebounce);
-      refreshDebounce = setTimeout(() => {
-        fetchThinBanner(true);
-      }, 150);
-    };
-
-    // Refresh banner when user returns to the page
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        triggerDebouncedRefresh();
-      }
-    };
-    const handlePageShow = (event) => {
-      // Only refresh on bfcache restores (back/forward navigation), avoiding redundant reload on initial page load
-      if (event?.persisted) {
-        triggerDebouncedRefresh();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pageshow", handlePageShow);
-    return () => {
-      if (refreshDebounce) clearTimeout(refreshDebounce);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pageshow", handlePageShow);
-    };
-  }, [isMobile, fetchThinBanner]);
-
   const isVideoMode = banner?.media_type === "video" && Boolean(banner?.video_url);
-  const canObserveVideo = isMobile && !loading && Boolean(banner?.image) && isVideoMode && !reduceMotion;
+  const saveData = typeof navigator !== "undefined" && navigator.connection?.saveData === true;
+  const canObserveVideo = isMobile && !loading && banner?.is_active !== false &&
+    Boolean(banner?.image) && isVideoMode && !reduceMotion && !saveData;
   const videoSrc = canObserveVideo && hasEnteredView && isDeferredVideoReady && !isPlaybackFailed
     ? resolveMediaUrl(banner.video_url)
     : "";
 
-  // Defer attaching the MP4 source until after page load + settle (or first user gesture)
-  // so the thin banner poster renders immediately without competing with the Hero LCP download.
+  // Let the poster render and the initial page requests settle before loading video.
   useEffect(() => {
     if (!canObserveVideo || isDeferredVideoReady || typeof window === "undefined") return undefined;
 
@@ -152,18 +94,9 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
       window.addEventListener("load", scheduleAfterLoad, { once: true });
     }
 
-    window.addEventListener("touchstart", unlockVideo, { passive: true, once: true });
-    window.addEventListener("pointerdown", unlockVideo, { passive: true, once: true });
-    window.addEventListener("scroll", unlockVideo, { passive: true, once: true });
-    window.addEventListener("keydown", unlockVideo, { passive: true, once: true });
-
     return () => {
       if (settledTimer) window.clearTimeout(settledTimer);
       window.removeEventListener("load", scheduleAfterLoad);
-      window.removeEventListener("touchstart", unlockVideo);
-      window.removeEventListener("pointerdown", unlockVideo);
-      window.removeEventListener("scroll", unlockVideo);
-      window.removeEventListener("keydown", unlockVideo);
     };
   }, [canObserveVideo, isDeferredVideoReady]);
 
@@ -194,7 +127,7 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
 
   // Attach video source only when the mobile banner enters view
   useEffect(() => {
-    if (!canObserveVideo || !containerRef.current) return;
+    if (!canObserveVideo || !isDeferredVideoReady || !containerRef.current) return;
     if (typeof IntersectionObserver === "undefined") {
       setHasEnteredView(true);
       setIsInView(true);
@@ -215,7 +148,7 @@ export default function MobileThinBanner({ banner: initialBanner = null }) {
 
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [canObserveVideo]);
+  }, [canObserveVideo, isDeferredVideoReady]);
 
   // Start playback after the source mounts, and pause while the banner is out of view.
   useEffect(() => {

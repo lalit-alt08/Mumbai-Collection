@@ -172,6 +172,17 @@ app.use(
 );
 
 app.use(
+  [
+    "/api/auth", "/api/favorites", "/api/addresses", "/api/profile", "/api/orders",
+    "/api/admin", "/api/employee", "/api/payments", "/api/ops", "/api/store/cart", "/api/store/checkout",
+  ],
+  (_req, res, next) => {
+    res.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
+    next();
+  }
+);
+
+app.use(
   express.json({
     verify: (req, res, buf) => {
       if (req.originalUrl?.startsWith("/api/payments/webhook")) {
@@ -209,6 +220,7 @@ app.get("/api/ops/health", operationalHealth);
 
 // 404 Handler for undefined API routes (L13 fix)
 app.use("/api", (req, res) => {
+  res.set("Cache-Control", "no-store");
   res.status(404).json({
     success: false,
     message: "API route not found",
@@ -217,6 +229,8 @@ app.use("/api", (req, res) => {
 
 // Global Express Error Handling Middleware
 app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  res.set("Cache-Control", "no-store");
   const status = err.status || err.statusCode || 500;
   const isDev = process.env.NODE_ENV === "development";
 

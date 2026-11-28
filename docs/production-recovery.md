@@ -13,6 +13,22 @@ Schedule WordPress cron from the host (for example WP-CLI `wp cron event run
 even when there are no storefront visits. Confirm indexing has completed before
 depending on location filters.
 
+## Storefront release and cache policy
+
+Stage and verify the build outside the active storefront directory. Copy new
+hashed assets into place first, verify that the asset URLs referenced by the new
+build resolve, then atomically replace the HTML entry point. Keep previous hashed
+assets available during rollout and rollback so an open tab can still load its
+lazy chunks. Serve a real 404 for missing `/assets/*` paths. Apply the SPA fallback
+to navigation paths after this check.
+
+On Caddy, set HTML to `no-store` and apply a long immutable TTL to hashed build
+assets. The storefront archive includes the equivalent Apache rules. Configure
+Cloudflare to honor origin cache headers for banners and media, retain media
+version query parameters in the cache key, and bypass authenticated routes.
+Check the effective headers for the entry point, a bundle, a missing bundle, a
+forced banner refresh, and an authenticated response on staging before rollout.
+
 ## Backups on the VPS
 
 Install WP-CLI, gzip, tar and flock. Run as the WordPress service account:

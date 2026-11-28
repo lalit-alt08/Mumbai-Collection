@@ -142,7 +142,7 @@ test("Banner Concurrency & Version Integrity Suite", async (t) => {
 
   await t.test("5. WordPress plugin (mumbai-auth.php) enforces atomic snapshot and verified persistence", () => {
     const phpSource = fs.readFileSync(
-      new URL("../../../mumbai-auth.php", import.meta.url),
+      new URL("../../wordpress-plugin/mumbai-auth.php", import.meta.url),
       "utf8"
     );
 
@@ -417,12 +417,12 @@ test("Banner Concurrency & Version Integrity Suite", async (t) => {
     assert.equal(jsonBody.banners.length, 3);
     for (let i = 0; i < 3; i++) {
       assert.equal(jsonBody.banners[i].media_type, "video");
-      assert.match(jsonBody.banners[i].video_url, new RegExp(`v=${501 + i}`));
+      assert.equal(new URL(jsonBody.banners[i].video_url).searchParams.get("v"), `${501 + i}-21`);
     }
 
     // D. WordPress plugin protects hero banner video_media_id from orphan cleanup
     const phpSource = fs.readFileSync(
-      new URL("../../../mumbai-auth.php", import.meta.url),
+      new URL("../../wordpress-plugin/mumbai-auth.php", import.meta.url),
       "utf8"
     );
     assert.match(
@@ -430,5 +430,48 @@ test("Banner Concurrency & Version Integrity Suite", async (t) => {
       /\$desktop_id === \$media_id \|\| \$mobile_id === \$media_id \|\| \$video_id === \$media_id/,
       "mumbai_is_media_referenced must protect hero banner video_media_id from orphan cleanup"
     );
+  });
+
+  await t.test("public refresh revalidates after the cooldown and identifies outage fallbacks", async (st) => {
+    let now = Date.now();
+    st.mock.method(Date, "now", () => now);
+    let reads = 0;
+    let version = 22;
+    let unavailable = false;
+    axios.get = async () => {
+      reads++;
+      if (unavailable) throw new Error("WordPress unavailable");
+      return { data: { version, banners: [{
+        id: "hero", desktop_media_id: 17, desktop_image: "/wp-content/uploads/hero.jpg?rev=1&v=stale",
+      }] } };
+    };
+    await getBanners(true);
+    const request = async (query = {}) => {
+      const result = {};
+      await getPublicBanners({ query, protocol: "https", get: () => "localhost" }, {
+        setHeader(_name, value) { result.cacheControl = value; },
+        json(body) { result.body = body; },
+      });
+      return result;
+    };
+
+    const initial = await request();
+    assert.match(initial.cacheControl, /s-maxage=60/);
+    assert.equal(new URL(initial.body.banners[0].desktop_image).searchParams.get("v"), "17-22");
+    version++;
+    assert.match((await request({ force: "true" })).cacheControl, /no-store/);
+    assert.equal(reads, 1);
+    now += 6_000;
+    const refreshed = await request({ force: "true" });
+    assert.equal(new URL(refreshed.body.banners[0].desktop_image).searchParams.get("v"), "17-23");
+    assert.equal(reads, 2);
+    now += 6_000;
+    unavailable = true;
+    const degraded = await request({ force: "true" });
+    assert.equal(degraded.body.degraded, true);
+    assert.match(degraded.cacheControl, /no-store/);
+    assert.equal(degraded.body.banners.length, 1);
+    await request({ force: "true" });
+    assert.equal(reads, 3, "a failed public read also starts the upstream cooldown");
   });
 });

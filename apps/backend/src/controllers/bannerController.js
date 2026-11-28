@@ -11,10 +11,14 @@ const appendMediaVersion = (url, tag) => {
   if (!url || !tag || typeof url !== "string" || !url.includes("/api/media/uploads/")) {
     return url;
   }
-  const vTag = `v=${tag}`;
-  if (!url.includes("?")) return `${url}?${vTag}`;
-  if (!url.includes("v=")) return `${url}&${vTag}`;
-  return url;
+  const hashIndex = url.indexOf("#");
+  const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
+  const withoutHash = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  const queryIndex = withoutHash.indexOf("?");
+  const path = queryIndex === -1 ? withoutHash : withoutHash.slice(0, queryIndex);
+  const params = new URLSearchParams(queryIndex === -1 ? "" : withoutHash.slice(queryIndex + 1));
+  params.set("v", String(tag));
+  return `${path}?${params}${hash}`;
 };
 
 const normalizePublicVideoBanner = (banner, version) => {
@@ -23,12 +27,13 @@ const normalizePublicVideoBanner = (banner, version) => {
   if (normalized.media_type === "video" && !normalized.video_url) {
     normalized.media_type = "image";
   }
-  const videoTag = normalized.video_media_id || version || 2;
+  const mediaTag = (id) => [id, version].filter(Boolean).join("-");
+  const videoTag = mediaTag(normalized.video_media_id);
   if (normalized.video_url && videoTag) {
     normalized.video_url = appendMediaVersion(normalized.video_url, videoTag);
   }
-  const desktopTag = normalized.desktop_media_id || normalized.media_id || version;
-  const mobileTag = normalized.mobile_media_id || normalized.media_id || version;
+  const desktopTag = mediaTag(normalized.desktop_media_id || normalized.media_id);
+  const mobileTag = mediaTag(normalized.mobile_media_id || normalized.media_id);
   if (normalized.desktop_image) {
     normalized.desktop_image = appendMediaVersion(normalized.desktop_image, desktopTag);
   }
@@ -36,7 +41,7 @@ const normalizePublicVideoBanner = (banner, version) => {
     normalized.mobile_image = appendMediaVersion(normalized.mobile_image, mobileTag);
   }
   if (normalized.image) {
-    normalized.image = appendMediaVersion(normalized.image, normalized.media_id || version);
+    normalized.image = appendMediaVersion(normalized.image, mediaTag(normalized.media_id));
   }
   return normalized;
 };
@@ -47,7 +52,8 @@ const normalizePublicVideoBanner = (banner, version) => {
  */
 export const getPublicBanners = async (req, res) => {
   try {
-    const data = await getBanners(false);
+    const revalidate = req.query?.force === "true";
+    const data = await getBanners(false, { revalidate });
     const banners = Array.isArray(data) ? data : data.banners || [];
     const activeBanners = banners.filter((b) => b.is_active !== false);
     const thinBanner = data.thin_banner || DEFAULT_THIN_BANNER;
@@ -62,7 +68,7 @@ export const getPublicBanners = async (req, res) => {
       normalizePublicVideoBanner(banner, data.version)
     );
 
-    if (req.query?.force === "true" || data?.degraded === true) {
+    if (revalidate || data?.degraded === true) {
       res.setHeader?.("Cache-Control", "no-store, no-cache, must-revalidate");
     } else {
       res.setHeader?.("Cache-Control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300");
@@ -70,12 +76,14 @@ export const getPublicBanners = async (req, res) => {
 
     res.json({
       success: true,
+      degraded: data?.degraded === true,
       count: publicHeroBanners.length,
       banners: publicHeroBanners,
       thin_banner: publicThin,
     });
   } catch (error) {
     logError(req, error, "Get public banners error");
+    res.setHeader?.("Cache-Control", "no-store, no-cache, must-revalidate");
     res.status(500).json({
       success: false,
       message: "Failed to load homepage banners.",

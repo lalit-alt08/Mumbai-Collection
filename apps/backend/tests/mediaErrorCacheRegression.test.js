@@ -36,6 +36,16 @@ test("media errors are non-cacheable and do not retain upstream media headers", 
     assert.equal(validation.statusCode, 403);
     assert.match(validation.getHeader("Cache-Control"), /no-store/);
 
+    axios.defaults.adapter = async () => {
+      throw Object.assign(new Error("Upstream refused media request"), {
+        code: "ERR_BAD_REQUEST",
+        response: { status: 429, data: Readable.from(["throttled"]) },
+      });
+    };
+    const throttled = await request("/uploads/test.png", { v: "1" });
+    assert.equal(throttled.statusCode, 502);
+    assert.match(throttled.getHeader("Cache-Control"), /no-store/);
+
     axios.defaults.adapter = async () => ({
       status: 200,
       headers: {

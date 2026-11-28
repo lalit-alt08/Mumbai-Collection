@@ -66,11 +66,12 @@
           var controller = typeof AbortController === "function" ? new AbortController() : null;
           var timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
           var clearDeadline = function () { if (timer) { clearTimeout(timer); timer = null; } };
+          var configuredWpHost = "__MUMBAI_WP_HOST__";
           var normalizeHref = function (raw) {
             if (!raw || typeof raw !== "string") return "";
             var s = raw.trim();
             if (!s) return "";
-            if (s.indexOf("data:") === 0 || s.indexOf("blob:") === 0 || s === "/product-placeholder.svg") return s;
+            if (s.indexOf("data:") === 0 || s.indexOf("blob:") === 0 || s.indexOf("/product-placeholder.svg") === 0) return s;
             if (s.indexOf("wp-content/uploads/") === 0) {
               return "/api/media/uploads/" + s.slice("wp-content/uploads/".length);
             }
@@ -86,7 +87,7 @@
                     uHost === "mumbai-collection.local" ||
                     uHost === "mumbaicollection.local" ||
                     uHost === "localhost" ||
-                    uHost === "127.0.0.1";
+                    uHost === "127.0.0.1" || uHost === configuredWpHost;
                 } catch (_) {}
               }
               if (isRelWp || isApprovedHost) {

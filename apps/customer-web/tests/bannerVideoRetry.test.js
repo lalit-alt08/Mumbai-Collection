@@ -136,7 +136,7 @@ test("Banner Video Retry Manager Suite", async (t) => {
       new URL("../src/components/home/MobileThinBanner.jsx", import.meta.url),
       "utf8"
     );
-    assert.match(thinBannerSrc, /isDeferredVideoReady/, "MobileThinBanner must defer MP4 attachment until post-load/interaction");
+    assert.match(thinBannerSrc, /isDeferredVideoReady/, "MobileThinBanner must defer MP4 attachment until after page load");
     assert.match(thinBannerSrc, /prefers-reduced-motion:\s*reduce/, "MobileThinBanner must respect reduced-motion");
 
     const indexHtmlSrc = readFileSync(new URL("../index.html", import.meta.url), "utf8");
@@ -152,5 +152,46 @@ test("Banner Video Retry Manager Suite", async (t) => {
       indexHtmlSrc.indexOf("__MUMBAI_EARLY_BANNERS__") < indexHtmlSrc.indexOf("fonts.googleapis.com/css2"),
       "early banner bootstrap must run before the render-blocking Google Fonts stylesheet"
     );
+  });
+
+  await t.test("8. Banner outages keep healthy content with a short cache lifetime", async (st) => {
+    const { getBanners, _setCatalogClientForTesting } = await import("../src/services/productService.js?outage");
+    let now = Date.now();
+    st.mock.method(Date, "now", () => now);
+    const old = { success: true, banners: [{ id: "old" }], thin_banner: { id: "thin" } };
+    const fresh = { success: true, banners: [{ id: "new" }], thin_banner: null };
+    const responses = [old, { success: true, degraded: true, banners: [], thin_banner: null }, fresh];
+    let calls = 0;
+    _setCatalogClientForTesting({ get: async () => ({ data: responses[calls++] }) });
+
+    assert.deepEqual(await getBanners(), old);
+    assert.deepEqual(await getBanners({ force: true }), { ...old, degraded: true });
+    assert.equal((await getBanners()).degraded, true);
+    assert.equal(calls, 2);
+    now += 5_000;
+    assert.deepEqual(await getBanners(), fresh);
+    assert.equal(calls, 3);
+  });
+
+  await t.test("9. A refresh waits for an ordinary banner read and coalesces with other refreshes", async () => {
+    const { getBanners, _setCatalogClientForTesting } = await import("../src/services/productService.js?refresh");
+    const calls = [];
+    let finishRead;
+    const body = { success: true, banners: [], thin_banner: null };
+    _setCatalogClientForTesting({
+      get: (_path, options) => {
+        calls.push(options?.params?.force);
+        if (!options?.params?.force) return new Promise((resolve) => { finishRead = resolve; });
+        return Promise.resolve({ data: body });
+      },
+    });
+
+    const ordinary = getBanners();
+    const refresh = getBanners({ force: true });
+    const secondRefresh = getBanners({ force: true });
+    await Promise.resolve();
+    finishRead({ data: body });
+    await Promise.all([ordinary, refresh, secondRefresh]);
+    assert.deepEqual(calls, [undefined, "true"]);
   });
 });

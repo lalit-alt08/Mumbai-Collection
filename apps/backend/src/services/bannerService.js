@@ -27,7 +27,7 @@ export const DEFAULT_THIN_BANNER = {
 let bannersCache = null;
 const CACHE_TTL_MS = 30 * 1000; // 30 seconds TTL
 
-// Minimum interval between upstream WordPress reads (even on forceFresh) to prevent load spikes
+// Minimum interval between public WordPress reads, including storefront revalidation.
 const MIN_UPSTREAM_INTERVAL_MS = 5 * 1000; // 5 seconds upstream cooldown
 let lastUpstreamFetchTimestamp = 0;
 
@@ -120,11 +120,12 @@ const getOutageFallback = () => {
 /**
  * Fetch Homepage Banners & Thin Banner from WordPress
  */
-export const getBanners = async (forceFresh = false) => {
+export const getBanners = async (forceFresh = false, { revalidate = false } = {}) => {
   const now = Date.now();
 
   // 1. If cache is valid and fresh, serve directly for non-forced requests
-  if (!forceFresh && bannersCache && now - bannersCache.timestamp < CACHE_TTL_MS) {
+  const maxCacheAge = revalidate ? MIN_UPSTREAM_INTERVAL_MS : CACHE_TTL_MS;
+  if (!forceFresh && bannersCache && now - bannersCache.timestamp < maxCacheAge) {
     return bannersCache.data;
   }
 

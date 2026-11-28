@@ -2,8 +2,27 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+function homepageBannerPreload() {
+  let wordpressHost = "";
+  return {
+    name: "homepage-banner-preload",
+    configResolved(config) {
+      const url = config.env.VITE_WORDPRESS_URL;
+      if (!url) return;
+      try {
+        wordpressHost = new URL(url).hostname.toLowerCase();
+      } catch {
+        // The storefront resolver ignores an invalid optional WordPress URL too.
+      }
+    },
+    transformIndexHtml(html) {
+      return html.replace('"__MUMBAI_WP_HOST__"', JSON.stringify(wordpressHost));
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), homepageBannerPreload()],
 
   optimizeDeps: {
     include: [
